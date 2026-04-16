@@ -19,6 +19,11 @@ spring:
       host: localhost
       port: 6379
 
+observability:
+  enabled: true
+  otlp-transport: http
+  otlp-endpoint: http://localhost:4318/v1/traces
+
 management:
   endpoints:
     web:
@@ -27,11 +32,15 @@ management:
   metrics:
     export:
       prometheus:
-        enabled: true
+        enabled: ${observability.enabled:true}
   tracing:
-    enabled: true
+    enabled: ${observability.enabled:true}
     sampling:
       probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${observability.otlp-endpoint}
+      transport: ${observability.otlp-transport:http}
 
 ---
 spring:
@@ -43,7 +52,6 @@ spring:
   data:
     redis:
       host: redis
-  management:
-    otlp:
-      tracing:
-        endpoint: http://tempo:4318/v1/traces
+
+observability:
+  otlp-endpoint: http://tempo:4318/v1/traces
