@@ -6,6 +6,7 @@
 - 目标：系统启动后持续产生“正常业务流量”，并可注入 `网络故障 + JVM 内存泄漏 + 慢 SQL + 数据库死锁` 进行演练。
 - 技术基线：`Spring Boot 3 + JDK 21 + Maven`，`MySQL 8 + Redis`，`Prometheus + Grafana + Loki + Tempo`，双轨部署 `Docker Compose + Kubernetes`。
 - 关键约束：`runner` 通过“配置更新接口”实现 `DB 更新 + 内存规则同步生效`。
+- 安全约束：所有 Chaos `enable` 接口必须支持 `scope + injectRate + durationSec`，并在到期后自动关闭注入。
 
 ## 服务与接口
 ### gateway-service
@@ -66,7 +67,8 @@
 | `POST /internal/inventory/reserve` | 内部 | 预占库存，成功后返回库存锁定标识。 |
 | `POST /internal/inventory/release` | 内部 | 支付失败或超时时释放已预占库存。 |
 | `GET /internal/inventory/{sku}` | 内部 | 查询 SKU 当前可用库存。 |
-| `POST /internal/inventory/reset` | 内部 | 重置库存到基线值（按全量或指定 SKU），用于日常演练前回盘。 |
+| `POST /internal/inventory/reset/plan` | 内部 | 生成库存重置预览（影响 SKU、当前库存、目标库存、差值），不执行写入。 |
+| `POST /internal/inventory/reset` | 内部 | 按基线重置库存（全量或指定 SKU）；要求 `expectedVersion` 且拿到分布式锁后执行。 |
 | `POST /internal/chaos/slow-sql/enable` | Chaos | 开启库存慢 SQL 场景。 |
 | `POST /internal/chaos/slow-sql/disable` | Chaos | 关闭库存慢 SQL 场景。 |
 
@@ -85,7 +87,7 @@
 | `GET /internal/chaos/memory-leak/status` | Chaos | 查看泄漏状态与当前持有对象规模。 |
 | `POST /internal/chaos/slow-sql/enable` | Chaos | 开启订单慢 SQL 场景。 |
 | `POST /internal/chaos/slow-sql/disable` | Chaos | 关闭订单慢 SQL 场景。 |
-| `POST /internal/chaos/deadlock/enable` | Chaos | 开启订单死锁场景（构造相反锁顺序事务竞争）。 |
+| `POST /internal/chaos/deadlock/enable` | Chaos | 开启订单死锁场景（构造相反锁顺序事务竞争，支持 `scope/injectRate/durationSec`）。 |
 | `POST /internal/chaos/deadlock/disable` | Chaos | 关闭订单死锁场景，不再注入死锁竞争流。 |
 | `POST /internal/chaos/deadlock/clear` | Chaos | 清理死锁注入任务并主动回滚阻塞事务。 |
 | `GET /internal/chaos/deadlock/status` | Chaos | 查看死锁注入状态、死锁次数与最近错误。 |
@@ -103,7 +105,7 @@
 | `GET /internal/chaos/memory-leak/status` | Chaos | 查询支付服务泄漏场景状态。 |
 | `POST /internal/chaos/slow-sql/enable` | Chaos | 开启支付慢 SQL 场景。 |
 | `POST /internal/chaos/slow-sql/disable` | Chaos | 关闭支付慢 SQL 场景。 |
-| `POST /internal/chaos/deadlock/enable` | Chaos | 开启支付死锁场景（支付与订单更新并发互锁）。 |
+| `POST /internal/chaos/deadlock/enable` | Chaos | 开启支付死锁场景（支付与订单更新并发互锁，支持 `scope/injectRate/durationSec`）。 |
 | `POST /internal/chaos/deadlock/disable` | Chaos | 关闭支付死锁场景。 |
 | `POST /internal/chaos/deadlock/clear` | Chaos | 清理支付死锁注入并释放阻塞事务。 |
 | `GET /internal/chaos/deadlock/status` | Chaos | 查询支付死锁场景状态与死锁统计。 |
@@ -138,7 +140,7 @@
 | `POST /internal/runner/resume` | 控制 | 恢复自动流量生成。 |
 | `POST /internal/runner/rate` | 控制 | 动态调整流量倍率（无需重启）。 |
 | `POST /internal/runner/inventory-reset/trigger` | 控制 | 立即触发一次库存重置任务（调用 `inventory-service` reset 接口）。 |
-| `PUT /internal/runner/inventory-reset/schedule` | 控制 | 更新库存重置定时策略并立即刷新内存调度器。 |
+| `PUT /internal/runner/inventory-reset/schedule` | 控制 | 更新库存重置定时策略（含 `timezone` 与允许执行窗口）并立即刷新内存调度器。 |
 | `GET /internal/runner/inventory-reset/schedule` | 控制 | 查询当前库存重置定时策略与下次执行时间。 |
 | `PUT /internal/runner/config` | 控制 | 更新规则配置并同步更新内存规则（无轮询热更新）。 |
 | `GET /internal/runner/config` | 控制 | 查看当前 DB 配置版本与内存生效版本。 |
@@ -150,7 +152,8 @@
 - 死锁链路：`order|payment 开启 deadlock -> 并发事务互锁 -> MySQL 抛 Deadlock 错误 -> 触发重试/失败补偿`。
 - 内存泄漏链路：`调用 memory-leak/start -> 堆持续增长与 GC 抖动 -> 延迟上升 -> clear 后回落`。
 - 配置更新链路：`运维调用 PUT /internal/runner/config(version) -> MySQL 事务更新成功 -> 内存规则原子替换 -> 下一调度周期生效`。
-- 库存重置链路：`runner 定时任务触发 -> 调用 inventory/reset -> 库存恢复基线 -> 继续自动流量回放`。
+- 库存重置链路：`runner 定时任务触发 -> inventory/reset/plan -> inventory/reset(expectedVersion) -> 库存恢复基线 -> 继续自动流量回放`。
+- 死锁恢复链路：`发生 deadlock -> 应用按幂等键重试(指数退避) -> 达到上限后失败补偿并记录 deadlock 事件`。
 - 进阶下单链路：`order -> promotion(算优惠) -> risk(前置风控) -> inventory(预占) -> payment(扣款) -> risk(支付后复核) -> fulfillment(发货) -> notification(通知)`。
 - 进阶失败补偿：`risk 拒绝` 直接关单；`payment 失败` 触发 `inventory/release`；`fulfillment 失败` 标记待人工处理并发送告警通知。
 
@@ -188,13 +191,20 @@ flowchart LR
 ## 数据与配置模型
 - MySQL 核心表：
   - `runner_profile`：`enabled`, `base_qps`, `peak_multiplier`, `cycle_minutes`, `jitter_pct`, `version`。
-  - `runner_inventory_reset_policy`：`enabled`, `cron_expr`, `reset_scope`, `baseline_version`, `version`。
+  - `runner_inventory_reset_policy`：`enabled`, `cron_expr`, `timezone`, `allowed_window`, `reset_scope`, `baseline_version`, `version`。
+  - `inventory_baseline_snapshot`：`sku`, `baseline_qty`, `baseline_version`, `updated_at`。
   - `runner_mix_rule`：`action_type`, `ratio`, `version`。
   - `runner_time_window`：`start_time`, `end_time`, `multiplier`, `version`。
+  - `chaos_policy`：`service`, `scenario`, `scope`, `inject_rate`, `duration_sec`, `auto_disable_at`, `version`。
+  - `chaos_event_log`：`service`, `scenario`, `trace_id`, `started_at`, `ended_at`, `result`, `error`。
 - 规则更新机制：
   - `PUT /internal/runner/config` 必须带 `version`（乐观锁）。
   - 成功返回 `newVersion`、`appliedAt`、`activeRuleDigest`。
   - 更新失败不影响当前内存规则运行。
+- 重置执行约束：
+  - `inventory/reset` 必须带 `expectedVersion`，版本不一致则拒绝执行。
+  - 执行期间持有分布式锁，避免与下单高并发写冲突。
+  - 默认仅在 `runner_inventory_reset_policy.allowed_window` 时间窗内执行。
 
 ## Chaos 实施与验收
 - 注入工具：
@@ -206,7 +216,8 @@ flowchart LR
   3. `order` 内存泄漏 10-15 分钟，验证堆与 GC 告警，`clear` 后恢复。
   4. `payment` 慢 SQL（real + sleep），验证慢日志、P95、错误率上升。
   5. `order/payment` 死锁注入，验证死锁错误可观测、重试上限与回滚补偿生效。
-  6. 组合故障（网络 + 慢 SQL + 死锁），验证系统恢复时间与业务可用性。
+  6. 库存定时重置演练，验证 `plan -> reset` 执行链路与版本检查生效，不破坏进行中订单一致性。
+  7. 组合故障（网络 + 慢 SQL + 死锁），验证系统恢复时间与业务可用性。
 - 验收标准：
   - 故障期间系统可观测，恢复后 5 分钟内回到可下单状态。
   - Runner 可不停机动态调速、暂停恢复、配置更新即生效。
