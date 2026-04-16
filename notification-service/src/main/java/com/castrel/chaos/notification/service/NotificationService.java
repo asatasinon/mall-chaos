@@ -1,5 +1,6 @@
 package com.castrel.chaos.notification.service;
 
+import com.castrel.chaos.common.chaos.SlowSqlChaosService;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.notification.dto.OrderCreatedRequest;
 import com.castrel.chaos.notification.dto.PaymentResultRequest;
@@ -26,6 +27,9 @@ public class NotificationService {
 
     @Value("${notification.fail-rate:0.02}")
     private double failRate;
+
+    @Autowired
+    private SlowSqlChaosService slowSqlChaosService;
 
     @Autowired
     private NotificationLogRepository notificationLogRepository;
@@ -80,6 +84,7 @@ public class NotificationService {
 
     private void send(Long userId, String orderNo, String eventType,
                       String message, Map<String, Object> payload) {
+        slowSqlChaosService.injectIfNeeded();
         boolean failed = Math.random() < failRate;
         String status = failed ? "FAILED" : "SENT";
 

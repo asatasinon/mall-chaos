@@ -48,7 +48,7 @@ spring:
     gateway:
       routes:
         - id: orders
-          uri: http://order-service:8084
+          uri: http://toxiproxy:18084
           predicates:
             - Path=/api/orders/**
         - id: products

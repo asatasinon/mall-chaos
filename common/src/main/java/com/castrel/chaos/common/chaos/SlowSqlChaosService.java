@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 public class SlowSqlChaosService {
 
     private final JdbcTemplate jdbcTemplate;
+    private final String serviceName;
     private final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "slow-sql-auto-disable");
@@ -28,8 +29,9 @@ public class SlowSqlChaosService {
     private volatile double injectRate = 1.0;
     private volatile Instant autoDisableAt;
 
-    public SlowSqlChaosService(JdbcTemplate jdbcTemplate) {
+    public SlowSqlChaosService(JdbcTemplate jdbcTemplate, String serviceName) {
         this.jdbcTemplate = jdbcTemplate;
+        this.serviceName = serviceName != null ? serviceName : "unknown";
     }
 
     public void enable(String mode, long delayMs, double injectRate, int durationSec) {
@@ -43,11 +45,22 @@ public class SlowSqlChaosService {
         } else {
             this.autoDisableAt = null;
         }
+        logEvent("INJECT");
     }
 
     public void disable() {
         this.enabled = false;
         this.autoDisableAt = null;
+        logEvent("RESTORE");
+    }
+
+    private void logEvent(String action) {
+        if (jdbcTemplate == null) return;
+        try {
+            jdbcTemplate.update(
+                "INSERT INTO chaos_event_log (chaos_type, target_service, action) VALUES (?, ?, ?)",
+                "SLOW_SQL", serviceName, action);
+        } catch (Exception ignored) {}
     }
 
     /** Call at the beginning of a service layer method to inject latency. */

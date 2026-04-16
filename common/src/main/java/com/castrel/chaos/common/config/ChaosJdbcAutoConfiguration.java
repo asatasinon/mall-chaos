@@ -1,6 +1,7 @@
 package com.castrel.chaos.common.config;
 
 import com.castrel.chaos.common.chaos.SlowSqlChaosService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -20,7 +21,8 @@ public class ChaosJdbcAutoConfiguration {
     @ConditionalOnMissingBean
     public SlowSqlChaosService slowSqlChaosService(
             @org.springframework.beans.factory.annotation.Autowired(required = false)
-            JdbcTemplate jdbcTemplate) {
-        return new SlowSqlChaosService(jdbcTemplate);
+            JdbcTemplate jdbcTemplate,
+            @Value("${spring.application.name:unknown}") String applicationName) {
+        return new SlowSqlChaosService(jdbcTemplate, applicationName);
     }
 }

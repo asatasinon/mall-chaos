@@ -179,10 +179,7 @@ services:
     environment:
       <<: *service-env
     depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - toxiproxy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
       <<: *healthcheck-defaults
@@ -246,7 +243,7 @@ services:
       - "8084:8084"
     environment:
       <<: *service-env
-      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-order.hprof"
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-order.hprof"
     depends_on:
       mysql:
         condition: service_healthy
@@ -264,7 +261,7 @@ services:
       - "8085:8085"
     environment:
       <<: *service-env
-      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-payment.hprof"
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-payment.hprof"
     depends_on:
       mysql:
         condition: service_healthy
