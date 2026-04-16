@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-config
+  namespace: castrel
+data:
+  my.cnf: |
+    [mysqld]
+    slow_query_log = 1
+    slow_query_log_file = /var/lib/mysql/slow.log
+    long_query_time = 1
+    log_output = FILE
+    innodb_lock_wait_timeout = 10
+    max_connections = 200
+    character-set-server = utf8mb4
+    collation-server = utf8mb4_unicode_ci

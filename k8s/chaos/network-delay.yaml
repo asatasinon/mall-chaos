@@ -1,0 +1,30 @@
+# Network delay chaos: order-service → payment-service
+# Injects 3s latency (±500ms) on egress from order pods to payment pods.
+# Usage: kubectl apply -f k8s/chaos/network-delay.yaml
+# Remove: kubectl delete -f k8s/chaos/network-delay.yaml
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: order-to-payment-delay
+  namespace: castrel
+spec:
+  action: delay
+  mode: one
+  selector:
+    namespaces:
+      - castrel
+    labelSelectors:
+      app: order-service
+  delay:
+    latency: "3s"
+    jitter: "500ms"
+    correlation: "25"
+  direction: egress
+  target:
+    selector:
+      namespaces:
+        - castrel
+      labelSelectors:
+        app: payment-service
+    mode: all
+  duration: "2m"

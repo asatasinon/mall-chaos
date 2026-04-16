@@ -1,0 +1,52 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: gateway-service
+  cloud:
+    gateway:
+      routes:
+        - id: orders
+          uri: http://localhost:8084
+          predicates:
+            - Path=/api/orders/**
+        - id: products
+          uri: http://localhost:8082
+          predicates:
+            - Path=/api/products/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  tracing:
+    enabled: true
+    sampling:
+      probability: 1.0
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  cloud:
+    gateway:
+      routes:
+        - id: orders
+          uri: http://order-service:8084
+          predicates:
+            - Path=/api/orders/**
+        - id: products
+          uri: http://catalog-service:8082
+          predicates:
+            - Path=/api/products/**
+  management:
+    otlp:
+      tracing:
+        endpoint: http://tempo:4318/v1/traces

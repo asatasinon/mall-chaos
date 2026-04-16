@@ -1,0 +1,532 @@
+# Castrel Chaos
+
+一个专为**混沌工程训练**构建的电商微服务平台。系统自动产生真实业务流量，支持注入网络故障、JVM 内存泄漏、慢 SQL 和数据库死锁，全程可观测。
+
+---
+
+## 目录
+
+- [项目概述](#项目概述)
+- [架构总览](#架构总览)
+- [技术栈](#技术栈)
+- [目录结构](#目录结构)
+- [快速开始（Docker Compose）](#快速开始docker-compose)
+- [构建](#构建)
+- [Kubernetes 部署](#kubernetes-部署)
+- [配置说明](#配置说明)
+- [Chaos 注入](#chaos-注入)
+- [可观测性](#可观测性)
+- [验收场景](#验收场景)
+
+---
+
+## 项目概述
+
+Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、库存、促销、风控、履约、通知等完整链路。系统内置**自动流量生成器**（traffic-runner），启动即持续产生业务流量；配合 Chaos 注入接口，可随时触发网络延迟、内存泄漏、慢 SQL、死锁等故障场景，用于混沌工程培训与系统韧性验证。
+
+**核心特性：**
+
+- 11 个 Spring Boot 微服务构成完整电商链路
+- traffic-runner 自动产生真实业务流量，支持热更新 QPS
+- 4 类 Chaos 注入：网络故障 / JVM 内存泄漏 / 慢 SQL / 数据库死锁
+- 所有 Chaos 均支持 `injectRate + durationSec` 自动关闭
+- Prometheus + Grafana + Loki + Tempo 全链路可观测
+- 双轨部署：Docker Compose（本地）/ Kubernetes（生产演练）
+
+---
+
+## 架构总览
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   外部 / Runner                     │
+└──────────────────────┬──────────────────────────────┘
+                       │
+              ┌────────▼────────┐
+              │  gateway-service │  :8080  路由、traceId 注入
+              └────────┬────────┘
+          ┌────────────┼──────────────────┐
+          │            │                  │
+   ┌──────▼──────┐  ┌──▼──────────┐  ┌───▼───────────┐
+   │ user-service│  │catalog-svc  │  │ order-service  │  :8084
+   │    :8081    │  │   :8082     │  │ 状态机 / 幂等  │
+   └─────────────┘  └─────────────┘  └───┬───────────┘
+                                          │ 编排调用
+              ┌───────────────────────────┼───────────────────┐
+              │                           │                   │
+   ┌──────────▼──┐            ┌───────────▼──┐   ┌──────────▼──┐
+   │inventory-svc│            │ payment-svc  │   │  risk-svc   │
+   │    :8083    │            │    :8085     │   │    :8088    │
+   │ 预占/释放   │            │  支付模拟    │   │  前置风控   │
+   └─────────────┘            └──────────────┘   └─────────────┘
+                                      │
+              ┌───────────────────────┼───────────────────┐
+              │                       │                   │
+   ┌──────────▼──┐       ┌────────────▼──┐   ┌──────────▼──┐
+   │fulfillment  │       │ promotion-svc  │   │notification │
+   │    :8089    │       │    :8087       │   │    :8090    │
+   └─────────────┘       └───────────────┘   └─────────────┘
+
+   ┌──────────────────────────────────────────────────┐
+   │  traffic-runner-service :8086  自动流量 + 热更新 │
+   └──────────────────────────────────────────────────┘
+```
+
+| 服务 | 端口 | 职责 |
+|---|---|---|
+| gateway-service | 8080 | 统一入口、路由转发、traceId 注入 |
+| user-service | 8081 | 用户资料、收货地址 |
+| catalog-service | 8082 | 商品查询、SKU 价格 |
+| inventory-service | 8083 | 库存预占/释放/重置 |
+| order-service | 8084 | 下单编排、状态机、3 类 Chaos |
+| payment-service | 8085 | 支付模拟、3 类 Chaos |
+| traffic-runner-service | 8086 | 自动流量生成、配置热更新 |
+| promotion-service | 8087 | 优惠券计算、慢 SQL Chaos |
+| risk-service | 8088 | 前置风控、支付后复核 |
+| fulfillment-service | 8089 | 履约单、发货状态流转 |
+| notification-service | 8090 | 事件驱动通知、结构化日志 |
+
+---
+
+## 技术栈
+
+| 类别 | 选型 |
+|---|---|
+| 语言 / 框架 | Java 21 · Spring Boot 3.3.x · Maven 3.8+ |
+| 数据存储 | MySQL 8.0（慢查询日志开启）· Redis 7.2（LRU 策略） |
+| 可观测 | Prometheus · Grafana · Loki · Tempo (OTLP) |
+| 网络故障 | ToxiProxy · Pumba |
+| K8s 混沌 | Chaos Mesh |
+| 容器化 | Docker Compose（本地）· Kubernetes（生产） |
+
+---
+
+## 目录结构
+
+```
+castrel-chaos/
+├── common/                     # 公共模块（ApiResponse, BizException, TraceContext）
+├── gateway-service/
+├── user-service/
+├── catalog-service/
+├── inventory-service/
+├── order-service/
+├── payment-service/
+├── traffic-runner-service/
+├── promotion-service/
+├── risk-service/
+├── fulfillment-service/
+├── notification-service/
+├── infra/
+│   ├── mysql/
+│   │   ├── my.cnf              # 慢查询日志配置
+│   │   └── init/00-schema.sql  # 数据库初始化脚本
+│   ├── redis/redis.conf
+│   ├── prometheus/prometheus.yml
+│   ├── grafana/
+│   │   ├── provisioning/       # 数据源自动配置
+│   │   └── dashboards/         # 预置 Dashboard JSON
+│   ├── loki/loki-config.yml
+│   ├── tempo/tempo-config.yml
+│   └── toxiproxy/toxiproxy.json
+├── k8s/
+│   ├── namespace.yaml
+│   ├── configmap/
+│   ├── secrets/
+│   ├── infra/                  # MySQL / Redis / 观测栈
+│   ├── services/               # 11 个业务服务
+│   ├── ingress/
+│   ├── chaos/                  # Chaos Mesh 实验 YAML
+│   └── kustomization.yaml
+├── scripts/
+│   ├── build-all.sh            # Maven 构建 + Docker 镜像打包
+│   ├── k8s-deploy.sh           # K8s 一键部署
+│   ├── k8s-teardown.sh         # K8s 清理
+│   └── chaos/
+│       ├── chaos-verify.sh     # 7 场景交互式验收助手
+│       ├── network-delay.sh    # ToxiProxy 注入延迟
+│       ├── network-remove-toxic.sh
+│       ├── network-reset-all.sh
+│       ├── pumba-delay.sh
+│       └── toxiproxy-status.sh
+├── docker-compose.yml
+└── pom.xml
+```
+
+---
+
+## 快速开始（Docker Compose）
+
+### 前置条件
+
+- Docker 24+ 与 Docker Compose v2
+- （可选）JDK 21 + Maven 3.8+（仅需本地构建时）
+
+### 1. 启动基础服务（无需本地构建）
+
+```bash
+# 克隆项目
+git clone https://github.com/your-org/castrel-chaos.git
+cd castrel-chaos
+
+# 启动基础设施 + 全部业务服务
+docker-compose up -d
+
+# 查看各服务状态
+docker-compose ps
+```
+
+### 2. 验证启动成功
+
+```bash
+# 网关健康检查
+curl http://localhost:8080/actuator/health
+
+# 查询商品列表
+curl http://localhost:8080/api/products
+
+# 查看 Runner 状态（应为 running=true）
+curl http://localhost:8080/internal/runner/status
+```
+
+服务启动后，traffic-runner 会自动以默认 QPS 向系统发送业务流量。
+
+### 3. 启动可观测性栈（可选）
+
+```bash
+# Grafana / Prometheus / Loki / Tempo
+docker-compose --profile observability up -d
+
+# 访问 Grafana
+open http://localhost:3000   # admin / admin
+```
+
+### 4. 停止服务
+
+```bash
+docker-compose down          # 保留数据卷
+docker-compose down -v       # 同时删除数据卷（清空数据库）
+```
+
+---
+
+## 构建
+
+### 全量构建（推荐）
+
+```bash
+# 构建所有 Maven 模块 + Docker 镜像
+./scripts/build-all.sh
+
+# 构建并推送到镜像仓库
+./scripts/build-all.sh --push --tag v1.0.0
+```
+
+### 单服务构建
+
+```bash
+# 仅构建 Maven JAR
+mvn clean package -pl order-service -DskipTests
+
+# 构建 Docker 镜像
+docker build -t castrel/order-service:latest ./order-service
+```
+
+### common 模块
+
+所有业务服务依赖 `common` 模块，首次构建必须先安装：
+
+```bash
+mvn clean install -pl common -DskipTests
+```
+
+---
+
+## Kubernetes 部署
+
+### 前置条件
+
+- Kubernetes 1.25+（本地可用 minikube / kind / k3s）
+- `kubectl` 已配置目标集群
+- 镜像已构建并推送（或本地 cluster 可访问）
+
+### 1. 安装 Chaos Mesh（可选，用于 K8s 网络混沌）
+
+```bash
+helm repo add chaos-mesh https://charts.chaos-mesh.org
+helm install chaos-mesh chaos-mesh/chaos-mesh \
+  --namespace=chaos-mesh --create-namespace \
+  --set chaosDaemon.runtime=containerd \
+  --set chaosDaemon.socketPath=/run/containerd/containerd.sock
+```
+
+### 2. 构建并打标镜像
+
+```bash
+./scripts/build-all.sh --tag v1.0.0
+
+# 如使用 minikube，加载镜像到本地 cluster
+for svc in gateway user catalog inventory order payment traffic-runner promotion risk fulfillment notification; do
+  minikube image load castrel/${svc}-service:v1.0.0
+done
+```
+
+### 3. 部署
+
+```bash
+# 预览（dry-run）
+./scripts/k8s-deploy.sh --dry-run
+
+# 正式部署
+./scripts/k8s-deploy.sh
+```
+
+### 4. 验证
+
+```bash
+# 查看 Pod 状态（全部应为 Running）
+kubectl get pods -n castrel
+
+# 访问 Grafana
+kubectl port-forward -n castrel svc/grafana 3000:3000
+
+# 访问 Chaos Mesh Dashboard
+kubectl port-forward -n chaos-mesh svc/chaos-dashboard 2333:2333
+```
+
+### 5. 配置 hosts（Ingress 访问）
+
+```bash
+echo "127.0.0.1 castrel.local" | sudo tee -a /etc/hosts
+
+# 测试
+curl http://castrel.local/api/products
+```
+
+### 6. 清理
+
+```bash
+./scripts/k8s-teardown.sh              # 保留 MySQL PVC
+./scripts/k8s-teardown.sh --delete-pvc # 同时删除数据卷
+```
+
+---
+
+## 配置说明
+
+### Spring Profiles
+
+| Profile | 用途 |
+|---|---|
+| `local` | 本地开发，连接 localhost |
+| `docker` | Docker Compose / K8s 容器网络 |
+| `chaos` | **必须加载此 profile，Chaos 注入接口才会注册** |
+
+生产部署默认激活 `docker,chaos`（见 ConfigMap `app-config`）。
+
+### 关键环境变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `SPRING_PROFILES_ACTIVE` | `docker,chaos` | Spring Profile |
+| `SPRING_DATASOURCE_URL` | `jdbc:mysql://mysql:3306/castrel` | MySQL 连接串 |
+| `SPRING_DATA_REDIS_HOST` | `redis` | Redis 主机 |
+| `MANAGEMENT_OTLP_TRACING_ENDPOINT` | `http://tempo:4318/v1/traces` | Tempo OTLP 地址 |
+| `JAVA_OPTS` | `-Xms256m -Xmx512m` | JVM 参数 |
+
+### 数据库
+
+MySQL 初始化脚本位于 `infra/mysql/init/00-schema.sql`，Docker Compose 首次启动自动执行。
+
+慢查询日志配置见 `infra/mysql/my.cnf`（阈值 1s，写入 `/var/lib/mysql/slow.log`）。
+
+### Redis
+
+配置文件 `infra/redis/redis.conf`，开启 LRU 淘汰（`maxmemory-policy allkeys-lru`）。
+
+### traffic-runner 配置热更新
+
+```bash
+# 查看当前配置
+curl http://localhost:8086/internal/runner/config
+
+# 更新 QPS（必须带 version 字段，乐观锁保护）
+curl -X PUT http://localhost:8086/internal/runner/config \
+  -H 'Content-Type: application/json' \
+  -d '{"qps": 20, "version": 1}'
+
+# 动态调速（无需 version）
+curl -X POST http://localhost:8086/internal/runner/rate \
+  -H 'Content-Type: application/json' \
+  -d '{"qps": 50}'
+```
+
+---
+
+## Chaos 注入
+
+> **安全约束**：Chaos 接口仅在 `chaos` Spring Profile 下注册。生产环境禁用此 profile 即可关闭所有 Chaos 端点。
+
+### 慢 SQL
+
+适用服务：catalog / inventory / order / payment / promotion / risk / fulfillment
+
+```bash
+# 开启 sleep 模式（100% 注入，持续 3 分钟后自动关闭）
+curl -X POST http://localhost:8085/internal/chaos/slow-sql/enable \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"sleep","delayMs":3000,"injectRate":1.0,"durationSec":180}'
+
+# 开启 real 模式（SELECT SLEEP(N) 真实慢查询，50% 注入）
+curl -X POST http://localhost:8085/internal/chaos/slow-sql/enable \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"real","delayMs":2000,"injectRate":0.5,"durationSec":180}'
+
+# 手动关闭
+curl -X POST http://localhost:8085/internal/chaos/slow-sql/disable
+```
+
+### JVM 内存泄漏
+
+适用服务：order / payment
+
+```bash
+# 开始泄漏（每 300ms 分配 1MB，上限 350MB）
+curl -X POST http://localhost:8084/internal/chaos/memory-leak/start \
+  -H 'Content-Type: application/json' \
+  -d '{"chunkSizeKb":1024,"intervalMs":300,"maxMb":350}'
+
+# 停止分配（已持有内存不释放）
+curl -X POST http://localhost:8084/internal/chaos/memory-leak/stop
+
+# 释放所有持有内存
+curl -X POST http://localhost:8084/internal/chaos/memory-leak/clear
+```
+
+### 数据库死锁
+
+适用服务：order / payment
+
+```bash
+# 开启死锁注入（40% 概率，3 分钟后自动停止）
+curl -X POST http://localhost:8084/internal/chaos/deadlock/enable \
+  -H 'Content-Type: application/json' \
+  -d '{"injectRate":0.4,"durationSec":180}'
+
+# 手动关闭
+curl -X POST http://localhost:8084/internal/chaos/deadlock/disable
+```
+
+### 网络故障（ToxiProxy）
+
+```bash
+# 向 order→payment 注入 3s 延迟（自动 120s 后移除）
+./scripts/chaos/network-delay.sh order-to-payment 3000 1000 120
+
+# 查看当前所有 toxics
+./scripts/chaos/toxiproxy-status.sh
+
+# 移除指定 toxic
+./scripts/chaos/network-remove-toxic.sh order-to-payment chaos-delay
+
+# 清空所有 toxics
+./scripts/chaos/network-reset-all.sh
+```
+
+ToxiProxy 代理映射：
+
+| 代理名 | 路径 | 本地端口 |
+|---|---|---|
+| `order-to-payment` | order → payment-service | 18085 |
+| `order-to-inventory` | order → inventory-service | 18083 |
+| `gateway-to-order` | gateway → order-service | 18084 |
+
+### Chaos Mesh（Kubernetes）
+
+```bash
+# 注入 order→payment 3s 网络延迟
+kubectl apply -f k8s/chaos/network-delay.yaml
+
+# 随机 kill order-service pod（每 5 分钟一次）
+kubectl apply -f k8s/chaos/pod-kill.yaml
+
+# 内存压力（stress）
+kubectl apply -f k8s/chaos/stress-mem.yaml
+
+# 移除
+kubectl delete -f k8s/chaos/network-delay.yaml
+```
+
+### 库存重置
+
+```bash
+# 预览将要重置的差值（不写入）
+curl http://localhost:8083/internal/inventory/reset/plan
+
+# 执行重置（需要 expectedVersion）
+curl -X POST http://localhost:8083/internal/inventory/reset \
+  -H 'Content-Type: application/json' \
+  -d '{"expectedVersion": 1}'
+
+# 通过 traffic-runner 触发（带分布式锁保护）
+curl -X POST http://localhost:8086/internal/runner/inventory-reset/trigger
+```
+
+---
+
+## 可观测性
+
+| 服务 | 地址 | 说明 |
+|---|---|---|
+| Grafana | http://localhost:3000 | admin / admin |
+| Prometheus | http://localhost:9090 | 指标查询 |
+| Loki | http://localhost:3100 | 日志聚合 |
+| Tempo | http://localhost:3200 | 分布式追踪 |
+| ToxiProxy API | http://localhost:8474 | 网络故障管理 |
+
+启动可观测性栈：
+
+```bash
+docker-compose --profile observability up -d
+```
+
+**关键指标：**
+
+| 指标 | 说明 |
+|---|---|
+| `chaos.slow_sql.count` | 慢 SQL 注入次数 |
+| `chaos.memory_leak.holding_mb` | 当前持有泄漏内存（MB） |
+| `chaos.deadlock.count` | 死锁注入次数 |
+| `chaos.deadlock.retry.count` | 死锁重试次数 |
+| `payment.charge.timeout.count` | 支付超时次数 |
+| `order.create.success.count` | 下单成功次数 |
+| `jvm.memory.used` | JVM 堆内存使用 |
+
+所有日志为结构化 JSON 格式，包含 `traceId`，由 Promtail 采集发送到 Loki。
+
+---
+
+## 验收场景
+
+使用交互式验收助手运行 7 个必测场景：
+
+```bash
+# 交互菜单（本地 Docker Compose）
+./scripts/chaos/chaos-verify.sh
+
+# 指定场景（K8s 环境）
+GATEWAY_URL=http://castrel.local ./scripts/chaos/chaos-verify.sh --scenario 4
+
+# 全局验收清单
+./scripts/chaos/chaos-verify.sh --global
+```
+
+| # | 场景 | 目标 |
+|---|---|---|
+| 1 | 基线稳定性 | 无 Chaos，30 分钟成功率 > 95% |
+| 2 | order→payment 网络延迟 2-5s | 超时订单 FAILED，熔断触发，恢复后 > 90% |
+| 3 | order JVM 内存泄漏 10 分钟 | 堆告警触发，clear 后 Heap 回落 |
+| 4 | payment 慢 SQL（sleep + real） | 慢查询日志可见，durationSec 到期自动关闭 |
+| 5 | order + payment 死锁注入 | 退避重试成功，超限报错不卡死 |
+| 6 | 库存定时重置演练 | 版本冲突 409，并发锁保护，调度立即生效 |
+| 7 | 组合故障（网络+慢SQL+死锁） | 成功率 > 20%，5 分钟内恢复 > 90% |

@@ -1,0 +1,30 @@
+<included>
+  <!-- Human-readable logs for local development -->
+  <springProfile name="local">
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder>
+        <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-}] %logger{36} - %msg%n</pattern>
+      </encoder>
+    </appender>
+  </springProfile>
+
+  <!-- Structured JSON logs for Docker / Loki ingestion -->
+  <springProfile name="docker,chaos">
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+        <includeContext>false</includeContext>
+        <fieldNames>
+          <timestamp>timestamp</timestamp>
+          <message>message</message>
+          <logger>logger</logger>
+          <thread>thread</thread>
+          <level>level</level>
+        </fieldNames>
+      </encoder>
+    </appender>
+  </springProfile>
+
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</included>

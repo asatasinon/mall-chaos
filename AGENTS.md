@@ -4,9 +4,9 @@
 
 ## Project State
 
-The project is **documentation-first** — all architecture is in [`_docs/plans/chaos-v1.md`](_docs/plans/chaos-v1.md), with per-task specs in [`_docs/tasks/`](_docs/tasks/). Code is built task-by-task following the plan. Before implementing anything, read the relevant task file.
+Architecture is in [`_docs/plans/chaos-v1.md`](_docs/plans/chaos-v1.md); per-task specs in [`_docs/tasks/`](_docs/tasks/). Before implementing anything, read the relevant task file first.
 
-**Task execution order**: See [`_docs/tasks/README.md`](_docs/tasks/README.md) for the full dependency graph and recommended build sequence.
+**Task execution order**: See [`_docs/tasks/README.md`](_docs/tasks/README.md) for the full dependency graph.
 
 ## Architecture
 
@@ -14,19 +14,19 @@ The project is **documentation-first** — all architecture is in [`_docs/plans/
 - **Local dev**: Docker Compose
 - **Production**: Kubernetes + Chaos Mesh
 
-| Service | Port | Key Role |
-|---|---|---|
-| gateway-service | 8080 | Routing, traceId injection |
-| user-service | 8081 | User profiles, addresses |
-| catalog-service | 8082 | Products, SKUs |
-| inventory-service | 8083 | Reservation, distributed locks |
-| order-service | 8084 | Order orchestration, state machine |
-| payment-service | 8085 | Payment simulation |
-| traffic-runner-service | 8086 | Auto traffic, config hot-reload |
-| promotion-service | 8087 | Discounts, coupons |
-| risk-service | 8088 | Pre-order risk checks |
-| fulfillment-service | 8089 | Fulfillment, shipping |
-| notification-service | 8090 | Event-driven notifications |
+| Service | Port | Key Role | Chaos Features |
+|---|---|---|---|
+| gateway-service | 8080 | Routing, traceId injection | — |
+| user-service | 8081 | User profiles, addresses | — |
+| catalog-service | 8082 | Products, SKUs | Slow SQL |
+| inventory-service | 8083 | Reservation, distributed locks | Slow SQL |
+| order-service | 8084 | Order orchestration, idempotency | Slow SQL · Memory Leak · Deadlock |
+| payment-service | 8085 | Payment simulation (90/5/5%) | Slow SQL · Deadlock |
+| traffic-runner-service | 8086 | Auto traffic, hot-reload, inventory reset | — |
+| promotion-service | 8087 | Discounts, coupons, Redis cache | Slow SQL |
+| risk-service | 8088 | Pre-order + post-pay risk checks | Slow SQL |
+| fulfillment-service | 8089 | Fulfillment, async shipping | Slow SQL |
+| notification-service | 8090 | Event-driven notifications | Slow SQL |
 
 ## Tech Stack
 
@@ -64,6 +64,12 @@ Shared classes every service depends on (never duplicate these):
 - `BizException` — business errors with `errorCode`
 - `TraceContext` — traceId propagation utility
 - `ChaosScope` enum — `ALL` | `PARTIAL`
+- `DistributedLockService` — Redis-backed distributed lock
+- `chaos/SlowSqlChaosService` — slow SQL injection utility (shared across 7 services)
+- `chaos/MemoryLeakChaosService` — JVM memory leak injection utility
+- `config/ChaosCommonAutoConfiguration` — Spring auto-config for chaos beans
+- `config/ChaosJdbcAutoConfiguration` — JDBC datasource chaos wiring
+- `config/ChaosRedisAutoConfiguration` — Redis chaos wiring
 
 ### Chaos Component Rules (from [`_docs/tasks/task-14-chaos-slow-sql.md`](_docs/tasks/task-14-chaos-slow-sql.md))
 - Every chaos bean must support `enable` flag + `durationSec` for auto-disable
@@ -104,4 +110,6 @@ logging:
 | Slow SQL chaos module | [`_docs/tasks/task-14-chaos-slow-sql.md`](_docs/tasks/task-14-chaos-slow-sql.md) |
 | Memory leak chaos | [`_docs/tasks/task-15-chaos-memory-leak.md`](_docs/tasks/task-15-chaos-memory-leak.md) |
 | Deadlock chaos | [`_docs/tasks/task-16-chaos-deadlock.md`](_docs/tasks/task-16-chaos-deadlock.md) |
+| Network fault injection | [`_docs/tasks/task-17-chaos-network.md`](_docs/tasks/task-17-chaos-network.md) |
 | Kubernetes deployment | [`_docs/tasks/task-18-kubernetes.md`](_docs/tasks/task-18-kubernetes.md) |
+| Chaos verification (7 scenarios) | [`_docs/tasks/task-19-chaos-verification.md`](_docs/tasks/task-19-chaos-verification.md) |

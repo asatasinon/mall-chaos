@@ -1,0 +1,62 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: castrel
+
+resources:
+  # Namespace must come first
+  - namespace.yaml
+
+  # Config & Secrets
+  - configmap/app-config.yaml
+  - configmap/mysql-config.yaml
+  - secrets/db-secret.yaml
+
+  # Infrastructure
+  - infra/mysql.yaml
+  - infra/redis.yaml
+  - infra/prometheus.yaml
+  - infra/grafana.yaml
+  - infra/loki.yaml
+  - infra/tempo.yaml
+
+  # Business Services
+  - services/gateway/deployment.yaml
+  - services/user/deployment.yaml
+  - services/catalog/deployment.yaml
+  - services/inventory/deployment.yaml
+  - services/order/deployment.yaml
+  - services/payment/deployment.yaml
+  - services/traffic-runner/deployment.yaml
+  - services/promotion/deployment.yaml
+  - services/risk/deployment.yaml
+  - services/fulfillment/deployment.yaml
+  - services/notification/deployment.yaml
+
+  # Ingress
+  - ingress/gateway-ingress.yaml
+
+# Image overrides — update tags for each release
+images:
+  - name: castrel/gateway-service
+    newTag: latest
+  - name: castrel/user-service
+    newTag: latest
+  - name: castrel/catalog-service
+    newTag: latest
+  - name: castrel/inventory-service
+    newTag: latest
+  - name: castrel/order-service
+    newTag: latest
+  - name: castrel/payment-service
+    newTag: latest
+  - name: castrel/traffic-runner-service
+    newTag: latest
+  - name: castrel/promotion-service
+    newTag: latest
+  - name: castrel/risk-service
+    newTag: latest
+  - name: castrel/fulfillment-service
+    newTag: latest
+  - name: castrel/notification-service
+    newTag: latest

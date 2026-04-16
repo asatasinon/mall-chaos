@@ -1,0 +1,30 @@
+{
+  "annotations": { "list": [] },
+  "description": "QPS, P50/P95/P99 latency, error rate, and JVM heap for all Castrel services",
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [],
+  "refresh": "30s",
+  "schemaVersion": 36,
+  "style": "dark",
+  "tags": ["castrel-chaos", "services"],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(jvm_memory_used_bytes, service)",
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Services Overview",
+  "uid": "castrel-services-overview",
+  "version": 1
+}

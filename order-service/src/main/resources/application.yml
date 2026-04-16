@@ -1,0 +1,61 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: jdbc:mysql://localhost:3306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: castrel
+    password: castrel
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    show-sql: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+services:
+  user-url: http://localhost:8081
+  catalog-url: http://localhost:8082
+  inventory-url: http://localhost:8083
+  payment-url: http://localhost:8085
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  tracing:
+    enabled: true
+    sampling:
+      probability: 1.0
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:mysql://mysql:3306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+  data:
+    redis:
+      host: redis
+  management:
+    otlp:
+      tracing:
+        endpoint: http://tempo:4318/v1/traces
+
+services:
+  user-url: http://user-service:8081
+  catalog-url: http://catalog-service:8082
+  inventory-url: http://toxiproxy:18083
+  payment-url: http://toxiproxy:18085

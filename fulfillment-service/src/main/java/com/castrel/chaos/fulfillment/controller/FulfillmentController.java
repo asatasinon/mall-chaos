@@ -1,0 +1,31 @@
+package com.castrel.chaos.fulfillment.controller;
+
+import com.castrel.chaos.common.ApiResponse;
+import com.castrel.chaos.fulfillment.dto.CancelFulfillmentRequest;
+import com.castrel.chaos.fulfillment.dto.CreateFulfillmentRequest;
+import com.castrel.chaos.fulfillment.dto.FulfillmentDTO;
+import com.castrel.chaos.fulfillment.service.FulfillmentService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+public class FulfillmentController {
+
+    @Autowired
+    private FulfillmentService fulfillmentService;
+
+    @GetMapping("/api/fulfillments/{orderId}")
+    public ApiResponse<FulfillmentDTO> getByOrderId(@PathVariable Long orderId) {
+        return ApiResponse.ok(fulfillmentService.getByOrderId(orderId));
+    }
+
+    @PostMapping("/internal/fulfillments/create")
+    public ApiResponse<FulfillmentDTO> create(@RequestBody CreateFulfillmentRequest req) {
+        return ApiResponse.ok(fulfillmentService.create(req));
+    }
+
+    @PostMapping("/internal/fulfillments/cancel")
+    public ApiResponse<FulfillmentDTO> cancel(@RequestBody CancelFulfillmentRequest req) {
+        return ApiResponse.ok(fulfillmentService.cancel(req));
+    }
+}

@@ -1,0 +1,370 @@
+version: '3.9'
+
+networks:
+  castrel-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  grafana-data:
+  prometheus-data:
+  loki-data:
+  tempo-data:
+
+x-service-defaults: &service-defaults
+  networks:
+    - castrel-net
+  restart: unless-stopped
+
+x-service-env: &service-env
+  SPRING_PROFILES_ACTIVE: docker,chaos
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+  SPRING_DATASOURCE_USERNAME: castrel
+  SPRING_DATASOURCE_PASSWORD: castrel
+  SPRING_DATA_REDIS_HOST: redis
+  # MANAGEMENT_OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces  # 本地暂不启用，接入 Grafana Cloud 时改为 Cloud OTLP 地址
+  MANAGEMENT_TRACING_ENABLED: "false"
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 30s
+  timeout: 5s
+  retries: 5
+  start_period: 60s
+
+services:
+
+  # ─── Infrastructure ──────────────────────────────────────────────────────────
+
+  mysql:
+    image: mysql:8.0
+    container_name: castrel-mysql
+    <<: *service-defaults
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: castrel
+      MYSQL_USER: castrel
+      MYSQL_PASSWORD: castrel
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./infra/mysql/my.cnf:/etc/mysql/conf.d/castrel.cnf:ro
+      - ./infra/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ucastrel", "-pcastrel"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: castrel-redis
+    <<: *service-defaults
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+      - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ─── Observability（默认不启动，用 --profile observability 开启）───────────────
+  # 后续接入 Grafana Cloud 时：
+  #   1. 取消 x-service-env 中 MANAGEMENT_OTLP_TRACING_ENDPOINT 的注释，改为 Cloud OTLP 地址
+  #   2. 在各服务 env 中配置 Prometheus remote_write 到 Cloud
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: castrel-prometheus
+    profiles: [observability]
+    <<: *service-defaults
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=7d'
+
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: castrel-loki
+    profiles: [observability]
+    <<: *service-defaults
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infra/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: castrel-tempo
+    profiles: [observability]
+    <<: *service-defaults
+    ports:
+      - "3200:3200"
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    volumes:
+      - ./infra/tempo/tempo-config.yml:/etc/tempo/config.yml:ro
+      - tempo-data:/tmp/tempo
+    command: -config.file=/etc/tempo/config.yml
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: castrel-grafana
+    profiles: [observability]
+    <<: *service-defaults
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  promtail:
+    image: grafana/promtail:2.9.4
+    container_name: castrel-promtail
+    profiles: [observability]
+    <<: *service-defaults
+    volumes:
+      - ./infra/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:latest
+    container_name: castrel-toxiproxy
+    <<: *service-defaults
+    ports:
+      - "8474:8474"   # ToxiProxy API
+      - "18083:18083" # order-to-inventory proxy
+      - "18084:18084" # gateway-to-order proxy
+      - "18085:18085" # order-to-payment proxy
+    volumes:
+      - ./infra/toxiproxy/toxiproxy.json:/config/toxiproxy.json:ro
+    command: -config=/config/toxiproxy.json -host=0.0.0.0
+
+  # ─── Business Services ───────────────────────────────────────────────────────
+
+  gateway-service:
+    build: ./gateway-service
+    container_name: castrel-gateway
+    <<: *service-defaults
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *service-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      <<: *healthcheck-defaults
+
+  user-service:
+    build: ./user-service
+    container_name: castrel-user
+    <<: *service-defaults
+    ports:
+      - "8081:8081"
+    environment:
+      <<: *service-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      <<: *healthcheck-defaults
+
+  catalog-service:
+    build: ./catalog-service
+    container_name: castrel-catalog
+    <<: *service-defaults
+    ports:
+      - "8082:8082"
+    environment:
+      <<: *service-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      <<: *healthcheck-defaults
+
+  inventory-service:
+    build: ./inventory-service
+    container_name: castrel-inventory
+    <<: *service-defaults
+    ports:
+      - "8083:8083"
+    environment:
+      <<: *service-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
+      <<: *healthcheck-defaults
+
+  order-service:
+    build: ./order-service
+    container_name: castrel-order
+    <<: *service-defaults
+    ports:
+      - "8084:8084"
+    environment:
+      <<: *service-env
+      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-order.hprof"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
+      <<: *healthcheck-defaults
+
+  payment-service:
+    build: ./payment-service
+    container_name: castrel-payment
+    <<: *service-defaults
+    ports:
+      - "8085:8085"
+    environment:
+      <<: *service-env
+      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-payment.hprof"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
+      <<: *healthcheck-defaults
+
+  traffic-runner-service:
+    build: ./traffic-runner-service
+    container_name: castrel-runner
+    <<: *service-defaults
+    ports:
+      - "8086:8086"
+    environment:
+      <<: *service-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
+      <<: *healthcheck-defaults
+
+  promotion-service:
+    build: ./promotion-service
+    container_name: castrel-promotion
+    <<: *service-defaults
+    ports:
+      - "8087:8087"
+    environment:
+      <<: *service-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
+      <<: *healthcheck-defaults
+
+  risk-service:
+    build: ./risk-service
+    container_name: castrel-risk
+    <<: *service-defaults
+    ports:
+      - "8088:8088"
+    environment:
+      <<: *service-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8088/actuator/health"]
+      <<: *healthcheck-defaults
+
+  fulfillment-service:
+    build: ./fulfillment-service
+    container_name: castrel-fulfillment
+    <<: *service-defaults
+    ports:
+      - "8089:8089"
+    environment:
+      <<: *service-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8089/actuator/health"]
+      <<: *healthcheck-defaults
+
+  notification-service:
+    build: ./notification-service
+    container_name: castrel-notification
+    <<: *service-defaults
+    ports:
+      - "8090:8090"
+    environment:
+      <<: *service-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8090/actuator/health"]
+      <<: *healthcheck-defaults
+
+  # ─── Chaos Infrastructure (opt-in) ─────────────────────────────────────────
+
+  pumba:
+    image: gaiaadm/pumba:latest
+    container_name: castrel-pumba
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    profiles: ["chaos-pumba"]   # start with: docker-compose --profile chaos-pumba up -d pumba
+    network_mode: none
