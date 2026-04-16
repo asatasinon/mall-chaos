@@ -30,8 +30,8 @@ public class DownstreamClients {
     @Value("${services.payment-url:http://localhost:8085}")
     private String paymentUrl;
 
-    public DownstreamClients() {
-        this.client = RestClient.builder()
+    public DownstreamClients(RestClient.Builder builder) {
+        this.client = builder
                 .defaultHeader(TraceContext.TRACE_ID_HEADER, "")
                 .build();
     }

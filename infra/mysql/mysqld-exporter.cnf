@@ -1,0 +1,5 @@
+[client]
+user     = castrel
+password = castrel
+host     = mysql
+port     = 3306

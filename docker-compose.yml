@@ -1,16 +1,8 @@
-version: '3.9'
-
 networks:
   castrel-net:
     driver: bridge
 
-volumes:
-  mysql-data:
-  redis-data:
-  grafana-data:
-  prometheus-data:
-  loki-data:
-  tempo-data:
+volumes: {}
 
 x-service-defaults: &service-defaults
   networks:
@@ -19,12 +11,15 @@ x-service-defaults: &service-defaults
 
 x-service-env: &service-env
   SPRING_PROFILES_ACTIVE: docker,chaos
-  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-  SPRING_DATASOURCE_USERNAME: castrel
-  SPRING_DATASOURCE_PASSWORD: castrel
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-castrel}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+  SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-castrel}
+  SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-castrel}
   SPRING_DATA_REDIS_HOST: redis
-  # MANAGEMENT_OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces  # 本地暂不启用，接入 Grafana Cloud 时改为 Cloud OTLP 地址
-  MANAGEMENT_TRACING_ENABLED: "false"
+  # OTel Java agent configuration
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://tempo:4318}
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_PROPAGATORS: tracecontext,baggage
+  OTEL_TRACES_SAMPLER: parentbased_always_on
 
 x-healthcheck-defaults: &healthcheck-defaults
   interval: 30s
@@ -41,14 +36,14 @@ services:
     container_name: castrel-mysql
     <<: *service-defaults
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: castrel
-      MYSQL_USER: castrel
-      MYSQL_PASSWORD: castrel
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-castrel}
+      MYSQL_USER: ${MYSQL_USER:-castrel}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-castrel}
     ports:
       - "3306:3306"
     volumes:
-      - mysql-data:/var/lib/mysql
+      - ./data/mysql:/var/lib/mysql
       - ./infra/mysql/my.cnf:/etc/mysql/conf.d/castrel.cnf:ro
       - ./infra/mysql/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
@@ -66,7 +61,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - ./data/redis:/data
       - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -75,9 +70,6 @@ services:
       retries: 5
 
   # ─── Observability（默认不启动，用 --profile observability 开启）───────────────
-  # 后续接入 Grafana Cloud 时：
-  #   1. 取消 x-service-env 中 MANAGEMENT_OTLP_TRACING_ENDPOINT 的注释，改为 Cloud OTLP 地址
-  #   2. 在各服务 env 中配置 Prometheus remote_write 到 Cloud
 
   prometheus:
     image: prom/prometheus:latest
@@ -88,11 +80,12 @@ services:
       - "9090:9090"
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
+      - ./data/prometheus:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'
       - '--storage.tsdb.retention.time=7d'
 
   loki:
@@ -104,7 +97,7 @@ services:
       - "3100:3100"
     volumes:
       - ./infra/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
-      - loki-data:/loki
+      - ./data/loki:/loki
     command: -config.file=/etc/loki/local-config.yaml
 
   tempo:
@@ -118,7 +111,7 @@ services:
       - "4318:4318"   # OTLP HTTP
     volumes:
       - ./infra/tempo/tempo-config.yml:/etc/tempo/config.yml:ro
-      - tempo-data:/tmp/tempo
+      - ./data/tempo:/tmp/tempo
     command: -config.file=/etc/tempo/config.yml
 
   grafana:
@@ -127,20 +120,48 @@ services:
     profiles: [observability]
     <<: *service-defaults
     ports:
-      - "3000:3000"
+      - "13000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     volumes:
-      - grafana-data:/var/lib/grafana
+      - ./data/grafana:/var/lib/grafana
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
       - loki
       - tempo
+
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.15.1
+    container_name: castrel-mysqld-exporter
+    profiles: [observability]
+    <<: *service-defaults
+    ports:
+      - "9104:9104"
+    volumes:
+      - ./infra/mysql/mysqld-exporter.cnf:/.my.cnf:ro
+    command:
+      - '--config.my-cnf=/.my.cnf'
+      - '--collect.global_status'
+      - '--collect.global_variables'
+      - '--collect.info_schema.innodb_metrics'
+      - '--collect.info_schema.tables'
+      - '--collect.info_schema.processlist'
+      - '--collect.slave_status'
+      - '--collect.perf_schema.eventsstatements'
+      - '--collect.perf_schema.eventsstatementssum'
+      - '--collect.perf_schema.eventswaits'
+      - '--collect.perf_schema.file_events'
+      - '--collect.perf_schema.indexiowaits'
+      - '--collect.perf_schema.tableiowaits'
+      - '--collect.perf_schema.tablelocks'
+    depends_on:
+      mysql:
+        condition: service_healthy
 
   promtail:
     image: grafana/promtail:2.9.4
@@ -171,13 +192,16 @@ services:
   # ─── Business Services ───────────────────────────────────────────────────────
 
   gateway-service:
-    build: ./gateway-service
+    build:
+      context: .
+      dockerfile: gateway-service/Dockerfile
     container_name: castrel-gateway
     <<: *service-defaults
     ports:
       - "8080:8080"
     environment:
       <<: *service-env
+      OTEL_SERVICE_NAME: gateway-service
     depends_on:
       - toxiproxy
     healthcheck:
@@ -185,13 +209,16 @@ services:
       <<: *healthcheck-defaults
 
   user-service:
-    build: ./user-service
+    build:
+      context: .
+      dockerfile: user-service/Dockerfile
     container_name: castrel-user
     <<: *service-defaults
     ports:
       - "8081:8081"
     environment:
       <<: *service-env
+      OTEL_SERVICE_NAME: user-service
     depends_on:
       mysql:
         condition: service_healthy
@@ -202,13 +229,16 @@ services:
       <<: *healthcheck-defaults
 
   catalog-service:
-    build: ./catalog-service
+    build:
+      context: .
+      dockerfile: catalog-service/Dockerfile
     container_name: castrel-catalog
     <<: *service-defaults
     ports:
       - "8082:8082"
     environment:
       <<: *service-env
+      OTEL_SERVICE_NAME: catalog-service
     depends_on:
       mysql:
         condition: service_healthy
@@ -219,13 +249,16 @@ services:
       <<: *healthcheck-defaults
 
   inventory-service:
-    build: ./inventory-service
+    build:
+      context: .
+      dockerfile: inventory-service/Dockerfile
     container_name: castrel-inventory
     <<: *service-defaults
     ports:
       - "8083:8083"
     environment:
       <<: *service-env
+      OTEL_SERVICE_NAME: inventory-service
     depends_on:
       mysql:
         condition: service_healthy
@@ -236,13 +269,16 @@ services:
       <<: *healthcheck-defaults
 
   order-service:
-    build: ./order-service
+    build:
+      context: .
+      dockerfile: order-service/Dockerfile
     container_name: castrel-order
     <<: *service-defaults
     ports:
       - "8084:8084"
     environment:
       <<: *service-env
+      OTEL_SERVICE_NAME: order-service
       JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-order.hprof"
     depends_on:
       mysql:
@@ -254,13 +290,16 @@ services:
       <<: *healthcheck-defaults
 
   payment-service:
-    build: ./payment-service
+    build:
+      context: .
+      dockerfile: payment-service/Dockerfile
     container_name: castrel-payment
     <<: *service-defaults
     ports:
       - "8085:8085"
     environment:
       <<: *service-env
+      OTEL_SERVICE_NAME: payment-service
       JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-payment.hprof"
     depends_on:
       mysql:
@@ -272,13 +311,16 @@ services:
       <<: *healthcheck-defaults
 
   traffic-runner-service:
-    build: ./traffic-runner-service
+    build:
+      context: .
+      dockerfile: traffic-runner-service/Dockerfile
     container_name: castrel-runner
     <<: *service-defaults
     ports:
       - "8086:8086"
     environment:
       <<: *service-env
+      OTEL_SERVICE_NAME: traffic-runner-service
     depends_on:
       mysql:
         condition: service_healthy
@@ -289,13 +331,16 @@ services:
       <<: *healthcheck-defaults
 
   promotion-service:
-    build: ./promotion-service
+    build:
+      context: .
+      dockerfile: promotion-service/Dockerfile
     container_name: castrel-promotion
     <<: *service-defaults
     ports:
       - "8087:8087"
     environment:
       <<: *service-env
+      OTEL_SERVICE_NAME: promotion-service
     depends_on:
       mysql:
         condition: service_healthy
@@ -306,13 +351,16 @@ services:
       <<: *healthcheck-defaults
 
   risk-service:
-    build: ./risk-service
+    build:
+      context: .
+      dockerfile: risk-service/Dockerfile
     container_name: castrel-risk
     <<: *service-defaults
     ports:
       - "8088:8088"
     environment:
       <<: *service-env
+      OTEL_SERVICE_NAME: risk-service
     depends_on:
       mysql:
         condition: service_healthy
@@ -323,13 +371,16 @@ services:
       <<: *healthcheck-defaults
 
   fulfillment-service:
-    build: ./fulfillment-service
+    build:
+      context: .
+      dockerfile: fulfillment-service/Dockerfile
     container_name: castrel-fulfillment
     <<: *service-defaults
     ports:
       - "8089:8089"
     environment:
       <<: *service-env
+      OTEL_SERVICE_NAME: fulfillment-service
     depends_on:
       mysql:
         condition: service_healthy
@@ -340,13 +391,16 @@ services:
       <<: *healthcheck-defaults
 
   notification-service:
-    build: ./notification-service
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
     container_name: castrel-notification
     <<: *service-defaults
     ports:
       - "8090:8090"
     environment:
       <<: *service-env
+      OTEL_SERVICE_NAME: notification-service
     depends_on:
       mysql:
         condition: service_healthy

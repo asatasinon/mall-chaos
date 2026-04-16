@@ -66,6 +66,9 @@ public class TrafficRunnerService {
     private RestClient restClient;
 
     @Autowired
+    private RestClient.Builder restClientBuilder;
+
+    @Autowired
     private MeterRegistry meterRegistry;
 
     private Counter totalCounter;
@@ -83,7 +86,7 @@ public class TrafficRunnerService {
 
     @PostConstruct
     public void init() {
-        restClient = RestClient.builder().build();
+        restClient = restClientBuilder.build();
         totalCounter = Counter.builder("runner.request.total").register(meterRegistry);
         successCounter = Counter.builder("runner.request.success").register(meterRegistry);
         failCounter = Counter.builder("runner.request.fail").register(meterRegistry);

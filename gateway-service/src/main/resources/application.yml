@@ -4,40 +4,31 @@ server:
 spring:
   application:
     name: gateway-service
+  main:
+    web-application-type: reactive
   cloud:
     gateway:
-      routes:
-        - id: orders
-          uri: http://localhost:8084
-          predicates:
-            - Path=/api/orders/**
-        - id: products
-          uri: http://localhost:8082
-          predicates:
-            - Path=/api/products/**
-
-observability:
-  enabled: true
-  otlp-transport: http
-  otlp-endpoint: http://localhost:4318/v1/traces
+      server:
+        webflux:
+          routes:
+            - id: orders
+              uri: http://localhost:8084
+              predicates:
+                - Path=/api/orders/**
+            - id: products
+              uri: http://localhost:8082
+              predicates:
+                - Path=/api/products/**
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info,prometheus,metrics
-  metrics:
-    export:
-      prometheus:
-        enabled: ${observability.enabled:true}
-  tracing:
-    enabled: ${observability.enabled:true}
-    sampling:
-      probability: 1.0
-  otlp:
-    tracing:
-      endpoint: ${observability.otlp-endpoint}
-      transport: ${observability.otlp-transport:http}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
 
 ---
 spring:
@@ -46,15 +37,14 @@ spring:
       on-profile: docker
   cloud:
     gateway:
-      routes:
-        - id: orders
-          uri: http://toxiproxy:18084
-          predicates:
-            - Path=/api/orders/**
-        - id: products
-          uri: http://catalog-service:8082
-          predicates:
-            - Path=/api/products/**
-
-observability:
-  otlp-endpoint: http://tempo:4318/v1/traces
+      server:
+        webflux:
+          routes:
+            - id: orders
+              uri: http://toxiproxy:18084
+              predicates:
+                - Path=/api/orders/**
+            - id: products
+              uri: http://catalog-service:8082
+              predicates:
+                - Path=/api/products/**

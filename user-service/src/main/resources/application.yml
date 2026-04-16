@@ -8,7 +8,6 @@ spring:
     url: jdbc:mysql://localhost:3306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: castrel
     password: castrel
-    driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
       ddl-auto: none
@@ -19,28 +18,15 @@ spring:
       host: localhost
       port: 6379
 
-observability:
-  enabled: true
-  otlp-transport: http
-  otlp-endpoint: http://localhost:4318/v1/traces
-
 management:
   endpoints:
     web:
       exposure:
         include: health,info,prometheus,metrics
-  metrics:
-    export:
-      prometheus:
-        enabled: ${observability.enabled:true}
-  tracing:
-    enabled: ${observability.enabled:true}
-    sampling:
-      probability: 1.0
-  otlp:
-    tracing:
-      endpoint: ${observability.otlp-endpoint}
-      transport: ${observability.otlp-transport:http}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
 
 ---
 spring:
@@ -52,6 +38,3 @@ spring:
   data:
     redis:
       host: redis
-
-observability:
-  otlp-endpoint: http://tempo:4318/v1/traces

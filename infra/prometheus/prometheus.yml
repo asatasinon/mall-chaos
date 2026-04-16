@@ -80,3 +80,9 @@ scrape_configs:
       - targets: ['notification-service:8090']
         labels:
           service: 'notification'
+
+  - job_name: 'mysql'
+    static_configs:
+      - targets: ['mysqld-exporter:9104']
+        labels:
+          service: 'mysql'
