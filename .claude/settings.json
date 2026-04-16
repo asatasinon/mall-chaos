@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "postToolUse": [
+      {
+        "tool": "Edit",
+        "match": "**/*.py",
+        "command": "ruff check --fix {file_path}"
+      }
+    ],
+    "preToolUse": [
+      {
+        "tool": "Edit",
+        "match": "**/.env*",
+        "command": "echo 'Editing .env files requires explicit permission. Use --force to override.' && exit 1"
+      },
+      {
+        "tool": "Write",
+        "match": "**/.env*",
+        "command": "echo 'Writing .env files requires explicit permission. Use --force to override.' && exit 1"
+      }
+    ]
+  }
+}
