@@ -24,4 +24,5 @@ data:
   CHAOS_FULFILLMENT_URL: "http://fulfillment-service:8089"
   CHAOS_NOTIFICATION_URL: "http://notification-service:8090"
   TOXIPROXY_API_URL: "http://toxiproxy:8474"
+  CHAOS_CONSOLE_GRAFANA_BASE_URL: ""
   JAVA_OPTS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof"

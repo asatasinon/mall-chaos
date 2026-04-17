@@ -600,7 +600,7 @@
         <div class="control-body">
           <div class="form-grid" style="grid-template-columns: 1fr;">
             <label>Grafana Base URL
-              <input id="grafanaBaseUrl" type="text" value="http://localhost:13000" placeholder="http://localhost:13000">
+              <input id="grafanaBaseUrl" type="text" value="" placeholder="https://grafana.example.com">
             </label>
           </div>
           <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
@@ -773,6 +773,7 @@
   const lastTraceIdEl = document.getElementById("lastTraceId");
   const lastRefreshAtEl = document.getElementById("lastRefreshAt");
   const deepLinkPreviewEl = document.getElementById("deepLinkPreview");
+  const GRAFANA_BASE_STORAGE_KEY = "castrel.chaos.grafanaBaseUrl";
 
   function nowText() {
     return new Date().toLocaleTimeString();
@@ -788,19 +789,63 @@
     lastTraceIdEl.textContent = traceId;
   }
 
+  function inferGrafanaBaseUrl() {
+    const protocol = window.location.protocol || "http:";
+    const hostname = window.location.hostname || "localhost";
+    return `${protocol}//${hostname}:13000`;
+  }
+
   function buildTraceId() {
     return Math.random().toString(16).slice(2).padEnd(16, "0");
   }
 
   function normalizeBaseUrl(url) {
-    if (!url || !url.trim()) {
-      return "http://localhost:13000";
+    return (url || "").trim().replace(/\/+$/, "");
+  }
+
+  function resolveGrafanaBaseUrl(url) {
+    const normalized = normalizeBaseUrl(url);
+    if (normalized) {
+      return normalized;
     }
-    return url.trim().replace(/\/+$/, "");
+    return inferGrafanaBaseUrl();
+  }
+
+  async function initGrafanaBaseUrl() {
+    const input = document.getElementById("grafanaBaseUrl");
+    const saved = normalizeBaseUrl(localStorage.getItem(GRAFANA_BASE_STORAGE_KEY));
+    let configured = "";
+    try {
+      const cfg = await request("/internal/console/config");
+      configured = normalizeBaseUrl(cfg?.grafanaBaseUrl);
+    } catch (error) {
+      appendLog(`读取控制台配置失败，使用本地默认值: ${error.message}`, "WARN");
+    }
+    const resolved = saved || configured || inferGrafanaBaseUrl();
+    input.value = resolved;
+  }
+
+  function persistGrafanaBaseUrl() {
+    const input = document.getElementById("grafanaBaseUrl");
+    const normalized = normalizeBaseUrl(input.value);
+    if (normalized) {
+      localStorage.setItem(GRAFANA_BASE_STORAGE_KEY, normalized);
+      input.value = normalized;
+      appendLog(`已保存 Grafana 地址: ${normalized}`);
+      return;
+    }
+    localStorage.removeItem(GRAFANA_BASE_STORAGE_KEY);
+    const fallback = inferGrafanaBaseUrl();
+    input.value = fallback;
+    appendLog(`Grafana 地址为空，回退为 ${fallback}`, "WARN");
   }
 
   function getObserveContext() {
-    const base = normalizeBaseUrl(document.getElementById("grafanaBaseUrl").value);
+    const input = document.getElementById("grafanaBaseUrl");
+    const base = resolveGrafanaBaseUrl(input.value);
+    if (!normalizeBaseUrl(input.value)) {
+      input.value = base;
+    }
     const service = document.getElementById("observeService").value;
     const from = document.getElementById("observeTimeRange").value;
     return { base, service, from, to: "now" };
@@ -850,14 +895,15 @@
   async function request(path, options = {}) {
     const traceId = buildTraceId();
     setTrace(traceId);
-    const payload = {
-      method: options.method || "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Trace-Id": traceId,
-        ...(options.headers || {})
-      }
+    const method = options.method || "GET";
+    const headers = {
+      "X-Trace-Id": traceId,
+      ...(options.headers || {})
     };
+    if (options.body !== undefined) {
+      headers["Content-Type"] = "application/json";
+    }
+    const payload = { method, headers };
     if (options.body !== undefined) {
       payload.body = JSON.stringify(options.body);
     }
@@ -1385,6 +1431,15 @@
   }
 
   function bindEvents() {
+    const grafanaBaseInput = document.getElementById("grafanaBaseUrl");
+    grafanaBaseInput.addEventListener("change", persistGrafanaBaseUrl);
+    grafanaBaseInput.addEventListener("blur", persistGrafanaBaseUrl);
+    grafanaBaseInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        persistGrafanaBaseUrl();
+      }
+    });
+
     document.getElementById("refreshAllBtn").addEventListener("click", async () => {
       try {
         await refreshAllStatuses();
@@ -1573,6 +1628,7 @@
     renderSlowCards();
     renderMemoryCards();
     renderDeadlockCards();
+    await initGrafanaBaseUrl();
     bindEvents();
     appendLog("控制台初始化完成，5s 后开始状态轮询");
     setTimeout(async () => {

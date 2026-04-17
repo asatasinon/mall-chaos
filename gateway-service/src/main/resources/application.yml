@@ -8,6 +8,13 @@ spring:
     web-application-type: reactive
   cloud:
     gateway:
+      globalcors:
+        cors-configurations:
+          '[/ops/**]':
+            allowedOriginPatterns: "*"
+            allowedMethods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: false
       server:
         webflux:
           routes:
@@ -83,3 +90,7 @@ management:
     metrics:
       export:
         enabled: true
+
+chaos:
+  console:
+    grafana-base-url: ${CHAOS_CONSOLE_GRAFANA_BASE_URL:}

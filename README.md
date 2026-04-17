@@ -170,10 +170,10 @@ git clone https://github.com/your-org/castrel-chaos.git
 cd castrel-chaos
 
 # 启动基础设施 + 全部业务服务
-docker-compose up -d
+docker compose up -d
 
 # 查看各服务状态
-docker-compose ps
+docker compose ps
 ```
 
 ### 2. 验证启动成功
@@ -193,7 +193,7 @@ curl http://localhost:18080/internal/runner/status
 
 ### 3. 关闭可观测性栏（可选）
 
-可观测性栏（Grafana / Prometheus / Loki / Tempo）默认随 `docker-compose up -d` 一起启动。如需关闭：
+可观测性栏（Grafana / Prometheus / Loki / Tempo）默认随 `docker compose up -d` 一起启动。如需关闭：
 
 ```bash
 # 停止可观测性服务
@@ -209,8 +209,8 @@ open http://localhost:13000   # admin / admin
 ### 4. 停止服务
 
 ```bash
-docker-compose down          # 保留数据卷
-docker-compose down -v       # 同时删除数据卷（清空数据库）
+docker compose down          # 保留数据卷
+docker compose down -v       # 同时删除数据卷（清空数据库）
 ```
 
 ### 5. 全部重建
@@ -219,12 +219,12 @@ docker-compose down -v       # 同时删除数据卷（清空数据库）
 mvn clean install -DskipTests
 
 # 保留数据，重建全部容器并重新构建镜像
-docker-compose down
-docker-compose up -d --build --force-recreate
+docker compose down
+docker compose up -d --build --force-recreate
 
 # 连数据卷一起清空，做彻底重建
-docker-compose down -v
-docker-compose up -d --build --force-recreate
+docker compose down -v
+docker compose up -d --build --force-recreate
 ```
 
 ---
@@ -404,6 +404,12 @@ http://localhost:18080/chaos-console.html
 - Grafana/Tempo 深链跳转（dashboard、按服务过滤、按 traceId 检索）
 - 预置 Task 19 场景按钮（场景 2/4/5/7 + 一键恢复）
 
+深链地址配置：
+
+- 推荐通过环境变量 `CHAOS_CONSOLE_GRAFANA_BASE_URL` 配置（例如 `https://grafana.castrel.example.com`）
+- 本地开发默认值为 `http://localhost:13000`（docker-compose 已设置）
+- 页面上修改 `Grafana Base URL` 后会持久化到浏览器本地（刷新仍保留）
+
 ### 慢 SQL
 
 适用服务：catalog / inventory / order / payment / promotion / risk / fulfillment
@@ -525,12 +531,12 @@ curl -X POST http://localhost:18086/internal/runner/inventory-reset/trigger
 > 默认账号 `castrel`，密码 `castrel`，可在 `infra/nginx/.htpasswd` 中修改（使用 `openssl passwd -apr1 '<new-password>'` 重新生成哈希）。  
 > Grafana 与各组件之间的内部通信无需认证。
 
-可观测性栏默认随 `docker-compose up -d` 一起启动，无需额外命令。
+可观测性栏默认随 `docker compose up -d` 一起启动，无需额外命令。
 
 ```bash
 mvn clean package -DskipTests
 
-docker-compose up -d
+docker compose up -d
 ```
 
 **关键指标：**
