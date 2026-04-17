@@ -487,6 +487,8 @@ curl -X POST http://localhost:8086/internal/runner/inventory-reset/trigger
 启动可观测性栈：
 
 ```bash
+mvn clean package -DskipTests
+
 docker-compose --profile observability up -d
 ```
 
