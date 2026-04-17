@@ -5,9 +5,9 @@ spring:
   application:
     name: traffic-runner-service
   datasource:
-    url: jdbc:mysql://localhost:3306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: castrel
-    password: castrel
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:13306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:castrel}
+    password: ${SPRING_DATASOURCE_PASSWORD:castrel}
   jpa:
     hibernate:
       ddl-auto: none
@@ -15,12 +15,12 @@ spring:
     show-sql: false
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:16379}
 
 services:
-  order-url: http://localhost:8084
-  inventory-url: http://localhost:8083
+  order-url: ${ORDER_SERVICE_URL:http://localhost:18084}
+  inventory-url: ${INVENTORY_SERVICE_URL:http://localhost:18083}
 
 management:
   endpoints:
@@ -31,18 +31,3 @@ management:
     metrics:
       export:
         enabled: true
-
----
-spring:
-  config:
-    activate:
-      on-profile: docker
-  datasource:
-    url: jdbc:mysql://mysql:3306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-  data:
-    redis:
-      host: redis
-
-services:
-  order-url: http://order-service:8084
-  inventory-url: http://inventory-service:8083

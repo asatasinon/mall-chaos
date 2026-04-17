@@ -88,12 +88,12 @@ LATENCY=${2:-3000}    # ms
 JITTER=${3:-500}      # ms
 DURATION=${4:-120}    # sec
 
-curl -sX POST http://localhost:8474/proxies/$PROXY/toxics \
+curl -sX POST http://localhost:18474/proxies/$PROXY/toxics \
   -d "{\"name\":\"chaos-delay\",\"type\":\"latency\",\"attributes\":{\"latency\":$LATENCY,\"jitter\":$JITTER}}"
 
 echo "Delay injected. Auto-removing after ${DURATION}s..."
 sleep $DURATION
-curl -sX DELETE http://localhost:8474/proxies/$PROXY/toxics/chaos-delay
+curl -sX DELETE http://localhost:18474/proxies/$PROXY/toxics/chaos-delay
 echo "Delay removed."
 ```
 

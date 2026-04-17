@@ -12,11 +12,11 @@ spring:
         webflux:
           routes:
             - id: orders
-              uri: http://localhost:8084
+              uri: ${ORDER_SERVICE_URL:http://localhost:18084}
               predicates:
                 - Path=/api/orders/**
             - id: products
-              uri: http://localhost:8082
+              uri: ${CATALOG_SERVICE_URL:http://localhost:18082}
               predicates:
                 - Path=/api/products/**
 
@@ -29,22 +29,3 @@ management:
     metrics:
       export:
         enabled: true
-
----
-spring:
-  config:
-    activate:
-      on-profile: docker
-  cloud:
-    gateway:
-      server:
-        webflux:
-          routes:
-            - id: orders
-              uri: http://toxiproxy:18084
-              predicates:
-                - Path=/api/orders/**
-            - id: products
-              uri: http://catalog-service:8082
-              predicates:
-                - Path=/api/products/**

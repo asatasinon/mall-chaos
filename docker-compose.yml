@@ -15,6 +15,7 @@ x-service-env: &service-env
   SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-castrel}
   SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-castrel}
   SPRING_DATA_REDIS_HOST: redis
+  SPRING_DATA_REDIS_PORT: 6379
   # OTel Java agent configuration
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://tempo:4318}
   OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
@@ -41,7 +42,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:-castrel}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-castrel}
     ports:
-      - "3306:3306"
+      - "13306:3306"
     volumes:
       - ./data/mysql:/var/lib/mysql
       - ./infra/mysql/my.cnf:/etc/mysql/conf.d/castrel.cnf:ro
@@ -76,8 +77,7 @@ services:
     container_name: castrel-prometheus
     profiles: [observability]
     <<: *service-defaults
-    ports:
-      - "9090:9090"
+    # Port 19090 is exposed via obs-auth-proxy (nginx) with basic auth
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./data/prometheus:/prometheus
@@ -93,8 +93,7 @@ services:
     container_name: castrel-loki
     profiles: [observability]
     <<: *service-defaults
-    ports:
-      - "3100:3100"
+    # Port 13100 is exposed via obs-auth-proxy (nginx) with basic auth
     volumes:
       - ./infra/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
       - ./data/loki:/loki
@@ -106,9 +105,9 @@ services:
     profiles: [observability]
     <<: *service-defaults
     ports:
-      - "3200:3200"
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
+      # Port 13200 (HTTP API) is exposed via obs-auth-proxy (nginx) with basic auth
+      - "14317:4317"   # OTLP gRPC — ingestion, no auth required
+      - "14318:4318"   # OTLP HTTP — ingestion, no auth required
     volumes:
       - ./infra/tempo/tempo-config.yml:/etc/tempo/config.yml:ro
       - ./data/tempo:/tmp/tempo
@@ -131,6 +130,24 @@ services:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
+      - obs-auth-proxy
+      - prometheus
+      - loki
+      - tempo
+
+  obs-auth-proxy:
+    image: nginx:alpine
+    container_name: castrel-obs-auth-proxy
+    profiles: [observability]
+    <<: *service-defaults
+    ports:
+      - "19090:19090"   # Prometheus (auth)
+      - "13100:13100"   # Loki       (auth)
+      - "13200:13200"   # Tempo      (auth)
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
+    depends_on:
       - prometheus
       - loki
       - tempo
@@ -141,7 +158,7 @@ services:
     profiles: [observability]
     <<: *service-defaults
     ports:
-      - "9104:9104"
+      - "19104:9104"
     volumes:
       - ./infra/mysql/mysqld-exporter.cnf:/.my.cnf:ro
     command:
@@ -164,7 +181,7 @@ services:
         condition: service_healthy
 
   promtail:
-    image: grafana/promtail:2.9.4
+    image: grafana/promtail:3.3.3
     container_name: castrel-promtail
     profiles: [observability]
     <<: *service-defaults
@@ -181,10 +198,10 @@ services:
     container_name: castrel-toxiproxy
     <<: *service-defaults
     ports:
-      - "8474:8474"   # ToxiProxy API
-      - "18083:18083" # order-to-inventory proxy
-      - "18084:18084" # gateway-to-order proxy
-      - "18085:18085" # order-to-payment proxy
+      - "18474:8474"   # ToxiProxy API
+      - "18183:18083" # order-to-inventory proxy
+      - "18184:18084" # gateway-to-order proxy
+      - "18185:18085" # order-to-payment proxy
     volumes:
       - ./infra/toxiproxy/toxiproxy.json:/config/toxiproxy.json:ro
     command: -config=/config/toxiproxy.json -host=0.0.0.0
@@ -198,10 +215,12 @@ services:
     container_name: castrel-gateway
     <<: *service-defaults
     ports:
-      - "8080:8080"
+      - "18080:8080"
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: gateway-service
+      ORDER_SERVICE_URL: http://toxiproxy:18084
+      CATALOG_SERVICE_URL: http://catalog-service:8082
     depends_on:
       - toxiproxy
     healthcheck:
@@ -215,7 +234,7 @@ services:
     container_name: castrel-user
     <<: *service-defaults
     ports:
-      - "8081:8081"
+      - "18081:8081"
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: user-service
@@ -235,7 +254,7 @@ services:
     container_name: castrel-catalog
     <<: *service-defaults
     ports:
-      - "8082:8082"
+      - "18082:8082"
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: catalog-service
@@ -255,7 +274,7 @@ services:
     container_name: castrel-inventory
     <<: *service-defaults
     ports:
-      - "8083:8083"
+      - "18083:8083"
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: inventory-service
@@ -275,10 +294,14 @@ services:
     container_name: castrel-order
     <<: *service-defaults
     ports:
-      - "8084:8084"
+      - "18084:8084"
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: order-service
+      USER_SERVICE_URL: http://user-service:8081
+      CATALOG_SERVICE_URL: http://catalog-service:8082
+      INVENTORY_SERVICE_URL: http://toxiproxy:18083
+      PAYMENT_SERVICE_URL: http://toxiproxy:18085
       JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-order.hprof"
     depends_on:
       mysql:
@@ -296,7 +319,7 @@ services:
     container_name: castrel-payment
     <<: *service-defaults
     ports:
-      - "8085:8085"
+      - "18085:8085"
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: payment-service
@@ -317,10 +340,12 @@ services:
     container_name: castrel-runner
     <<: *service-defaults
     ports:
-      - "8086:8086"
+      - "18086:8086"
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: traffic-runner-service
+      ORDER_SERVICE_URL: http://order-service:8084
+      INVENTORY_SERVICE_URL: http://inventory-service:8083
     depends_on:
       mysql:
         condition: service_healthy
@@ -337,7 +362,7 @@ services:
     container_name: castrel-promotion
     <<: *service-defaults
     ports:
-      - "8087:8087"
+      - "18087:8087"
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: promotion-service
@@ -357,7 +382,7 @@ services:
     container_name: castrel-risk
     <<: *service-defaults
     ports:
-      - "8088:8088"
+      - "18088:8088"
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: risk-service
@@ -377,7 +402,7 @@ services:
     container_name: castrel-fulfillment
     <<: *service-defaults
     ports:
-      - "8089:8089"
+      - "18089:8089"
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: fulfillment-service
@@ -397,7 +422,7 @@ services:
     container_name: castrel-notification
     <<: *service-defaults
     ports:
-      - "8090:8090"
+      - "18090:8090"
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: notification-service

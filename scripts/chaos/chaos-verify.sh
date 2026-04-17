@@ -6,11 +6,11 @@
 #   ./scripts/chaos/chaos-verify.sh [--gateway <url>] [--scenario <1-7>]
 #
 # Defaults:
-#   GATEWAY_URL = http://localhost:8080   (Docker Compose local)
+#   GATEWAY_URL = http://localhost:18080   (Docker Compose local)
 #   For K8s:    GATEWAY_URL = http://castrel.local
 set -euo pipefail
 
-GATEWAY_URL="${GATEWAY_URL:-http://localhost:8080}"
+GATEWAY_URL="${GATEWAY_URL:-http://localhost:18080}"
 SCENARIO="${SCENARIO:-}"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -77,7 +77,6 @@ scenario_2() {
 # ── Scenario 3: JVM Memory Leak ──────────────────────────────────────────────
 
 scenario_3() {
-  local ORDER_SVC="${GATEWAY_URL/8080/8084}"
   # In K8s, use kubectl port-forward or hit through gateway internal
   step "Scenario 3: order-service JVM Memory Leak"
   check_runner_running
@@ -232,7 +231,7 @@ print_usage() {
   echo "Usage: $0 [OPTIONS]"
   echo ""
   echo "Options:"
-  echo "  --gateway <url>      Gateway base URL (default: http://localhost:8080)"
+  echo "  --gateway <url>      Gateway base URL (default: http://localhost:18080)"
   echo "  --scenario <1-7>     Run a specific scenario (default: interactive menu)"
   echo "  --global             Run global acceptance checklist only"
   echo ""

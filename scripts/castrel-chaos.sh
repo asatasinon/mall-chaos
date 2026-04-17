@@ -12,17 +12,17 @@ HOST="${CASTREL_HOST:-localhost}"
 
 port_of() {
   case "$1" in
-    gateway)     echo 8080 ;;
-    user)        echo 8081 ;;
-    catalog)     echo 8082 ;;
-    inventory)   echo 8083 ;;
-    order)       echo 8084 ;;
-    payment)     echo 8085 ;;
-    runner)      echo 8086 ;;
-    promotion)   echo 8087 ;;
-    risk)        echo 8088 ;;
-    fulfillment) echo 8089 ;;
-    notification) echo 8090 ;;
+    gateway)     echo 18080 ;;
+    user)        echo 18081 ;;
+    catalog)     echo 18082 ;;
+    inventory)   echo 18083 ;;
+    order)       echo 18084 ;;
+    payment)     echo 18085 ;;
+    runner)      echo 18086 ;;
+    promotion)   echo 18087 ;;
+    risk)        echo 18088 ;;
+    fulfillment) echo 18089 ;;
+    notification) echo 18090 ;;
     *) echo "" ;;
   esac
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Traffic Runner API (port 8086)
-BASE="http://localhost:8086"
+BASE="http://localhost:18086"
 
 # 查看运行状态
 curl "$BASE/internal/runner/status"

@@ -99,8 +99,8 @@ castrel-chaos/
 
 ### 2.9 验证
 - [ ] `docker-compose up -d` 无报错
-- [ ] Grafana `http://localhost:3000` 可访问，数据源全绿
-- [ ] `http://localhost:8080/actuator/health` 返回 UP
+- [ ] Grafana `http://localhost:13000` 可访问，数据源全绿
+- [ ] `http://localhost:18080/actuator/health` 返回 UP
 - [ ] MySQL 表结构全部创建成功
 
 ## 关键配置示例

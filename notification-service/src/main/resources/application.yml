@@ -8,9 +8,9 @@ spring:
   application:
     name: notification-service
   datasource:
-    url: jdbc:mysql://localhost:3306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: castrel
-    password: castrel
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:13306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:castrel}
+    password: ${SPRING_DATASOURCE_PASSWORD:castrel}
   jpa:
     hibernate:
       ddl-auto: none
@@ -18,8 +18,8 @@ spring:
     show-sql: false
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:16379}
 
 management:
   endpoints:
@@ -30,14 +30,3 @@ management:
     metrics:
       export:
         enabled: true
-
----
-spring:
-  config:
-    activate:
-      on-profile: docker
-  datasource:
-    url: jdbc:mysql://mysql:3306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-  data:
-    redis:
-      host: redis

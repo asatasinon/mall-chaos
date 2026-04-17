@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Inventory Reset API (port 8083)
-BASE="http://localhost:8083"
+BASE="http://localhost:18083"
 
 # 查看重置计划（dry-run，不实际执行）
 curl -X POST "$BASE/internal/inventory/reset/plan"

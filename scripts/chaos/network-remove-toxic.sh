@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-TOXIPROXY_API="${TOXIPROXY_API:-http://localhost:8474}"
+TOXIPROXY_API="${TOXIPROXY_API:-http://localhost:18474}"
 PROXY="${1:-order-to-payment}"
 TOXIC="${2:-chaos-delay}"
 

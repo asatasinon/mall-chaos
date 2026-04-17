@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-TOXIPROXY_API="${TOXIPROXY_API:-http://localhost:8474}"
+TOXIPROXY_API="${TOXIPROXY_API:-http://localhost:18474}"
 PROXIES=("order-to-payment" "order-to-inventory" "gateway-to-order")
 
 echo "[chaos] Resetting all toxics..."

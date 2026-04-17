@@ -17,7 +17,7 @@
 #   durationSec 自动关闭秒数，0=永不自动关闭
 
 # ── order-service 示例 ──────────────────────────────────────
-ORDER="http://localhost:8084"
+ORDER="http://localhost:18084"
 
 curl -X POST "$ORDER/internal/chaos/slow-sql/enable" \
   -H "Content-Type: application/json" \
@@ -33,7 +33,7 @@ curl -X POST "$ORDER/internal/chaos/slow-sql/disable"
 curl "$ORDER/internal/chaos/slow-sql/status"
 
 # ── catalog-service ──────────────────────────────────────────
-CATALOG="http://localhost:8082"
+CATALOG="http://localhost:18082"
 
 curl -X POST "$CATALOG/internal/chaos/slow-sql/enable" \
   -H "Content-Type: application/json" \
@@ -42,7 +42,7 @@ curl -X POST "$CATALOG/internal/chaos/slow-sql/enable" \
 curl -X POST "$CATALOG/internal/chaos/slow-sql/disable"
 
 # ── inventory-service ────────────────────────────────────────
-INVENTORY="http://localhost:8083"
+INVENTORY="http://localhost:18083"
 
 curl -X POST "$INVENTORY/internal/chaos/slow-sql/enable" \
   -H "Content-Type: application/json" \
@@ -51,7 +51,7 @@ curl -X POST "$INVENTORY/internal/chaos/slow-sql/enable" \
 curl -X POST "$INVENTORY/internal/chaos/slow-sql/disable"
 
 # ── payment-service ──────────────────────────────────────────
-PAYMENT="http://localhost:8085"
+PAYMENT="http://localhost:18085"
 
 curl -X POST "$PAYMENT/internal/chaos/slow-sql/enable" \
   -H "Content-Type: application/json" \
@@ -61,16 +61,16 @@ curl -X POST "$PAYMENT/internal/chaos/slow-sql/disable"
 curl "$PAYMENT/internal/chaos/slow-sql/status"
 
 # ── promotion-service ────────────────────────────────────────
-curl -X POST "http://localhost:8087/internal/chaos/slow-sql/enable" \
+curl -X POST "http://localhost:18087/internal/chaos/slow-sql/enable" \
   -H "Content-Type: application/json" \
   -d '{"mode": "sleep", "delayMs": 1500, "injectRate": 0.5, "durationSec": 60}'
 
 # ── risk-service ─────────────────────────────────────────────
-curl -X POST "http://localhost:8088/internal/chaos/slow-sql/enable" \
+curl -X POST "http://localhost:18088/internal/chaos/slow-sql/enable" \
   -H "Content-Type: application/json" \
   -d '{"mode": "sleep", "delayMs": 1500, "injectRate": 0.5, "durationSec": 60}'
 
 # ── fulfillment-service ──────────────────────────────────────
-curl -X POST "http://localhost:8089/internal/chaos/slow-sql/enable" \
+curl -X POST "http://localhost:18089/internal/chaos/slow-sql/enable" \
   -H "Content-Type: application/json" \
   -d '{"mode": "sleep", "delayMs": 1500, "injectRate": 0.5, "durationSec": 60}'

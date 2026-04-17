@@ -8,7 +8,7 @@
 #   maxMb        最大占用上限（MB），达到后停止分配
 
 # ── order-service ─────────────────────────────────────────────
-ORDER="http://localhost:8084"
+ORDER="http://localhost:18084"
 
 curl -X POST "$ORDER/internal/chaos/memory-leak/start" \
   -H "Content-Type: application/json" \
@@ -24,7 +24,7 @@ curl -X POST "$ORDER/internal/chaos/memory-leak/clear"
 curl "$ORDER/internal/chaos/memory-leak/status"
 
 # ── payment-service ───────────────────────────────────────────
-PAYMENT="http://localhost:8085"
+PAYMENT="http://localhost:18085"
 
 curl -X POST "$PAYMENT/internal/chaos/memory-leak/start" \
   -H "Content-Type: application/json" \

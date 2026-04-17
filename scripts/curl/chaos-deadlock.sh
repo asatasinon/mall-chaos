@@ -7,7 +7,7 @@
 #   durationSec 自动关闭秒数，0=永不自动关闭
 
 # ── order-service ─────────────────────────────────────────────
-ORDER="http://localhost:8084"
+ORDER="http://localhost:18084"
 
 curl -X POST "$ORDER/internal/chaos/deadlock/enable" \
   -H "Content-Type: application/json" \
@@ -22,7 +22,7 @@ curl -X POST "$ORDER/internal/chaos/deadlock/clear"
 curl "$ORDER/internal/chaos/deadlock/status"
 
 # ── payment-service ───────────────────────────────────────────
-PAYMENT="http://localhost:8085"
+PAYMENT="http://localhost:18085"
 
 curl -X POST "$PAYMENT/internal/chaos/deadlock/enable" \
   -H "Content-Type: application/json" \

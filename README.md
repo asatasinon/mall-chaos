@@ -43,48 +43,48 @@ Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、
 └──────────────────────┬──────────────────────────────┘
                        │
               ┌────────▼────────┐
-              │  gateway-service │  :8080  路由、traceId 注入
+              │  gateway-service │ :18080  路由、traceId 注入
               └────────┬────────┘
           ┌────────────┼──────────────────┐
           │            │                  │
    ┌──────▼──────┐  ┌──▼──────────┐  ┌───▼───────────┐
-   │ user-service│  │catalog-svc  │  │ order-service  │  :8084
-   │    :8081    │  │   :8082     │  │ 状态机 / 幂等  │
+  │ user-service│  │catalog-svc  │  │ order-service  │ :18084
+  │   :18081    │  │   :18082    │  │ 状态机 / 幂等  │
    └─────────────┘  └─────────────┘  └───┬───────────┘
                                           │ 编排调用
               ┌───────────────────────────┼───────────────────┐
               │                           │                   │
    ┌──────────▼──┐            ┌───────────▼──┐   ┌──────────▼──┐
-   │inventory-svc│            │ payment-svc  │   │  risk-svc   │
-   │    :8083    │            │    :8085     │   │    :8088    │
+  │inventory-svc│            │ payment-svc  │   │  risk-svc   │
+  │   :18083    │            │   :18085     │   │   :18088    │
    │ 预占/释放   │            │  支付模拟    │   │  前置风控   │
    └─────────────┘            └──────────────┘   └─────────────┘
                                       │
               ┌───────────────────────┼───────────────────┐
               │                       │                   │
    ┌──────────▼──┐       ┌────────────▼──┐   ┌──────────▼──┐
-   │fulfillment  │       │ promotion-svc  │   │notification │
-   │    :8089    │       │    :8087       │   │    :8090    │
+  │fulfillment  │       │ promotion-svc  │   │notification │
+  │   :18089    │       │   :18087       │   │   :18090    │
    └─────────────┘       └───────────────┘   └─────────────┘
 
    ┌──────────────────────────────────────────────────┐
-   │  traffic-runner-service :8086  自动流量 + 热更新 │
+  │ traffic-runner-service :18086 自动流量 + 热更新 │
    └──────────────────────────────────────────────────┘
 ```
 
 | 服务 | 端口 | 职责 |
 |---|---|---|
-| gateway-service | 8080 | 统一入口、路由转发、traceId 注入 |
-| user-service | 8081 | 用户资料、收货地址 |
-| catalog-service | 8082 | 商品查询、SKU 价格 |
-| inventory-service | 8083 | 库存预占/释放/重置 |
-| order-service | 8084 | 下单编排、状态机、3 类 Chaos |
-| payment-service | 8085 | 支付模拟、3 类 Chaos |
-| traffic-runner-service | 8086 | 自动流量生成、配置热更新 |
-| promotion-service | 8087 | 优惠券计算、慢 SQL Chaos |
-| risk-service | 8088 | 前置风控、支付后复核 |
-| fulfillment-service | 8089 | 履约单、发货状态流转 |
-| notification-service | 8090 | 事件驱动通知、结构化日志 |
+| gateway-service | 18080 | 统一入口、路由转发、traceId 注入 |
+| user-service | 18081 | 用户资料、收货地址 |
+| catalog-service | 18082 | 商品查询、SKU 价格 |
+| inventory-service | 18083 | 库存预占/释放/重置 |
+| order-service | 18084 | 下单编排、状态机、3 类 Chaos |
+| payment-service | 18085 | 支付模拟、3 类 Chaos |
+| traffic-runner-service | 18086 | 自动流量生成、配置热更新 |
+| promotion-service | 18087 | 优惠券计算、慢 SQL Chaos |
+| risk-service | 18088 | 前置风控、支付后复核 |
+| fulfillment-service | 18089 | 履约单、发货状态流转 |
+| notification-service | 18090 | 事件驱动通知、结构化日志 |
 
 ---
 
@@ -180,13 +180,13 @@ docker-compose ps
 
 ```bash
 # 网关健康检查
-curl http://localhost:8080/actuator/health
+curl http://localhost:18080/actuator/health
 
 # 查询商品列表
-curl http://localhost:8080/api/products
+curl http://localhost:18080/api/products
 
 # 查看 Runner 状态（应为 running=true）
-curl http://localhost:8080/internal/runner/status
+curl http://localhost:18080/internal/runner/status
 ```
 
 服务启动后，traffic-runner 会自动以默认 QPS 向系统发送业务流量。
@@ -198,7 +198,7 @@ curl http://localhost:8080/internal/runner/status
 docker-compose --profile observability up -d
 
 # 访问 Grafana
-open http://localhost:3000   # admin / admin
+open http://localhost:13000   # admin / admin
 ```
 
 ### 4. 停止服务
@@ -206,6 +206,20 @@ open http://localhost:3000   # admin / admin
 ```bash
 docker-compose down          # 保留数据卷
 docker-compose down -v       # 同时删除数据卷（清空数据库）
+```
+
+### 5. 全部重建
+
+```bash
+mvn clean install -DskipTests
+
+# 保留数据，重建全部容器并重新构建镜像
+docker-compose down
+docker-compose up -d --build --force-recreate
+
+# 连数据卷一起清空，做彻底重建
+docker-compose down -v
+docker-compose up -d --build --force-recreate
 ```
 
 ---
@@ -348,15 +362,15 @@ MySQL 初始化脚本位于 `infra/mysql/init/00-schema.sql`，Docker Compose �
 
 ```bash
 # 查看当前配置
-curl http://localhost:8086/internal/runner/config
+curl http://localhost:18086/internal/runner/config
 
 # 更新 QPS（必须带 version 字段，乐观锁保护）
-curl -X PUT http://localhost:8086/internal/runner/config \
+curl -X PUT http://localhost:18086/internal/runner/config \
   -H 'Content-Type: application/json' \
   -d '{"qps": 20, "version": 1}'
 
 # 动态调速（无需 version）
-curl -X POST http://localhost:8086/internal/runner/rate \
+curl -X POST http://localhost:18086/internal/runner/rate \
   -H 'Content-Type: application/json' \
   -d '{"qps": 50}'
 ```
@@ -373,17 +387,17 @@ curl -X POST http://localhost:8086/internal/runner/rate \
 
 ```bash
 # 开启 sleep 模式（100% 注入，持续 3 分钟后自动关闭）
-curl -X POST http://localhost:8085/internal/chaos/slow-sql/enable \
+curl -X POST http://localhost:18085/internal/chaos/slow-sql/enable \
   -H 'Content-Type: application/json' \
   -d '{"mode":"sleep","delayMs":3000,"injectRate":1.0,"durationSec":180}'
 
 # 开启 real 模式（SELECT SLEEP(N) 真实慢查询，50% 注入）
-curl -X POST http://localhost:8085/internal/chaos/slow-sql/enable \
+curl -X POST http://localhost:18085/internal/chaos/slow-sql/enable \
   -H 'Content-Type: application/json' \
   -d '{"mode":"real","delayMs":2000,"injectRate":0.5,"durationSec":180}'
 
 # 手动关闭
-curl -X POST http://localhost:8085/internal/chaos/slow-sql/disable
+curl -X POST http://localhost:18085/internal/chaos/slow-sql/disable
 ```
 
 ### JVM 内存泄漏
@@ -392,15 +406,15 @@ curl -X POST http://localhost:8085/internal/chaos/slow-sql/disable
 
 ```bash
 # 开始泄漏（每 300ms 分配 1MB，上限 350MB）
-curl -X POST http://localhost:8084/internal/chaos/memory-leak/start \
+curl -X POST http://localhost:18084/internal/chaos/memory-leak/start \
   -H 'Content-Type: application/json' \
   -d '{"chunkSizeKb":1024,"intervalMs":300,"maxMb":350}'
 
 # 停止分配（已持有内存不释放）
-curl -X POST http://localhost:8084/internal/chaos/memory-leak/stop
+curl -X POST http://localhost:18084/internal/chaos/memory-leak/stop
 
 # 释放所有持有内存
-curl -X POST http://localhost:8084/internal/chaos/memory-leak/clear
+curl -X POST http://localhost:18084/internal/chaos/memory-leak/clear
 ```
 
 ### 数据库死锁
@@ -409,12 +423,12 @@ curl -X POST http://localhost:8084/internal/chaos/memory-leak/clear
 
 ```bash
 # 开启死锁注入（40% 概率，3 分钟后自动停止）
-curl -X POST http://localhost:8084/internal/chaos/deadlock/enable \
+curl -X POST http://localhost:18084/internal/chaos/deadlock/enable \
   -H 'Content-Type: application/json' \
   -d '{"injectRate":0.4,"durationSec":180}'
 
 # 手动关闭
-curl -X POST http://localhost:8084/internal/chaos/deadlock/disable
+curl -X POST http://localhost:18084/internal/chaos/deadlock/disable
 ```
 
 ### 网络故障（ToxiProxy）
@@ -437,9 +451,9 @@ ToxiProxy 代理映射：
 
 | 代理名 | 路径 | 本地端口 |
 |---|---|---|
-| `order-to-payment` | order → payment-service | 18085 |
-| `order-to-inventory` | order → inventory-service | 18083 |
-| `gateway-to-order` | gateway → order-service | 18084 |
+| `order-to-payment` | order → payment-service | 18185 |
+| `order-to-inventory` | order → inventory-service | 18183 |
+| `gateway-to-order` | gateway → order-service | 18184 |
 
 ### Chaos Mesh（Kubernetes）
 
@@ -461,28 +475,32 @@ kubectl delete -f k8s/chaos/network-delay.yaml
 
 ```bash
 # 预览将要重置的差值（不写入）
-curl http://localhost:8083/internal/inventory/reset/plan
+curl http://localhost:18083/internal/inventory/reset/plan
 
 # 执行重置（需要 expectedVersion）
-curl -X POST http://localhost:8083/internal/inventory/reset \
+curl -X POST http://localhost:18083/internal/inventory/reset \
   -H 'Content-Type: application/json' \
   -d '{"expectedVersion": 1}'
 
 # 通过 traffic-runner 触发（带分布式锁保护）
-curl -X POST http://localhost:8086/internal/runner/inventory-reset/trigger
+curl -X POST http://localhost:18086/internal/runner/inventory-reset/trigger
 ```
 
 ---
 
 ## 可观测性
 
-| 服务 | 地址 | 说明 |
-|---|---|---|
-| Grafana | http://localhost:3000 | admin / admin |
-| Prometheus | http://localhost:9090 | 指标查询 |
-| Loki | http://localhost:3100 | 日志聚合 |
-| Tempo | http://localhost:3200 | 分布式追踪 |
-| ToxiProxy API | http://localhost:8474 | 网络故障管理 |
+| 服务 | 地址 | 凭据 | 说明 |
+|---|---|---|---|
+| Grafana | http://localhost:13000 | admin / admin | 可视化面板 |
+| Prometheus | http://localhost:19090 | castrel / castrel | 指标查询（Basic Auth） |
+| Loki | http://localhost:13100 | castrel / castrel | 日志聚合（Basic Auth） |
+| Tempo | http://localhost:13200 | castrel / castrel | 分布式追踪（Basic Auth） |
+| ToxiProxy API | http://localhost:18474 | — | 网络故障管理 |
+
+> **认证说明**：Prometheus、Loki、Tempo 的外部端口通过 nginx 反向代理保护，需要 HTTP Basic Auth。  
+> 默认账号 `castrel`，密码 `castrel`，可在 `infra/nginx/.htpasswd` 中修改（使用 `openssl passwd -apr1 '<new-password>'` 重新生成哈希）。  
+> Grafana 与各组件之间的内部通信无需认证。
 
 启动可观测性栈：
 
