@@ -191,13 +191,18 @@ curl http://localhost:18080/internal/runner/status
 
 服务启动后，traffic-runner 会自动以默认 QPS 向系统发送业务流量。
 
-### 3. 启动可观测性栈（可选）
+### 3. 关闭可观测性栏（可选）
+
+可观测性栏（Grafana / Prometheus / Loki / Tempo）默认随 `docker-compose up -d` 一起启动。如需关闭：
 
 ```bash
-# Grafana / Prometheus / Loki / Tempo
-docker-compose --profile observability up -d
+# 停止可观测性服务
+docker compose stop prometheus grafana loki tempo obs-auth-proxy mysqld-exporter promtail
+```
 
-# 访问 Grafana
+访问 Grafana：
+
+```bash
 open http://localhost:13000   # admin / admin
 ```
 
@@ -381,6 +386,24 @@ curl -X POST http://localhost:18086/internal/runner/rate \
 
 > **安全约束**：Chaos 接口仅在 `chaos` Spring Profile 下注册。生产环境禁用此 profile 即可关闭所有 Chaos 端点。
 
+### 可视化控制台（故障触发）
+
+网关内置了一个前端故障控制台，可直接进行 slow SQL / memory leak / deadlock / toxiproxy 注入：
+
+```bash
+# 启动后访问
+http://localhost:18080/chaos-console.html
+```
+
+控制台特性：
+
+- 系统拓扑可视化（节点状态高亮）
+- Slow SQL 八服务批量启停（catalog/inventory/order/payment/promotion/risk/fulfillment/notification）
+- order/payment 内存泄漏与死锁一键控制
+- ToxiProxy 网络故障注入（延迟、reset_peer、清空 toxics）
+- Grafana/Tempo 深链跳转（dashboard、按服务过滤、按 traceId 检索）
+- 预置 Task 19 场景按钮（场景 2/4/5/7 + 一键恢复）
+
 ### 慢 SQL
 
 适用服务：catalog / inventory / order / payment / promotion / risk / fulfillment
@@ -502,12 +525,12 @@ curl -X POST http://localhost:18086/internal/runner/inventory-reset/trigger
 > 默认账号 `castrel`，密码 `castrel`，可在 `infra/nginx/.htpasswd` 中修改（使用 `openssl passwd -apr1 '<new-password>'` 重新生成哈希）。  
 > Grafana 与各组件之间的内部通信无需认证。
 
-启动可观测性栈：
+可观测性栏默认随 `docker-compose up -d` 一起启动，无需额外命令。
 
 ```bash
 mvn clean package -DskipTests
 
-docker-compose --profile observability up -d
+docker-compose up -d
 ```
 
 **关键指标：**

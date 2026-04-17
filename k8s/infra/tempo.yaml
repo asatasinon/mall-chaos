@@ -19,6 +19,7 @@ spec:
           args: ["-config.file=/etc/tempo/config.yml"]
           ports:
             - containerPort: 3200   # Tempo HTTP
+            - containerPort: 9095   # Tempo gRPC (query)
             - containerPort: 4317   # OTLP gRPC
             - containerPort: 4318   # OTLP HTTP
           volumeMounts:
@@ -47,6 +48,9 @@ spec:
     - name: http
       port: 3200
       targetPort: 3200
+    - name: grpc
+      port: 9095
+      targetPort: 9095
     - name: otlp-grpc
       port: 4317
       targetPort: 4317

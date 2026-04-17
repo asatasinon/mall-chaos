@@ -1,0 +1,1591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Castrel Chaos Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-0: #090d16;
+      --bg-1: #131b2e;
+      --panel: rgba(16, 27, 48, 0.78);
+      --line: rgba(120, 161, 223, 0.35);
+      --text: #d8e7ff;
+      --muted: #8fa8cf;
+      --accent: #4ce7b7;
+      --warning: #ffc65a;
+      --danger: #ff6f8a;
+      --chip: #1d2a45;
+      --active: #4ce7b7;
+      --inactive: #5e7094;
+      --unknown: #7f6ea4;
+      --shadow: 0 20px 50px rgba(3, 8, 18, 0.46);
+      --radius: 16px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 15% 20%, #203056 0%, transparent 35%),
+        radial-gradient(circle at 88% 8%, #1f3551 0%, transparent 30%),
+        linear-gradient(160deg, var(--bg-0), var(--bg-1));
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      letter-spacing: 0.01em;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.08;
+      background-image: linear-gradient(transparent 96%, rgba(255,255,255,0.6) 100%);
+      background-size: 100% 3px;
+      mix-blend-mode: soft-light;
+    }
+
+    .shell {
+      width: min(1360px, calc(100vw - 36px));
+      margin: 18px auto 40px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 14px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(8px);
+    }
+
+    .panel-head {
+      padding: 16px 18px 8px;
+      border-bottom: 1px solid rgba(143, 168, 207, 0.15);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .title {
+      margin: 0;
+      font-family: "Bricolage Grotesque", sans-serif;
+      font-size: 1.3rem;
+      letter-spacing: 0.03em;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .flag {
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.78rem;
+      border: 1px solid rgba(76, 231, 183, 0.45);
+      color: var(--accent);
+      background: rgba(76, 231, 183, 0.08);
+    }
+
+    .hero-summary {
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .big {
+      margin: 0;
+      font-family: "Bricolage Grotesque", sans-serif;
+      font-size: clamp(1.3rem, 2.6vw, 2.3rem);
+      line-height: 1.05;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .big em {
+      color: var(--accent);
+      font-style: normal;
+    }
+
+    .kv {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      border-radius: 12px;
+      border: 1px solid rgba(143, 168, 207, 0.24);
+      background: rgba(28, 44, 73, 0.72);
+      padding: 8px 10px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .chip strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.8fr 1fr;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .topology-wrap {
+      padding: 16px;
+    }
+
+    .topology-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      position: relative;
+      min-height: 230px;
+      padding-top: 8px;
+    }
+
+    .topology-grid::before,
+    .topology-grid::after {
+      content: "";
+      position: absolute;
+      left: 23%;
+      right: 13%;
+      border-top: 1px dashed rgba(143, 168, 207, 0.25);
+      pointer-events: none;
+    }
+
+    .topology-grid::before { top: 82px; }
+    .topology-grid::after { top: 160px; }
+
+    .node {
+      position: relative;
+      border-radius: 14px;
+      background: rgba(25, 38, 63, 0.78);
+      border: 1px solid rgba(120, 161, 223, 0.34);
+      padding: 10px;
+      min-height: 68px;
+      display: grid;
+      align-content: center;
+      gap: 4px;
+      transition: border-color 180ms ease, transform 180ms ease;
+    }
+
+    .node:hover {
+      transform: translateY(-2px);
+      border-color: rgba(143, 168, 207, 0.52);
+    }
+
+    .node-name {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .node-meta {
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      position: absolute;
+      right: 10px;
+      top: 10px;
+      box-shadow: 0 0 10px currentColor;
+    }
+
+    .state-active .dot { color: var(--active); background: var(--active); }
+    .state-inactive .dot { color: var(--inactive); background: var(--inactive); }
+    .state-unknown .dot { color: var(--unknown); background: var(--unknown); }
+
+    .control-body {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 10px;
+    }
+
+    label {
+      font-size: 0.74rem;
+      color: var(--muted);
+      display: grid;
+      gap: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    input,
+    select,
+    button,
+    textarea {
+      border: 1px solid rgba(143, 168, 207, 0.3);
+      border-radius: 10px;
+      background: rgba(7, 15, 30, 0.9);
+      color: var(--text);
+      font-size: 0.9rem;
+      padding: 9px 10px;
+      font-family: inherit;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus,
+    button:focus {
+      outline: none;
+      border-color: rgba(76, 231, 183, 0.72);
+      box-shadow: 0 0 0 2px rgba(76, 231, 183, 0.22);
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 130ms ease, border-color 130ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(143, 168, 207, 0.5);
+    }
+
+    .btn-primary {
+      border-color: rgba(76, 231, 183, 0.55);
+      background: linear-gradient(160deg, rgba(76, 231, 183, 0.23), rgba(55, 129, 103, 0.14));
+      color: #cffff2;
+    }
+
+    .btn-warn {
+      border-color: rgba(255, 198, 90, 0.58);
+      color: #ffdf9c;
+      background: rgba(84, 57, 9, 0.35);
+    }
+
+    .btn-danger {
+      border-color: rgba(255, 111, 138, 0.6);
+      color: #ffb5c4;
+      background: rgba(98, 20, 38, 0.35);
+    }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 8px;
+    }
+
+    .service-card {
+      background: rgba(22, 34, 59, 0.72);
+      border: 1px solid rgba(120, 161, 223, 0.32);
+      border-radius: 12px;
+      padding: 10px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .service-name {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .service-status {
+      font-size: 0.75rem;
+      color: var(--muted);
+      min-height: 1.1em;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .mini {
+      border-radius: 12px;
+      border: 1px solid rgba(120, 161, 223, 0.32);
+      background: rgba(19, 32, 56, 0.66);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .mini h4 {
+      margin: 0;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+
+    .scenario-grid {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .scenario {
+      border-radius: 12px;
+      border: 1px solid rgba(120, 161, 223, 0.34);
+      background: rgba(15, 25, 44, 0.76);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .scenario p {
+      margin: 0;
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .logs {
+      max-height: 320px;
+      overflow: auto;
+      border-top: 1px solid rgba(143, 168, 207, 0.16);
+      padding: 12px;
+      font-family: "IBM Plex Sans", monospace;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: #bcdaff;
+      white-space: pre-wrap;
+    }
+
+    .hint {
+      font-size: 0.76rem;
+      color: var(--muted);
+      margin: 0;
+      padding: 0 14px 14px;
+      line-height: 1.4;
+    }
+
+    .side {
+      position: sticky;
+      top: 12px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.82rem;
+      color: #a8cbff;
+    }
+
+    @media (max-width: 1120px) {
+      .hero,
+      .layout,
+      .split,
+      .scenario-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .service-grid,
+      .form-grid {
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+      }
+
+      .side {
+        position: static;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        width: calc(100vw - 20px);
+        margin-top: 10px;
+      }
+
+      .service-grid,
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .topology-grid {
+        grid-template-columns: repeat(2, 1fr);
+        min-height: auto;
+      }
+
+      .topology-grid::before,
+      .topology-grid::after {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <section class="hero">
+    <article class="panel hero-summary">
+      <p class="flag">Castrel Chaos · Fault Director</p>
+      <h1 class="big">故障触发 <em>可视化控制台</em></h1>
+      <p class="subtitle">同源入口，直接操作 slow SQL / memory leak / deadlock / toxiproxy。适配 Task 14/15/16/17/19 演练动作。</p>
+      <div class="kv">
+        <div class="chip"><strong>UI 地址</strong> <span class="mono">/chaos-console.html</span></div>
+        <div class="chip"><strong>API 前缀</strong> <span class="mono">/ops/chaos/*</span></div>
+        <div class="chip"><strong>ToxiProxy</strong> <span class="mono">/ops/toxiproxy/*</span></div>
+      </div>
+    </article>
+    <article class="panel">
+      <div class="panel-head">
+        <div>
+          <h2 class="title">运行态</h2>
+          <p class="subtitle">当前操作上下文</p>
+        </div>
+        <button id="refreshAllBtn" class="btn-primary">刷新全部状态</button>
+      </div>
+      <div class="control-body">
+        <div class="chip"><strong>最近 TraceId</strong> <span id="lastTraceId" class="mono">-</span></div>
+        <div class="chip"><strong>最近刷新</strong> <span id="lastRefreshAt" class="mono">-</span></div>
+        <div class="chip"><strong>轮询间隔</strong> <span class="mono">8s</span></div>
+      </div>
+      <p class="hint">说明：部分服务未实现 <span class="mono">/status</span> 接口，页面会显示“无状态端点”，但触发和关闭仍可执行。</p>
+    </article>
+  </section>
+
+  <section class="layout">
+    <div class="stack">
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="title">系统拓扑</h2>
+            <p class="subtitle">点亮表示该服务当前存在故障注入</p>
+          </div>
+        </div>
+        <div class="topology-wrap">
+          <div class="topology-grid" id="topologyGrid"></div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="title">Slow SQL 控制</h2>
+            <p class="subtitle">支持 8 个服务批量启停</p>
+          </div>
+        </div>
+        <div class="control-body">
+          <div class="form-grid">
+            <label>Mode
+              <select id="slowMode">
+                <option value="sleep">sleep</option>
+                <option value="real">real</option>
+              </select>
+            </label>
+            <label>Delay Ms
+              <input id="slowDelay" type="number" min="100" value="2000">
+            </label>
+            <label>Inject Rate
+              <input id="slowInjectRate" type="number" min="0" max="1" step="0.1" value="0.5">
+            </label>
+            <label>Duration Sec
+              <input id="slowDuration" type="number" min="0" value="180">
+            </label>
+          </div>
+          <div class="btn-row">
+            <button id="slowEnableAll" class="btn-primary">全服务启用 Slow SQL</button>
+            <button id="slowDisableAll" class="btn-warn">全服务关闭 Slow SQL</button>
+          </div>
+          <div class="service-grid" id="slowServiceGrid"></div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="title">Order / Payment 故障控制</h2>
+            <p class="subtitle">内存泄漏 + 数据库死锁</p>
+          </div>
+        </div>
+        <div class="control-body split">
+          <section class="mini">
+            <h4>Memory Leak</h4>
+            <div class="form-grid" style="grid-template-columns: repeat(3, 1fr);">
+              <label>Chunk KB
+                <input id="memChunk" type="number" min="1" value="1024">
+              </label>
+              <label>Interval Ms
+                <input id="memInterval" type="number" min="50" value="500">
+              </label>
+              <label>Max MB
+                <input id="memMax" type="number" min="64" value="512">
+              </label>
+            </div>
+            <div class="btn-row">
+              <button data-action="mem-start" data-target="order" class="btn-primary">order start</button>
+              <button data-action="mem-start" data-target="payment" class="btn-primary">payment start</button>
+              <button data-action="mem-stop" data-target="order" class="btn-warn">order stop</button>
+              <button data-action="mem-stop" data-target="payment" class="btn-warn">payment stop</button>
+              <button data-action="mem-clear" data-target="order" class="btn-danger">order clear</button>
+              <button data-action="mem-clear" data-target="payment" class="btn-danger">payment clear</button>
+            </div>
+            <div class="service-grid" id="memoryGrid"></div>
+          </section>
+
+          <section class="mini">
+            <h4>Deadlock</h4>
+            <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
+              <label>Inject Rate
+                <input id="deadlockInjectRate" type="number" min="0" max="1" step="0.1" value="0.3">
+              </label>
+              <label>Duration Sec
+                <input id="deadlockDuration" type="number" min="0" value="180">
+              </label>
+            </div>
+            <div class="btn-row">
+              <button data-action="deadlock-enable" data-target="order" class="btn-primary">order enable</button>
+              <button data-action="deadlock-enable" data-target="payment" class="btn-primary">payment enable</button>
+              <button data-action="deadlock-disable" data-target="order" class="btn-warn">order disable</button>
+              <button data-action="deadlock-disable" data-target="payment" class="btn-warn">payment disable</button>
+              <button data-action="deadlock-clear" data-target="order" class="btn-danger">order clear</button>
+              <button data-action="deadlock-clear" data-target="payment" class="btn-danger">payment clear</button>
+            </div>
+            <div class="service-grid" id="deadlockGrid"></div>
+          </section>
+        </div>
+      </article>
+    </div>
+
+    <aside class="side">
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="title">Observability 深链</h2>
+            <p class="subtitle">Grafana Dashboard / Tempo Explore</p>
+          </div>
+        </div>
+        <div class="control-body">
+          <div class="form-grid" style="grid-template-columns: 1fr;">
+            <label>Grafana Base URL
+              <input id="grafanaBaseUrl" type="text" value="http://localhost:13000" placeholder="http://localhost:13000">
+            </label>
+          </div>
+          <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <label>Service
+              <select id="observeService">
+                <option value="all">all</option>
+                <option value="gateway-service">gateway-service</option>
+                <option value="user-service">user-service</option>
+                <option value="catalog-service">catalog-service</option>
+                <option value="inventory-service">inventory-service</option>
+                <option value="order-service">order-service</option>
+                <option value="payment-service">payment-service</option>
+                <option value="traffic-runner-service">traffic-runner-service</option>
+                <option value="promotion-service">promotion-service</option>
+                <option value="risk-service">risk-service</option>
+                <option value="fulfillment-service">fulfillment-service</option>
+                <option value="notification-service">notification-service</option>
+              </select>
+            </label>
+            <label>Time Range
+              <select id="observeTimeRange">
+                <option value="now-15m">last 15m</option>
+                <option value="now-1h" selected>last 1h</option>
+                <option value="now-6h">last 6h</option>
+                <option value="now-24h">last 24h</option>
+              </select>
+            </label>
+          </div>
+          <div class="btn-row">
+            <button id="openServicesOverviewBtn" class="btn-primary">Services Overview</button>
+            <button id="openChaosEventsBtn" class="btn-primary">Chaos Events</button>
+            <button id="openServiceOverviewBtn">按服务看 Overview</button>
+            <button id="openTempoTraceBtn" class="btn-warn">按 TraceId 看 Tempo</button>
+            <button id="openTempoServiceBtn">按服务看 Tempo</button>
+          </div>
+          <div class="chip"><strong>Deep Link</strong> <span id="deepLinkPreview" class="mono">-</span></div>
+        </div>
+        <p class="hint">Tempo 深链默认使用最近一次页面请求生成的 TraceId；若为空，请先执行任意操作。</p>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="title">场景预设</h2>
+            <p class="subtitle">一键执行 task-19 核心场景</p>
+          </div>
+        </div>
+        <div class="scenario-grid">
+          <div class="scenario">
+            <strong>场景 2</strong>
+            <p>order→payment 网络延迟（3s / jitter 1s / 300s）</p>
+            <button data-scenario="s2" class="btn-primary">执行</button>
+          </div>
+          <div class="scenario">
+            <strong>场景 4</strong>
+            <p>payment slow SQL（sleep, 3s, 100%, 180s）</p>
+            <button data-scenario="s4" class="btn-primary">执行</button>
+          </div>
+          <div class="scenario">
+            <strong>场景 5</strong>
+            <p>order + payment 死锁注入（0.4 / 0.3）</p>
+            <button data-scenario="s5" class="btn-primary">执行</button>
+          </div>
+          <div class="scenario">
+            <strong>场景 7</strong>
+            <p>组合故障（网络 + order slow SQL + order deadlock）</p>
+            <button data-scenario="s7" class="btn-danger">执行</button>
+          </div>
+          <div class="scenario" style="grid-column: 1 / -1;">
+            <strong>恢复操作</strong>
+            <p>关闭全部 chaos + 清空全部 toxics</p>
+            <button id="recoverAllBtn" class="btn-warn">一键恢复</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="title">ToxiProxy</h2>
+            <p class="subtitle">网络故障注入</p>
+          </div>
+        </div>
+        <div class="control-body">
+          <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <label>Proxy
+              <select id="proxyName">
+                <option value="order-to-payment">order-to-payment</option>
+                <option value="order-to-inventory">order-to-inventory</option>
+                <option value="gateway-to-order">gateway-to-order</option>
+              </select>
+            </label>
+            <label>Toxic Name
+              <input id="toxicName" type="text" value="chaos-delay">
+            </label>
+            <label>Latency ms
+              <input id="latencyMs" type="number" min="1" value="3000">
+            </label>
+            <label>Jitter ms
+              <input id="jitterMs" type="number" min="0" value="1000">
+            </label>
+            <label>Auto remove sec
+              <input id="toxicDuration" type="number" min="0" value="120">
+            </label>
+          </div>
+          <div class="btn-row">
+            <button id="injectDelayBtn" class="btn-primary">注入延迟</button>
+            <button id="injectResetBtn" class="btn-danger">注入 reset_peer</button>
+            <button id="removeToxicBtn" class="btn-warn">移除 toxic</button>
+            <button id="clearToxicsBtn" class="btn-warn">清空所有 toxics</button>
+            <button id="refreshToxiBtn">刷新代理状态</button>
+          </div>
+          <div id="toxiproxyView" class="logs" style="max-height: 180px;">尚未加载</div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="title">事件日志</h2>
+            <p class="subtitle">页面侧操作记录</p>
+          </div>
+          <button id="clearLogBtn">清空</button>
+        </div>
+        <div id="eventLog" class="logs">控制台已启动。</div>
+      </article>
+    </aside>
+  </section>
+</div>
+
+<script>
+  const slowSqlServices = [
+    { id: "catalog", label: "catalog", role: "slow-sql" },
+    { id: "inventory", label: "inventory", role: "slow-sql" },
+    { id: "order", label: "order", role: "slow-sql+leak+deadlock" },
+    { id: "payment", label: "payment", role: "slow-sql+leak+deadlock" },
+    { id: "promotion", label: "promotion", role: "slow-sql" },
+    { id: "risk", label: "risk", role: "slow-sql" },
+    { id: "fulfillment", label: "fulfillment", role: "slow-sql" },
+    { id: "notification", label: "notification", role: "slow-sql" }
+  ];
+
+  const topologyServices = [
+    { id: "gateway", label: "gateway", role: "ingress" },
+    { id: "order", label: "order", role: "orchestration" },
+    { id: "payment", label: "payment", role: "payment" },
+    { id: "inventory", label: "inventory", role: "stock" },
+    { id: "catalog", label: "catalog", role: "product" },
+    { id: "promotion", label: "promotion", role: "coupon" },
+    { id: "risk", label: "risk", role: "risk-check" },
+    { id: "fulfillment", label: "fulfillment", role: "shipping" }
+  ];
+
+  const state = {
+    slowSql: {},
+    memory: {},
+    deadlock: {},
+    topology: {},
+    lastTraceId: "-",
+    backoffUntil: {},
+    toxiproxyBackoffUntil: 0
+  };
+
+  const topologyGrid = document.getElementById("topologyGrid");
+  const slowServiceGrid = document.getElementById("slowServiceGrid");
+  const memoryGrid = document.getElementById("memoryGrid");
+  const deadlockGrid = document.getElementById("deadlockGrid");
+  const eventLog = document.getElementById("eventLog");
+  const toxiproxyView = document.getElementById("toxiproxyView");
+  const lastTraceIdEl = document.getElementById("lastTraceId");
+  const lastRefreshAtEl = document.getElementById("lastRefreshAt");
+  const deepLinkPreviewEl = document.getElementById("deepLinkPreview");
+
+  function nowText() {
+    return new Date().toLocaleTimeString();
+  }
+
+  function appendLog(message, level = "INFO") {
+    const line = `[${nowText()}] [${level}] ${message}`;
+    eventLog.textContent = `${line}\n${eventLog.textContent}`.trim();
+  }
+
+  function setTrace(traceId) {
+    state.lastTraceId = traceId;
+    lastTraceIdEl.textContent = traceId;
+  }
+
+  function buildTraceId() {
+    return Math.random().toString(16).slice(2).padEnd(16, "0");
+  }
+
+  function normalizeBaseUrl(url) {
+    if (!url || !url.trim()) {
+      return "http://localhost:13000";
+    }
+    return url.trim().replace(/\/+$/, "");
+  }
+
+  function getObserveContext() {
+    const base = normalizeBaseUrl(document.getElementById("grafanaBaseUrl").value);
+    const service = document.getElementById("observeService").value;
+    const from = document.getElementById("observeTimeRange").value;
+    return { base, service, from, to: "now" };
+  }
+
+  function updateDeepLinkPreview(url) {
+    deepLinkPreviewEl.textContent = url || "-";
+  }
+
+  function openDeepLink(url, label) {
+    updateDeepLinkPreview(url);
+    window.open(url, "_blank", "noopener,noreferrer");
+    appendLog(`深链跳转: ${label}`);
+  }
+
+  function buildDashboardLink(baseUrl, uid, slug, from, to, vars = {}) {
+    const params = new URLSearchParams({
+      orgId: "1",
+      from,
+      to
+    });
+    for (const [key, value] of Object.entries(vars)) {
+      if (value !== undefined && value !== null && value !== "") {
+        params.set(`var-${key}`, String(value));
+      }
+    }
+    return `${baseUrl}/d/${uid}/${slug}?${params.toString()}`;
+  }
+
+  function buildExploreLink(baseUrl, datasourceUid, query, from, to, queryType = "traceql") {
+    const pane = {
+      datasource: datasourceUid,
+      queries: [
+        {
+          refId: "A",
+          datasource: { type: datasourceUid === "tempo" ? "tempo" : "prometheus", uid: datasourceUid },
+          queryType,
+          query
+        }
+      ],
+      range: { from, to }
+    };
+    const panes = encodeURIComponent(JSON.stringify({ A: pane }));
+    return `${baseUrl}/explore?orgId=1&schemaVersion=1&panes=${panes}`;
+  }
+
+  async function request(path, options = {}) {
+    const traceId = buildTraceId();
+    setTrace(traceId);
+    const payload = {
+      method: options.method || "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Trace-Id": traceId,
+        ...(options.headers || {})
+      }
+    };
+    if (options.body !== undefined) {
+      payload.body = JSON.stringify(options.body);
+    }
+
+    const response = await fetch(path, payload);
+    const text = await response.text();
+    let parsed = null;
+
+    if (text) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = text;
+      }
+    }
+
+    if (!response.ok) {
+      const message = parsed && parsed.message
+        ? parsed.message
+        : `${response.status} ${response.statusText}`;
+      const error = new Error(message);
+      error.httpStatus = response.status;
+      throw error;
+    }
+
+    if (parsed && typeof parsed === "object" && "code" in parsed && "data" in parsed) {
+      if (parsed.code !== 200) {
+        const error = new Error(parsed.message || "ApiResponse error");
+        error.httpStatus = 200;
+        throw error;
+      }
+      return parsed.data;
+    }
+
+    return parsed;
+  }
+
+  function chaosPath(serviceId, suffix) {
+    return `/ops/chaos/${serviceId}${suffix}`;
+  }
+
+  function inBackoff(serviceId) {
+    return (state.backoffUntil[serviceId] || 0) > Date.now();
+  }
+
+  function backoffSecondsLeft(serviceId) {
+    const until = state.backoffUntil[serviceId] || 0;
+    if (until <= Date.now()) return 0;
+    return Math.ceil((until - Date.now()) / 1000);
+  }
+
+  function setBackoff(serviceId, seconds = 30) {
+    state.backoffUntil[serviceId] = Date.now() + seconds * 1000;
+  }
+
+  function clearBackoff(serviceId) {
+    delete state.backoffUntil[serviceId];
+  }
+
+  function inToxiproxyBackoff() {
+    return state.toxiproxyBackoffUntil > Date.now();
+  }
+
+  function setToxiproxyBackoff(seconds = 60) {
+    state.toxiproxyBackoffUntil = Date.now() + seconds * 1000;
+  }
+
+  function clearToxiproxyBackoff() {
+    state.toxiproxyBackoffUntil = 0;
+  }
+
+  function toxiproxyBackoffSecondsLeft() {
+    if (!inToxiproxyBackoff()) return 0;
+    return Math.ceil((state.toxiproxyBackoffUntil - Date.now()) / 1000);
+  }
+
+  function isMissingSlowSqlStatus(error) {
+    if (!error) return false;
+    if (error.httpStatus === 404) return true;
+    return /no static resource .*slow-sql\/status/i.test(String(error.message || ""));
+  }
+
+  function renderTopology() {
+    topologyGrid.innerHTML = "";
+    for (const service of topologyServices) {
+      const node = document.createElement("div");
+      const activeState = state.topology[service.id] || "inactive";
+      node.className = `node state-${activeState}`;
+      node.dataset.service = service.id;
+      node.innerHTML = `
+        <span class="dot"></span>
+        <div class="node-name">${service.label}</div>
+        <div class="node-meta">${service.role}</div>
+      `;
+      topologyGrid.appendChild(node);
+    }
+  }
+
+  function makeServiceCard(svc, statusText, statusClass = "unknown") {
+    const card = document.createElement("div");
+    card.className = `service-card state-${statusClass}`;
+    card.innerHTML = `
+      <span class="dot"></span>
+      <div class="service-name">${svc.label}</div>
+      <div class="service-status">${statusText}</div>
+    `;
+    return card;
+  }
+
+  function renderSlowCards() {
+    slowServiceGrid.innerHTML = "";
+    for (const svc of slowSqlServices) {
+      const st = state.slowSql[svc.id] || { supported: null, enabled: false };
+      let text = "未知";
+      let stateClass = "unknown";
+
+      if (inBackoff(svc.id)) {
+        text = `暂时离线，${backoffSecondsLeft(svc.id)}s后重试`;
+        stateClass = "unknown";
+      } else if (st.supported === false) {
+        text = st.enabled ? "已启用（无状态端点）" : "无状态端点";
+        stateClass = st.enabled ? "active" : "unknown";
+      } else if (st.supported === true) {
+        text = st.enabled
+          ? `ON · ${st.mode || "-"} · ${st.delayMs || "-"}ms · rate ${st.injectRate ?? "-"}`
+          : "OFF";
+        stateClass = st.enabled ? "active" : "inactive";
+      } else if (st.enabled) {
+        text = "已启用（等待刷新）";
+        stateClass = "active";
+      }
+
+      const card = makeServiceCard(svc, text, stateClass);
+      const row = document.createElement("div");
+      row.className = "btn-row";
+      row.innerHTML = `
+        <button data-action="slow-enable" data-target="${svc.id}" class="btn-primary">enable</button>
+        <button data-action="slow-disable" data-target="${svc.id}" class="btn-warn">disable</button>
+      `;
+      card.appendChild(row);
+      slowServiceGrid.appendChild(card);
+    }
+  }
+
+  function renderMemoryCards() {
+    memoryGrid.innerHTML = "";
+    for (const id of ["order", "payment"]) {
+      const st = state.memory[id] || { running: false };
+      let text;
+      let cardState;
+      if (inBackoff(id)) {
+        text = `暂时离线，${backoffSecondsLeft(id)}s后重试`;
+        cardState = "unknown";
+      } else {
+        text = st.running
+          ? `running · ${st.holdingMb ?? "-"}MB / ${st.maxMb ?? "-"}MB`
+          : `stopped · ${st.holdingMb ?? 0}MB`;
+        cardState = st.running ? "active" : "inactive";
+      }
+      memoryGrid.appendChild(makeServiceCard({ label: id }, text, cardState));
+    }
+  }
+
+  function renderDeadlockCards() {
+    deadlockGrid.innerHTML = "";
+    for (const id of ["order", "payment"]) {
+      const st = state.deadlock[id] || { enabled: false };
+      let text;
+      let cardState;
+      if (inBackoff(id)) {
+        text = `暂时离线，${backoffSecondsLeft(id)}s后重试`;
+        cardState = "unknown";
+      } else {
+        text = st.enabled
+          ? `enabled · count ${st.deadlockCount ?? 0}`
+          : `disabled · count ${st.deadlockCount ?? 0}`;
+        cardState = st.enabled ? "active" : "inactive";
+      }
+      deadlockGrid.appendChild(makeServiceCard({ label: id }, text, cardState));
+    }
+  }
+
+  function updateTopologyState() {
+    for (const service of topologyServices) {
+      if (service.id === "gateway") {
+        state.topology.gateway = "inactive";
+        continue;
+      }
+      if (inBackoff(service.id)) {
+        state.topology[service.id] = "unknown";
+        continue;
+      }
+      const slow = state.slowSql[service.id]?.enabled;
+      const leak = service.id === "order" || service.id === "payment"
+        ? state.memory[service.id]?.running
+        : false;
+      const dead = service.id === "order" || service.id === "payment"
+        ? state.deadlock[service.id]?.enabled
+        : false;
+
+      state.topology[service.id] = slow || leak || dead ? "active" : "inactive";
+    }
+    renderTopology();
+  }
+
+  async function refreshSlowStatus(serviceId) {
+    if (inBackoff(serviceId)) {
+      return;
+    }
+    try {
+      const data = await request(chaosPath(serviceId, "/internal/chaos/slow-sql/status"));
+      clearBackoff(serviceId);
+      state.slowSql[serviceId] = {
+        supported: true,
+        enabled: !!data?.enabled,
+        mode: data?.mode,
+        delayMs: data?.delayMs,
+        injectRate: data?.injectRate,
+        autoDisableAt: data?.autoDisableAt
+      };
+    } catch (error) {
+      if (isMissingSlowSqlStatus(error)) {
+        clearBackoff(serviceId);
+        if (!state.slowSql[serviceId]) {
+          state.slowSql[serviceId] = { enabled: false };
+        }
+        state.slowSql[serviceId].supported = false;
+      } else {
+        setBackoff(serviceId, 30);
+        throw error;
+      }
+    }
+  }
+
+  async function refreshMemoryStatus(serviceId) {
+    if (inBackoff(serviceId)) {
+      return;
+    }
+    try {
+      const data = await request(chaosPath(serviceId, "/internal/chaos/memory-leak/status"));
+      clearBackoff(serviceId);
+      state.memory[serviceId] = {
+        running: !!data?.running,
+        holdingMb: data?.holdingMb,
+        maxMb: data?.maxMb
+      };
+    } catch (error) {
+      setBackoff(serviceId, 30);
+      appendLog(`${serviceId} memory status 失败: ${error.message}`, "WARN");
+    }
+  }
+
+  async function refreshDeadlockStatus(serviceId) {
+    if (inBackoff(serviceId)) {
+      return;
+    }
+    try {
+      const data = await request(chaosPath(serviceId, "/internal/chaos/deadlock/status"));
+      clearBackoff(serviceId);
+      state.deadlock[serviceId] = {
+        enabled: !!data?.enabled,
+        deadlockCount: data?.deadlockCount || 0,
+        lastError: data?.lastError || ""
+      };
+    } catch (error) {
+      setBackoff(serviceId, 30);
+      appendLog(`${serviceId} deadlock status 失败: ${error.message}`, "WARN");
+    }
+  }
+
+  async function refreshToxiproxyStatus() {
+    if (inToxiproxyBackoff()) {
+      toxiproxyView.textContent = `访问受限，${toxiproxyBackoffSecondsLeft()}s 后重试`;
+      return;
+    }
+    try {
+      const data = await request("/ops/toxiproxy/proxies");
+      clearToxiproxyBackoff();
+      if (!data || typeof data !== "object") {
+        toxiproxyView.textContent = "ToxiProxy 返回为空";
+        return;
+      }
+      const lines = Object.values(data).map(proxy => {
+        const toxics = (proxy.toxics || []).map(t => `${t.name}:${t.type}`).join(", ") || "none";
+        return `${proxy.name} -> ${proxy.upstream} | toxics: ${toxics}`;
+      });
+      toxiproxyView.textContent = lines.length ? lines.join("\n") : "无代理";
+    } catch (error) {
+      if (error.httpStatus === 401 || error.httpStatus === 403) {
+        setToxiproxyBackoff(60);
+      }
+      toxiproxyView.textContent = `读取失败: ${error.message}`;
+      appendLog(`toxiproxy 状态读取失败: ${error.message}`, "WARN");
+    }
+  }
+
+  async function refreshAllStatuses() {
+    for (const service of slowSqlServices) {
+      try {
+        await refreshSlowStatus(service.id);
+      } catch (error) {
+        appendLog(`${service.id} slow-sql status 失败: ${error.message}`, "WARN");
+        if (!state.slowSql[service.id]) {
+          state.slowSql[service.id] = { supported: null, enabled: false };
+        }
+      }
+    }
+    await Promise.all([
+      refreshMemoryStatus("order"),
+      refreshMemoryStatus("payment"),
+      refreshDeadlockStatus("order"),
+      refreshDeadlockStatus("payment")
+    ]);
+    await refreshToxiproxyStatus();
+    renderSlowCards();
+    renderMemoryCards();
+    renderDeadlockCards();
+    updateTopologyState();
+    lastRefreshAtEl.textContent = new Date().toLocaleTimeString();
+  }
+
+  function slowPayloadFromForm() {
+    return {
+      mode: document.getElementById("slowMode").value,
+      delayMs: Number(document.getElementById("slowDelay").value),
+      injectRate: Number(document.getElementById("slowInjectRate").value),
+      durationSec: Number(document.getElementById("slowDuration").value)
+    };
+  }
+
+  async function slowEnable(serviceId) {
+    const payload = slowPayloadFromForm();
+    const result = await request(chaosPath(serviceId, "/internal/chaos/slow-sql/enable"), {
+      method: "POST",
+      body: payload
+    });
+    state.slowSql[serviceId] = {
+      ...(state.slowSql[serviceId] || {}),
+      enabled: true,
+      mode: result?.mode || payload.mode,
+      delayMs: result?.delayMs || payload.delayMs,
+      injectRate: payload.injectRate
+    };
+    appendLog(`slow-sql enabled @${serviceId} (${payload.mode}, ${payload.delayMs}ms, rate ${payload.injectRate})`);
+  }
+
+  async function slowDisable(serviceId) {
+    await request(chaosPath(serviceId, "/internal/chaos/slow-sql/disable"), { method: "POST" });
+    state.slowSql[serviceId] = {
+      ...(state.slowSql[serviceId] || {}),
+      enabled: false
+    };
+    appendLog(`slow-sql disabled @${serviceId}`);
+  }
+
+  async function memoryAction(serviceId, action) {
+    const payload = {
+      chunkSizeKb: Number(document.getElementById("memChunk").value),
+      intervalMs: Number(document.getElementById("memInterval").value),
+      maxMb: Number(document.getElementById("memMax").value)
+    };
+
+    if (action === "start") {
+      await request(chaosPath(serviceId, "/internal/chaos/memory-leak/start"), {
+        method: "POST",
+        body: payload
+      });
+      appendLog(`memory-leak start @${serviceId} (${payload.chunkSizeKb}KB/${payload.intervalMs}ms/${payload.maxMb}MB)`);
+    } else if (action === "stop") {
+      await request(chaosPath(serviceId, "/internal/chaos/memory-leak/stop"), { method: "POST" });
+      appendLog(`memory-leak stop @${serviceId}`);
+    } else {
+      await request(chaosPath(serviceId, "/internal/chaos/memory-leak/clear"), { method: "POST" });
+      appendLog(`memory-leak clear @${serviceId}`);
+    }
+    await refreshMemoryStatus(serviceId);
+    renderMemoryCards();
+    updateTopologyState();
+  }
+
+  async function deadlockAction(serviceId, action) {
+    if (action === "enable") {
+      const payload = {
+        injectRate: Number(document.getElementById("deadlockInjectRate").value),
+        durationSec: Number(document.getElementById("deadlockDuration").value)
+      };
+      await request(chaosPath(serviceId, "/internal/chaos/deadlock/enable"), {
+        method: "POST",
+        body: payload
+      });
+      appendLog(`deadlock enabled @${serviceId} (rate ${payload.injectRate}, ${payload.durationSec}s)`);
+    } else if (action === "disable") {
+      await request(chaosPath(serviceId, "/internal/chaos/deadlock/disable"), { method: "POST" });
+      appendLog(`deadlock disabled @${serviceId}`);
+    } else {
+      await request(chaosPath(serviceId, "/internal/chaos/deadlock/clear"), { method: "POST" });
+      appendLog(`deadlock clear @${serviceId}`);
+    }
+
+    await refreshDeadlockStatus(serviceId);
+    renderDeadlockCards();
+    updateTopologyState();
+  }
+
+  async function injectDelay(proxyName, toxicName, latency, jitter, durationSec) {
+    await request(`/ops/toxiproxy/proxies/${encodeURIComponent(proxyName)}/toxics`, {
+      method: "POST",
+      body: {
+        name: toxicName,
+        type: "latency",
+        attributes: { latency, jitter }
+      }
+    });
+    appendLog(`toxiproxy delay injected @${proxyName} (${latency}ms + jitter ${jitter}ms)`);
+
+    if (durationSec > 0) {
+      setTimeout(async () => {
+        try {
+          await removeToxic(proxyName, toxicName, true);
+        } catch (error) {
+          appendLog(`auto remove toxic failed: ${error.message}`, "WARN");
+        }
+      }, durationSec * 1000);
+    }
+  }
+
+  async function injectResetPeer(proxyName, toxicName) {
+    await request(`/ops/toxiproxy/proxies/${encodeURIComponent(proxyName)}/toxics`, {
+      method: "POST",
+      body: {
+        name: toxicName,
+        type: "reset_peer",
+        attributes: { timeout: 0 }
+      }
+    });
+    appendLog(`toxiproxy reset_peer injected @${proxyName}`);
+  }
+
+  async function removeToxic(proxyName, toxicName, silent = false) {
+    await request(`/ops/toxiproxy/proxies/${encodeURIComponent(proxyName)}/toxics/${encodeURIComponent(toxicName)}`, {
+      method: "DELETE"
+    });
+    if (!silent) {
+      appendLog(`toxiproxy toxic removed @${proxyName}/${toxicName}`);
+    }
+  }
+
+  async function clearAllToxics() {
+    const data = await request("/ops/toxiproxy/proxies");
+    for (const proxy of Object.values(data || {})) {
+      for (const toxic of proxy.toxics || []) {
+        await removeToxic(proxy.name, toxic.name, true);
+      }
+    }
+    appendLog("toxiproxy all toxics cleared");
+  }
+
+  async function runScenario(id) {
+    appendLog(`开始执行预设 ${id}`);
+    if (id === "s2") {
+      await injectDelay("order-to-payment", "chaos-delay", 3000, 1000, 300);
+    } else if (id === "s4") {
+      await request(chaosPath("payment", "/internal/chaos/slow-sql/enable"), {
+        method: "POST",
+        body: { mode: "sleep", delayMs: 3000, injectRate: 1.0, durationSec: 180 }
+      });
+    } else if (id === "s5") {
+      await request(chaosPath("order", "/internal/chaos/deadlock/enable"), {
+        method: "POST",
+        body: { injectRate: 0.4, durationSec: 180 }
+      });
+      await request(chaosPath("payment", "/internal/chaos/deadlock/enable"), {
+        method: "POST",
+        body: { injectRate: 0.3, durationSec: 180 }
+      });
+    } else if (id === "s7") {
+      await injectDelay("order-to-payment", "chaos-combo-delay", 2000, 500, 300);
+      await request(chaosPath("order", "/internal/chaos/slow-sql/enable"), {
+        method: "POST",
+        body: { mode: "sleep", delayMs: 1500, injectRate: 0.5, durationSec: 300 }
+      });
+      await request(chaosPath("order", "/internal/chaos/deadlock/enable"), {
+        method: "POST",
+        body: { injectRate: 0.2, durationSec: 300 }
+      });
+    }
+    appendLog(`预设 ${id} 执行完成`);
+  }
+
+  async function recoverAll() {
+    appendLog("开始执行一键恢复", "WARN");
+    for (const service of slowSqlServices) {
+      try {
+        await slowDisable(service.id);
+      } catch {
+        // Ignore service-level failures during global cleanup.
+      }
+    }
+
+    for (const serviceId of ["order", "payment"]) {
+      for (const endpoint of ["/internal/chaos/memory-leak/stop", "/internal/chaos/memory-leak/clear"]) {
+        try {
+          await request(chaosPath(serviceId, endpoint), { method: "POST" });
+        } catch {
+          // Ignore best-effort cleanup errors.
+        }
+      }
+      for (const endpoint of ["/internal/chaos/deadlock/disable", "/internal/chaos/deadlock/clear"]) {
+        try {
+          await request(chaosPath(serviceId, endpoint), { method: "POST" });
+        } catch {
+          // Ignore best-effort cleanup errors.
+        }
+      }
+    }
+
+    try {
+      await clearAllToxics();
+    } catch {
+      // Ignore toxiproxy cleanup failures.
+    }
+
+    await refreshAllStatuses();
+    appendLog("一键恢复完成", "WARN");
+  }
+
+  function bindEvents() {
+    document.getElementById("refreshAllBtn").addEventListener("click", async () => {
+      try {
+        await refreshAllStatuses();
+        appendLog("状态刷新完成");
+      } catch (error) {
+        appendLog(`状态刷新失败: ${error.message}`, "ERROR");
+      }
+    });
+
+    document.getElementById("slowEnableAll").addEventListener("click", async () => {
+      for (const service of slowSqlServices) {
+        try {
+          await slowEnable(service.id);
+        } catch (error) {
+          appendLog(`slow-sql enable 失败 @${service.id}: ${error.message}`, "WARN");
+        }
+      }
+      await refreshAllStatuses();
+    });
+
+    document.getElementById("slowDisableAll").addEventListener("click", async () => {
+      for (const service of slowSqlServices) {
+        try {
+          await slowDisable(service.id);
+        } catch (error) {
+          appendLog(`slow-sql disable 失败 @${service.id}: ${error.message}`, "WARN");
+        }
+      }
+      await refreshAllStatuses();
+    });
+
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const action = button.dataset.action;
+      const target = button.dataset.target;
+      try {
+        if (action === "slow-enable") {
+          await slowEnable(target);
+          await refreshSlowStatus(target);
+          renderSlowCards();
+          updateTopologyState();
+        } else if (action === "slow-disable") {
+          await slowDisable(target);
+          await refreshSlowStatus(target);
+          renderSlowCards();
+          updateTopologyState();
+        } else if (action === "mem-start") {
+          await memoryAction(target, "start");
+        } else if (action === "mem-stop") {
+          await memoryAction(target, "stop");
+        } else if (action === "mem-clear") {
+          await memoryAction(target, "clear");
+        } else if (action === "deadlock-enable") {
+          await deadlockAction(target, "enable");
+        } else if (action === "deadlock-disable") {
+          await deadlockAction(target, "disable");
+        } else if (action === "deadlock-clear") {
+          await deadlockAction(target, "clear");
+        }
+      } catch (error) {
+        appendLog(`${action} 失败 @${target}: ${error.message}`, "ERROR");
+      }
+    });
+
+    document.querySelectorAll("button[data-scenario]").forEach(button => {
+      button.addEventListener("click", async () => {
+        try {
+          await runScenario(button.dataset.scenario);
+          await refreshAllStatuses();
+        } catch (error) {
+          appendLog(`场景执行失败 ${button.dataset.scenario}: ${error.message}`, "ERROR");
+        }
+      });
+    });
+
+    document.getElementById("recoverAllBtn").addEventListener("click", async () => {
+      try {
+        await recoverAll();
+      } catch (error) {
+        appendLog(`一键恢复失败: ${error.message}`, "ERROR");
+      }
+    });
+
+    document.getElementById("injectDelayBtn").addEventListener("click", async () => {
+      try {
+        await injectDelay(
+          document.getElementById("proxyName").value,
+          document.getElementById("toxicName").value || "chaos-delay",
+          Number(document.getElementById("latencyMs").value),
+          Number(document.getElementById("jitterMs").value),
+          Number(document.getElementById("toxicDuration").value)
+        );
+        await refreshToxiproxyStatus();
+      } catch (error) {
+        appendLog(`注入延迟失败: ${error.message}`, "ERROR");
+      }
+    });
+
+    document.getElementById("injectResetBtn").addEventListener("click", async () => {
+      try {
+        await injectResetPeer(
+          document.getElementById("proxyName").value,
+          (document.getElementById("toxicName").value || "chaos-reset") + "-reset"
+        );
+        await refreshToxiproxyStatus();
+      } catch (error) {
+        appendLog(`注入 reset_peer 失败: ${error.message}`, "ERROR");
+      }
+    });
+
+    document.getElementById("removeToxicBtn").addEventListener("click", async () => {
+      try {
+        await removeToxic(
+          document.getElementById("proxyName").value,
+          document.getElementById("toxicName").value || "chaos-delay"
+        );
+        await refreshToxiproxyStatus();
+      } catch (error) {
+        appendLog(`移除 toxic 失败: ${error.message}`, "ERROR");
+      }
+    });
+
+    document.getElementById("clearToxicsBtn").addEventListener("click", async () => {
+      try {
+        await clearAllToxics();
+        await refreshToxiproxyStatus();
+      } catch (error) {
+        appendLog(`清空 toxics 失败: ${error.message}`, "ERROR");
+      }
+    });
+
+    document.getElementById("refreshToxiBtn").addEventListener("click", refreshToxiproxyStatus);
+    document.getElementById("clearLogBtn").addEventListener("click", () => {
+      eventLog.textContent = "日志已清空。";
+    });
+
+    document.getElementById("openServicesOverviewBtn").addEventListener("click", () => {
+      const { base, from, to } = getObserveContext();
+      const url = buildDashboardLink(base, "castrel-services-overview", "services-overview", from, to);
+      openDeepLink(url, "Services Overview");
+    });
+
+    document.getElementById("openChaosEventsBtn").addEventListener("click", () => {
+      const { base, from, to } = getObserveContext();
+      const url = buildDashboardLink(base, "castrel-chaos-events", "chaos-events", from, to);
+      openDeepLink(url, "Chaos Events");
+    });
+
+    document.getElementById("openServiceOverviewBtn").addEventListener("click", () => {
+      const { base, service, from, to } = getObserveContext();
+      if (service === "all") {
+        const urlAll = buildDashboardLink(base, "castrel-services-overview", "services-overview", from, to);
+        openDeepLink(urlAll, "Services Overview (all)");
+        return;
+      }
+      const url = buildDashboardLink(base, "castrel-services-overview", "services-overview", from, to, { service });
+      openDeepLink(url, `Services Overview (${service})`);
+    });
+
+    document.getElementById("openTempoTraceBtn").addEventListener("click", () => {
+      const { base, from, to } = getObserveContext();
+      if (!state.lastTraceId || state.lastTraceId === "-") {
+        appendLog("没有可用 TraceId，请先执行一次操作", "WARN");
+        return;
+      }
+      const query = `{ trace:id = "${state.lastTraceId}" }`;
+      const url = buildExploreLink(base, "tempo", query, from, to, "traceql");
+      openDeepLink(url, `Tempo Trace (${state.lastTraceId})`);
+    });
+
+    document.getElementById("openTempoServiceBtn").addEventListener("click", () => {
+      const { base, service, from, to } = getObserveContext();
+      if (service === "all") {
+        appendLog("请先选择具体 service 再查看 Tempo", "WARN");
+        return;
+      }
+      const query = `{ resource.service.name = "${service}" }`;
+      const url = buildExploreLink(base, "tempo", query, from, to, "traceql");
+      openDeepLink(url, `Tempo Service (${service})`);
+    });
+  }
+
+  async function boot() {
+    renderTopology();
+    renderSlowCards();
+    renderMemoryCards();
+    renderDeadlockCards();
+    bindEvents();
+    appendLog("控制台初始化完成，5s 后开始状态轮询");
+    setTimeout(async () => {
+      await refreshAllStatuses();
+      setInterval(() => {
+        refreshAllStatuses().catch(err => appendLog(`轮询失败: ${err.message}`, "WARN"));
+      }, 8000);
+    }, 5000);
+  }
+
+  boot().catch(error => {
+    appendLog(`初始化失败: ${error.message}`, "ERROR");
+  });
+</script>
+</body>
+</html>

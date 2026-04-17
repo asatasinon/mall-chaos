@@ -21,6 +21,8 @@ x-service-env: &service-env
   OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
   OTEL_PROPAGATORS: tracecontext,baggage
   OTEL_TRACES_SAMPLER: parentbased_always_on
+  OTEL_METRICS_EXPORTER: none
+  OTEL_LOGS_EXPORTER: none
 
 x-healthcheck-defaults: &healthcheck-defaults
   interval: 30s
@@ -70,12 +72,11 @@ services:
       timeout: 3s
       retries: 5
 
-  # ─── Observability（默认不启动，用 --profile observability 开启）───────────────
+  # ─── Observability（默认启动，可手动关闭：docker compose stop prometheus grafana loki tempo obs-auth-proxy mysqld-exporter promtail）──
 
   prometheus:
     image: prom/prometheus:latest
     container_name: castrel-prometheus
-    profiles: [observability]
     <<: *service-defaults
     # Port 19090 is exposed via obs-auth-proxy (nginx) with basic auth
     volumes:
@@ -91,7 +92,6 @@ services:
   loki:
     image: grafana/loki:2.9.4
     container_name: castrel-loki
-    profiles: [observability]
     <<: *service-defaults
     # Port 13100 is exposed via obs-auth-proxy (nginx) with basic auth
     volumes:
@@ -102,7 +102,6 @@ services:
   tempo:
     image: grafana/tempo:2.3.1
     container_name: castrel-tempo
-    profiles: [observability]
     <<: *service-defaults
     ports:
       # Port 13200 (HTTP API) is exposed via obs-auth-proxy (nginx) with basic auth
@@ -116,7 +115,6 @@ services:
   grafana:
     image: grafana/grafana:10.2.3
     container_name: castrel-grafana
-    profiles: [observability]
     <<: *service-defaults
     ports:
       - "13000:3000"
@@ -138,7 +136,6 @@ services:
   obs-auth-proxy:
     image: nginx:alpine
     container_name: castrel-obs-auth-proxy
-    profiles: [observability]
     <<: *service-defaults
     ports:
       - "19090:19090"   # Prometheus (auth)
@@ -155,7 +152,6 @@ services:
   mysqld-exporter:
     image: prom/mysqld-exporter:v0.15.1
     container_name: castrel-mysqld-exporter
-    profiles: [observability]
     <<: *service-defaults
     ports:
       - "19104:9104"
@@ -183,7 +179,6 @@ services:
   promtail:
     image: grafana/promtail:3.3.3
     container_name: castrel-promtail
-    profiles: [observability]
     <<: *service-defaults
     volumes:
       - ./infra/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
@@ -221,6 +216,15 @@ services:
       OTEL_SERVICE_NAME: gateway-service
       ORDER_SERVICE_URL: http://toxiproxy:18084
       CATALOG_SERVICE_URL: http://catalog-service:8082
+      CHAOS_ORDER_URL: http://order-service:8084
+      CHAOS_PAYMENT_URL: http://payment-service:8085
+      CHAOS_CATALOG_URL: http://catalog-service:8082
+      CHAOS_INVENTORY_URL: http://inventory-service:8083
+      CHAOS_PROMOTION_URL: http://promotion-service:8087
+      CHAOS_RISK_URL: http://risk-service:8088
+      CHAOS_FULFILLMENT_URL: http://fulfillment-service:8089
+      CHAOS_NOTIFICATION_URL: http://notification-service:8090
+      TOXIPROXY_API_URL: http://toxiproxy:8474
     depends_on:
       - toxiproxy
     healthcheck:

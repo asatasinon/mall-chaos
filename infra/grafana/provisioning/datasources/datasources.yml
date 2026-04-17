@@ -29,6 +29,7 @@ datasources:
     access: proxy
     editable: false
     jsonData:
+      grpcUrl: tempo:9095
       tracesToLogs:
         datasourceUid: loki
         filterByTraceID: true
