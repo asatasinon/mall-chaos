@@ -87,55 +87,59 @@
       <article class="panel">
         <div class="panel-head">
           <div>
-            <h2 class="title">Order / Payment 故障控制</h2>
-            <p class="subtitle">内存泄漏 + 数据库死锁</p>
+            <h2 class="title">Memory Leak 控制</h2>
+            <p class="subtitle">Order / Payment 内存泄漏注入</p>
           </div>
         </div>
-        <div class="control-body split">
-          <section class="mini">
-            <h4>Memory Leak</h4>
-            <div class="form-grid" style="grid-template-columns: repeat(3, 1fr);">
-              <label>Chunk KB
-                <input id="memChunk" type="number" min="1" value="1024">
-              </label>
-              <label>Interval Ms
-                <input id="memInterval" type="number" min="50" value="500">
-              </label>
-              <label>Max MB
-                <input id="memMax" type="number" min="64" value="512">
-              </label>
-            </div>
-            <div class="btn-row">
-              <button data-action="mem-start" data-target="order" class="btn-primary">order start</button>
-              <button data-action="mem-start" data-target="payment" class="btn-primary">payment start</button>
-              <button data-action="mem-stop" data-target="order" class="btn-warn">order stop</button>
-              <button data-action="mem-stop" data-target="payment" class="btn-warn">payment stop</button>
-              <button data-action="mem-clear" data-target="order" class="btn-danger">order clear</button>
-              <button data-action="mem-clear" data-target="payment" class="btn-danger">payment clear</button>
-            </div>
-            <div class="service-grid" id="memoryGrid"></div>
-          </section>
+        <div class="control-body">
+          <div class="form-grid" style="grid-template-columns: repeat(3, 1fr);">
+            <label>Chunk KB
+              <input id="memChunk" type="number" min="1" value="1024">
+            </label>
+            <label>Interval Ms
+              <input id="memInterval" type="number" min="50" value="500">
+            </label>
+            <label>Max MB
+              <input id="memMax" type="number" min="64" value="512">
+            </label>
+          </div>
+          <div class="btn-row">
+            <button data-action="mem-start" data-target="order" class="btn-primary">order start</button>
+            <button data-action="mem-start" data-target="payment" class="btn-primary">payment start</button>
+            <button data-action="mem-stop" data-target="order" class="btn-warn">order stop</button>
+            <button data-action="mem-stop" data-target="payment" class="btn-warn">payment stop</button>
+            <button data-action="mem-clear" data-target="order" class="btn-danger">order clear</button>
+            <button data-action="mem-clear" data-target="payment" class="btn-danger">payment clear</button>
+          </div>
+          <div class="service-grid" id="memoryGrid"></div>
+        </div>
+      </article>
 
-          <section class="mini">
-            <h4>Deadlock</h4>
-            <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
-              <label>Inject Rate
-                <input id="deadlockInjectRate" type="number" min="0" max="1" step="0.1" value="0.3">
-              </label>
-              <label>Duration Sec
-                <input id="deadlockDuration" type="number" min="0" value="180">
-              </label>
-            </div>
-            <div class="btn-row">
-              <button data-action="deadlock-enable" data-target="order" class="btn-primary">order enable</button>
-              <button data-action="deadlock-enable" data-target="payment" class="btn-primary">payment enable</button>
-              <button data-action="deadlock-disable" data-target="order" class="btn-warn">order disable</button>
-              <button data-action="deadlock-disable" data-target="payment" class="btn-warn">payment disable</button>
-              <button data-action="deadlock-clear" data-target="order" class="btn-danger">order clear</button>
-              <button data-action="deadlock-clear" data-target="payment" class="btn-danger">payment clear</button>
-            </div>
-            <div class="service-grid" id="deadlockGrid"></div>
-          </section>
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="title">Deadlock 控制</h2>
+            <p class="subtitle">Order / Payment 数据库死锁注入</p>
+          </div>
+        </div>
+        <div class="control-body">
+          <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <label>Inject Rate
+              <input id="deadlockInjectRate" type="number" min="0" max="1" step="0.1" value="0.3">
+            </label>
+            <label>Duration Sec
+              <input id="deadlockDuration" type="number" min="0" value="180">
+            </label>
+          </div>
+          <div class="btn-row">
+            <button data-action="deadlock-enable" data-target="order" class="btn-primary">order enable</button>
+            <button data-action="deadlock-enable" data-target="payment" class="btn-primary">payment enable</button>
+            <button data-action="deadlock-disable" data-target="order" class="btn-warn">order disable</button>
+            <button data-action="deadlock-disable" data-target="payment" class="btn-warn">payment disable</button>
+            <button data-action="deadlock-clear" data-target="order" class="btn-danger">order clear</button>
+            <button data-action="deadlock-clear" data-target="payment" class="btn-danger">payment clear</button>
+          </div>
+          <div class="service-grid" id="deadlockGrid"></div>
         </div>
       </article>
     </div>

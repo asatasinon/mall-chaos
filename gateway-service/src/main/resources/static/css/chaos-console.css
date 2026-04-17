@@ -60,6 +60,7 @@ body::before {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   backdrop-filter: blur(8px);
+  overflow: hidden;
 }
 
 .panel-head {
@@ -140,14 +141,15 @@ body::before {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(380px, clamp(420px, 34vw, 560px));
+  gap: 16px;
   align-items: start;
 }
 
 .stack {
   display: grid;
   gap: 14px;
+  min-width: 0;
 }
 
 .topology-wrap {
@@ -400,8 +402,14 @@ button:hover {
   top: 12px;
   display: grid;
   gap: 14px;
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
+}
+
+.side .panel {
+  min-width: 0;
 }
 
 .mono {

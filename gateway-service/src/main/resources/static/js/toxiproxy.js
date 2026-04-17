@@ -9,6 +9,8 @@ import {
   toxiproxyBackoffSecondsLeft
 } from "./api.js";
 
+const TOXIPROXY_API_PREFIX = "/internal/toxiproxy";
+
 // ── Status refresh ────────────────────────────────────────────────────────────
 
 export async function refreshToxiproxyStatus() {
@@ -18,7 +20,7 @@ export async function refreshToxiproxyStatus() {
     return;
   }
   try {
-    const data = await request("/ops/toxiproxy/proxies");
+    const data = await request(`${TOXIPROXY_API_PREFIX}/proxies`);
     clearToxiproxyBackoff();
     if (!data || typeof data !== "object") {
       if (view) view.textContent = "ToxiProxy 返回为空";
@@ -42,14 +44,14 @@ export async function refreshToxiproxyStatus() {
 
 export async function removeToxic(proxyName, toxicName, silent = false) {
   await request(
-    `/ops/toxiproxy/proxies/${encodeURIComponent(proxyName)}/toxics/${encodeURIComponent(toxicName)}`,
+    `${TOXIPROXY_API_PREFIX}/proxies/${encodeURIComponent(proxyName)}/toxics/${encodeURIComponent(toxicName)}`,
     { method: "DELETE" }
   );
   if (!silent) appendLog(`toxiproxy toxic removed @${proxyName}/${toxicName}`);
 }
 
 export async function clearAllToxics() {
-  const data = await request("/ops/toxiproxy/proxies");
+  const data = await request(`${TOXIPROXY_API_PREFIX}/proxies`);
   for (const proxy of Object.values(data || {})) {
     for (const toxic of proxy.toxics || []) {
       await removeToxic(proxy.name, toxic.name, true);
@@ -68,7 +70,7 @@ export async function injectDelay(proxyName, toxicName, latency, jitter, duratio
       appendLog(`toxiproxy pre-remove warn (${e.httpStatus || "?"}): ${e.message}`, "WARN");
     }
   }
-  await request(`/ops/toxiproxy/proxies/${encodeURIComponent(proxyName)}/toxics`, {
+  await request(`${TOXIPROXY_API_PREFIX}/proxies/${encodeURIComponent(proxyName)}/toxics`, {
     method: "POST",
     body: {
       name: toxicName,
@@ -98,7 +100,7 @@ export async function injectResetPeer(proxyName, toxicName) {
       appendLog(`toxiproxy pre-remove warn (${e.httpStatus || "?"}): ${e.message}`, "WARN");
     }
   }
-  await request(`/ops/toxiproxy/proxies/${encodeURIComponent(proxyName)}/toxics`, {
+  await request(`${TOXIPROXY_API_PREFIX}/proxies/${encodeURIComponent(proxyName)}/toxics`, {
     method: "POST",
     body: {
       name: toxicName,
