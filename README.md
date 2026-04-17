@@ -216,7 +216,7 @@ docker compose down -v       # 同时删除数据卷（清空数据库）
 ### 5. 全部重建
 
 ```bash
-mvn clean install -DskipTests
+mvn clean package -DskipTests
 
 # 保留数据，重建全部容器并重新构建镜像
 docker compose down
