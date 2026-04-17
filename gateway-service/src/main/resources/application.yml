@@ -17,6 +17,13 @@ spring:
             allowCredentials: false
       server:
         webflux:
+          globalcors:
+            cors-configurations:
+              '[/ops/**]':
+                allowedOriginPatterns: "*"
+                allowedMethods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+                allowedHeaders: "*"
+                allowCredentials: false
           routes:
             - id: orders
               uri: ${ORDER_SERVICE_URL:http://localhost:18084}

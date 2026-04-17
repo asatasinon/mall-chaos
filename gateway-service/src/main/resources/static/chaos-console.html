@@ -138,6 +138,9 @@
       padding: 8px 10px;
       font-size: 0.8rem;
       color: var(--muted);
+      overflow: hidden;
+      word-break: break-all;
+      overflow-wrap: break-word;
     }
 
     .chip strong {
@@ -407,6 +410,7 @@
       top: 12px;
       display: grid;
       gap: 14px;
+      min-width: 0;
     }
 
     .mono {
@@ -633,7 +637,6 @@
             <button id="openServicesOverviewBtn" class="btn-primary">Services Overview</button>
             <button id="openChaosEventsBtn" class="btn-primary">Chaos Events</button>
             <button id="openServiceOverviewBtn">按服务看 Overview</button>
-            <button id="openTempoTraceBtn" class="btn-warn">按 TraceId 看 Tempo</button>
             <button id="openTempoServiceBtn">按服务看 Tempo</button>
           </div>
           <div class="chip"><strong>Deep Link</strong> <span id="deepLinkPreview" class="mono">-</span></div>
@@ -893,11 +896,10 @@
   }
 
   async function request(path, options = {}) {
-    const traceId = buildTraceId();
-    setTrace(traceId);
+    const sentTraceId = buildTraceId();
     const method = options.method || "GET";
     const headers = {
-      "X-Trace-Id": traceId,
+      "X-Trace-Id": sentTraceId,
       ...(options.headers || {})
     };
     if (options.body !== undefined) {
@@ -909,6 +911,16 @@
     }
 
     const response = await fetch(path, payload);
+
+    // Extract the real OTel traceId from the response (what Tempo actually indexes)
+    const traceparent = response.headers.get("traceparent");
+    if (traceparent) {
+      const parts = traceparent.split("-");
+      if (parts.length >= 2 && parts[1]) setTrace(parts[1]);
+    } else {
+      const xTraceId = response.headers.get("x-trace-id") || response.headers.get("X-Trace-Id");
+      if (xTraceId) setTrace(xTraceId);
+    }
     const text = await response.text();
     let parsed = null;
 
@@ -1309,6 +1321,14 @@
   }
 
   async function injectDelay(proxyName, toxicName, latency, jitter, durationSec) {
+    // Remove any existing toxic with the same name first (idempotent)
+    try {
+      await request(`/ops/toxiproxy/proxies/${encodeURIComponent(proxyName)}/toxics/${encodeURIComponent(toxicName)}`, {
+        method: "DELETE"
+      });
+    } catch {
+      // 404 = doesn't exist yet, any other error is fine to ignore here
+    }
     await request(`/ops/toxiproxy/proxies/${encodeURIComponent(proxyName)}/toxics`, {
       method: "POST",
       body: {
@@ -1598,17 +1618,6 @@
       }
       const url = buildDashboardLink(base, "castrel-services-overview", "services-overview", from, to, { service });
       openDeepLink(url, `Services Overview (${service})`);
-    });
-
-    document.getElementById("openTempoTraceBtn").addEventListener("click", () => {
-      const { base, from, to } = getObserveContext();
-      if (!state.lastTraceId || state.lastTraceId === "-") {
-        appendLog("没有可用 TraceId，请先执行一次操作", "WARN");
-        return;
-      }
-      const query = `{ trace:id = "${state.lastTraceId}" }`;
-      const url = buildExploreLink(base, "tempo", query, from, to, "traceql");
-      openDeepLink(url, `Tempo Trace (${state.lastTraceId})`);
     });
 
     document.getElementById("openTempoServiceBtn").addEventListener("click", () => {

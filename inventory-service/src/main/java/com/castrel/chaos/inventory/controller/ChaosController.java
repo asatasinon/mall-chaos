@@ -30,4 +30,16 @@ public class ChaosController {
         slowSqlChaosService.disable();
         return ApiResponse.ok();
     }
+
+    @GetMapping("/internal/chaos/slow-sql/status")
+    public ApiResponse<Map<String, Object>> status() {
+        return ApiResponse.ok(Map.of(
+                "enabled", slowSqlChaosService.isEnabled(),
+                "mode", slowSqlChaosService.getMode(),
+                "delayMs", slowSqlChaosService.getDelayMs(),
+                "injectRate", slowSqlChaosService.getInjectRate(),
+                "autoDisableAt", slowSqlChaosService.getAutoDisableAt() != null
+                        ? slowSqlChaosService.getAutoDisableAt().toString() : "N/A"
+        ));
+    }
 }
