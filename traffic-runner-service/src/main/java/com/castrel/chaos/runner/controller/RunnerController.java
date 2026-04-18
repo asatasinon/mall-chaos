@@ -43,6 +43,16 @@ public class RunnerController {
         return ApiResponse.ok();
     }
 
+    @PutMapping("/internal/runner/inventory-reset/schedule")
+    public ApiResponse<Map<String, Object>> updateInventoryResetSchedule(@RequestBody Map<String, Object> req) {
+        return ApiResponse.ok(runnerService.updateInventoryResetSchedule(req));
+    }
+
+    @GetMapping("/internal/runner/inventory-reset/schedule")
+    public ApiResponse<Map<String, Object>> getInventoryResetSchedule() {
+        return ApiResponse.ok(runnerService.getInventoryResetSchedule());
+    }
+
     @PutMapping("/internal/runner/config")
     public ApiResponse<Map<String, Object>> updateConfig(@RequestBody Map<String, Object> req) {
         return ApiResponse.ok(runnerService.updateConfig(req));

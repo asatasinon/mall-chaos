@@ -40,6 +40,12 @@ chaos_post() {
   curl -sf -X POST "$url" -H 'Content-Type: application/json' -d "$body" | python3 -m json.tool || true
 }
 
+chaos_put() {
+  local url="$1"; shift
+  local body="$*"
+  curl -sf -X PUT "$url" -H 'Content-Type: application/json' -d "$body" | python3 -m json.tool || true
+}
+
 # ── Scenario 1: Baseline Stability ───────────────────────────────────────────
 
 scenario_1() {
@@ -152,7 +158,7 @@ scenario_6() {
   check_runner_running
   echo ""
   info "Step 1: Check current inventory plan..."
-  curl -sf "$GATEWAY_URL/internal/runner/inventory-reset/plan" | python3 -m json.tool || true
+  curl -sf -X POST "$GATEWAY_URL/ops/chaos/inventory/internal/inventory/reset/plan" | python3 -m json.tool || true
   echo ""
   info "Step 2: Trigger immediate reset..."
   chaos_post "$GATEWAY_URL/internal/runner/inventory-reset/trigger" '{}'
@@ -163,8 +169,21 @@ scenario_6() {
   warn "Manually modify baseline_version in DB, then trigger again → should return 409"
   echo ""
   info "Step 4: Update schedule to every 1 minute..."
-  chaos_post "$GATEWAY_URL/internal/runner/inventory-reset/schedule" \
-    '{"cron":"0/1 * * * *"}'
+  local schedule_json schedule_version schedule_enabled schedule_timezone schedule_window schedule_scope
+  schedule_json=$(curl -sf "$GATEWAY_URL/internal/runner/inventory-reset/schedule")
+  schedule_version=$(echo "$schedule_json" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("version",""))')
+  schedule_enabled=$(echo "$schedule_json" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("enabled",1))')
+  schedule_timezone=$(echo "$schedule_json" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("timezone","Asia/Shanghai"))')
+  schedule_window=$(echo "$schedule_json" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("allowedWindow","00:00-06:00"))')
+  schedule_scope=$(echo "$schedule_json" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("resetScope","ALL"))')
+
+  if [[ -z "$schedule_version" ]]; then
+    fail "Cannot read current schedule version from /internal/runner/inventory-reset/schedule"
+    return 1
+  fi
+
+  chaos_put "$GATEWAY_URL/internal/runner/inventory-reset/schedule" \
+    "{\"version\":${schedule_version},\"enabled\":${schedule_enabled},\"cron\":\"0 */1 * * * *\",\"timezone\":\"${schedule_timezone}\",\"allowedWindow\":\"${schedule_window}\",\"resetScope\":\"${schedule_scope}\"}"
   echo ""
   warn "Observe next auto-trigger in ~1 minute. Then restore original cron."
 }
@@ -213,7 +232,7 @@ global_checks() {
   curl -sf "$GATEWAY_URL/internal/runner/status" | python3 -m json.tool || true
   echo ""
   info "Chaos event log (last 10 entries):"
-  curl -sf "$GATEWAY_URL/internal/chaos/events?limit=10" | python3 -m json.tool || true
+  curl -sf "$GATEWAY_URL/internal/chaos/events?limit=10&action=INJECT" | python3 -m json.tool || true
   echo ""
   echo "Manual checklist:"
   echo "  [ ] All Chaos enables support scope + injectRate + durationSec"

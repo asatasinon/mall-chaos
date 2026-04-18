@@ -6,6 +6,10 @@ spring:
     name: gateway-service
   main:
     web-application-type: reactive
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:13306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:castrel}
+    password: ${SPRING_DATASOURCE_PASSWORD:castrel}
   cloud:
     gateway:
       globalcors:

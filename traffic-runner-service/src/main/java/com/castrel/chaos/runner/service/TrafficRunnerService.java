@@ -16,12 +16,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -46,6 +50,8 @@ public class TrafficRunnerService {
     // ── Scheduler ────────────────────────────────────────────────────────────
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> tickFuture;
+    private ScheduledExecutorService resetScheduler;
+    private ScheduledFuture<?> resetFuture;
 
     // ── Repos & clients ──────────────────────────────────────────────────────
     @Autowired
@@ -102,7 +108,13 @@ public class TrafficRunnerService {
             t.setDaemon(true);
             return t;
         });
+        resetScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "runner-inventory-reset");
+            t.setDaemon(true);
+            return t;
+        });
         scheduleTicks();
+        rescheduleInventoryReset();
     }
 
     private void loadConfigFromDb() {
@@ -245,6 +257,51 @@ public class TrafficRunnerService {
                 "baseQps", cfg.getBaseQps(), "peakMultiplier", cfg.getPeakMultiplier());
     }
 
+    @Transactional
+    public synchronized Map<String, Object> updateInventoryResetSchedule(Map<String, Object> req) {
+        RunnerInventoryResetPolicy policy = resetPolicyRepo.findById(1L).orElseGet(this::defaultResetPolicy);
+        int reqVersion = ((Number) req.get("version")).intValue();
+        if (!Objects.equals(policy.getVersion(), reqVersion)) {
+            throw new com.castrel.chaos.common.BizException("VERSION_CONFLICT", "Reset schedule version conflict");
+        }
+
+        if (req.containsKey("cron")) {
+            String cron = String.valueOf(req.get("cron")).trim();
+            try {
+                CronExpression.parse(cron);
+            } catch (Exception e) {
+                throw new com.castrel.chaos.common.BizException("INVALID_CRON", "Invalid cron expression: " + cron);
+            }
+        }
+        if (req.containsKey("timezone")) {
+            String timezone = String.valueOf(req.get("timezone")).trim();
+            try {
+                ZoneId.of(timezone);
+            } catch (Exception e) {
+                throw new com.castrel.chaos.common.BizException("INVALID_TIMEZONE", "Invalid timezone: " + timezone);
+            }
+        }
+
+        policy.setEnabled(((Number) req.getOrDefault("enabled", policy.getEnabled())).intValue());
+        policy.setCronExpr((String) req.getOrDefault("cron", policy.getCronExpr()));
+        policy.setTimezone((String) req.getOrDefault("timezone", policy.getTimezone()));
+        policy.setAllowedWindow((String) req.getOrDefault("allowedWindow", policy.getAllowedWindow()));
+        policy.setResetScope((String) req.getOrDefault("resetScope", policy.getResetScope()));
+        if (req.containsKey("baselineVersion")) {
+            policy.setBaselineVersion(((Number) req.get("baselineVersion")).intValue());
+        }
+        policy.setVersion(reqVersion + 1);
+        resetPolicyRepo.save(policy);
+
+        rescheduleInventoryReset();
+        return inventoryResetScheduleStatus(policy);
+    }
+
+    public synchronized Map<String, Object> getInventoryResetSchedule() {
+        RunnerInventoryResetPolicy policy = resetPolicyRepo.findById(1L).orElseGet(this::defaultResetPolicy);
+        return inventoryResetScheduleStatus(policy);
+    }
+
     public Map<String, Object> getStatus() {
         long now = System.currentTimeMillis();
         long[] stats = windowStats(now);
@@ -282,14 +339,17 @@ public class TrafficRunnerService {
     public void triggerInventoryReset(boolean skipWindow) {
         try {
             RunnerInventoryResetPolicy policy = resetPolicyRepo.findById(1L).orElse(null);
-            int baselineVersion = policy != null ? policy.getBaselineVersion() : 1;
+            int baselineVersion = (policy != null && policy.getBaselineVersion() != null)
+                    ? policy.getBaselineVersion() : 1;
+            String scope = (policy != null && policy.getResetScope() != null)
+                    ? policy.getResetScope() : "ALL";
 
             // Get plan first
             restClient.post().uri(inventoryUrl + "/internal/inventory/reset/plan")
                     .retrieve().body(Map.class);
 
             // Execute reset
-            Map<String, Object> resetReq = Map.of("expectedVersion", baselineVersion, "scope", "ALL");
+            Map<String, Object> resetReq = Map.of("expectedVersion", baselineVersion, "scope", scope);
             Map<?, ?> result = restClient.post().uri(inventoryUrl + "/internal/inventory/reset")
                     .body(resetReq).retrieve().body(Map.class);
             log.info("Inventory reset executed: {}", result);
@@ -298,8 +358,129 @@ public class TrafficRunnerService {
         }
     }
 
+    private synchronized void rescheduleInventoryReset() {
+        if (resetFuture != null) resetFuture.cancel(false);
+
+        RunnerInventoryResetPolicy policy = resetPolicyRepo.findById(1L).orElseGet(this::defaultResetPolicy);
+        if (!isResetEnabled(policy)) {
+            log.info("Inventory reset schedule disabled");
+            return;
+        }
+
+        String cronExpr = safeCron(policy.getCronExpr());
+        ZoneId zone = safeZone(policy.getTimezone());
+        CronExpression cron = CronExpression.parse(cronExpr);
+        ZonedDateTime now = ZonedDateTime.now(zone);
+        ZonedDateTime next = cron.next(now);
+        if (next == null) {
+            log.warn("No next run time computed for reset cron={}", cronExpr);
+            return;
+        }
+
+        long delayMs = Math.max(0, Duration.between(Instant.now(), next.toInstant()).toMillis());
+        resetFuture = resetScheduler.schedule(this::runScheduledInventoryReset, delayMs, TimeUnit.MILLISECONDS);
+        log.info("Inventory reset schedule refreshed: cron={}, timezone={}, nextRunAt={}",
+                cronExpr, zone, next.toInstant());
+    }
+
+    private void runScheduledInventoryReset() {
+        try {
+            RunnerInventoryResetPolicy policy = resetPolicyRepo.findById(1L).orElseGet(this::defaultResetPolicy);
+            if (isResetEnabled(policy) && isWithinAllowedWindow(policy)) {
+                triggerInventoryReset(false);
+            } else {
+                log.debug("Inventory reset skipped by policy window/enabled check");
+            }
+        } catch (Exception e) {
+            log.error("Scheduled inventory reset execution failed: {}", e.getMessage(), e);
+        } finally {
+            rescheduleInventoryReset();
+        }
+    }
+
+    private boolean isResetEnabled(RunnerInventoryResetPolicy policy) {
+        return policy != null && Objects.equals(policy.getEnabled(), 1);
+    }
+
+    private boolean isWithinAllowedWindow(RunnerInventoryResetPolicy policy) {
+        String window = policy.getAllowedWindow();
+        if (window == null || !window.contains("-")) return true;
+
+        try {
+            String[] parts = window.split("-", 2);
+            LocalTime start = LocalTime.parse(parts[0].trim());
+            LocalTime end = LocalTime.parse(parts[1].trim());
+            LocalTime now = LocalTime.now(safeZone(policy.getTimezone()));
+
+            if (start.equals(end)) return true;
+            if (start.isBefore(end)) {
+                return !now.isBefore(start) && !now.isAfter(end);
+            }
+            // Cross-midnight window (e.g., 23:00-06:00)
+            return !now.isBefore(start) || !now.isAfter(end);
+        } catch (Exception e) {
+            log.warn("Invalid allowedWindow '{}', skip window guard", window);
+            return true;
+        }
+    }
+
+    private String safeCron(String cronExpr) {
+        String expr = (cronExpr == null || cronExpr.isBlank()) ? "0 */30 * * * *" : cronExpr.trim();
+        try {
+            CronExpression.parse(expr); // validate
+            return expr;
+        } catch (Exception e) {
+            String fallback = "0 */30 * * * *";
+            log.warn("Invalid reset cron '{}', fallback to '{}'", expr, fallback);
+            return fallback;
+        }
+    }
+
+    private ZoneId safeZone(String timezone) {
+        try {
+            return ZoneId.of((timezone == null || timezone.isBlank()) ? "Asia/Shanghai" : timezone.trim());
+        } catch (Exception e) {
+            return ZoneId.of("Asia/Shanghai");
+        }
+    }
+
+    private Map<String, Object> inventoryResetScheduleStatus(RunnerInventoryResetPolicy policy) {
+        String cronExpr = safeCron(policy.getCronExpr());
+        ZoneId zone = safeZone(policy.getTimezone());
+        ZonedDateTime next = null;
+        if (isResetEnabled(policy)) {
+            next = CronExpression.parse(cronExpr).next(ZonedDateTime.now(zone));
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("enabled", policy.getEnabled());
+        data.put("cron", cronExpr);
+        data.put("timezone", zone.toString());
+        data.put("allowedWindow", policy.getAllowedWindow());
+        data.put("resetScope", policy.getResetScope());
+        data.put("baselineVersion", policy.getBaselineVersion());
+        data.put("version", policy.getVersion());
+        data.put("nextRunAt", next != null ? next.toInstant().toString() : null);
+        data.put("appliedAt", Instant.now().toString());
+        return data;
+    }
+
+    private RunnerInventoryResetPolicy defaultResetPolicy() {
+        RunnerInventoryResetPolicy policy = new RunnerInventoryResetPolicy();
+        policy.setId(1L);
+        policy.setEnabled(1);
+        policy.setCronExpr("0 */30 * * * *");
+        policy.setTimezone("Asia/Shanghai");
+        policy.setAllowedWindow("00:00-06:00");
+        policy.setResetScope("ALL");
+        policy.setBaselineVersion(1);
+        policy.setVersion(1);
+        return policy;
+    }
+
     @PreDestroy
     public void shutdown() {
         if (scheduler != null) scheduler.shutdownNow();
+        if (resetScheduler != null) resetScheduler.shutdownNow();
     }
 }
