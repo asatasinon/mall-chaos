@@ -23,6 +23,7 @@ x-service-env: &service-env
   OTEL_TRACES_SAMPLER: parentbased_always_on
   OTEL_METRICS_EXPORTER: none
   OTEL_LOGS_EXPORTER: none
+  JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m"
 
 x-healthcheck-defaults: &healthcheck-defaults
   interval: 30s
@@ -307,7 +308,7 @@ services:
       CATALOG_SERVICE_URL: http://catalog-service:8082
       INVENTORY_SERVICE_URL: http://toxiproxy:18083
       PAYMENT_SERVICE_URL: http://toxiproxy:18085
-      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-order.hprof"
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-order.hprof"
     depends_on:
       mysql:
         condition: service_healthy
@@ -328,7 +329,7 @@ services:
     environment:
       <<: *service-env
       OTEL_SERVICE_NAME: payment-service
-      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-payment.hprof"
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-payment.hprof"
     depends_on:
       mysql:
         condition: service_healthy
