@@ -73,7 +73,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # ─── Observability（默认启动，可手动关闭：docker compose stop prometheus grafana loki tempo obs-auth-proxy mysqld-exporter promtail）──
+  # ─── Observability（默认启动，可手动关闭：docker compose stop prometheus grafana loki tempo obs-auth-proxy mysqld-exporter node-exporter promtail）──
 
   prometheus:
     image: prom/prometheus:v3.11.2
@@ -149,6 +149,23 @@ services:
       - prometheus
       - loki
       - tempo
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: castrel-node-exporter
+    <<: *service-defaults
+    pid: host
+    ports:
+      - "19100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
 
   mysqld-exporter:
     image: prom/mysqld-exporter:v0.15.1

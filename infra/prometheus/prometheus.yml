@@ -86,3 +86,11 @@ scrape_configs:
       - targets: ['mysqld-exporter:9104']
         labels:
           service: 'mysql'
+
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'node'
+
+
