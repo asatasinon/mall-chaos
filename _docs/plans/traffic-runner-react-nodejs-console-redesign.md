@@ -1,7 +1,7 @@
-# Traffic Runner React + Node.js 重构设计
+# Traffic Runner Next.js + pnpm 重构设计
 
 **状态**：Draft / 待审批  
-**目标**：将 `traffic-runner-service` 从 Java Spring Boot 控制服务，重构为 `React + Node.js` 项目，并吸收现有 `chaos-console` 的前端与控制能力；同时重新定义 Chaos 触发 API 与适配规则，消除现有“gateway 静态页 + 多服务直连 chaos endpoint + runner 局部控制 API”并存的问题，并确保 traffic 控制面只能通过 gateway 访问后端能力。
+**目标**：将 `traffic-runner-service` 从 Java Spring Boot 控制服务，重构为 `Next.js + pnpm` 项目，并吸收现有 `chaos-console` 的前端与控制能力；同时重新定义 Chaos 触发 API 与适配规则，消除现有“gateway 静态页 + 多服务直连 chaos endpoint + runner 局部控制 API”并存的问题，并确保 traffic 控制面只能通过 gateway 访问后端能力。
 
 ---
 
@@ -48,8 +48,8 @@
    - 现有 console 直接依赖服务级旧 API，导致前端逻辑高度耦合实现细节。
 
 5. 技术栈不符合新目标。
-   - 用户明确要求将 `traffic-runner-service` 改造成 `React + Node.js` 项目。
-   - 因此需要重新界定它是“控制台 + 编排后端 + 流量生成器”的新形态，而不是 Spring Boot 微服务。
+   - 新目标是将 `traffic-runner-service` 改造成 `Next.js + pnpm` 项目。
+   - 因此需要重新界定它是“Next.js 控制台 + BFF + 独立 worker”的新形态，而不是 Spring Boot 微服务。
 
 ---
 
@@ -57,7 +57,7 @@
 
 ### 2.1 目标
 
-1. `traffic-runner-service` 重构为一个独立的 `React + Node.js` 应用。
+1. `traffic-runner-service` 重构为一个独立的 `Next.js + pnpm` 应用。
 2. 将 `chaos-console` 的 UI 与操作能力整体迁移到新的 traffic 应用。
 3. 将“流量控制、场景控制、故障注入、状态聚合、预设场景触发”统一收口到 traffic 应用。
 4. 对外重新定义统一触发 API，作为唯一有效的开发协议。
@@ -76,43 +76,48 @@
 
 ## 3.1 新的角色定义
 
-重构后的 `traffic-runner-service` 变成一个新的控制平面应用，包含两部分：
+重构后的 `traffic-runner-service` 变成一个新的控制平面应用，包含三部分：
 
-1. `traffic-runner-web`
-   - React 前端
+1. `Next.js UI`
    - 替代旧 `chaos-console.html`
    - 提供流量控制、故障控制、拓扑状态、预设场景入口
 
-2. `traffic-runner-api`
-   - Node.js 后端
+2. `Next.js Route Handlers / BFF`
    - 提供 Runner 控制 API
    - 统一封装 Traffic Control API
    - 只通过 `gateway-service` 访问业务服务与基础设施能力
    - 聚合状态，向前端输出统一视图模型
 
+3. `Runner Worker`
+   - 承载持续流量调度
+   - 承载库存重置调度
+   - 承载 `durationSec` 到期自动关闭等后台任务
+
 ### 3.2 架构原则
 
 1. 前端只调用 traffic 应用自己的 BFF/API，不再直连各个微服务 chaos 端点。
-2. Node.js 后端是唯一控制入口，负责：
+2. Next.js Route Handlers 是唯一 HTTP 控制入口，负责：
    - 参数校验
    - 规则统一与参数校验
    - 调用 gateway 控制分发 API
-   - 自动关闭调度
    - 状态聚合
-3. traffic-runner-api 不允许直连任何业务服务。
-4. 业务服务继续负责“真正执行 chaos”，但只能通过 gateway 暴露受控入口。
-5. gateway 负责统一分发 traffic 控制请求到业务服务、toxiproxy、以及必要的基础设施代理。
-6. gateway 不再承载控制台前端。
+3. `Runner Worker` 负责持续调度、定时器、恢复任务等后台职责。
+4. `traffic-runner-service` 不允许直连任何业务服务。
+5. 业务服务继续负责“真正执行 chaos”，但只能通过 gateway 暴露受控入口。
+6. gateway 负责统一分发 traffic 控制请求到业务服务、toxiproxy、以及必要的基础设施代理。
+7. gateway 不再承载控制台前端。
 
 ### 3.3 逻辑拓扑
 
 ```mermaid
 flowchart LR
-  U["User"] --> W["traffic-runner-web (React)"]
-  W --> A["traffic-runner-api (Node.js)"]
+  U["User"] --> W["traffic-runner-service (Next.js UI)"]
+  W --> A["Next.js Route Handlers"]
+  A --> WK["Runner Worker"]
 
-  A --> R["Redis"]
   A --> G["gateway-service"]
+  WK --> R["Redis / MySQL"]
+  WK --> G
   G --> T["ToxiProxy / Infra Proxy"]
   G --> O["order-service"]
   G --> P["payment-service"]
@@ -144,7 +149,7 @@ flowchart LR
 
 ### 4.2 保留在 traffic 中的原有能力
 
-以下 Runner 能力继续存在，但由 Node.js API 提供：
+以下 Runner 能力继续存在，由 Next.js Route Handlers 对外提供，由 worker 或服务端模块执行：
 
 1. `status`
 2. `pause / resume`
@@ -164,7 +169,7 @@ flowchart LR
 保留但重新定位：
 
 1. `gateway-service` 的 ToxiProxy 代理 API 可以继续存在。
-2. 它与后续新增的 chaos 分发 API 一起，统一作为被 traffic-runner-api 调用的底层能力。
+2. 它与后续新增的 chaos 分发 API 一起，统一作为被 traffic control plane 调用的底层能力。
 3. gateway 不再直接暴露控制台前端，但会成为唯一的控制分发入口。
 
 ---
@@ -204,28 +209,28 @@ flowchart LR
 
 ### 5.3 编排原则
 
-Node.js API 对下游分三种调用模式：
+traffic control plane 对下游分三种调用模式：
 
 1. `gateway-dispatch`
-   - traffic-runner-api 只调用 gateway 的统一控制分发端点
+   - Next.js Route Handlers 或 worker 只调用 gateway 的统一控制分发端点
    - gateway 再将请求转发到目标微服务的新 chaos endpoint
    - 适用于 slow sql / deadlock / memory leak / table-lock 等服务内故障
 
 2. `redis-driven`
-   - traffic-runner-api 直接写 Redis，或经 gateway 代理写 Redis
+   - worker 或服务端模块直接写 Redis，或经 gateway 代理写 Redis
    - 适用于 v2 方案里基于 Redis 的场景传播
 
 3. `proxy-driven`
    - 通过 gateway 的基础设施代理 API 注入网络故障
 
-是否采用哪一种模式，不暴露给前端，由 traffic-runner-api 内部决定。
+是否采用哪一种模式，不暴露给前端，由 traffic control plane 内部决定。
 
 补充约束：
 
 1. 不保留旧 chaos endpoint。
 2. 不做兼容转发或别名桥接。
-3. traffic-runner-api 与各业务服务统一切换到最新协议。
-4. traffic-runner-api 到业务侧的所有 HTTP 调用必须先经过 gateway。
+3. traffic control plane 与各业务服务统一切换到最新协议。
+4. traffic control plane 到业务侧的所有 HTTP 调用必须先经过 gateway。
 
 ---
 
@@ -295,7 +300,7 @@ GET    /internal/gateway/network-reset/status
 
 规则：
 
-1. traffic-runner-api 只调用 gateway 的这些入口。
+1. traffic control plane 只调用 gateway 的这些入口。
 2. gateway 负责校验目标服务是否允许被控制。
 3. gateway 负责将请求分发到对应业务服务或 toxiproxy 代理。
 4. gateway 负责统一注入 traceId、审计日志与错误格式。
@@ -375,7 +380,7 @@ GET    /internal/traffic/scenarios/history
    - 到期自动关闭
    - `real` 模式必须使用 `SELECT SLEEP(N)` 在事务内触发
 2. 前端不再直接面向单服务操作，而是支持多目标服务批量启停。
-3. traffic-runner-api 负责将一个批量请求拆分为多个 gateway 分发调用。
+3. Route Handlers 负责将一个批量请求拆分为多个 gateway 分发调用。
 
 ### 推荐请求模型
 
@@ -392,7 +397,7 @@ GET    /internal/traffic/scenarios/history
 
 ### 适配规则
 
-1. Node.js 逐个调用 gateway 分发端点，由 gateway 转发到目标服务。
+1. Next.js 服务端逐个调用 gateway 分发端点，由 gateway 转发到目标服务。
 2. 所有支持 slow sql 的服务必须同时实现 `/enable`、`/disable`、`/status`，但这些能力只经由 gateway 暴露给 traffic。
 3. 批量操作结果必须返回成功与失败明细，不能只返回整体 200。
 
@@ -496,7 +501,7 @@ memory leak 不再沿用旧的 `start / stop / clear` 协议，统一切换为�
 1. `network-delay/enable` -> 调 gateway 的基础设施代理 API 创建 toxic
 2. `network-delay/disable` -> 删除对应 toxic
 3. `network-reset/enable` -> 创建 reset_peer toxic
-4. `durationSec` 到期由 traffic-runner-api 自动清理 toxic
+4. `durationSec` 到期由 worker 自动清理 toxic
 
 ## 7.5 Table Lock
 
@@ -579,7 +584,7 @@ memory leak 不再沿用旧的 `start / stop / clear` 协议，统一切换为�
 
 ## 9.1 新规则
 
-1. 所有预设场景定义迁移到 Node.js 后端。
+1. 所有预设场景定义迁移到 Next.js 服务端 / worker。
 2. 前端只展示场景元数据与“执行”按钮。
 3. 场景编排步骤由后端统一维护，避免前端代码里散落具体注入细节。
 
@@ -662,11 +667,11 @@ memory leak 不再沿用旧的 `start / stop / clear` 协议，统一切换为�
 
 ## 11.1 Node.js 技术边界
 
-Node.js 后端建议承担以下职责：
+Next.js + worker 建议承担以下职责：
 
-1. React 静态资源托管
-2. BFF / API 层
-3. Runner 任务调度
+1. Next.js UI 与静态资源托管
+2. Route Handlers / BFF
+3. Runner Worker 调度
 4. Chaos 自动关闭计时器
 5. 状态缓存与聚合
 
@@ -675,7 +680,14 @@ Node.js 后端建议承担以下职责：
 1. 将所有业务逻辑重写为 Node 微服务
 2. 替代各业务服务内部的 chaos 执行逻辑
 
-### 11.2 Runner 调度迁移原则
+### 11.2 技术选型约束
+
+1. 前端与服务端统一采用 `Next.js`
+2. Node 包管理统一采用 `pnpm`
+3. 默认使用 TypeScript
+4. 持续调度器与后台任务由独立 worker 进程承担，不直接绑定在页面请求生命周期
+
+### 11.3 Runner 调度迁移原则
 
 由于原 `traffic-runner-service` 是 Java 实现，迁移到 Node 后需保证以下不变量不变：
 
@@ -684,7 +696,7 @@ Node.js 后端建议承担以下职责：
 3. 库存重置仍需 `expectedVersion + distributed lock`。
 4. 调速仍支持不停机即时生效。
 
-### 11.3 状态存储建议
+### 11.4 状态存储建议
 
 状态来源分层：
 
@@ -695,7 +707,7 @@ Node.js 后端建议承担以下职责：
 建议：
 
 1. `durationSec` 自动关闭不要只依赖前端定时器。
-2. 由 Node.js 后端统一托管控制面级自动关闭任务。
+2. 由 worker 统一托管控制面级自动关闭任务。
 3. 各业务服务自身的 chaos 实现也必须支持 `durationSec` 自动关闭。
 4. 对必须跨重启持久的场景，写 Redis 或 MySQL 保存最小状态。
 
@@ -707,10 +719,10 @@ Node.js 后端建议承担以下职责：
 
 ### 12.1 控制入口规则
 
-1. 新前端只能调用 traffic-runner-api。
+1. 新前端只能调用 Next.js 自身的服务端 API。
 2. React 不可直接调用业务服务 chaos endpoint。
 3. React 不可直接调用 gateway toxiproxy endpoint。
-4. traffic-runner-api 不可直接调用业务服务 HTTP 接口，只能调用 gateway。
+4. traffic control plane 不可直接调用业务服务 HTTP 接口，只能调用 gateway。
 
 ### 12.2 API 规则
 
@@ -741,7 +753,7 @@ Node.js 后端建议承担以下职责：
 为了降低风险，建议按以下顺序实施：
 
 1. 先完成设计文档审批。
-2. 搭建新的 `traffic-runner-service` React + Node.js 项目骨架。
+2. 搭建新的 `traffic-runner-service` Next.js + pnpm 项目骨架。
 3. 先迁移“旧 console 前端 UI + 新 BFF 壳层”。
 4. 再把旧 console 的操作调用改成 traffic API。
 5. 再迁移 Runner 控制能力。
@@ -754,14 +766,14 @@ Node.js 后端建议承担以下职责：
 
 请重点确认以下设计决策是否符合你的预期：
 
-1. `traffic-runner-service` 是否接受被定义为“React 前端 + Node.js BFF/API + Runner 调度”的一体化控制平面应用。
+1. `traffic-runner-service` 是否接受被定义为“Next.js UI + Route Handlers + 独立 worker”的一体化控制平面应用。
 2. 新 API 前缀是否接受统一收口到 `/internal/traffic/*`，而不是继续沿用 `/internal/runner/scenario/*`。
 3. `traffic -> gateway -> services` 是否作为唯一允许的网络访问路径。
 4. `chaos-console` 是否按“gateway 直接下线、traffic 完整接管”处理。
 5. gateway 是否接受新增统一的 chaos / network 分发 API。
 6. 所有 chaos endpoint 是否接受不做兼容、直接按最新协议重写。
 7. memory leak 与 deadlock 的清理动作是否统一为 `cleanup`。
-8. 预设场景与 recover-all 是否接受从前端脚本迁到 Node.js 后端编排。
+8. 预设场景与 recover-all 是否接受从前端脚本迁到 Next.js 服务端 / worker 编排。
 9. 表锁场景是否接受“先真实加锁成功，再写激活状态”的一致性修正。
 
 ---

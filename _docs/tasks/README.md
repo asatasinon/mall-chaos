@@ -65,7 +65,7 @@ Phase 3.5 (控制面重构) — 依赖 Phase 1/3 的相关能力
 | 17 | [网络故障注入](task-17-chaos-network.md) | Phase 3 | ToxiProxy + Pumba + Chaos Mesh |
 | 18 | [Kubernetes 部署](task-18-kubernetes.md) | Phase 4 | K8s 全量部署 YAML |
 | 19 | [Chaos 演练验收](task-19-chaos-verification.md) | Phase 4 | 7 个必测场景验收清单 |
-| 20 | [traffic control plane 脚手架](task-20-traffic-control-plane-scaffold.md) | Phase 3.5 | React + Node.js traffic 控制平面骨架 |
+| 20 | [traffic control plane 脚手架](task-20-traffic-control-plane-scaffold.md) | Phase 3.5 | Next.js + pnpm traffic 控制平面骨架 |
 | 21 | [gateway chaos dispatch](task-21-gateway-chaos-dispatch.md) | Phase 3.5 | gateway 统一控制分发与基础设施代理 |
 | 22 | [chaos protocol 统一化](task-22-chaos-protocol-unification.md) | Phase 3.5 | 各服务 chaos endpoint 最新协议统一 |
 | 23 | [traffic console 与场景编排](task-23-traffic-console-and-scenarios.md) | Phase 3.5 | 新控制台、overview、scenarios、recover-all |

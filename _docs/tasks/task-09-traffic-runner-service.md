@@ -2,7 +2,7 @@
 
 **阶段**：Phase 1 — 基础 7 服务  
 **依赖**：Task 01–08（所有基础服务）  
-**产出**：一个 `React + Node.js` 的 traffic control plane，启动后自动持续产生业务流量，提供控制台 UI、Runner 控制 API，以及通过 `gateway-service` 分发的 Chaos 控制能力
+**产出**：一个 `Next.js + pnpm` 的 traffic control plane，启动后自动持续产生业务流量，提供控制台 UI、Runner 控制 API，以及通过 `gateway-service` 分发的 Chaos 控制能力
 
 ---
 
@@ -10,9 +10,9 @@
 
 `traffic-runner-service` 不再是单纯的 Java Runner，而是新的 traffic 控制平面，包含：
 
-1. React 前端控制台
-2. Node.js BFF / 控制 API
-3. 自动流量生成引擎
+1. Next.js 控制台 UI
+2. Next.js Route Handlers / 控制 API
+3. 独立 Runner Worker
 4. 场景预设编排
 5. 运行状态聚合
 
@@ -74,9 +74,12 @@
 
 ### 9.1 技术形态调整
 
-- [ ] 将 `traffic-runner-service` 从 Spring Boot 服务重构为 `React + Node.js`
+- [ ] 将 `traffic-runner-service` 从 Spring Boot 服务重构为 `Next.js + pnpm`
+- [ ] 默认使用 TypeScript
+- [ ] 默认使用 `pnpm`
 - [ ] Node.js 承担 Runner API、控制编排、状态聚合与场景执行职责
-- [ ] React 承担控制台页面、拓扑展示、操作面板、执行日志面板
+- [ ] Next.js 页面层承担控制台页面、拓扑展示、操作面板、执行日志面板
+- [ ] 独立 worker 承担持续调度、库存重置调度、自动恢复定时器
 - [ ] 旧 gateway 内置 `chaos-console.html` 下线
 - [ ] 新控制台入口统一为 `traffic-runner-service`
 
@@ -136,7 +139,7 @@ INSERT INTO runner_inventory_reset_policy VALUES (1, 1, '0 */30 * * * *', 'Asia/
 
 ### 9.3 流量生成引擎
 
-- [ ] 在 Node.js 中实现调度器，按 `base_qps * multiplier` 生成流量
+- [ ] 在独立 worker 中实现调度器，按 `base_qps * multiplier` 生成流量
 - [ ] 每个调度 tick：
   1. 从 `runner_mix_rule` 内存规则按概率抽取 `action_type`
   2. 随机选择 `userId`（1~20）、`sku`（SKU-001~SKU-050）、`qty`（1~3）
@@ -208,7 +211,7 @@ INSERT INTO runner_inventory_reset_policy VALUES (1, 1, '0 */30 * * * *', 'Asia/
 - [ ] 新增 `GET /internal/traffic/scenarios`
 - [ ] 新增 `POST /internal/traffic/scenarios/{scenarioId}/run`
 - [ ] 新增 `POST /internal/traffic/scenarios/recover-all`
-- [ ] 预设场景逻辑从前端 JS 迁移到 Node.js 后端
+- [ ] 预设场景逻辑从前端 JS 迁移到 Next.js 服务端 / worker
 - [ ] `recover-all` 必须在后端统一编排，不允许前端 best-effort 并发调用多个端点
 
 ### 9.10 状态接口
