@@ -319,6 +319,24 @@ CREATE TABLE IF NOT EXISTS chaos_event_log (
     triggered_at   TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- chaos_switch: DB-driven feature-flag table for chaos injection.
+-- Each service reads this table on startup to restore any active fault configuration.
+-- Operators can toggle chaos without restarting services by flipping `enabled` directly
+-- via SQL, or through the /internal/chaos/* REST endpoints (chaos profile only).
+CREATE TABLE IF NOT EXISTS chaos_switch (
+    service_name     VARCHAR(64)   NOT NULL COMMENT '注入目标服务，对应 spring.application.name',
+    scenario         VARCHAR(32)   NOT NULL COMMENT 'slow_sql | memory_leak | deadlock',
+    enabled          TINYINT(1)    NOT NULL DEFAULT 0,
+    mode             VARCHAR(32)            DEFAULT NULL  COMMENT 'sleep | real（慢 SQL 模式）',
+    delay_ms         BIGINT                 DEFAULT 1000,
+    inject_rate      DOUBLE                 DEFAULT 1.0,
+    duration_sec     INT                    DEFAULT 0,
+    auto_disable_at  DATETIME               DEFAULT NULL,
+    updated_at       TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (service_name, scenario)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='Chaos 注入开关表 — 按 service+scenario 维度控制，支持 SQL 直接操作';
+
 -- =============================================================================
 -- Phase 2 tables (Tasks 10-13)
 -- =============================================================================
