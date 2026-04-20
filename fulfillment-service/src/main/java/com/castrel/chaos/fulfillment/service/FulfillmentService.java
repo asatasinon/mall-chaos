@@ -2,7 +2,8 @@ package com.castrel.chaos.fulfillment.service;
 
 import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.TraceContext;
-import com.castrel.chaos.common.chaos.SlowSqlChaosService;
+import com.castrel.chaos.common.cache.LocalQueryCacheManager;
+import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.fulfillment.dto.CancelFulfillmentRequest;
 import com.castrel.chaos.fulfillment.dto.CreateFulfillmentRequest;
 import com.castrel.chaos.fulfillment.dto.FulfillmentDTO;
@@ -12,6 +13,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +28,13 @@ public class FulfillmentService {
     private FulfillmentRepository fulfillmentRepository;
 
     @Autowired
-    private SlowSqlChaosService slowSqlChaosService;
+    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
+
+    @Autowired
+    private LocalQueryCacheManager localQueryCacheManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private MeterRegistry meterRegistry;
@@ -42,7 +50,7 @@ public class FulfillmentService {
 
     @Transactional
     public FulfillmentDTO create(CreateFulfillmentRequest req) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(req.getOrderNo());
         // Idempotency: return existing if already created
         return fulfillmentRepository.findByOrderId(req.getOrderId())
                 .map(this::toDTO)
@@ -57,7 +65,9 @@ public class FulfillmentService {
                     fulfillmentRepository.save(f);
                     createCounter.increment();
                     advanceStatusAsync(f.getOrderId());
-                    return toDTO(f);
+                    FulfillmentDTO result = toDTO(f);
+                    localQueryCacheManager.cacheIfNeeded("fulfillment:" + f.getOrderNo(), result);
+                    return result;
                 });
     }
 
@@ -86,7 +96,7 @@ public class FulfillmentService {
 
     @Transactional
     public FulfillmentDTO cancel(CancelFulfillmentRequest req) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(null);
         Fulfillment f = fulfillmentRepository.findByOrderId(req.getOrderId())
                 .orElseThrow(() -> new BizException("FULFILLMENT_NOT_FOUND",
                         "Fulfillment not found for orderId: " + req.getOrderId()));
@@ -104,11 +114,29 @@ public class FulfillmentService {
     }
 
     public FulfillmentDTO getByOrderId(Long orderId) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(null);
         return fulfillmentRepository.findByOrderId(orderId)
                 .map(this::toDTO)
                 .orElseThrow(() -> new BizException("FULFILLMENT_NOT_FOUND",
                         "Fulfillment not found for orderId: " + orderId));
+    }
+
+    private void enrichQueryIfNeeded(String orderNo) {
+        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
+        String joinTable = queryEnrichmentInterceptor.getJoinTable();
+        if ("user_behavior_log".equals(joinTable) && orderNo != null) {
+            jdbcTemplate.queryForList(
+                    "SELECT f.* FROM fulfillments f" +
+                    " JOIN user_behavior_log ubl ON ubl.action_type = 'PLACE_ORDER'" +
+                    " WHERE f.order_no = ?" +
+                    " LIMIT 1", orderNo);
+        } else if ("product_price_history".equals(joinTable)) {
+            jdbcTemplate.queryForList(
+                    "SELECT f.* FROM fulfillments f" +
+                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = f.order_no" +
+                    " WHERE pph.effective_at <= NOW()" +
+                    " LIMIT 1");
+        }
     }
 
     private FulfillmentDTO toDTO(Fulfillment f) {

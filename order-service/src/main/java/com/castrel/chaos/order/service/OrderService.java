@@ -2,7 +2,8 @@ package com.castrel.chaos.order.service;
 
 import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.TraceContext;
-import com.castrel.chaos.common.chaos.SlowSqlChaosService;
+import com.castrel.chaos.common.cache.LocalQueryCacheManager;
+import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.order.client.DownstreamClients;
 import com.castrel.chaos.order.dto.CreateOrderRequest;
 import com.castrel.chaos.order.dto.OrderDTO;
@@ -15,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,7 +43,13 @@ public class OrderService {
     private StringRedisTemplate redis;
 
     @Autowired
-    private SlowSqlChaosService slowSqlChaosService;
+    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
+
+    @Autowired
+    private LocalQueryCacheManager localQueryCacheManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private MeterRegistry meterRegistry;
@@ -68,7 +76,7 @@ public class OrderService {
         }
 
         try {
-            slowSqlChaosService.injectIfNeeded();
+            enrichQueryIfNeeded(req.getUserId());
 
             // 1. Validate user
             Map<String, Object> userResp = null;
@@ -162,7 +170,9 @@ public class OrderService {
             }
             order.setUpdatedAt(LocalDateTime.now());
             orderRepository.save(order);
-            return toDTO(order);
+            OrderDTO result = toDTO(order);
+            localQueryCacheManager.cacheIfNeeded("order:" + order.getOrderNo(), result);
+            return result;
 
         } finally {
             // Remove idempotency lock on terminal state so caller can see result
@@ -170,10 +180,12 @@ public class OrderService {
     }
 
     public OrderDTO getOrder(Long id) {
-        slowSqlChaosService.injectIfNeeded();
-        return orderRepository.findById(id)
+        enrichQueryIfNeeded(null);
+        OrderDTO result = orderRepository.findById(id)
                 .map(this::toDTO)
                 .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + id));
+        localQueryCacheManager.cacheIfNeeded("order:" + id, result);
+        return result;
     }
 
     @Transactional
@@ -191,6 +203,27 @@ public class OrderService {
         order.setStatus("CANCELLED");
         order.setUpdatedAt(LocalDateTime.now());
         return toDTO(orderRepository.save(order));
+    }
+
+    private void enrichQueryIfNeeded(Long userId) {
+        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
+        String joinTable = queryEnrichmentInterceptor.getJoinTable();
+        if ("user_behavior_log".equals(joinTable) && userId != null) {
+            jdbcTemplate.queryForList(
+                    "SELECT o.* FROM orders o" +
+                    " JOIN user_behavior_log ubl ON ubl.user_id = o.user_id" +
+                    " WHERE o.user_id = ?" +
+                    " AND o.status = 'PENDING'" +
+                    " AND ubl.action_type = 'PLACE_ORDER'" +
+                    " ORDER BY ubl.created_at DESC LIMIT 1", userId);
+        } else if ("product_price_history".equals(joinTable)) {
+            jdbcTemplate.queryForList(
+                    "SELECT o.* FROM orders o" +
+                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = o.sku" +
+                    " WHERE o.status = 'PENDING'" +
+                    " AND pph.effective_at <= NOW()" +
+                    " ORDER BY pph.effective_at DESC LIMIT 1");
+        }
     }
 
     private OrderDTO toDTO(Order o) {

@@ -1,7 +1,8 @@
 package com.castrel.chaos.promotion.service;
 
 import com.castrel.chaos.common.BizException;
-import com.castrel.chaos.common.chaos.SlowSqlChaosService;
+import com.castrel.chaos.common.cache.LocalQueryCacheManager;
+import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.promotion.dto.PromotionRequest;
 import com.castrel.chaos.promotion.dto.PromotionResultDTO;
 import com.castrel.chaos.promotion.dto.SkuItem;
@@ -14,6 +15,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,7 +39,13 @@ public class PromotionService {
     private CouponRepository couponRepository;
 
     @Autowired
-    private SlowSqlChaosService slowSqlChaosService;
+    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
+
+    @Autowired
+    private LocalQueryCacheManager localQueryCacheManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private StringRedisTemplate redisTemplate;
@@ -58,7 +66,7 @@ public class PromotionService {
     }
 
     public PromotionResultDTO preview(PromotionRequest req) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded();
         BigDecimal original = calcOriginal(req.getSkus());
         return applyPromotions(req.getUserId(), original, false, null);
     }
@@ -73,18 +81,38 @@ public class PromotionService {
         Boolean isNew = redisTemplate.opsForValue().setIfAbsent(idempotencyKey, "1", 24, TimeUnit.HOURS);
         if (Boolean.FALSE.equals(isNew)) {
             // Already calculated — return a consistent preview result (idempotent response)
-            slowSqlChaosService.injectIfNeeded();
+            enrichQueryIfNeeded();
             BigDecimal original = calcOriginal(req.getSkus());
             return applyPromotions(req.getUserId(), original, false, null);
         }
 
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded();
         BigDecimal original = calcOriginal(req.getSkus());
         PromotionResultDTO result = applyPromotions(req.getUserId(), original, true, req.getUserId());
 
         calculateCounter.increment();
         discountTotalCounter.increment(result.getDiscountAmount().doubleValue());
+        localQueryCacheManager.cacheIfNeeded("promotion:" + req.getOrderId(), result);
         return result;
+    }
+
+    private void enrichQueryIfNeeded() {
+        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
+        String joinTable = queryEnrichmentInterceptor.getJoinTable();
+        if ("product_price_history".equals(joinTable)) {
+            jdbcTemplate.queryForList(
+                    "SELECT pr.* FROM promotions pr" +
+                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = pr.name" +
+                    " WHERE pr.enabled = 1" +
+                    " AND pph.effective_at <= NOW()" +
+                    " LIMIT 1");
+        } else if ("user_behavior_log".equals(joinTable)) {
+            jdbcTemplate.queryForList(
+                    "SELECT pr.* FROM promotions pr" +
+                    " JOIN user_behavior_log ubl ON ubl.action_type = 'PLACE_ORDER'" +
+                    " WHERE pr.enabled = 1" +
+                    " LIMIT 1");
+        }
     }
 
     private BigDecimal calcOriginal(List<SkuItem> skus) {

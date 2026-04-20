@@ -1,6 +1,7 @@
 package com.castrel.chaos.notification.service;
 
-import com.castrel.chaos.common.chaos.SlowSqlChaosService;
+import com.castrel.chaos.common.cache.LocalQueryCacheManager;
+import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.notification.dto.OrderCreatedRequest;
 import com.castrel.chaos.notification.dto.PaymentResultRequest;
@@ -14,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -29,7 +31,13 @@ public class NotificationService {
     private double failRate;
 
     @Autowired
-    private SlowSqlChaosService slowSqlChaosService;
+    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
+
+    @Autowired
+    private LocalQueryCacheManager localQueryCacheManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private NotificationLogRepository notificationLogRepository;
@@ -84,7 +92,7 @@ public class NotificationService {
 
     private void send(Long userId, String orderNo, String eventType,
                       String message, Map<String, Object> payload) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(userId, orderNo);
         boolean failed = Math.random() < failRate;
         String status = failed ? "FAILED" : "SENT";
 
@@ -97,6 +105,7 @@ public class NotificationService {
         notifLog.setPayload(payload);
         notifLog.setTraceId(TraceContext.getTraceId());
         notificationLogRepository.save(notifLog);
+        localQueryCacheManager.cacheIfNeeded("notification:" + orderNo, notifLog);
 
         if (failed) {
             log.warn("traceId={} Notification FAILED event={} userId={} orderNo={}", 
@@ -106,6 +115,25 @@ public class NotificationService {
             log.info("traceId={} Notification SENT event={} userId={} orderNo={} message={}",
                     TraceContext.getTraceId(), eventType, userId, orderNo, message);
             sentCounter.increment();
+        }
+    }
+
+    private void enrichQueryIfNeeded(Long userId, String orderNo) {
+        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
+        String joinTable = queryEnrichmentInterceptor.getJoinTable();
+        if ("user_behavior_log".equals(joinTable) && userId != null && orderNo != null) {
+            jdbcTemplate.queryForList(
+                    "SELECT n.* FROM notification_logs n" +
+                    " JOIN user_behavior_log ubl ON ubl.user_id = n.user_id" +
+                    " WHERE n.order_no = ?" +
+                    " AND ubl.action_type = 'PLACE_ORDER'" +
+                    " LIMIT 1", orderNo);
+        } else if ("product_price_history".equals(joinTable)) {
+            jdbcTemplate.queryForList(
+                    "SELECT n.* FROM notification_logs n" +
+                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = n.order_no" +
+                    " WHERE pph.effective_at <= NOW()" +
+                    " LIMIT 1");
         }
     }
 }

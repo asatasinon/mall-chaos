@@ -1,0 +1,87 @@
+package com.castrel.chaos.common.interceptor;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Component;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * Checks whether the current service should enrich its SQL queries by joining
+ * an auxiliary data table. Configuration is read from a Redis Hash and cached
+ * locally for 5 seconds to minimise Redis round-trips.
+ */
+@Component
+public class QueryEnrichmentInterceptor {
+
+    private static final Logger log = LoggerFactory.getLogger(QueryEnrichmentInterceptor.class);
+    private static final String REDIS_KEY = "castrel:query:enrichment";
+    private static final long REFRESH_INTERVAL_MS = 5_000;
+
+    private final StringRedisTemplate redisTemplate;
+
+    @Value("${spring.application.name:unknown}")
+    private String serviceName;
+
+    private volatile EnrichmentConfig cachedConfig;
+    private volatile long lastRefresh = 0;
+
+    public QueryEnrichmentInterceptor(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
+
+    /**
+     * Returns {@code true} when the current request should JOIN the configured
+     * large table. Returns {@code false} on any Redis error (fail-safe).
+     */
+    public boolean shouldEnrich() {
+        refreshConfigIfNeeded();
+        if (cachedConfig == null || !cachedConfig.enabled()) return false;
+        if (cachedConfig.targetServices().isEmpty()) return true;
+        return cachedConfig.targetServices().contains(serviceName);
+    }
+
+    /** Returns the table name to JOIN, or {@code null} when enrichment is off. */
+    public String getJoinTable() {
+        return cachedConfig != null ? cachedConfig.joinTable() : null;
+    }
+
+    // ── internal ─────────────────────────────────────────────────────────────
+
+    private void refreshConfigIfNeeded() {
+        long now = System.currentTimeMillis();
+        if (now - lastRefresh < REFRESH_INTERVAL_MS) return;
+        lastRefresh = now;
+
+        try {
+            Map<Object, Object> hash = redisTemplate.opsForHash().entries(REDIS_KEY);
+            if (hash.isEmpty()) {
+                cachedConfig = null;
+                return;
+            }
+            cachedConfig = new EnrichmentConfig(
+                    "true".equals(hash.get("enabled")),
+                    (String) hash.get("joinTable"),
+                    parseServiceList((String) hash.get("targetServices"))
+            );
+        } catch (Exception e) {
+            // Redis unavailable → fail-safe: no enrichment
+            log.debug("Failed to read query enrichment config from Redis, disabling enrichment", e);
+            cachedConfig = null;
+        }
+    }
+
+    private Set<String> parseServiceList(String csv) {
+        if (csv == null || csv.isBlank()) return Collections.emptySet();
+        return Arrays.stream(csv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+    }
+}

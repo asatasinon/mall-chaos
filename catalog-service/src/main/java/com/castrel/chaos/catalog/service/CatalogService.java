@@ -4,13 +4,15 @@ import com.castrel.chaos.catalog.dto.ProductDTO;
 import com.castrel.chaos.catalog.entity.Product;
 import com.castrel.chaos.catalog.repository.ProductRepository;
 import com.castrel.chaos.common.BizException;
-import com.castrel.chaos.common.chaos.SlowSqlChaosService;
+import com.castrel.chaos.common.cache.LocalQueryCacheManager;
+import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -24,7 +26,13 @@ public class CatalogService {
     private ProductRepository productRepository;
 
     @Autowired
-    private SlowSqlChaosService slowSqlChaosService;
+    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
+
+    @Autowired
+    private LocalQueryCacheManager localQueryCacheManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private MeterRegistry meterRegistry;
@@ -41,7 +49,7 @@ public class CatalogService {
     }
 
     public Page<ProductDTO> listProducts(String category, int page, int size) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(null);
         listCount.increment();
         Page<Product> products = (category != null && !category.isBlank())
                 ? productRepository.findByCategory(category, PageRequest.of(page, size))
@@ -50,15 +58,17 @@ public class CatalogService {
     }
 
     public ProductDTO getProduct(String sku) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(sku);
         singleCount.increment();
-        return productRepository.findBySku(sku)
+        ProductDTO result = productRepository.findBySku(sku)
                 .map(this::toDTO)
                 .orElseThrow(() -> new BizException("PRODUCT_NOT_FOUND", "Product not found: " + sku));
+        localQueryCacheManager.cacheIfNeeded("product:" + sku, result);
+        return result;
     }
 
     public List<ProductDTO> batchQuery(List<String> skus) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(skus.isEmpty() ? null : skus.get(0));
         batchCount.increment();
         Map<String, ProductDTO> found = productRepository.findBySkuIn(skus)
                 .stream()
@@ -70,6 +80,26 @@ public class CatalogService {
             missing.setStatus(-1); // not found sentinel
             return missing;
         }).collect(Collectors.toList());
+    }
+
+    private void enrichQueryIfNeeded(String sku) {
+        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
+        String joinTable = queryEnrichmentInterceptor.getJoinTable();
+        if ("product_price_history".equals(joinTable) && sku != null) {
+            jdbcTemplate.queryForList(
+                    "SELECT p.* FROM products p" +
+                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = p.sku" +
+                    " WHERE p.sku = ?" +
+                    " AND p.status = 1" +
+                    " AND pph.effective_at <= NOW()" +
+                    " ORDER BY pph.effective_at DESC LIMIT 1", sku);
+        } else if ("user_behavior_log".equals(joinTable)) {
+            jdbcTemplate.queryForList(
+                    "SELECT p.* FROM products p" +
+                    " JOIN user_behavior_log ubl ON ubl.action_type = 'VIEW_PRODUCT'" +
+                    " WHERE p.status = 1" +
+                    " ORDER BY ubl.created_at DESC LIMIT 1");
+        }
     }
 
     private ProductDTO toDTO(Product p) {

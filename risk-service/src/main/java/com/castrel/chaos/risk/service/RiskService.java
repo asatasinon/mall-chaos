@@ -1,7 +1,8 @@
 package com.castrel.chaos.risk.service;
 
 import com.castrel.chaos.common.TraceContext;
-import com.castrel.chaos.common.chaos.SlowSqlChaosService;
+import com.castrel.chaos.common.cache.LocalQueryCacheManager;
+import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.risk.dto.PostPayCheckRequest;
 import com.castrel.chaos.risk.dto.PreCheckRequest;
 import com.castrel.chaos.risk.dto.RiskResultDTO;
@@ -14,6 +15,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -35,7 +37,13 @@ public class RiskService {
     private RiskEventRepository riskEventRepository;
 
     @Autowired
-    private SlowSqlChaosService slowSqlChaosService;
+    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
+
+    @Autowired
+    private LocalQueryCacheManager localQueryCacheManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private StringRedisTemplate redisTemplate;
@@ -55,7 +63,7 @@ public class RiskService {
     }
 
     public RiskResultDTO preCheck(PreCheckRequest req) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(req.getUserId());
 
         // Blacklist check
         if (Boolean.TRUE.equals(redisTemplate.opsForSet().isMember(BLACKLIST_KEY, String.valueOf(req.getUserId())))) {
@@ -98,11 +106,12 @@ public class RiskService {
         RiskResultDTO dto = new RiskResultDTO();
         dto.setPass(true);
         dto.setRiskLevel("LOW");
+        localQueryCacheManager.cacheIfNeeded("risk:" + req.getUserId(), dto);
         return dto;
     }
 
     public RiskResultDTO postPayCheck(PostPayCheckRequest req) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(req.getUserId());
 
         if (req.getAmount() != null
                 && req.getAmount().compareTo(POST_PAY_HIGH_AMOUNT) > 0
@@ -119,6 +128,25 @@ public class RiskService {
         RiskResultDTO dto = new RiskResultDTO();
         dto.setPass(true);
         return dto;
+    }
+
+    private void enrichQueryIfNeeded(Long userId) {
+        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
+        String joinTable = queryEnrichmentInterceptor.getJoinTable();
+        if ("user_behavior_log".equals(joinTable) && userId != null) {
+            jdbcTemplate.queryForList(
+                    "SELECT re.* FROM risk_events re" +
+                    " JOIN user_behavior_log ubl ON ubl.user_id = re.user_id" +
+                    " WHERE re.user_id = ?" +
+                    " AND ubl.action_type = 'PLACE_ORDER'" +
+                    " LIMIT 1", userId);
+        } else if ("product_price_history".equals(joinTable)) {
+            jdbcTemplate.queryForList(
+                    "SELECT re.* FROM risk_events re" +
+                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = re.order_no" +
+                    " WHERE pph.effective_at <= NOW()" +
+                    " LIMIT 1");
+        }
     }
 
     private int getFreqLimit() {

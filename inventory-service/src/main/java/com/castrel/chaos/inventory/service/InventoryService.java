@@ -2,7 +2,8 @@ package com.castrel.chaos.inventory.service;
 
 import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.DistributedLockService;
-import com.castrel.chaos.common.chaos.SlowSqlChaosService;
+import com.castrel.chaos.common.cache.LocalQueryCacheManager;
+import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.inventory.dto.ResetRequest;
 import com.castrel.chaos.inventory.entity.Inventory;
 import com.castrel.chaos.inventory.entity.InventoryBaselineSnapshot;
@@ -12,6 +13,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,7 +35,13 @@ public class InventoryService {
     private InventoryBaselineRepository baselineRepository;
 
     @Autowired
-    private SlowSqlChaosService slowSqlChaosService;
+    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
+
+    @Autowired
+    private LocalQueryCacheManager localQueryCacheManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private DistributedLockService lockService;
@@ -54,7 +62,7 @@ public class InventoryService {
 
     @Transactional
     public Map<String, Object> reserve(String orderId, String sku, int qty) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(sku);
         Inventory inv = inventoryRepository.findBySku(sku)
                 .orElseThrow(() -> new BizException("SKU_NOT_FOUND", "SKU not found: " + sku));
         int updated = inventoryRepository.reserve(sku, qty, inv.getVersion());
@@ -64,21 +72,42 @@ public class InventoryService {
         }
         reserveSuccess.increment();
         String lockId = UUID.randomUUID().toString();
-        return Map.of("lockId", lockId, "sku", sku, "qty", qty);
+        Map<String, Object> result = Map.of("lockId", lockId, "sku", sku, "qty", qty);
+        localQueryCacheManager.cacheIfNeeded("inventory:" + sku, result);
+        return result;
     }
 
     @Transactional
     public void release(String orderId, String sku, int qty) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(sku);
         inventoryRepository.release(sku, qty);
     }
 
     public Map<String, Object> query(String sku) {
-        slowSqlChaosService.injectIfNeeded();
+        enrichQueryIfNeeded(sku);
         Inventory inv = inventoryRepository.findBySku(sku)
                 .orElseThrow(() -> new BizException("SKU_NOT_FOUND", "SKU not found: " + sku));
         return Map.of("sku", sku, "availableQty", inv.getAvailableQty(),
                 "reservedQty", inv.getReservedQty(), "version", inv.getVersion());
+    }
+
+    private void enrichQueryIfNeeded(String sku) {
+        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
+        String joinTable = queryEnrichmentInterceptor.getJoinTable();
+        if ("product_price_history".equals(joinTable) && sku != null) {
+            jdbcTemplate.queryForList(
+                    "SELECT i.* FROM inventories i" +
+                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = i.sku" +
+                    " WHERE i.sku = ?" +
+                    " AND pph.effective_at <= NOW()" +
+                    " ORDER BY pph.effective_at DESC LIMIT 1", sku);
+        } else if ("user_behavior_log".equals(joinTable)) {
+            jdbcTemplate.queryForList(
+                    "SELECT i.* FROM inventories i" +
+                    " JOIN user_behavior_log ubl ON ubl.action_type = 'VIEW_PRODUCT'" +
+                    " WHERE i.sku = ?" +
+                    " ORDER BY ubl.created_at DESC LIMIT 1", sku);
+        }
     }
 
     public List<Map<String, Object>> resetPlan() {

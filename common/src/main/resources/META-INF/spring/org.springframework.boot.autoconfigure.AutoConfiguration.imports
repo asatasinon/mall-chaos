@@ -1,3 +1,2 @@
-com.castrel.chaos.common.config.ChaosCommonAutoConfiguration
 com.castrel.chaos.common.config.ChaosRedisAutoConfiguration
-com.castrel.chaos.common.config.ChaosJdbcAutoConfiguration
+com.castrel.chaos.common.config.ServiceComponentAutoConfiguration

@@ -1,6 +1,7 @@
 package com.castrel.chaos.runner.controller;
 
 import com.castrel.chaos.common.ApiResponse;
+import com.castrel.chaos.runner.service.DataWarmupService;
 import com.castrel.chaos.runner.service.TrafficRunnerService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -12,6 +13,9 @@ public class RunnerController {
 
     @Autowired
     private TrafficRunnerService runnerService;
+
+    @Autowired
+    private DataWarmupService dataWarmupService;
 
     @GetMapping("/internal/runner/status")
     public ApiResponse<Map<String, Object>> status() {
@@ -61,5 +65,10 @@ public class RunnerController {
     @GetMapping("/internal/runner/config")
     public ApiResponse<Map<String, Object>> getConfig() {
         return ApiResponse.ok(runnerService.getConfigStatus());
+    }
+
+    @GetMapping("/internal/runner/data-warmup/progress")
+    public ApiResponse<?> dataWarmupProgress() {
+        return ApiResponse.ok(dataWarmupService.getProgress());
     }
 }

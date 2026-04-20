@@ -444,3 +444,34 @@ CREATE TABLE IF NOT EXISTS notification_logs (
     INDEX idx_event_type (event_type),
     INDEX idx_order_no (order_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 商品价格变更历史
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS product_price_history (
+    id              BIGINT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    sku             VARCHAR(32)     NOT NULL,
+    previous_price  DECIMAL(10,2)   NOT NULL,
+    current_price   DECIMAL(10,2)   NOT NULL,
+    change_reason   VARCHAR(64)     NOT NULL COMMENT 'PROMOTION / COST_ADJUST / SEASONAL / MANUAL',
+    operator_id     BIGINT          NOT NULL DEFAULT 0,
+    effective_at    DATETIME        NOT NULL,
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_sku (sku)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='商品价格变更历史';
+
+-- =============================================================================
+-- 用户行为日志
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS user_behavior_log (
+    id              BIGINT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id         BIGINT          NOT NULL,
+    action_type     VARCHAR(32)     NOT NULL COMMENT 'PAGE_VIEW / ADD_CART / PLACE_ORDER / SEARCH',
+    target_id       VARCHAR(64)     NOT NULL,
+    target_type     VARCHAR(32)     NOT NULL COMMENT 'PRODUCT / ORDER / CATEGORY',
+    ip_address      VARCHAR(45),
+    session_id      VARCHAR(64),
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='用户行为日志';
