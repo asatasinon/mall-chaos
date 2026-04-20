@@ -169,6 +169,9 @@ castrel-chaos/
 git clone https://github.com/your-org/castrel-chaos.git
 cd castrel-chaos
 
+# jar打包
+mvn clean package -DskipTests
+
 # 启动基础设施 + 全部业务服务
 docker compose up -d
 

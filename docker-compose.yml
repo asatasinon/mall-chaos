@@ -75,7 +75,7 @@ services:
   # ─── Observability（默认启动，可手动关闭：docker compose stop prometheus grafana loki tempo obs-auth-proxy mysqld-exporter promtail）──
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.11.2
     container_name: castrel-prometheus
     <<: *service-defaults
     # Port 19090 is exposed via obs-auth-proxy (nginx) with basic auth
@@ -90,7 +90,7 @@ services:
       - '--storage.tsdb.retention.time=7d'
 
   loki:
-    image: grafana/loki:2.9.4
+    image: grafana/loki:3.6.10
     container_name: castrel-loki
     <<: *service-defaults
     # Port 13100 is exposed via obs-auth-proxy (nginx) with basic auth
@@ -100,7 +100,7 @@ services:
     command: -config.file=/etc/loki/local-config.yaml
 
   tempo:
-    image: grafana/tempo:2.3.1
+    image: grafana/tempo:2.10.4
     container_name: castrel-tempo
     <<: *service-defaults
     ports:
@@ -113,7 +113,7 @@ services:
     command: -config.file=/etc/tempo/config.yml
 
   grafana:
-    image: grafana/grafana:10.2.3
+    image: grafana/grafana:12.4.3
     container_name: castrel-grafana
     <<: *service-defaults
     ports:
@@ -177,7 +177,7 @@ services:
         condition: service_healthy
 
   promtail:
-    image: grafana/promtail:3.3.3
+    image: grafana/promtail:3.6.10
     container_name: castrel-promtail
     <<: *service-defaults
     volumes:
