@@ -279,87 +279,150 @@ public class CacheManagementController {
 
 - [ ] 所有 8 个业务服务接入
 
-### 16.6 Console 控制 API（traffic-runner-service）
+### 16.6 Gateway Chaos 分发 API
 
-在 `traffic-runner-service` 中新增场景控制 API，作为 Console 面板的后端：
+根据最新控制面设计，`traffic-runner-service` 不再直连业务服务。  
+Console/Traffic 触发的所有 chaos 请求必须先到 `gateway-service`，由 gateway 统一分发到目标服务或基础设施代理。
+
+在 `gateway-service` 中新增统一分发 API：
 
 ```java
 @RestController
-@RequestMapping("/internal/runner/scenario")
-public class ScenarioController {
+@RequestMapping("/internal/gateway")
+public class ChaosDispatchController {
 
-    private final StringRedisTemplate redisTemplate;
-    private final RestTemplate restTemplate; // 用于调用目标服务
+    @PostMapping("/chaos/slow-sql/enable")
+    public ApiResponse<?> enableSlowSql(@RequestBody SlowSqlDispatchRequest req) { ... }
 
-    // --- 表锁阻塞 ---
-    @PostMapping("/table-lock/enable")
-    public ApiResponse<?> enableTableLock(@RequestBody TableLockRequest req) {
-        // 1. 写入 Redis Hash castrel:maintenance:lock-audit
-        // 2. 调用目标服务 POST /internal/maintenance/data-audit/start
-    }
+    @PostMapping("/chaos/slow-sql/disable")
+    public ApiResponse<?> disableSlowSql(@RequestBody TargetServicesRequest req) { ... }
 
-    @PostMapping("/table-lock/disable")
-    public ApiResponse<?> disableTableLock() { ... }
+    @GetMapping("/chaos/slow-sql/status")
+    public ApiResponse<?> slowSqlStatus(@RequestParam List<String> targets) { ... }
 
-    @GetMapping("/table-lock/status")
-    public ApiResponse<?> tableLockStatus() { ... }
+    @PostMapping("/chaos/memory-leak/enable")
+    public ApiResponse<?> enableMemoryLeak(@RequestBody MemoryLeakDispatchRequest req) { ... }
 
-    // --- 慢 SQL ---
-    @PostMapping("/slow-query/enable")
-    public ApiResponse<?> enableSlowQuery(@RequestBody SlowQueryRequest req) {
-        // 写入 Redis Hash castrel:query:enrichment
-    }
+    @PostMapping("/chaos/memory-leak/disable")
+    public ApiResponse<?> disableMemoryLeak(@RequestBody TargetServicesRequest req) { ... }
 
-    @PostMapping("/slow-query/disable")
-    public ApiResponse<?> disableSlowQuery() { ... }
+    @PostMapping("/chaos/memory-leak/cleanup")
+    public ApiResponse<?> cleanupMemoryLeak(@RequestBody TargetServicesRequest req) { ... }
 
-    @GetMapping("/slow-query/status")
-    public ApiResponse<?> slowQueryStatus() { ... }
+    @GetMapping("/chaos/memory-leak/status")
+    public ApiResponse<?> memoryLeakStatus(@RequestParam List<String> targets) { ... }
 
-    // --- 内存泄漏 ---
-    @PostMapping("/memory-pressure/enable")
-    public ApiResponse<?> enableMemoryPressure(@RequestBody MemoryPressureRequest req) {
-        // 写入 Redis Hash castrel:cache:local-buffer
-    }
+    @PostMapping("/chaos/deadlock/enable")
+    public ApiResponse<?> enableDeadlock(@RequestBody DeadlockDispatchRequest req) { ... }
 
-    @PostMapping("/memory-pressure/disable")
-    public ApiResponse<?> disableMemoryPressure() { ... }
+    @PostMapping("/chaos/deadlock/disable")
+    public ApiResponse<?> disableDeadlock(@RequestBody TargetServicesRequest req) { ... }
 
-    @GetMapping("/memory-pressure/status")
-    public ApiResponse<?> memoryPressureStatus() { ... }
+    @PostMapping("/chaos/deadlock/cleanup")
+    public ApiResponse<?> cleanupDeadlock(@RequestBody TargetServicesRequest req) { ... }
+
+    @GetMapping("/chaos/deadlock/status")
+    public ApiResponse<?> deadlockStatus(@RequestParam List<String> targets) { ... }
+
+    @PostMapping("/chaos/table-lock/enable")
+    public ApiResponse<?> enableTableLock(@RequestBody TableLockDispatchRequest req) { ... }
+
+    @PostMapping("/chaos/table-lock/disable")
+    public ApiResponse<?> disableTableLock(@RequestBody TableLockDispatchRequest req) { ... }
+
+    @GetMapping("/chaos/table-lock/status")
+    public ApiResponse<?> tableLockStatus(
+            @RequestParam String targetService,
+            @RequestParam String targetTable) { ... }
 }
 ```
 
 **请求 DTO**：
 ```java
-public record TableLockRequest(String targetTable, String targetService, int durationSec) {}
-public record SlowQueryRequest(String joinTable, List<String> targetServices) {}
-public record MemoryPressureRequest(List<String> targetServices, int bufferSizeKb) {}
+public record TargetServicesRequest(List<String> targets) {}
+
+public record SlowSqlDispatchRequest(
+        List<String> targets,
+        String mode,
+        int delayMs,
+        double injectRate,
+        String scope,
+        int durationSec) {}
+
+public record MemoryLeakDispatchRequest(
+        List<String> targets,
+        int chunkSizeKb,
+        int intervalMs,
+        int maxMb,
+        int durationSec) {}
+
+public record DeadlockDispatchRequest(
+        List<String> targets,
+        double injectRate,
+        String scope,
+        int durationSec) {}
+
+public record TableLockDispatchRequest(
+        String targetService,
+        String targetTable,
+        int durationSec) {}
 ```
 
-- [ ] `ScenarioController` 实现
-- [ ] 表锁 enable 时同步调用目标服务 API
-- [ ] 慢 SQL / 内存泄漏只写 Redis，各服务自行轮询
-- [ ] 错误处理：目标服务不可用时返回友好提示
+- [ ] `gateway-service` 实现 `ChaosDispatchController`
+- [ ] gateway 按目标服务白名单分发 chaos 请求
+- [ ] gateway 统一注入 traceId、审计日志、错误格式
+- [ ] traffic-runner-service 只调用 gateway 分发 API
+- [ ] 不保留 `/internal/runner/scenario/*`
+
+### 16.6.1 traffic 控制面 API 对接
+
+`traffic-runner-service` 中保留的是控制平面 API，而不是直连业务服务的 `ScenarioController`：
+
+```text
+GET    /internal/traffic/chaos/overview
+POST   /internal/traffic/chaos/slow-sql/enable
+POST   /internal/traffic/chaos/slow-sql/disable
+GET    /internal/traffic/chaos/slow-sql/status
+
+POST   /internal/traffic/chaos/memory-leak/enable
+POST   /internal/traffic/chaos/memory-leak/disable
+POST   /internal/traffic/chaos/memory-leak/cleanup
+GET    /internal/traffic/chaos/memory-leak/status
+
+POST   /internal/traffic/chaos/deadlock/enable
+POST   /internal/traffic/chaos/deadlock/disable
+POST   /internal/traffic/chaos/deadlock/cleanup
+GET    /internal/traffic/chaos/deadlock/status
+
+POST   /internal/traffic/chaos/table-lock/enable
+POST   /internal/traffic/chaos/table-lock/disable
+GET    /internal/traffic/chaos/table-lock/status
+```
+
+- [ ] traffic API 参数校验与状态聚合
+- [ ] traffic API 仅通过 gateway 调用业务侧 chaos 能力
+- [ ] memory leak 统一使用 `enable / disable / cleanup`
+- [ ] deadlock 清理动作统一使用 `cleanup`
+- [ ] 表锁状态必须在真实加锁成功后再标记激活
 
 ### 16.7 验证
 
 #### 表锁阻塞验证
-- [ ] 调用 `POST /internal/runner/scenario/table-lock/enable` 锁定 `orders` 表
+- [ ] 调用 `POST /internal/traffic/chaos/table-lock/enable` 锁定 `orders` 表
 - [ ] traffic-runner 产生的订单全部超时
 - [ ] MySQL `SHOW PROCESSLIST` 显示 `Waiting for table lock`
 - [ ] 调用 disable 后流量恢复
 
 #### 慢 SQL 验证
 - [ ] 确认大表数据 ≥ 3000 万行
-- [ ] 调用 `POST /internal/runner/scenario/slow-query/enable` 选择 `user_behavior_log`
+- [ ] 调用 `POST /internal/traffic/chaos/slow-sql/enable`
 - [ ] order-service 响应时间从 ~50ms 飙升到 10s+
 - [ ] MySQL 慢查询日志出现 JOIN 语句
 - [ ] `EXPLAIN` 显示 `type=ALL`（全表扫描）
 - [ ] 调用 disable 后恢复
 
 #### 内存泄漏验证
-- [ ] 调用 `POST /internal/runner/scenario/memory-pressure/enable`
+- [ ] 调用 `POST /internal/traffic/chaos/memory-leak/enable`
 - [ ] Grafana JVM Heap Used 持续上升
 - [ ] 调用 `GET /internal/cache/local/stats` 查看缓存条目增长
 - [ ] 调用 `POST /internal/cache/local/evict-all` 后堆内存回落

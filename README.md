@@ -189,7 +189,7 @@ curl http://localhost:18080/actuator/health
 curl http://localhost:18080/api/products
 
 # 查看 Runner 状态（应为 running=true）
-curl http://localhost:18080/internal/runner/status
+curl http://localhost:18086/internal/traffic/runner/status
 ```
 
 服务启动后，traffic-runner 会自动以默认 QPS 向系统发送业务流量。
@@ -366,21 +366,21 @@ MySQL 初始化脚本位于 `infra/mysql/init/00-schema.sql`，Docker Compose �
 
 配置文件 `infra/redis/redis.conf`，开启 LRU 淘汰（`maxmemory-policy allkeys-lru`）。
 
-### traffic-runner 配置热更新
+### traffic control plane 配置热更新
 
 ```bash
 # 查看当前配置
-curl http://localhost:18086/internal/runner/config
+curl http://localhost:18086/internal/traffic/runner/config
 
 # 更新 QPS（必须带 version 字段，乐观锁保护）
-curl -X PUT http://localhost:18086/internal/runner/config \
+curl -X PUT http://localhost:18086/internal/traffic/runner/config \
   -H 'Content-Type: application/json' \
-  -d '{"qps": 20, "version": 1}'
+  -d '{"baseQps": 20, "version": 1}'
 
 # 动态调速（无需 version）
-curl -X POST http://localhost:18086/internal/runner/rate \
+curl -X POST http://localhost:18086/internal/traffic/runner/rate \
   -H 'Content-Type: application/json' \
-  -d '{"qps": 50}'
+  -d '{"multiplier": 2.0}'
 ```
 
 ---
@@ -391,11 +391,11 @@ curl -X POST http://localhost:18086/internal/runner/rate \
 
 ### 可视化控制台（故障触发）
 
-网关内置了一个前端故障控制台，可直接进行 slow SQL / memory leak / deadlock / toxiproxy 注入：
+新的控制台由 `traffic-runner-service` 承载，提供流量控制、场景执行、slow SQL / memory leak / deadlock / table lock / network fault 控制：
 
 ```bash
 # 启动后访问
-http://localhost:18080/chaos-console.html
+http://localhost:18086/
 ```
 
 控制台特性：
@@ -403,9 +403,16 @@ http://localhost:18080/chaos-console.html
 - 系统拓扑可视化（节点状态高亮）
 - Slow SQL 八服务批量启停（catalog/inventory/order/payment/promotion/risk/fulfillment/notification）
 - order/payment 内存泄漏与死锁一键控制
+- 表锁阻塞控制
 - ToxiProxy 网络故障注入（延迟、reset_peer、清空 toxics）
 - Grafana/Tempo 深链跳转（dashboard、按服务过滤、按 traceId 检索）
 - 预置 Task 19 场景按钮（场景 2/4/5/7 + 一键恢复）
+
+网络访问约束：
+
+- 浏览器只访问 `traffic-runner-service`
+- `traffic-runner-service` 只访问 `gateway-service`
+- 所有控制请求统一走 `traffic -> gateway -> services`
 
 深链地址配置：
 
@@ -415,21 +422,23 @@ http://localhost:18080/chaos-console.html
 
 ### 慢 SQL
 
-适用服务：catalog / inventory / order / payment / promotion / risk / fulfillment
+适用服务：catalog / inventory / order / payment / promotion / risk / fulfillment / notification
 
 ```bash
-# 开启 sleep 模式（100% 注入，持续 3 分钟后自动关闭）
-curl -X POST http://localhost:18085/internal/chaos/slow-sql/enable \
+# 通过 traffic 控制面开启 sleep 模式（100% 注入，持续 3 分钟后自动关闭）
+curl -X POST http://localhost:18086/internal/traffic/chaos/slow-sql/enable \
   -H 'Content-Type: application/json' \
-  -d '{"mode":"sleep","delayMs":3000,"injectRate":1.0,"durationSec":180}'
+  -d '{"targets":["payment-service"],"mode":"sleep","delayMs":3000,"injectRate":1.0,"scope":"ALL","durationSec":180}'
 
 # 开启 real 模式（SELECT SLEEP(N) 真实慢查询，50% 注入）
-curl -X POST http://localhost:18085/internal/chaos/slow-sql/enable \
+curl -X POST http://localhost:18086/internal/traffic/chaos/slow-sql/enable \
   -H 'Content-Type: application/json' \
-  -d '{"mode":"real","delayMs":2000,"injectRate":0.5,"durationSec":180}'
+  -d '{"targets":["payment-service"],"mode":"real","delayMs":2000,"injectRate":0.5,"scope":"ALL","durationSec":180}'
 
 # 手动关闭
-curl -X POST http://localhost:18085/internal/chaos/slow-sql/disable
+curl -X POST http://localhost:18086/internal/traffic/chaos/slow-sql/disable \
+  -H 'Content-Type: application/json' \
+  -d '{"targets":["payment-service"]}'
 ```
 
 ### JVM 内存泄漏
@@ -437,16 +446,20 @@ curl -X POST http://localhost:18085/internal/chaos/slow-sql/disable
 适用服务：order / payment
 
 ```bash
-# 开始泄漏（每 300ms 分配 1MB，上限 350MB）
-curl -X POST http://localhost:18084/internal/chaos/memory-leak/start \
+# 开始泄漏（每 300ms 分配 1MB，上限 350MB，持续 3 分钟）
+curl -X POST http://localhost:18086/internal/traffic/chaos/memory-leak/enable \
   -H 'Content-Type: application/json' \
-  -d '{"chunkSizeKb":1024,"intervalMs":300,"maxMb":350}'
+  -d '{"targets":["order-service"],"chunkSizeKb":1024,"intervalMs":300,"maxMb":350,"durationSec":180}'
 
 # 停止分配（已持有内存不释放）
-curl -X POST http://localhost:18084/internal/chaos/memory-leak/stop
+curl -X POST http://localhost:18086/internal/traffic/chaos/memory-leak/disable \
+  -H 'Content-Type: application/json' \
+  -d '{"targets":["order-service"]}'
 
 # 释放所有持有内存
-curl -X POST http://localhost:18084/internal/chaos/memory-leak/clear
+curl -X POST http://localhost:18086/internal/traffic/chaos/memory-leak/cleanup \
+  -H 'Content-Type: application/json' \
+  -d '{"targets":["order-service"]}'
 ```
 
 ### 数据库死锁
@@ -455,28 +468,31 @@ curl -X POST http://localhost:18084/internal/chaos/memory-leak/clear
 
 ```bash
 # 开启死锁注入（40% 概率，3 分钟后自动停止）
-curl -X POST http://localhost:18084/internal/chaos/deadlock/enable \
+curl -X POST http://localhost:18086/internal/traffic/chaos/deadlock/enable \
   -H 'Content-Type: application/json' \
-  -d '{"injectRate":0.4,"durationSec":180}'
+  -d '{"targets":["order-service"],"injectRate":0.4,"scope":"ALL","durationSec":180}'
 
 # 手动关闭
-curl -X POST http://localhost:18084/internal/chaos/deadlock/disable
+curl -X POST http://localhost:18086/internal/traffic/chaos/deadlock/disable \
+  -H 'Content-Type: application/json' \
+  -d '{"targets":["order-service"]}'
 ```
 
 ### 网络故障（ToxiProxy）
 
 ```bash
 # 向 order→payment 注入 3s 延迟（自动 120s 后移除）
-./scripts/chaos/network-delay.sh order-to-payment 3000 1000 120
+curl -X POST http://localhost:18086/internal/traffic/chaos/network-delay/enable \
+  -H 'Content-Type: application/json' \
+  -d '{"proxyName":"order-to-payment","latencyMs":3000,"jitterMs":1000,"durationSec":120}'
 
-# 查看当前所有 toxics
-./scripts/chaos/toxiproxy-status.sh
+# 查看网络故障状态
+curl "http://localhost:18086/internal/traffic/chaos/network-delay/status?proxyName=order-to-payment"
 
-# 移除指定 toxic
-./scripts/chaos/network-remove-toxic.sh order-to-payment chaos-delay
-
-# 清空所有 toxics
-./scripts/chaos/network-reset-all.sh
+# 移除网络延迟
+curl -X POST http://localhost:18086/internal/traffic/chaos/network-delay/disable \
+  -H 'Content-Type: application/json' \
+  -d '{"proxyName":"order-to-payment"}'
 ```
 
 ToxiProxy 代理映射：
@@ -515,7 +531,7 @@ curl -X POST http://localhost:18083/internal/inventory/reset \
   -d '{"expectedVersion": 1}'
 
 # 通过 traffic-runner 触发（带分布式锁保护）
-curl -X POST http://localhost:18086/internal/runner/inventory-reset/trigger
+curl -X POST http://localhost:18086/internal/traffic/runner/inventory-reset/trigger
 ```
 
 ---
