@@ -28,8 +28,12 @@ public class ChaosDispatchController {
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId
     ) {
         String joinTable = req.joinTable() == null ? "user_behavior_log" : req.joinTable();
+        int limitRows = req.limitRows() > 0 ? req.limitRows() : 1;
+        int offsetRows = Math.max(req.offsetRows(), 0);
         Map<String, Object> body = Map.of(
                 "joinTable", joinTable,
+                "limitRows", limitRows,
+                "offsetRows", offsetRows,
                 "durationSec", req.durationSec()
         );
         return dispatchService.dispatchPost("slow-sql", req.targets(), "/internal/chaos/slow-sql/enable", body, traceId)

@@ -208,21 +208,24 @@ public class OrderService {
     private void enrichQueryIfNeeded(Long userId) {
         if (!queryEnrichmentInterceptor.shouldEnrich()) return;
         String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        if ("user_behavior_log".equals(joinTable) && userId != null) {
+        int limitRows = queryEnrichmentInterceptor.getLimitRows();
+        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
+        if ("user_behavior_log".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT o.* FROM orders o" +
                     " JOIN user_behavior_log ubl ON ubl.user_id = o.user_id" +
-                    " WHERE o.user_id = ?" +
-                    " AND o.status = 'PENDING'" +
+                    " WHERE o.status = 'PENDING'" +
                     " AND ubl.action_type = 'PLACE_ORDER'" +
-                    " ORDER BY ubl.created_at DESC LIMIT 1", userId);
+                    " ORDER BY ubl.created_at DESC, o.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         } else if ("product_price_history".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT o.* FROM orders o" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = o.sku" +
                     " WHERE o.status = 'PENDING'" +
                     " AND pph.effective_at <= NOW()" +
-                    " ORDER BY pph.effective_at DESC LIMIT 1");
+                    " ORDER BY pph.effective_at DESC, o.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         }
     }
 

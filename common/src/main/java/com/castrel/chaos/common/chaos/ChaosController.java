@@ -35,9 +35,11 @@ public class ChaosController {
     @PostMapping("/slow-sql/enable")
     public ApiResponse<Map<String, Object>> enableSlowSql(@RequestBody Map<String, Object> req) {
         String joinTable = (String) req.getOrDefault("joinTable", "user_behavior_log");
+        int limitRows = ((Number) req.getOrDefault("limitRows", 1)).intValue();
+        int offsetRows = ((Number) req.getOrDefault("offsetRows", 200000)).intValue();
         int durationSec = ((Number) req.getOrDefault("durationSec", 0)).intValue();
 
-        chaosService.enableSlowSql(joinTable, durationSec);
+        chaosService.enableSlowSql(joinTable, limitRows, offsetRows, durationSec);
         return ApiResponse.ok(chaosService.getSlowSqlStatus());
     }
 

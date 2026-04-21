@@ -39,6 +39,8 @@ export default function ChaosControlPage() {
               default: 'user_behavior_log',
               options: ['user_behavior_log', 'product_price_history'],
             },
+            { key: 'limitRows', label: 'LIMIT', type: 'number', default: '1', min: '1' },
+            { key: 'offsetRows', label: 'OFFSET', type: 'number', default: '200000', min: '0' },
             { key: 'durationSec', label: 'Duration (s)', type: 'number', default: '300' },
           ]}
         />

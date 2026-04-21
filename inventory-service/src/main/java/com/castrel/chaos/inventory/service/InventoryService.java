@@ -94,19 +94,21 @@ public class InventoryService {
     private void enrichQueryIfNeeded(String sku) {
         if (!queryEnrichmentInterceptor.shouldEnrich()) return;
         String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        if ("product_price_history".equals(joinTable) && sku != null) {
+        int limitRows = queryEnrichmentInterceptor.getLimitRows();
+        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
+        if ("product_price_history".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT i.* FROM inventories i" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = i.sku" +
-                    " WHERE i.sku = ?" +
-                    " AND pph.effective_at <= NOW()" +
-                    " ORDER BY pph.effective_at DESC LIMIT 1", sku);
+                    " WHERE pph.effective_at <= NOW()" +
+                    " ORDER BY pph.effective_at DESC, i.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         } else if ("user_behavior_log".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT i.* FROM inventories i" +
                     " JOIN user_behavior_log ubl ON ubl.action_type = 'VIEW_PRODUCT'" +
-                    " WHERE i.sku = ?" +
-                    " ORDER BY ubl.created_at DESC LIMIT 1", sku);
+                    " ORDER BY ubl.created_at DESC, i.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         }
     }
 

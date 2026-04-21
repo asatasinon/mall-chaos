@@ -85,20 +85,23 @@ public class CatalogService {
     private void enrichQueryIfNeeded(String sku) {
         if (!queryEnrichmentInterceptor.shouldEnrich()) return;
         String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        if ("product_price_history".equals(joinTable) && sku != null) {
+        int limitRows = queryEnrichmentInterceptor.getLimitRows();
+        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
+        if ("product_price_history".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT p.* FROM products p" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = p.sku" +
-                    " WHERE p.sku = ?" +
-                    " AND p.status = 1" +
+                    " WHERE p.status = 1" +
                     " AND pph.effective_at <= NOW()" +
-                    " ORDER BY pph.effective_at DESC LIMIT 1", sku);
+                    " ORDER BY pph.effective_at DESC, p.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         } else if ("user_behavior_log".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT p.* FROM products p" +
                     " JOIN user_behavior_log ubl ON ubl.action_type = 'VIEW_PRODUCT'" +
                     " WHERE p.status = 1" +
-                    " ORDER BY ubl.created_at DESC LIMIT 1");
+                    " ORDER BY ubl.created_at DESC, p.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         }
     }
 
@@ -113,4 +116,3 @@ public class CatalogService {
         return dto;
     }
 }
-

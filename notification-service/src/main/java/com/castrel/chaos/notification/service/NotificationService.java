@@ -121,19 +121,22 @@ public class NotificationService {
     private void enrichQueryIfNeeded(Long userId, String orderNo) {
         if (!queryEnrichmentInterceptor.shouldEnrich()) return;
         String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        if ("user_behavior_log".equals(joinTable) && userId != null && orderNo != null) {
+        int limitRows = queryEnrichmentInterceptor.getLimitRows();
+        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
+        if ("user_behavior_log".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT n.* FROM notification_logs n" +
                     " JOIN user_behavior_log ubl ON ubl.user_id = n.user_id" +
-                    " WHERE n.order_no = ?" +
                     " AND ubl.action_type = 'PLACE_ORDER'" +
-                    " LIMIT 1", orderNo);
+                    " ORDER BY ubl.created_at DESC, n.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         } else if ("product_price_history".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT n.* FROM notification_logs n" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = n.order_no" +
                     " WHERE pph.effective_at <= NOW()" +
-                    " LIMIT 1");
+                    " ORDER BY pph.effective_at DESC, n.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         }
     }
 }

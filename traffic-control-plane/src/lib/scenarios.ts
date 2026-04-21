@@ -30,6 +30,8 @@ export const PRESET_SCENARIOS: Scenario[] = [
         body: {
           targets: ['order-service', 'payment-service'],
           joinTable: 'user_behavior_log',
+          limitRows: 1,
+          offsetRows: 200000,
           durationSec: 300,
         },
       },
@@ -118,6 +120,8 @@ export const PRESET_SCENARIOS: Scenario[] = [
         body: {
           targets: ['order-service', 'payment-service'],
           joinTable: 'user_behavior_log',
+          limitRows: 1,
+          offsetRows: 200000,
           durationSec: 300,
         },
       },

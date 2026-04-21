@@ -114,19 +114,22 @@ public class PaymentService {
     private void enrichQueryIfNeeded(String orderNo) {
         if (!queryEnrichmentInterceptor.shouldEnrich()) return;
         String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        if ("user_behavior_log".equals(joinTable) && orderNo != null) {
+        int limitRows = queryEnrichmentInterceptor.getLimitRows();
+        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
+        if ("user_behavior_log".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT p.* FROM payments p" +
                     " JOIN user_behavior_log ubl ON ubl.user_id = p.user_id" +
-                    " WHERE p.order_no = ?" +
-                    " AND ubl.action_type = 'PLACE_ORDER'" +
-                    " ORDER BY ubl.created_at DESC LIMIT 1", orderNo);
+                    " WHERE ubl.action_type = 'PLACE_ORDER'" +
+                    " ORDER BY ubl.created_at DESC, p.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         } else if ("product_price_history".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT p.* FROM payments p" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = p.order_no" +
                     " WHERE pph.effective_at <= NOW()" +
-                    " ORDER BY pph.effective_at DESC LIMIT 1");
+                    " ORDER BY pph.effective_at DESC, p.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         }
     }
 

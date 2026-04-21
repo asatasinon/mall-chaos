@@ -36,6 +36,8 @@ public class ChaosService {
     // ── Slow SQL state ──
     private volatile boolean slowSqlActive = false;
     private volatile String slowSqlJoinTable = "user_behavior_log";
+    private volatile int slowSqlLimitRows = 1;
+    private volatile int slowSqlOffsetRows = 200000;
     private volatile Instant slowSqlStartedAt;
     private ScheduledFuture<?> slowSqlAutoDisable;
 
@@ -77,24 +79,30 @@ public class ChaosService {
     // SLOW SQL
     // ═══════════════════════════════════════════════════════════════════════
 
-    public void enableSlowSql(String joinTable, int durationSec) {
+    public void enableSlowSql(String joinTable, int limitRows, int offsetRows, int durationSec) {
         String normalizedJoinTable = normaliseJoinTable(joinTable);
+        int normalizedLimitRows = normalizeLimitRows(limitRows);
+        int normalizedOffsetRows = normalizeOffsetRows(offsetRows);
         this.slowSqlJoinTable = normalizedJoinTable;
+        this.slowSqlLimitRows = normalizedLimitRows;
+        this.slowSqlOffsetRows = normalizedOffsetRows;
         this.slowSqlStartedAt = Instant.now();
         this.slowSqlActive = true;
 
         redisTemplate.opsForHash().putAll(slowSqlRedisKey(), Map.of(
                 "enabled", "true",
                 "joinTable", normalizedJoinTable,
-                "targetServices", serviceName
+                "targetServices", serviceName,
+                "limitRows", Integer.toString(normalizedLimitRows),
+                "offsetRows", Integer.toString(normalizedOffsetRows)
         ));
 
         cancelFuture(slowSqlAutoDisable);
         if (durationSec > 0) {
             slowSqlAutoDisable = scheduler.schedule(this::disableSlowSql, durationSec, TimeUnit.SECONDS);
         }
-        log.info("Slow SQL enrichment enabled: service={}, joinTable={}, durationSec={}",
-                serviceName, normalizedJoinTable, durationSec);
+        log.info("Slow SQL enrichment enabled: service={}, joinTable={}, limitRows={}, offsetRows={}, durationSec={}",
+                serviceName, normalizedJoinTable, normalizedLimitRows, normalizedOffsetRows, durationSec);
     }
 
     public void disableSlowSql() {
@@ -102,9 +110,11 @@ public class ChaosService {
         cancelFuture(slowSqlAutoDisable);
         try {
             redisTemplate.opsForHash().putAll(slowSqlRedisKey(), Map.of(
-                    "enabled", "false",
-                    "joinTable", "",
-                    "targetServices", serviceName
+                "enabled", "false",
+                "joinTable", "",
+                "targetServices", serviceName,
+                "limitRows", Integer.toString(slowSqlLimitRows),
+                "offsetRows", Integer.toString(slowSqlOffsetRows)
             ));
         } catch (Exception e) {
             log.warn("Failed to disable slow SQL enrichment in Redis: {}", e.getMessage());
@@ -116,6 +126,8 @@ public class ChaosService {
         return Map.of(
                 "active", slowSqlActive,
                 "joinTable", slowSqlJoinTable,
+                "limitRows", slowSqlLimitRows,
+                "offsetRows", slowSqlOffsetRows,
                 "service", serviceName,
                 "startedAt", slowSqlStartedAt != null ? slowSqlStartedAt.toString() : "",
                 "autoDisableAt", computeAutoDisableAt(slowSqlStartedAt, slowSqlAutoDisable)
@@ -285,5 +297,15 @@ public class ChaosService {
             throw new IllegalArgumentException("Unsupported joinTable: " + joinTable);
         }
         return joinTable;
+    }
+
+    private int normalizeLimitRows(int limitRows) {
+        if (limitRows <= 0) return 1;
+        return Math.min(limitRows, 1000);
+    }
+
+    private int normalizeOffsetRows(int offsetRows) {
+        if (offsetRows < 0) return 0;
+        return Math.min(offsetRows, 5_000_000);
     }
 }

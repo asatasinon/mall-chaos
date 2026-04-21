@@ -124,18 +124,21 @@ public class FulfillmentService {
     private void enrichQueryIfNeeded(String orderNo) {
         if (!queryEnrichmentInterceptor.shouldEnrich()) return;
         String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        if ("user_behavior_log".equals(joinTable) && orderNo != null) {
+        int limitRows = queryEnrichmentInterceptor.getLimitRows();
+        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
+        if ("user_behavior_log".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT f.* FROM fulfillments f" +
                     " JOIN user_behavior_log ubl ON ubl.action_type = 'PLACE_ORDER'" +
-                    " WHERE f.order_no = ?" +
-                    " LIMIT 1", orderNo);
+                    " ORDER BY ubl.created_at DESC, f.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         } else if ("product_price_history".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT f.* FROM fulfillments f" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = f.order_no" +
                     " WHERE pph.effective_at <= NOW()" +
-                    " LIMIT 1");
+                    " ORDER BY pph.effective_at DESC, f.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         }
     }
 

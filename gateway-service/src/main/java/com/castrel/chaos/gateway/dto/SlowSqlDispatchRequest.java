@@ -5,4 +5,6 @@ import java.util.List;
 public record SlowSqlDispatchRequest(
         List<String> targets,
         String joinTable,
+        int limitRows,
+        int offsetRows,
         int durationSec) {}

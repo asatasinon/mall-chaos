@@ -53,6 +53,14 @@ public class QueryEnrichmentInterceptor {
         return cachedConfig != null ? cachedConfig.joinTable() : null;
     }
 
+    public int getLimitRows() {
+        return cachedConfig != null ? cachedConfig.limitRows() : 1;
+    }
+
+    public int getOffsetRows() {
+        return cachedConfig != null ? cachedConfig.offsetRows() : 0;
+    }
+
     // ── internal ─────────────────────────────────────────────────────────────
 
     private void refreshConfigIfNeeded() {
@@ -73,7 +81,9 @@ public class QueryEnrichmentInterceptor {
             cachedConfig = new EnrichmentConfig(
                     "true".equals(hash.get("enabled")),
                     (String) hash.get("joinTable"),
-                    parseServiceList((String) hash.get("targetServices"))
+                    parseServiceList((String) hash.get("targetServices")),
+                    parsePositiveInt((String) hash.get("limitRows"), 1),
+                    parseNonNegativeInt((String) hash.get("offsetRows"), 200000)
             );
         } catch (Exception e) {
             // Redis unavailable → fail-safe: no enrichment
@@ -92,5 +102,25 @@ public class QueryEnrichmentInterceptor {
 
     private String redisKeyForService() {
         return REDIS_KEY_PREFIX + serviceName;
+    }
+
+    private int parsePositiveInt(String value, int defaultValue) {
+        if (value == null || value.isBlank()) return defaultValue;
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return parsed > 0 ? parsed : defaultValue;
+        } catch (NumberFormatException ignore) {
+            return defaultValue;
+        }
+    }
+
+    private int parseNonNegativeInt(String value, int defaultValue) {
+        if (value == null || value.isBlank()) return defaultValue;
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return Math.max(parsed, 0);
+        } catch (NumberFormatException ignore) {
+            return defaultValue;
+        }
     }
 }

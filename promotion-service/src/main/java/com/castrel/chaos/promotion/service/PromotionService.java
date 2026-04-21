@@ -99,19 +99,23 @@ public class PromotionService {
     private void enrichQueryIfNeeded() {
         if (!queryEnrichmentInterceptor.shouldEnrich()) return;
         String joinTable = queryEnrichmentInterceptor.getJoinTable();
+        int limitRows = queryEnrichmentInterceptor.getLimitRows();
+        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
         if ("product_price_history".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT pr.* FROM promotions pr" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = pr.name" +
                     " WHERE pr.enabled = 1" +
                     " AND pph.effective_at <= NOW()" +
-                    " LIMIT 1");
+                    " ORDER BY pph.effective_at DESC, pr.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         } else if ("user_behavior_log".equals(joinTable)) {
             jdbcTemplate.queryForList(
                     "SELECT pr.* FROM promotions pr" +
                     " JOIN user_behavior_log ubl ON ubl.action_type = 'PLACE_ORDER'" +
                     " WHERE pr.enabled = 1" +
-                    " LIMIT 1");
+                    " ORDER BY ubl.created_at DESC, pr.id DESC" +
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
         }
     }
 
