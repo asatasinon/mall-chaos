@@ -4,6 +4,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REGISTRY="${REGISTRY:-harbor.cloudwise.com/noname}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 PUSH_IMAGE=false
 
@@ -39,19 +40,30 @@ for svc in "${SERVICES[@]}"; do
   echo "--- [$svc] Maven package ---"
   mvn package -pl "$svc" -DskipTests -q
 
-  echo "--- [$svc] Docker build (tag: castrel/${svc}:${IMAGE_TAG}) ---"
-  docker build -t "castrel/${svc}:${IMAGE_TAG}" "$REPO_ROOT/$svc"
+  echo "--- [$svc] Docker build (tag: ${REGISTRY}/${svc}:${IMAGE_TAG}) ---"
+  docker build -t "${REGISTRY}/${svc}:${IMAGE_TAG}" "$REPO_ROOT/$svc"
 
   if [[ "$PUSH_IMAGE" == "true" ]]; then
     echo "--- [$svc] Docker push ---"
-    docker push "castrel/${svc}:${IMAGE_TAG}"
+    docker push "${REGISTRY}/${svc}:${IMAGE_TAG}"
   fi
 
   echo "--- [$svc] Done ---"
   echo ""
 done
 
-echo "=== Build complete. All images tagged as castrel/*:${IMAGE_TAG} ==="
+echo ""
+echo "=== Building traffic-control-plane (Node.js) ==="
+echo "--- [traffic-runner-service] Docker build (tag: ${REGISTRY}/traffic-runner-service:${IMAGE_TAG}) ---"
+docker build -t "${REGISTRY}/traffic-runner-service:${IMAGE_TAG}" "$REPO_ROOT/traffic-control-plane"
+if [[ "$PUSH_IMAGE" == "true" ]]; then
+  echo "--- [traffic-runner-service] Docker push ---"
+  docker push "${REGISTRY}/traffic-runner-service:${IMAGE_TAG}"
+fi
+echo "--- [traffic-runner-service] Done ---"
+
+echo ""
+echo "=== Build complete. All images tagged as ${REGISTRY}/*:${IMAGE_TAG} ==="
 if [[ "$PUSH_IMAGE" == "false" ]]; then
   echo "Tip: Run with --push to push images to registry"
 fi
