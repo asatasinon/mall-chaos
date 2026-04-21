@@ -256,6 +256,30 @@ docker compose up -d --build --force-recreate
 cd traffic-control-plane && pnpm install && pnpm build && cd ..
 ```
 
+### 服务器直连 Harbor 构建
+
+如果服务器不能稳定访问 Docker Hub，先把基础镜像同步到内部 Harbor，再让项目构建时统一从 Harbor 拉取基础镜像：
+
+```bash
+# 1) 登录内部 Harbor
+docker login harbor.example.com
+
+# 2) 同步基础镜像到 Harbor 项目，例如 harbor.example.com/base-images
+TARGET_REGISTRY=harbor.example.com/base-images ./scripts/push-base-images.sh
+
+# 3) 在服务器上直接构建并推送业务镜像
+BASE_IMAGE_REGISTRY=harbor.example.com/base-images/ \
+REGISTRY=harbor.example.com/castrel-chaos \
+IMAGE_TAG=v1.0.0 \
+./scripts/build-all.sh --push --tag v1.0.0
+```
+
+说明：
+
+- `TARGET_REGISTRY` / `BASE_IMAGE_REGISTRY` 需要指向同一个 Harbor 项目
+- `BASE_IMAGE_REGISTRY` 必须带结尾 `/`，例如 `harbor.example.com/base-images/`
+- 当前会同步 3 个基础镜像：`alpine:3.20`、`eclipse-temurin:21-jre-alpine`、`node:22-alpine`
+
 ### 单服务构建
 
 ```bash
