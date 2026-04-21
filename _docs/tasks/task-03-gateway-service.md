@@ -60,6 +60,8 @@
 | POST | `/internal/gateway/network-reset/enable` | 注入 reset_peer |
 | POST | `/internal/gateway/network-reset/disable` | 删除网络 reset toxic |
 | GET | `/internal/gateway/network-reset/status` | 查询网络 reset 状态 |
+| POST | `/internal/gateway/inventory-reset/plan` | 分发库存重置预览请求 |
+| POST | `/internal/gateway/inventory-reset` | 分发库存重置执行请求 |
 
 ### 3.0.2 基础设施代理 API
 

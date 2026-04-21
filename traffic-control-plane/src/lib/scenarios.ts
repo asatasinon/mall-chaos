@@ -85,7 +85,7 @@ export const PRESET_SCENARIOS: Scenario[] = [
         action: 'enable',
         path: '/internal/gateway/network-delay/enable',
         body: {
-          proxyName: 'inventory-service-proxy',
+          proxyName: 'order-to-inventory',
           latencyMs: 5000,
           jitter: 2000,
         },
@@ -185,9 +185,17 @@ export async function recoverAll(traceId: string): Promise<{
     { type: 'memory-leak-cleanup', path: '/internal/gateway/chaos/memory-leak/cleanup', body: { targets: [] } },
     { type: 'deadlock', path: '/internal/gateway/chaos/deadlock/disable', body: { targets: [] } },
     { type: 'deadlock-cleanup', path: '/internal/gateway/chaos/deadlock/cleanup', body: { targets: [] } },
-    { type: 'table-lock', path: '/internal/gateway/chaos/table-lock/disable', body: {} },
-    { type: 'network-delay', path: '/internal/gateway/network-delay/disable', body: {} },
-    { type: 'network-reset', path: '/internal/gateway/network-reset/disable', body: {} },
+    {
+      type: 'table-lock',
+      path: '/internal/gateway/chaos/table-lock/disable',
+      body: { targetService: 'order-service', targetTable: 'orders' },
+    },
+    { type: 'network-delay-order-payment', path: '/internal/gateway/network-delay/disable', body: { proxyName: 'order-to-payment' } },
+    { type: 'network-delay-order-inventory', path: '/internal/gateway/network-delay/disable', body: { proxyName: 'order-to-inventory' } },
+    { type: 'network-delay-gateway-order', path: '/internal/gateway/network-delay/disable', body: { proxyName: 'gateway-to-order' } },
+    { type: 'network-reset-order-payment', path: '/internal/gateway/network-reset/disable', body: { proxyName: 'order-to-payment' } },
+    { type: 'network-reset-order-inventory', path: '/internal/gateway/network-reset/disable', body: { proxyName: 'order-to-inventory' } },
+    { type: 'network-reset-gateway-order', path: '/internal/gateway/network-reset/disable', body: { proxyName: 'gateway-to-order' } },
   ];
 
   const results: { type: string; success: boolean; error?: string }[] = [];

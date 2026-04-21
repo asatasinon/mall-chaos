@@ -46,9 +46,10 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
 
     status: async (request: NextRequest) => {
       const traceId = getOrCreateTraceId(request.headers);
-      const targets = request.nextUrl.searchParams.get('targets');
       const params: Record<string, string> = {};
-      if (targets) params.targets = targets;
+      request.nextUrl.searchParams.forEach((value, key) => {
+        params[key] = value;
+      });
 
       const gateway = getGatewayClient();
       try {

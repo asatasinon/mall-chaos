@@ -1,22 +1,9 @@
-import { getPool } from '../lib/db';
 import { getGatewayClient } from '../lib/gateway-client';
+import { loadRunnerConfigFromDb, RunnerConfig, MixRule } from '../lib/runner-config';
+import { getRunnerControlState, setRunnerStatus } from '../lib/runtime-state';
 import pino from 'pino';
 
 const log = pino({ name: 'runner-engine' });
-
-export interface RunnerConfig {
-  version: number;
-  baseQps: number;
-  peakMultiplier: number;
-  cycleMinutes: number;
-  jitterPct: number;
-  mixRules: MixRule[];
-}
-
-export interface MixRule {
-  actionType: string;
-  ratio: number;
-}
 
 interface SlidingEntry {
   ts: number;
@@ -35,6 +22,7 @@ export class RunnerEngine {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private window: SlidingEntry[] = [];
   private totalRequests = 0;
+  private lastConfigCheckAt = 0;
   private gateway = getGatewayClient();
 
   constructor() {
@@ -49,26 +37,7 @@ export class RunnerEngine {
   }
 
   async loadConfigFromDb(): Promise<void> {
-    const pool = getPool();
-    const [profiles] = await pool.query('SELECT * FROM runner_profile WHERE id = 1');
-    const rows = profiles as any[];
-    if (rows.length > 0) {
-      const p = rows[0];
-      this.config.version = p.version;
-      this.config.baseQps = p.base_qps;
-      this.config.peakMultiplier = p.peak_multiplier;
-      this.config.cycleMinutes = p.cycle_minutes;
-      this.config.jitterPct = p.jitter_pct;
-    }
-
-    const [rules] = await pool.query('SELECT * FROM runner_mix_rule ORDER BY id');
-    const ruleRows = rules as any[];
-    if (ruleRows.length > 0) {
-      this.config.mixRules = ruleRows.map((r: any) => ({
-        actionType: r.action_type,
-        ratio: r.ratio,
-      }));
-    }
+    this.config = await loadRunnerConfigFromDb();
     log.info({ config: this.config }, 'Config loaded from DB');
   }
 
@@ -120,50 +89,8 @@ export class RunnerEngine {
       totalRequests: this.totalRequests,
       windowSeconds: WINDOW_SECONDS,
       rateMultiplier: this.rateMultiplier,
-    };
-  }
-
-  getConfig(): RunnerConfig {
-    return { ...this.config };
-  }
-
-  async updateConfig(req: {
-    version: number;
-    baseQps?: number;
-    peakMultiplier?: number;
-    cycleMinutes?: number;
-    jitterPct?: number;
-    mixRules?: MixRule[];
-  }): Promise<{ newVersion: number; appliedAt: string }> {
-    const pool = getPool();
-    const [result] = await pool.query(
-      `UPDATE runner_profile SET base_qps = ?, peak_multiplier = ?, cycle_minutes = ?, jitter_pct = ?, version = version + 1 WHERE id = 1 AND version = ?`,
-      [
-        req.baseQps ?? this.config.baseQps,
-        req.peakMultiplier ?? this.config.peakMultiplier,
-        req.cycleMinutes ?? this.config.cycleMinutes,
-        req.jitterPct ?? this.config.jitterPct,
-        req.version,
-      ]
-    );
-    const updateResult = result as any;
-    if (updateResult.affectedRows === 0) {
-      throw new Error('VERSION_CONFLICT');
-    }
-
-    this.config = {
-      ...this.config,
-      version: req.version + 1,
-      baseQps: req.baseQps ?? this.config.baseQps,
-      peakMultiplier: req.peakMultiplier ?? this.config.peakMultiplier,
-      cycleMinutes: req.cycleMinutes ?? this.config.cycleMinutes,
-      jitterPct: req.jitterPct ?? this.config.jitterPct,
-      mixRules: req.mixRules ?? this.config.mixRules,
-    };
-
-    return {
-      newVersion: this.config.version,
-      appliedAt: new Date().toISOString(),
+      configVersion: this.config.version,
+      updatedAt: new Date().toISOString(),
     };
   }
 
@@ -189,11 +116,16 @@ export class RunnerEngine {
   }
 
   private async tick(): Promise<void> {
+    await this.refreshControlState();
+    await this.refreshConfigIfNeeded();
+    await this.publishStatus();
+
     if (this.paused) return;
     const action = this.pickAction();
     this.totalRequests++;
     const success = await this.executeAction(action);
     this.window.push({ ts: Date.now(), success });
+    await this.publishStatus();
   }
 
   private pickAction(): string {
@@ -225,6 +157,29 @@ export class RunnerEngine {
     } catch {
       return false;
     }
+  }
+
+  private async refreshControlState(): Promise<void> {
+    const state = await getRunnerControlState();
+    this.paused = state.paused;
+    this.rateMultiplier = state.rateMultiplier;
+  }
+
+  private async refreshConfigIfNeeded(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastConfigCheckAt < 5000) {
+      return;
+    }
+    this.lastConfigCheckAt = now;
+    const latest = await loadRunnerConfigFromDb();
+    if (latest.version !== this.config.version) {
+      this.config = latest;
+      log.info({ version: latest.version }, 'Runner config reloaded from DB');
+    }
+  }
+
+  private async publishStatus(): Promise<void> {
+    await setRunnerStatus(this.getStatus());
   }
 }
 

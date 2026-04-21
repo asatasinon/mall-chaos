@@ -1,8 +1,7 @@
-import { getRunnerEngine } from '@/worker/runner-engine';
 import { jsonOk } from '@/lib/api-response';
+import { setRunnerPaused } from '@/lib/runtime-state';
 
 export async function POST() {
-  const engine = getRunnerEngine();
-  engine.pause();
+  await setRunnerPaused(true);
   return jsonOk({ paused: true });
 }

@@ -111,10 +111,10 @@
 
 **执行步骤**：
 - [ ] 让 Runner 持续运行直到库存出现不足（可临时调高 QPS 加速）
-- [ ] 调用 `POST /internal/runner/inventory-reset/trigger` 立即触发重置
+- [ ] 调用 `POST /internal/traffic/runner/inventory-reset/trigger` 立即触发重置
 - [ ] 验证 plan 返回差值、reset 执行
 - [ ] 模拟版本冲突：先修改 `baseline_version`，再 trigger，验证 409 返回
-- [ ] 更新 schedule：`PUT /internal/runner/inventory-reset/schedule`（cron 改为 1 分钟一次）
+- [ ] 更新 schedule：`PUT /internal/traffic/runner/inventory-reset/schedule`（cron 改为 1 分钟一次）
 - [ ] 等待自动触发，验证重置生效
 
 **验收标准**：

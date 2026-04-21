@@ -15,10 +15,19 @@ async function main() {
   await resetScheduler.loadPolicy();
   resetScheduler.start();
 
+  const syncTimer = setInterval(async () => {
+    try {
+      await resetScheduler.syncIfNeeded();
+    } catch (err) {
+      log.warn({ error: err }, 'Failed to sync worker control state');
+    }
+  }, 1000);
+
   log.info('Worker is running. Press Ctrl+C to stop.');
 
   process.on('SIGINT', () => {
     log.info('Shutting down worker...');
+    clearInterval(syncTimer);
     engine.stop();
     resetScheduler.stop();
     process.exit(0);
@@ -26,6 +35,7 @@ async function main() {
 
   process.on('SIGTERM', () => {
     log.info('Shutting down worker...');
+    clearInterval(syncTimer);
     engine.stop();
     resetScheduler.stop();
     process.exit(0);

@@ -1,20 +1,16 @@
-import { getPool } from '../lib/db';
 import { getGatewayClient } from '../lib/gateway-client';
 import { getRedis } from '../lib/redis';
+import { loadResetPolicyFromDb, ResetPolicy, updateResetPolicyInDb } from '../lib/reset-policy';
+import { consumeInventoryPolicyReload, consumeInventoryResetTrigger } from '../lib/runtime-state';
 import pino from 'pino';
 import { CronExpressionParser } from 'cron-parser';
 
 const log = pino({ name: 'inventory-reset' });
 
-export interface ResetPolicy {
-  id: number;
-  enabled: boolean;
-  cronExpr: string;
-  timezone: string;
-  allowedWindow: string;
-  resetScope: string;
-  baselineVersion: number;
-  version: number;
+interface ApiResponseEnvelope<T> {
+  code: string | number;
+  message: string;
+  data: T;
 }
 
 export class InventoryResetScheduler {
@@ -23,21 +19,7 @@ export class InventoryResetScheduler {
   private running = false;
 
   async loadPolicy(): Promise<void> {
-    const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM runner_inventory_reset_policy WHERE id = 1');
-    const data = (rows as any[])[0];
-    if (data) {
-      this.policy = {
-        id: data.id,
-        enabled: !!data.enabled,
-        cronExpr: data.cron_expr,
-        timezone: data.timezone,
-        allowedWindow: data.allowed_window,
-        resetScope: data.reset_scope,
-        baselineVersion: data.baseline_version,
-        version: data.version,
-      };
-    }
+    this.policy = await loadResetPolicyFromDb();
     log.info({ policy: this.policy }, 'Inventory reset policy loaded');
   }
 
@@ -55,25 +37,13 @@ export class InventoryResetScheduler {
     }
   }
 
-  getPolicy(): ResetPolicy | null {
-    return this.policy;
-  }
-
   async updatePolicy(req: {
     cronExpr?: string;
     allowedWindow?: string;
     resetScope?: string;
     version: number;
   }): Promise<ResetPolicy> {
-    const pool = getPool();
-    const [result] = await pool.query(
-      `UPDATE runner_inventory_reset_policy SET cron_expr = COALESCE(?, cron_expr), allowed_window = COALESCE(?, allowed_window), reset_scope = COALESCE(?, reset_scope), version = version + 1 WHERE id = 1 AND version = ?`,
-      [req.cronExpr, req.allowedWindow, req.resetScope, req.version]
-    );
-    if ((result as any).affectedRows === 0) {
-      throw new Error('VERSION_CONFLICT');
-    }
-    await this.loadPolicy();
+    this.policy = await updateResetPolicyInDb(req);
     // Re-schedule with new cron
     this.stop();
     this.start();
@@ -82,6 +52,17 @@ export class InventoryResetScheduler {
 
   async triggerNow(): Promise<{ success: boolean; message: string }> {
     return this.executeReset();
+  }
+
+  async syncIfNeeded(): Promise<void> {
+    if (await consumeInventoryPolicyReload()) {
+      await this.loadPolicy();
+      this.stop();
+      this.start();
+    }
+    if (await consumeInventoryResetTrigger()) {
+      await this.executeReset();
+    }
   }
 
   // ── Private ──
@@ -114,6 +95,13 @@ export class InventoryResetScheduler {
   }
 
   private async executeReset(): Promise<{ success: boolean; message: string }> {
+    if (!this.policy) {
+      await this.loadPolicy();
+    }
+    if (!this.policy) {
+      return { success: false, message: 'Reset policy not loaded' };
+    }
+
     const gateway = getGatewayClient();
     const redis = getRedis();
     const lockKey = 'castrel:inventory:reset-lock';
@@ -126,9 +114,27 @@ export class InventoryResetScheduler {
       }
 
       try {
-        // Call gateway to trigger inventory reset
-        await gateway.post('/api/orders', { action: 'inventory-reset' });
-        log.info('Inventory reset executed');
+        const plan = await gateway.post<ApiResponseEnvelope<Array<Record<string, unknown>>>>(
+          '/internal/gateway/inventory-reset/plan',
+          {}
+        );
+        const scope = this.policy.resetScope === 'ALL'
+          ? 'ALL'
+          : this.policy.resetScope.split(',').map((item) => item.trim()).filter(Boolean);
+
+        const result = await gateway.post<ApiResponseEnvelope<Record<string, unknown>>>(
+          '/internal/gateway/inventory-reset',
+          {
+            expectedVersion: this.policy.baselineVersion,
+            scope,
+          }
+        );
+        log.info({
+          planSize: Array.isArray(plan.data) ? plan.data.length : 0,
+          baselineVersion: this.policy.baselineVersion,
+          scope,
+          result: result.data,
+        }, 'Inventory reset executed through gateway');
         return { success: true, message: 'Reset completed' };
       } finally {
         await redis.del(lockKey);

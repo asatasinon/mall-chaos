@@ -93,6 +93,23 @@ public class ChaosDispatchService {
                 });
     }
 
+    public Mono<Object> postToService(
+            String serviceName,
+            String subPath,
+            Object body,
+            String traceId
+    ) {
+        return forwardPost(serviceName, subPath, body, traceId);
+    }
+
+    public Mono<Object> getFromService(
+            String serviceName,
+            String subPath,
+            String traceId
+    ) {
+        return forwardGet(serviceName, subPath, traceId);
+    }
+
     private List<String> validateTargets(String chaosType, List<String> targets) {
         return targets.stream()
                 .filter(t -> props.isAllowed(chaosType, t))

@@ -572,11 +572,11 @@ kubectl delete -f k8s/chaos/network-delay.yaml
 ### 库存重置
 
 ```bash
-# 预览将要重置的差值（不写入）
-curl http://localhost:18083/internal/inventory/reset/plan
+# 通过 gateway 预览将要重置的差值（不写入）
+curl -X POST http://localhost:18080/internal/gateway/inventory-reset/plan
 
-# 执行重置（需要 expectedVersion）
-curl -X POST http://localhost:18083/internal/inventory/reset \
+# 通过 gateway 执行重置（需要 expectedVersion）
+curl -X POST http://localhost:18080/internal/gateway/inventory-reset \
   -H 'Content-Type: application/json' \
   -d '{"expectedVersion": 1}'
 

@@ -66,7 +66,7 @@ const CHAOS_TYPES = [
     disablePath: '/internal/traffic/chaos/network-delay/disable',
     statusPath: '/internal/traffic/chaos/network-delay/status',
     defaultBody: {
-      proxyName: 'order-service-proxy',
+      proxyName: 'order-to-payment',
       latencyMs: 5000,
       jitter: 2000,
     },
@@ -78,7 +78,7 @@ const CHAOS_TYPES = [
     disablePath: '/internal/traffic/chaos/network-reset/disable',
     statusPath: '/internal/traffic/chaos/network-reset/status',
     defaultBody: {
-      proxyName: 'order-service-proxy',
+      proxyName: 'order-to-payment',
       latencyMs: 0,
       jitter: 0,
     },
@@ -125,13 +125,20 @@ function ChaosCard({ config }: { config: typeof CHAOS_TYPES[0] }) {
       <div className="flex gap-2 mb-3 flex-wrap">
         <button onClick={() => action(config.enablePath, config.defaultBody)}
                 className="px-3 py-1.5 bg-red-700 hover:bg-red-600 rounded text-xs">Enable</button>
-        <button onClick={() => action(config.disablePath, {})}
+        <button onClick={() => action(config.disablePath, config.type === 'table-lock' ? config.defaultBody : config.type.startsWith('network-') ? { proxyName: (config.defaultBody as any).proxyName } : {})}
                 className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs">Disable</button>
         {'cleanupPath' in config && config.cleanupPath && (
           <button onClick={() => action(config.cleanupPath!, {})}
                   className="px-3 py-1.5 bg-amber-700 hover:bg-amber-600 rounded text-xs">Cleanup</button>
         )}
-        <button onClick={() => action(config.statusPath)}
+        <button onClick={() => {
+          const statusPath = config.type === 'table-lock'
+            ? `${config.statusPath}?targetService=${(config.defaultBody as any).targetService}&targetTable=${(config.defaultBody as any).targetTable}`
+            : config.type.startsWith('network-')
+              ? `${config.statusPath}?proxyName=${(config.defaultBody as any).proxyName}`
+              : config.statusPath;
+          action(statusPath);
+        }}
                 className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 rounded text-xs">Status</button>
       </div>
       {result && (

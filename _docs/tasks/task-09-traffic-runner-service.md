@@ -187,8 +187,8 @@ INSERT INTO runner_inventory_reset_policy VALUES (1, 1, '0 */30 * * * *', 'Asia/
 - [ ] cron 表达式从 `runner_inventory_reset_policy` 内存加载
 - [ ] 执行前检查 `allowed_window`
 - [ ] 执行流程：
-  1. 通过 gateway 调用 `inventory reset plan`
-  2. 通过 gateway 调用 `inventory reset`
+  1. 通过 gateway 调用 `POST /internal/gateway/inventory-reset/plan`
+  2. 通过 gateway 调用 `POST /internal/gateway/inventory-reset`
   3. 请求中必须带 `expectedVersion`
   4. 记录执行结果日志
 - [ ] `PUT /internal/traffic/runner/inventory-reset/schedule`：更新 cron 后**立即刷新内存调度器**

@@ -139,9 +139,9 @@
 | `POST /internal/runner/pause` | 控制 | 暂停自动流量生成，保留当前规则配置。 |
 | `POST /internal/runner/resume` | 控制 | 恢复自动流量生成。 |
 | `POST /internal/runner/rate` | 控制 | 动态调整流量倍率（无需重启）。 |
-| `POST /internal/runner/inventory-reset/trigger` | 控制 | 立即触发一次库存重置任务（调用 `inventory-service` reset 接口）。 |
-| `PUT /internal/runner/inventory-reset/schedule` | 控制 | 更新库存重置定时策略（含 `timezone` 与允许执行窗口）并立即刷新内存调度器。 |
-| `GET /internal/runner/inventory-reset/schedule` | 控制 | 查询当前库存重置定时策略与下次执行时间。 |
+| `POST /internal/traffic/runner/inventory-reset/trigger` | 控制 | 立即触发一次库存重置任务（通过 gateway 调用 inventory reset plan/reset）。 |
+| `PUT /internal/traffic/runner/inventory-reset/schedule` | 控制 | 更新库存重置定时策略（含 `timezone` 与允许执行窗口）并立即刷新内存调度器。 |
+| `GET /internal/traffic/runner/inventory-reset/schedule` | 控制 | 查询当前库存重置定时策略与下次执行时间。 |
 | `PUT /internal/runner/config` | 控制 | 更新规则配置并同步更新内存规则（无轮询热更新）。 |
 | `GET /internal/runner/config` | 控制 | 查看当前 DB 配置版本与内存生效版本。 |
 
@@ -152,7 +152,7 @@
 - 死锁链路：`order|payment 开启 deadlock -> 并发事务互锁 -> MySQL 抛 Deadlock 错误 -> 触发重试/失败补偿`。
 - 内存泄漏链路：`调用 memory-leak/start -> 堆持续增长与 GC 抖动 -> 延迟上升 -> clear 后回落`。
 - 配置更新链路：`运维调用 PUT /internal/runner/config(version) -> MySQL 事务更新成功 -> 内存规则原子替换 -> 下一调度周期生效`。
-- 库存重置链路：`runner 定时任务触发 -> inventory/reset/plan -> inventory/reset(expectedVersion) -> 库存恢复基线 -> 继续自动流量回放`。
+- 库存重置链路：`traffic worker 定时任务触发 -> gateway /internal/gateway/inventory-reset/plan -> gateway /internal/gateway/inventory-reset(expectedVersion) -> inventory-service 恢复基线 -> 继续自动流量回放`。
 - 死锁恢复链路：`发生 deadlock -> 应用按幂等键重试(指数退避) -> 达到上限后失败补偿并记录 deadlock 事件`。
 - 进阶下单链路：`order -> promotion(算优惠) -> risk(前置风控) -> inventory(预占) -> payment(扣款) -> risk(支付后复核) -> fulfillment(发货) -> notification(通知)`。
 - 进阶失败补偿：`risk 拒绝` 直接关单；`payment 失败` 触发 `inventory/release`；`fulfillment 失败` 标记待人工处理并发送告警通知。

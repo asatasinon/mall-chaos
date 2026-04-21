@@ -1,10 +1,10 @@
-import { getInventoryResetScheduler } from '@/worker/inventory-reset';
 import { jsonOk, jsonError } from '@/lib/api-response';
 import { NextRequest } from 'next/server';
+import { loadResetPolicyFromDb, updateResetPolicyInDb } from '@/lib/reset-policy';
+import { signalInventoryPolicyReload } from '@/lib/runtime-state';
 
 export async function GET() {
-  const scheduler = getInventoryResetScheduler();
-  return jsonOk(scheduler.getPolicy());
+  return jsonOk(await loadResetPolicyFromDb());
 }
 
 export async function PUT(request: NextRequest) {
@@ -12,9 +12,9 @@ export async function PUT(request: NextRequest) {
   if (typeof body?.version !== 'number') {
     return jsonError(400, 'version is required', 400);
   }
-  const scheduler = getInventoryResetScheduler();
   try {
-    const result = await scheduler.updatePolicy(body);
+    const result = await updateResetPolicyInDb(body);
+    await signalInventoryPolicyReload();
     return jsonOk(result);
   } catch (e: any) {
     if (e.message === 'VERSION_CONFLICT') {

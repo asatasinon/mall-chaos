@@ -358,25 +358,59 @@ services:
 
   traffic-runner-service:
     build:
-      context: .
-      dockerfile: traffic-runner-service/Dockerfile
-    container_name: castrel-runner
+      context: ./traffic-control-plane
+      dockerfile: Dockerfile
+    container_name: castrel-traffic-web
     <<: *service-defaults
     ports:
-      - "18086:8086"
+      - "18086:3086"
     environment:
-      <<: *service-env
-      OTEL_SERVICE_NAME: traffic-runner-service
-      ORDER_SERVICE_URL: http://order-service:8084
-      INVENTORY_SERVICE_URL: http://inventory-service:8083
+      NODE_ENV: production
+      GATEWAY_BASE_URL: http://gateway-service:8080
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-castrel}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-castrel}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-castrel}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      GRAFANA_BASE_URL: ${CHAOS_CONSOLE_GRAFANA_BASE_URL:-http://localhost:13000}
     depends_on:
+      gateway-service:
+        condition: service_healthy
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3086/"]
       <<: *healthcheck-defaults
+
+  traffic-runner-worker:
+    build:
+      context: ./traffic-control-plane
+      dockerfile: Dockerfile
+    container_name: castrel-traffic-worker
+    <<: *service-defaults
+    command: ["pnpm", "worker"]
+    environment:
+      NODE_ENV: production
+      GATEWAY_BASE_URL: http://gateway-service:8080
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-castrel}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-castrel}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-castrel}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      GRAFANA_BASE_URL: ${CHAOS_CONSOLE_GRAFANA_BASE_URL:-http://localhost:13000}
+    depends_on:
+      gateway-service:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   promotion-service:
     build:

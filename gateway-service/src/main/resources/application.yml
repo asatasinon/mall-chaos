@@ -80,11 +80,6 @@ chaos:
   toxiproxy:
     api-url: ${TOXIPROXY_API_URL:http://localhost:18474}
     proxy-whitelist:
-      - order-service-proxy
-      - payment-service-proxy
-      - catalog-service-proxy
-      - inventory-service-proxy
-      - promotion-service-proxy
-      - risk-service-proxy
-      - fulfillment-service-proxy
-      - notification-service-proxy
+      - order-to-payment
+      - order-to-inventory
+      - gateway-to-order

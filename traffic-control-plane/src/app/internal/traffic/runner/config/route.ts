@@ -1,11 +1,9 @@
-import { getRunnerEngine } from '@/worker/runner-engine';
 import { jsonOk, jsonError } from '@/lib/api-response';
 import { NextRequest } from 'next/server';
+import { loadRunnerConfigFromDb, updateRunnerConfigInDb } from '@/lib/runner-config';
 
 export async function GET() {
-  const engine = getRunnerEngine();
-  const config = engine.getConfig();
-  return jsonOk(config);
+  return jsonOk(await loadRunnerConfigFromDb());
 }
 
 export async function PUT(request: NextRequest) {
@@ -13,9 +11,8 @@ export async function PUT(request: NextRequest) {
   if (typeof body?.version !== 'number') {
     return jsonError(400, 'version is required', 400);
   }
-  const engine = getRunnerEngine();
   try {
-    const result = await engine.updateConfig(body);
+    const result = await updateRunnerConfigInDb(body);
     return jsonOk(result);
   } catch (e: any) {
     if (e.message === 'VERSION_CONFLICT') {
