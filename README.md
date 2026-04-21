@@ -265,7 +265,7 @@ cd traffic-control-plane && pnpm install && pnpm build && cd ..
 docker login harbor.example.com
 
 # 2) 同步基础镜像到 Harbor 项目，例如 harbor.example.com/base-images
-TARGET_REGISTRY=harbor.example.com/base-images ./scripts/push-base-images.sh
+HARBOR_REGISTRY=harbor.example.com/base-images ./scripts/push-base-images.sh
 
 # 3) 在服务器上直接构建并推送业务镜像
 BASE_IMAGE_REGISTRY=harbor.example.com/base-images/ \
@@ -276,7 +276,8 @@ IMAGE_TAG=v1.0.0 \
 
 说明：
 
-- `TARGET_REGISTRY` / `BASE_IMAGE_REGISTRY` 需要指向同一个 Harbor 项目
+- `HARBOR_REGISTRY` / `BASE_IMAGE_REGISTRY` 需要指向同一个 Harbor 项目
+- `push-base-images.sh` 仍兼容旧的 `TARGET_REGISTRY` 变量名
 - `BASE_IMAGE_REGISTRY` 必须带结尾 `/`，例如 `harbor.example.com/base-images/`
 - 当前会同步 3 个基础镜像：`alpine:3.20`、`eclipse-temurin:21-jre-alpine`、`node:22-alpine`
 
