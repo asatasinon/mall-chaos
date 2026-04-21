@@ -32,7 +32,13 @@ export default function ChaosControlPage() {
           disablePath="/internal/traffic/chaos/slow-sql/disable"
           statusPath="/internal/traffic/chaos/slow-sql/status"
           extraParams={[
-            { key: 'joinTable', label: 'JOIN Table', type: 'text', default: 'user_behavior_log' },
+            {
+              key: 'joinTable',
+              label: 'JOIN Table',
+              type: 'select',
+              default: 'user_behavior_log',
+              options: ['user_behavior_log', 'product_price_history'],
+            },
             { key: 'durationSec', label: 'Duration (s)', type: 'number', default: '300' },
           ]}
         />
@@ -134,7 +140,16 @@ function ActionButtons({
 }
 
 // ── Multi-target chaos card (slow-sql, memory-leak, deadlock) ──
-interface ParamDef { key: string; label: string; type?: string; default: string; step?: string; min?: string; max?: string; }
+interface ParamDef {
+  key: string;
+  label: string;
+  type?: string;
+  default: string;
+  step?: string;
+  min?: string;
+  max?: string;
+  options?: string[];
+}
 
 function MultiTargetCard({
   title, availableTargets, defaultTargets,
@@ -207,10 +222,22 @@ function MultiTargetCard({
           {extraParams.map((p) => (
             <div key={p.key} className="flex flex-col gap-0.5">
               <label className="text-xs text-gray-500">{p.label}</label>
-              <input type={p.type ?? 'text'} step={p.step} min={p.min} max={p.max}
-                     value={params[p.key]}
-                     onChange={(e) => setParams((prev) => ({ ...prev, [p.key]: e.target.value }))}
-                     className="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono" />
+              {p.type === 'select' ? (
+                <select
+                  value={params[p.key]}
+                  onChange={(e) => setParams((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                  className="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs"
+                >
+                  {(p.options ?? []).map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              ) : (
+                <input type={p.type ?? 'text'} step={p.step} min={p.min} max={p.max}
+                       value={params[p.key]}
+                       onChange={(e) => setParams((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                       className="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs font-mono" />
+              )}
             </div>
           ))}
         </div>

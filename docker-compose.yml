@@ -235,6 +235,12 @@ services:
       OTEL_SERVICE_NAME: gateway-service
       ORDER_SERVICE_URL: http://toxiproxy:18084
       CATALOG_SERVICE_URL: http://catalog-service:8082
+      INVENTORY_SERVICE_URL: http://inventory-service:8083
+      PAYMENT_SERVICE_URL: http://payment-service:8085
+      PROMOTION_SERVICE_URL: http://promotion-service:8087
+      RISK_SERVICE_URL: http://risk-service:8088
+      FULFILLMENT_SERVICE_URL: http://fulfillment-service:8089
+      NOTIFICATION_SERVICE_URL: http://notification-service:8090
       CHAOS_ORDER_URL: http://order-service:8084
       CHAOS_PAYMENT_URL: http://payment-service:8085
       CHAOS_CATALOG_URL: http://catalog-service:8082
