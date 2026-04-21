@@ -56,8 +56,6 @@ export default function ChaosControlPage() {
           extraParams={[
             { key: 'chunkSizeKb', label: 'Chunk (KB)', type: 'number', default: '512' },
             { key: 'intervalMs', label: 'Interval (ms)', type: 'number', default: '500' },
-            { key: 'maxMb', label: 'Max (MB)', type: 'number', default: '256' },
-            { key: 'durationSec', label: 'Duration (s)', type: 'number', default: '300' },
           ]}
         />
         <MultiTargetCard

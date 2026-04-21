@@ -149,7 +149,7 @@ public class ChaosService {
     public void enableMemoryLeak(int chunkSizeKb, int intervalMs, int maxMb, int durationSec) {
         this.memoryLeakChunkSizeKb = chunkSizeKb > 0 ? chunkSizeKb : 512;
         this.memoryLeakIntervalMs = intervalMs > 0 ? intervalMs : 500;
-        this.memoryLeakMaxMb = maxMb > 0 ? maxMb : 256;
+        this.memoryLeakMaxMb = 0;
         this.memoryLeakStartedAt = Instant.now();
         this.memoryLeakActive = true;
 
@@ -167,11 +167,9 @@ public class ChaosService {
             }
         }, 0, this.memoryLeakIntervalMs, TimeUnit.MILLISECONDS);
 
-        if (durationSec > 0) {
-            memoryLeakAutoDisable = scheduler.schedule(this::disableMemoryLeak, durationSec, TimeUnit.SECONDS);
-        }
-        log.info("Memory leak enabled: chunkKb={}, intervalMs={}, maxMb={}, durationSec={}",
-                chunkSizeKb, intervalMs, maxMb, durationSec);
+        memoryLeakAutoDisable = null;
+        log.info("Memory leak enabled: chunkKb={}, intervalMs={}, maxMbIgnored={}, durationSecIgnored={}",
+            chunkSizeKb, intervalMs, maxMb, durationSec);
     }
 
     public void disableMemoryLeak() {
