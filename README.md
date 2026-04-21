@@ -79,7 +79,7 @@ gateway-service
 
 | 类别 | 选型 |
 |---|---|
-| 语言 / 框架 | Java 21 · Spring Boot 3.3.x · Maven 3.8+ · Next.js · TypeScript |
+| 语言 / 框架 | Java 21 · Spring Boot 3.5.x · Maven 3.8+ · Next.js · TypeScript |
 | Node 工具链 | Node.js 20+ · pnpm |
 | 数据存储 | MySQL 8.0（慢查询日志开启）· Redis 7.2（LRU 策略） |
 | 可观测 | Prometheus · Grafana · Loki · Tempo (OTLP) |
@@ -100,7 +100,8 @@ castrel-chaos/
 ├── inventory-service/
 ├── order-service/
 ├── payment-service/
-├── traffic-runner-service/       # Next.js control plane + worker
+├── traffic-runner-service/       # Java Spring Boot 流量服务（数据预热、库存重置）
+├── traffic-control-plane/        # Next.js 控制台 + Runner worker
 ├── promotion-service/
 ├── risk-service/
 ├── fulfillment-service/
@@ -141,10 +142,10 @@ castrel-chaos/
 └── pom.xml
 ```
 
-`traffic-runner-service/` 在重构后建议包含：
+`traffic-control-plane/` 目录结构：
 
 ```text
-traffic-runner-service/
+traffic-control-plane/
 ├── app/                          # Next.js UI + Route Handlers
 ├── components/
 ├── lib/
@@ -171,14 +172,14 @@ traffic-runner-service/
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-org/castrel-chaos.git
+git clone https://git.cloudwise.com/castrel/castrel-chaos.git
 cd castrel-chaos
 
 # Java 服务打包
 mvn clean package -DskipTests
 
 # traffic control plane 安装依赖并构建
-cd traffic-runner-service
+cd traffic-control-plane
 pnpm install
 pnpm build
 cd ..
@@ -230,13 +231,8 @@ docker compose down -v       # 同时删除数据卷（清空数据库）
 ### 5. 全部重建
 
 ```bash
-mvn clean package -DskipTests
-
 # 重新构建 Java 服务
 mvn clean package -DskipTests
-
-# 重新构建 traffic control plane
-(cd traffic-runner-service && pnpm install && pnpm build)
 
 # 保留数据，重建全部容器并重新构建镜像
 docker compose down
@@ -254,17 +250,11 @@ docker compose up -d --build --force-recreate
 ### 全量构建（推荐）
 
 ```bash
-# 构建 Java 模块
+# 构建所有 Java 模块 + Docker 镜像
 ./scripts/build-all.sh
 
-# 构建 traffic control plane
-cd traffic-runner-service
-pnpm install
-pnpm build
-cd ..
-
-# 再构建 Docker 镜像
-./scripts/build-all.sh
+# 单独构建 traffic control plane（build-all.sh 会自动调用，手动可用以下命令）
+cd traffic-control-plane && pnpm install && pnpm build && cd ..
 ```
 
 ### 单服务构建
@@ -277,10 +267,10 @@ mvn clean package -pl order-service -DskipTests
 docker build -t castrel/order-service:latest ./order-service
 ```
 
-### traffic-runner-service 构建
+### traffic-control-plane 构建
 
 ```bash
-cd traffic-runner-service
+cd traffic-control-plane
 
 # 安装依赖
 pnpm install
@@ -300,7 +290,7 @@ pnpm worker
 
 部署约束：
 
-- `traffic-runner-service` 至少包含两个运行角色：`web` 与 `worker`
+- `traffic-control-plane` 包含两个运行角色：`web` 与 `worker`
 - `worker` 默认单实例运行，避免重复产生业务流量
 - 所有业务 HTTP 调用仍必须经由 `gateway-service`
 

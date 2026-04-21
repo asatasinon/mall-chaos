@@ -23,7 +23,6 @@ SERVICES=(
   inventory-service
   order-service
   payment-service
-  traffic-runner-service
   promotion-service
   risk-service
   fulfillment-service
