@@ -1,4 +1,4 @@
-ARG BASE_IMAGE_REGISTRY=
+ARG BASE_IMAGE_REGISTRY=harbor.cloudwise.com/noname/
 FROM ${BASE_IMAGE_REGISTRY}alpine:3.20 AS javaagent-extractor
 WORKDIR /opt/agent
 COPY assets/JavaAgent.zip JavaAgent.zip

@@ -1,4 +1,4 @@
-ARG BASE_IMAGE_REGISTRY=
+ARG BASE_IMAGE_REGISTRY=harbor.cloudwise.com/noname/
 FROM ${BASE_IMAGE_REGISTRY}node:22-alpine AS base
 RUN corepack enable && corepack prepare pnpm@10.27.0 --activate
 
