@@ -29,10 +29,7 @@ export const PRESET_SCENARIOS: Scenario[] = [
         path: '/internal/gateway/chaos/slow-sql/enable',
         body: {
           targets: ['order-service', 'payment-service'],
-          mode: 'real',
-          delayMs: 3000,
-          injectRate: 1.0,
-          scope: 'ALL',
+          joinTable: 'user_behavior_log',
           durationSec: 300,
         },
       },
@@ -120,10 +117,7 @@ export const PRESET_SCENARIOS: Scenario[] = [
         path: '/internal/gateway/chaos/slow-sql/enable',
         body: {
           targets: ['order-service', 'payment-service'],
-          mode: 'real',
-          delayMs: 2000,
-          injectRate: 0.5,
-          scope: 'ALL',
+          joinTable: 'user_behavior_log',
           durationSec: 300,
         },
       },

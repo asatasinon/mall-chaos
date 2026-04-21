@@ -32,11 +32,9 @@ export default function ChaosControlPage() {
           disablePath="/internal/traffic/chaos/slow-sql/disable"
           statusPath="/internal/traffic/chaos/slow-sql/status"
           extraParams={[
-            { key: 'delayMs', label: 'Delay (ms)', type: 'number', default: '3000' },
-            { key: 'injectRate', label: 'Inject Rate', type: 'number', default: '1.0', step: '0.1', min: '0', max: '1' },
+            { key: 'joinTable', label: 'JOIN Table', type: 'text', default: 'user_behavior_log' },
             { key: 'durationSec', label: 'Duration (s)', type: 'number', default: '300' },
           ]}
-          fixedParams={{ mode: 'real', scope: 'ALL' }}
         />
         <MultiTargetCard
           title="Memory Leak"

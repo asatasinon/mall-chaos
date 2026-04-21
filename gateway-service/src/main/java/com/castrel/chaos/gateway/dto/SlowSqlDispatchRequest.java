@@ -4,8 +4,5 @@ import java.util.List;
 
 public record SlowSqlDispatchRequest(
         List<String> targets,
-        String mode,
-        int delayMs,
-        double injectRate,
-        String scope,
+        String joinTable,
         int durationSec) {}

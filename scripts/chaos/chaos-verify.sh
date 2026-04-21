@@ -108,24 +108,16 @@ scenario_3() {
 # ── Scenario 4: Slow SQL ─────────────────────────────────────────────────────
 
 scenario_4() {
-  step "Scenario 4: payment-service Slow SQL (sleep + real mode)"
+  step "Scenario 4: payment-service Slow SQL (v2 JOIN enrichment)"
   check_runner_running
   echo ""
-  info "Phase 1: sleep mode (delayMs=3000, rate=1.0, duration=180s)"
+  info "Enable v2 slow SQL via JOIN user_behavior_log (duration=180s)"
   chaos_post "$GATEWAY_URL/internal/chaos/slow-sql/enable" \
-    '{"mode":"sleep","delayMs":3000,"injectRate":1.0,"durationSec":180}'
-  echo ""
-  warn "Observe 3 minutes: payment P50 should be > 3s"
-  read -rp "Press Enter after 3 min to switch to real mode..."
-  chaos_post "$GATEWAY_URL/internal/chaos/slow-sql/disable" '{}'
-  echo ""
-  info "Phase 2: real mode — SELECT SLEEP(2) inside transaction (rate=0.5, duration=180s)"
-  chaos_post "$GATEWAY_URL/internal/chaos/slow-sql/enable" \
-    '{"mode":"real","delayMs":2000,"injectRate":0.5,"durationSec":180}'
+    '{"joinTable":"user_behavior_log","durationSec":180}'
   echo ""
   warn "Observe 3 minutes."
-  warn "  - MySQL slow query log should show: SELECT SLEEP(2)"
-  warn "  - durationSec expires → auto-disable → P95 drops"
+  warn "  - MySQL slow query log should show JOIN-related slow queries"
+  warn "  - durationSec expires -> auto-disable -> P95 drops"
   warn "  - chaos_event_log has payment/slow-sql entry"
 }
 
@@ -197,9 +189,9 @@ scenario_7() {
   info "Injecting 1: ToxiProxy order→payment 2s delay..."
   bash "$(dirname "$0")/network-delay.sh" order-to-payment 2000 500 300
   echo ""
-  info "Injecting 2: order slow SQL (delayMs=1500, rate=0.5, duration=300s)..."
+  info "Injecting 2: order slow SQL (JOIN user_behavior_log, duration=300s)..."
   chaos_post "$GATEWAY_URL/internal/chaos/slow-sql/enable" \
-    '{"mode":"sleep","delayMs":1500,"injectRate":0.5,"durationSec":300}'
+    '{"joinTable":"user_behavior_log","durationSec":300}'
   echo ""
   info "Injecting 3: order deadlock (rate=0.2, duration=300s)..."
   chaos_post "$GATEWAY_URL/internal/chaos/deadlock/enable" \
@@ -235,7 +227,7 @@ global_checks() {
   curl -sf "$GATEWAY_URL/internal/chaos/events?limit=10&action=INJECT" | python3 -m json.tool || true
   echo ""
   echo "Manual checklist:"
-  echo "  [ ] All Chaos enables support scope + injectRate + durationSec"
+  echo "  [ ] All Chaos enables support durationSec (deadlock supports injectRate)"
   echo "  [ ] durationSec auto-disables all chaos on schedule"
   echo "  [ ] Chaos endpoints return 404 on non-chaos profile"
   echo "  [ ] Grafana: Services Overview dashboard complete"

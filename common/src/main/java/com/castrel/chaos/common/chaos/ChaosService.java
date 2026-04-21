@@ -2,6 +2,7 @@ package com.castrel.chaos.common.chaos;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -11,6 +12,7 @@ import java.sql.Connection;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -25,16 +27,15 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ChaosService {
 
     private static final Logger log = LoggerFactory.getLogger(ChaosService.class);
+    private static final String QUERY_ENRICHMENT_KEY_PREFIX = "castrel:query:enrichment:";
+    private static final Set<String> ALLOWED_JOIN_TABLES = Set.of("user_behavior_log", "product_price_history");
 
     private final DataSource dataSource;
     private final StringRedisTemplate redisTemplate;
 
     // ── Slow SQL state ──
     private volatile boolean slowSqlActive = false;
-    private volatile String slowSqlMode = "real";
-    private volatile int slowSqlDelayMs = 3000;
-    private volatile double slowSqlInjectRate = 1.0;
-    private volatile String slowSqlScope = "ALL";
+    private volatile String slowSqlJoinTable = "user_behavior_log";
     private volatile Instant slowSqlStartedAt;
     private ScheduledFuture<?> slowSqlAutoDisable;
 
@@ -64,6 +65,9 @@ public class ChaosService {
     // ── Deadlock helper ──
     private final AtomicReference<ScheduledFuture<?>> deadlockTrigger = new AtomicReference<>();
 
+    @Value("${spring.application.name:unknown}")
+    private String serviceName;
+
     public ChaosService(DataSource dataSource, StringRedisTemplate redisTemplate) {
         this.dataSource = dataSource;
         this.redisTemplate = redisTemplate;
@@ -73,68 +77,49 @@ public class ChaosService {
     // SLOW SQL
     // ═══════════════════════════════════════════════════════════════════════
 
-    public void enableSlowSql(String mode, int delayMs, double injectRate, String scope, int durationSec) {
-        this.slowSqlMode = mode != null ? mode : "real";
-        this.slowSqlDelayMs = delayMs > 0 ? delayMs : 3000;
-        this.slowSqlInjectRate = injectRate;
-        this.slowSqlScope = scope != null ? scope : "ALL";
+    public void enableSlowSql(String joinTable, int durationSec) {
+        String normalizedJoinTable = normaliseJoinTable(joinTable);
+        this.slowSqlJoinTable = normalizedJoinTable;
         this.slowSqlStartedAt = Instant.now();
         this.slowSqlActive = true;
+
+        redisTemplate.opsForHash().putAll(slowSqlRedisKey(), Map.of(
+                "enabled", "true",
+                "joinTable", normalizedJoinTable,
+                "targetServices", serviceName
+        ));
 
         cancelFuture(slowSqlAutoDisable);
         if (durationSec > 0) {
             slowSqlAutoDisable = scheduler.schedule(this::disableSlowSql, durationSec, TimeUnit.SECONDS);
         }
-        log.info("Slow SQL enabled: mode={}, delayMs={}, rate={}, durationSec={}", mode, delayMs, injectRate, durationSec);
+        log.info("Slow SQL enrichment enabled: service={}, joinTable={}, durationSec={}",
+                serviceName, normalizedJoinTable, durationSec);
     }
 
     public void disableSlowSql() {
         slowSqlActive = false;
         cancelFuture(slowSqlAutoDisable);
-        log.info("Slow SQL disabled");
+        try {
+            redisTemplate.opsForHash().putAll(slowSqlRedisKey(), Map.of(
+                    "enabled", "false",
+                    "joinTable", "",
+                    "targetServices", serviceName
+            ));
+        } catch (Exception e) {
+            log.warn("Failed to disable slow SQL enrichment in Redis: {}", e.getMessage());
+        }
+        log.info("Slow SQL enrichment disabled: service={}", serviceName);
     }
 
     public Map<String, Object> getSlowSqlStatus() {
         return Map.of(
                 "active", slowSqlActive,
-                "mode", slowSqlMode,
-                "delayMs", slowSqlDelayMs,
-                "injectRate", slowSqlInjectRate,
-                "scope", slowSqlScope,
+                "joinTable", slowSqlJoinTable,
+                "service", serviceName,
                 "startedAt", slowSqlStartedAt != null ? slowSqlStartedAt.toString() : "",
                 "autoDisableAt", computeAutoDisableAt(slowSqlStartedAt, slowSqlAutoDisable)
         );
-    }
-
-    /**
-     * Called by query interceptor or JDBC proxy to inject delay.
-     * Returns true if slow SQL should be injected for this call.
-     */
-    public boolean shouldInjectSlowSql() {
-        if (!slowSqlActive) return false;
-        return Math.random() < slowSqlInjectRate;
-    }
-
-    public int getSlowSqlDelayMs() {
-        return slowSqlDelayMs;
-    }
-
-    public String getSlowSqlMode() {
-        return slowSqlMode;
-    }
-
-    /**
-     * Execute SELECT SLEEP(N) inside the current transaction for "real" slow SQL mode.
-     */
-    public void executeSlowSqlSleep() {
-        if (!"real".equals(slowSqlMode)) return;
-        double sleepSeconds = slowSqlDelayMs / 1000.0;
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("SELECT SLEEP(" + sleepSeconds + ")");
-        } catch (Exception e) {
-            log.debug("Slow SQL SLEEP execution failed: {}", e.getMessage());
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -286,5 +271,19 @@ public class ChaosService {
         if (autoDisableFuture == null || autoDisableFuture.isDone()) return "";
         long remainingSec = autoDisableFuture.getDelay(TimeUnit.SECONDS);
         return Instant.now().plusSeconds(remainingSec).toString();
+    }
+
+    private String slowSqlRedisKey() {
+        return QUERY_ENRICHMENT_KEY_PREFIX + serviceName;
+    }
+
+    private String normaliseJoinTable(String joinTable) {
+        if (joinTable == null || joinTable.isBlank()) {
+            return "user_behavior_log";
+        }
+        if (!ALLOWED_JOIN_TABLES.contains(joinTable)) {
+            throw new IllegalArgumentException("Unsupported joinTable: " + joinTable);
+        }
+        return joinTable;
     }
 }

@@ -34,13 +34,10 @@ public class ChaosController {
 
     @PostMapping("/slow-sql/enable")
     public ApiResponse<Map<String, Object>> enableSlowSql(@RequestBody Map<String, Object> req) {
-        String mode = (String) req.getOrDefault("mode", "real");
-        int delayMs = ((Number) req.getOrDefault("delayMs", 3000)).intValue();
-        double injectRate = ((Number) req.getOrDefault("injectRate", 1.0)).doubleValue();
-        String scope = (String) req.getOrDefault("scope", "ALL");
+        String joinTable = (String) req.getOrDefault("joinTable", "user_behavior_log");
         int durationSec = ((Number) req.getOrDefault("durationSec", 0)).intValue();
 
-        chaosService.enableSlowSql(mode, delayMs, injectRate, scope, durationSec);
+        chaosService.enableSlowSql(joinTable, durationSec);
         return ApiResponse.ok(chaosService.getSlowSqlStatus());
     }
 

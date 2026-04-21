@@ -92,9 +92,7 @@ ${BOLD}COMMANDS${NC}
 
   ${YELLOW}slow-sql${NC}
     enable <service> [flags]      启用慢 SQL
-      --mode      sleep|delay     (default: sleep)
-      --delay     <ms>            延迟毫秒数 (default: 2000)
-      --rate      <0.0-1.0>       注入概率 (default: 1.0)
+      --join-table <name>         JOIN 大表 (user_behavior_log | product_price_history)
       --duration  <sec>           自动关闭秒数, 0=永不 (default: 60)
     disable <service>             禁用慢 SQL
     status  <service>             查看状态 (order/payment 支持)
@@ -127,7 +125,7 @@ ${BOLD}EXAMPLES${NC}
   ./scripts/castrel-chaos.sh runner rate 2.0
   ./scripts/castrel-chaos.sh inventory reset-plan
   ./scripts/castrel-chaos.sh inventory reset 1
-  ./scripts/castrel-chaos.sh slow-sql enable order --delay 3000 --rate 0.5 --duration 60
+  ./scripts/castrel-chaos.sh slow-sql enable order --join-table user_behavior_log --duration 60
   ./scripts/castrel-chaos.sh slow-sql disable order
   ./scripts/castrel-chaos.sh slow-sql status order
   ./scripts/castrel-chaos.sh memory-leak start order --chunk 1024 --max 512
@@ -202,21 +200,19 @@ cmd_slow_sql() {
   local sub="${1:-help}"; shift || true
   case "$sub" in
     enable)
-      local svc="${1:?Usage: slow-sql enable <service> [--mode sleep] [--delay 2000] [--rate 1.0] [--duration 60]}"
+      local svc="${1:?Usage: slow-sql enable <service> [--join-table user_behavior_log] [--duration 60]}"
       shift
-      local mode="sleep" delay=2000 rate="1.0" duration=60
+      local join_table="user_behavior_log" duration=60
       while [[ $# -gt 0 ]]; do
         case "$1" in
-          --mode)     mode="$2";     shift 2 ;;
-          --delay)    delay="$2";    shift 2 ;;
-          --rate)     rate="$2";     shift 2 ;;
-          --duration) duration="$2"; shift 2 ;;
+          --join-table) join_table="$2"; shift 2 ;;
+          --duration)   duration="$2";   shift 2 ;;
           *) echo -e "${RED}Unknown flag: $1${NC}"; exit 1 ;;
         esac
       done
       local base; base=$(base_url "$svc")
       do_post "$base/internal/chaos/slow-sql/enable" \
-        "{\"mode\": \"$mode\", \"delayMs\": $delay, \"injectRate\": $rate, \"durationSec\": $duration}"
+        "{\"joinTable\": \"$join_table\", \"durationSec\": $duration}"
       ;;
     disable)
       local svc="${1:?Usage: slow-sql disable <service>}"

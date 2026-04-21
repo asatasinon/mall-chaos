@@ -27,11 +27,9 @@ public class ChaosDispatchController {
             @RequestBody SlowSqlDispatchRequest req,
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId
     ) {
+        String joinTable = req.joinTable() == null ? "user_behavior_log" : req.joinTable();
         Map<String, Object> body = Map.of(
-                "mode", req.mode(),
-                "delayMs", req.delayMs(),
-                "injectRate", req.injectRate(),
-                "scope", req.scope(),
+                "joinTable", joinTable,
                 "durationSec", req.durationSec()
         );
         return dispatchService.dispatchPost("slow-sql", req.targets(), "/internal/chaos/slow-sql/enable", body, traceId)

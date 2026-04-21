@@ -29,7 +29,7 @@ Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、
 - 10 个 Spring Boot 业务/网关服务 + 1 个 `Next.js` traffic control plane
 - traffic control plane 自动产生真实业务流量，支持热更新 QPS、场景编排与控制台操作
 - 4 类 Chaos 注入：网络故障 / JVM 内存泄漏 / 慢 SQL / 数据库死锁
-- 所有 Chaos 均支持 `injectRate + durationSec` 自动关闭
+- 所有 Chaos `enable` 接口均支持 `durationSec` 自动关闭（死锁支持 `injectRate`）
 - Prometheus + Grafana + Loki + Tempo 全链路可观测
 - 双轨部署：Docker Compose（本地）/ Kubernetes（生产演练）
 
@@ -465,15 +465,10 @@ http://localhost:18086/
 适用服务：catalog / inventory / order / payment / promotion / risk / fulfillment / notification
 
 ```bash
-# 通过 traffic 控制面开启 sleep 模式（100% 注入，持续 3 分钟后自动关闭）
+# 通过 traffic 控制面开启 v2 慢 SQL（JOIN user_behavior_log，持续 3 分钟后自动关闭）
 curl -X POST http://localhost:18086/internal/traffic/chaos/slow-sql/enable \
   -H 'Content-Type: application/json' \
-  -d '{"targets":["payment-service"],"mode":"sleep","delayMs":3000,"injectRate":1.0,"scope":"ALL","durationSec":180}'
-
-# 开启 real 模式（SELECT SLEEP(N) 真实慢查询，50% 注入）
-curl -X POST http://localhost:18086/internal/traffic/chaos/slow-sql/enable \
-  -H 'Content-Type: application/json' \
-  -d '{"targets":["payment-service"],"mode":"real","delayMs":2000,"injectRate":0.5,"scope":"ALL","durationSec":180}'
+  -d '{"targets":["payment-service"],"joinTable":"user_behavior_log","durationSec":180}'
 
 # 手动关闭
 curl -X POST http://localhost:18086/internal/traffic/chaos/slow-sql/disable \

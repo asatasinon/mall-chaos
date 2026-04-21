@@ -21,7 +21,8 @@ import java.util.stream.Collectors;
 public class QueryEnrichmentInterceptor {
 
     private static final Logger log = LoggerFactory.getLogger(QueryEnrichmentInterceptor.class);
-    private static final String REDIS_KEY = "castrel:query:enrichment";
+    private static final String REDIS_KEY_PREFIX = "castrel:query:enrichment:";
+    private static final String LEGACY_REDIS_KEY = "castrel:query:enrichment";
     private static final long REFRESH_INTERVAL_MS = 5_000;
 
     private final StringRedisTemplate redisTemplate;
@@ -60,7 +61,11 @@ public class QueryEnrichmentInterceptor {
         lastRefresh = now;
 
         try {
-            Map<Object, Object> hash = redisTemplate.opsForHash().entries(REDIS_KEY);
+            Map<Object, Object> hash = redisTemplate.opsForHash().entries(redisKeyForService());
+            // Backward compatible fallback for old single-key layout.
+            if (hash.isEmpty()) {
+                hash = redisTemplate.opsForHash().entries(LEGACY_REDIS_KEY);
+            }
             if (hash.isEmpty()) {
                 cachedConfig = null;
                 return;
@@ -83,5 +88,9 @@ public class QueryEnrichmentInterceptor {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toSet());
+    }
+
+    private String redisKeyForService() {
+        return REDIS_KEY_PREFIX + serviceName;
     }
 }
