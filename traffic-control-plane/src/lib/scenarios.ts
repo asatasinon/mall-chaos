@@ -214,3 +214,37 @@ export async function recoverAll(traceId: string): Promise<{
 
   return { results };
 }
+
+export async function recoverScenario(scenario: Scenario, traceId: string): Promise<{
+  scenarioId: string;
+  results: { path: string; success: boolean; error?: string }[];
+}> {
+  const gateway = getGatewayClient();
+  const results: { path: string; success: boolean; error?: string }[] = [];
+
+  const recoverActions: { path: string; body: unknown }[] = [];
+  for (const step of scenario.steps) {
+    if (step.action !== 'enable') continue;
+    const disablePath = step.path.replace('/enable', '/disable');
+    recoverActions.push({ path: disablePath, body: step.body });
+    // memory-leak and deadlock also need cleanup
+    if (step.path.includes('/memory-leak/') || step.path.includes('/deadlock/')) {
+      const cleanupPath = step.path.replace('/enable', '/cleanup');
+      recoverActions.push({ path: cleanupPath, body: step.body });
+    }
+  }
+
+  await Promise.allSettled(
+    recoverActions.map(async ({ path, body }) => {
+      try {
+        await gateway.post(path, body, traceId);
+        results.push({ path, success: true });
+      } catch (e: any) {
+        log.warn({ error: e.message, path, scenarioId: scenario.id }, 'Scenario recover step failed');
+        results.push({ path, success: false, error: e.message });
+      }
+    })
+  );
+
+  return { scenarioId: scenario.id, results };
+}

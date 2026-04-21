@@ -1,5 +1,7 @@
 import { getRunnerEngine } from './runner-engine';
 import { getInventoryResetScheduler } from './inventory-reset';
+import { getDataWarmupService } from './data-warmup';
+import { env } from '../lib/env';
 import pino from 'pino';
 
 const log = pino({ name: 'worker' });
@@ -14,6 +16,13 @@ async function main() {
   const resetScheduler = getInventoryResetScheduler();
   await resetScheduler.loadPolicy();
   resetScheduler.start();
+
+  if (env.DATA_WARMUP_ENABLED) {
+    getDataWarmupService().start();
+    log.info('Data warmup started');
+  } else {
+    log.info('Data warmup is disabled by DATA_WARMUP_ENABLED=false');
+  }
 
   const syncTimer = setInterval(async () => {
     try {

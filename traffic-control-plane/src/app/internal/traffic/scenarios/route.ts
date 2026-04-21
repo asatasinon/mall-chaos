@@ -8,6 +8,7 @@ export async function GET() {
       name,
       description,
       stepCount: steps.length,
+      steps: steps.map(({ type, action, path }) => ({ type, action, path })),
     }))
   );
 }

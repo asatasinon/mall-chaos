@@ -21,4 +21,5 @@ export const env = {
 
   // Worker settings
   WORKER_ENABLED: process.env.WORKER_ENABLED !== 'false',
+  DATA_WARMUP_ENABLED: process.env.DATA_WARMUP_ENABLED !== 'false',
 } as const;
