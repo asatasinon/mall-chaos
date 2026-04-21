@@ -4,21 +4,15 @@
 # Pulls (if needed), re-tags, and pushes shared base images to Harbor.
 #
 # Usage:
+#   ./scripts/push-base-images.sh
 #   HARBOR_REGISTRY=harbor.example.com/base-images ./scripts/push-base-images.sh
 #   TARGET_REGISTRY=harbor.example.com/base-images ./scripts/push-base-images.sh
 #   SOURCE_REGISTRY=docker.io HARBOR_REGISTRY=harbor.example.com/base-images ./scripts/push-base-images.sh
 
 set -eu
 
-HARBOR_REGISTRY="${HARBOR_REGISTRY:-${TARGET_REGISTRY:-}}"
+HARBOR_REGISTRY="${HARBOR_REGISTRY:-${TARGET_REGISTRY:-harbor.cloudwise.com/noname}}"
 SOURCE_REGISTRY="${SOURCE_REGISTRY:-docker.io}"
-
-if [ -z "${HARBOR_REGISTRY}" ]; then
-  echo "Usage: HARBOR_REGISTRY=<harbor-host/project> $0"
-  echo "   or: TARGET_REGISTRY=<harbor-host/project> $0"
-  echo "Example: HARBOR_REGISTRY=harbor.internal.example.com/base-images $0"
-  exit 1
-fi
 
 IMAGES=$(cat <<EOF
 ${SOURCE_REGISTRY}/alpine:3.20|alpine:3.20
