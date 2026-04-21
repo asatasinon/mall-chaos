@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -67,6 +68,12 @@ public class ChaosService {
 
     // ── Deadlock helper ──
     private final AtomicReference<ScheduledFuture<?>> deadlockTrigger = new AtomicReference<>();
+    private final AtomicBoolean deadlockInFlight = new AtomicBoolean(false);
+    private final ExecutorService deadlockExecutor = Executors.newFixedThreadPool(2, r -> {
+        Thread t = new Thread(r, "chaos-deadlock-worker");
+        t.setDaemon(true);
+        return t;
+    });
 
     @Value("${spring.application.name:unknown}")
     private String serviceName;
@@ -243,40 +250,76 @@ public class ChaosService {
     private void attemptDeadlock() {
         if (!deadlockActive) return;
         if (Math.random() > deadlockInjectRate) return;
+        if (!deadlockInFlight.compareAndSet(false, true)) return;
 
-        // Two concurrent transactions with swapped lock order
-        ExecutorService exec = Executors.newFixedThreadPool(2);
         try {
-            exec.submit(() -> lockInOrder("orders", "payments"));
-            exec.submit(() -> lockInOrder("payments", "orders"));
+            triggerCoordinatedDeadlock("orders", "payments");
         } catch (Exception e) {
             log.warn("chaosType=deadlock event=deadlock_attempt_dispatch_failed service={} message={}",
                     serviceName, e.getMessage(), e);
         } finally {
-            exec.shutdown();
+            deadlockInFlight.set(false);
         }
     }
 
-    private void lockInOrder(String table1, String table2) {
-        try (Connection conn = dataSource.getConnection()) {
+    private void triggerCoordinatedDeadlock(String tableA, String tableB) throws InterruptedException {
+        CountDownLatch firstLockReady = new CountDownLatch(2);
+        CountDownLatch done = new CountDownLatch(2);
+
+        deadlockExecutor.submit(() -> lockInOrder(tableA, tableB, firstLockReady, done));
+        deadlockExecutor.submit(() -> lockInOrder(tableB, tableA, firstLockReady, done));
+
+        boolean finished = done.await(8, TimeUnit.SECONDS);
+        if (!finished) {
+            log.warn("chaosType=deadlock event=deadlock_attempt_timeout service={} tableA={} tableB={}",
+                    serviceName, tableA, tableB);
+        }
+    }
+
+    private void lockInOrder(String firstTable, String secondTable,
+                             CountDownLatch firstLockReady, CountDownLatch done) {
+        Connection conn = null;
+        try {
+            conn = dataSource.getConnection();
             conn.setAutoCommit(false);
             try (Statement stmt = conn.createStatement()) {
-                stmt.execute("SELECT * FROM " + table1 + " WHERE id = 1 FOR UPDATE");
-                Thread.sleep(100);
-                stmt.execute("SELECT * FROM " + table2 + " WHERE id = 1 FOR UPDATE");
+                stmt.execute("SELECT * FROM " + firstTable + " WHERE id = 1 FOR UPDATE");
+                firstLockReady.countDown();
+
+                if (!firstLockReady.await(3, TimeUnit.SECONDS)) {
+                    log.warn("chaosType=deadlock event=deadlock_barrier_timeout service={} firstTable={} secondTable={}",
+                            serviceName, firstTable, secondTable);
+                    return;
+                }
+
+                stmt.execute("SELECT * FROM " + secondTable + " WHERE id = 1 FOR UPDATE");
             }
             conn.commit();
         } catch (Exception e) {
             if (e instanceof SQLException sqlException) {
                 log.warn(
                         "chaosType=deadlock event=deadlock_conflict_expected service={} table1={} table2={} sqlState={} errorCode={} message={}",
-                        serviceName, table1, table2,
+                        serviceName, firstTable, secondTable,
                         sqlException.getSQLState(), sqlException.getErrorCode(), sqlException.getMessage());
             } else {
                 log.warn(
                         "chaosType=deadlock event=deadlock_conflict_expected service={} table1={} table2={} message={}",
-                        serviceName, table1, table2, e.getMessage());
+                        serviceName, firstTable, secondTable, e.getMessage());
             }
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ignore) {
+                    // ignored
+                }
+                try {
+                    conn.close();
+                } catch (SQLException ignore) {
+                    // ignored
+                }
+            }
+            done.countDown();
         }
     }
 
