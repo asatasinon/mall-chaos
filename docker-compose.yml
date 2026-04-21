@@ -23,7 +23,15 @@ x-service-env: &service-env
   OTEL_TRACES_SAMPLER: parentbased_always_on
   OTEL_METRICS_EXPORTER: none
   OTEL_LOGS_EXPORTER: none
-  JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m"
+  JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m -javaagent:/app/opentelemetry-javaagent.jar -javaagent:/data/app/JavaAgent/lib/agent.jar=/data/app/JavaAgent"
+
+x-cloudwise-agent-env: &cloudwise-agent-env
+  CW_CONFIG_SERVER: ${CW_CONFIG_SERVER:-http://10.106.0.58:18080/docp}
+  CW_DATA_SERVER: ${CW_DATA_SERVER:-http://10.106.0.58:18080/docp}
+  CW_LICENSE_KEY: "${CW_LICENSE_KEY:-J45Engw88NeHUZ4Q7qNsK8L47FTH**QvgW113IEnsNaBNMR5zZ**oj/g!!!!}"
+
+x-java-service-env: &java-service-env
+  <<: [*service-env, *cloudwise-agent-env]
 
 x-healthcheck-defaults: &healthcheck-defaults
   interval: 30s
@@ -231,8 +239,9 @@ services:
     ports:
       - "18080:8080"
     environment:
-      <<: *service-env
+      <<: *java-service-env
       OTEL_SERVICE_NAME: gateway-service
+      CW_APP_NAME: ${GATEWAY_CW_APP_NAME:-gateway-service}
       ORDER_SERVICE_URL: http://toxiproxy:18084
       CATALOG_SERVICE_URL: http://catalog-service:8082
       INVENTORY_SERVICE_URL: http://inventory-service:8083
@@ -267,8 +276,9 @@ services:
     ports:
       - "18081:8081"
     environment:
-      <<: *service-env
+      <<: *java-service-env
       OTEL_SERVICE_NAME: user-service
+      CW_APP_NAME: ${USER_CW_APP_NAME:-user-service}
     depends_on:
       mysql:
         condition: service_healthy
@@ -288,8 +298,9 @@ services:
     ports:
       - "18082:8082"
     environment:
-      <<: *service-env
+      <<: *java-service-env
       OTEL_SERVICE_NAME: catalog-service
+      CW_APP_NAME: ${CATALOG_CW_APP_NAME:-catalog-service}
     depends_on:
       mysql:
         condition: service_healthy
@@ -309,8 +320,9 @@ services:
     ports:
       - "18083:8083"
     environment:
-      <<: *service-env
+      <<: *java-service-env
       OTEL_SERVICE_NAME: inventory-service
+      CW_APP_NAME: ${INVENTORY_CW_APP_NAME:-inventory-service}
     depends_on:
       mysql:
         condition: service_healthy
@@ -330,13 +342,14 @@ services:
     ports:
       - "18084:8084"
     environment:
-      <<: *service-env
+      <<: *java-service-env
       OTEL_SERVICE_NAME: order-service
+      CW_APP_NAME: ${ORDER_CW_APP_NAME:-order-service}
       USER_SERVICE_URL: http://user-service:8081
       CATALOG_SERVICE_URL: http://catalog-service:8082
       INVENTORY_SERVICE_URL: http://toxiproxy:18083
       PAYMENT_SERVICE_URL: http://toxiproxy:18085
-      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-order.hprof"
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m -javaagent:/app/opentelemetry-javaagent.jar -javaagent:/data/app/JavaAgent/lib/agent.jar=/data/app/JavaAgent -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-order.hprof"
     depends_on:
       mysql:
         condition: service_healthy
@@ -356,9 +369,10 @@ services:
     ports:
       - "18085:8085"
     environment:
-      <<: *service-env
+      <<: *java-service-env
       OTEL_SERVICE_NAME: payment-service
-      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-payment.hprof"
+      CW_APP_NAME: ${PAYMENT_CW_APP_NAME:-payment-service}
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m -javaagent:/app/opentelemetry-javaagent.jar -javaagent:/data/app/JavaAgent/lib/agent.jar=/data/app/JavaAgent -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-payment.hprof"
     depends_on:
       mysql:
         condition: service_healthy
@@ -437,8 +451,9 @@ services:
     ports:
       - "18087:8087"
     environment:
-      <<: *service-env
+      <<: *java-service-env
       OTEL_SERVICE_NAME: promotion-service
+      CW_APP_NAME: ${PROMOTION_CW_APP_NAME:-promotion-service}
     depends_on:
       mysql:
         condition: service_healthy
@@ -458,8 +473,9 @@ services:
     ports:
       - "18088:8088"
     environment:
-      <<: *service-env
+      <<: *java-service-env
       OTEL_SERVICE_NAME: risk-service
+      CW_APP_NAME: ${RISK_CW_APP_NAME:-risk-service}
     depends_on:
       mysql:
         condition: service_healthy
@@ -479,8 +495,9 @@ services:
     ports:
       - "18089:8089"
     environment:
-      <<: *service-env
+      <<: *java-service-env
       OTEL_SERVICE_NAME: fulfillment-service
+      CW_APP_NAME: ${FULFILLMENT_CW_APP_NAME:-fulfillment-service}
     depends_on:
       mysql:
         condition: service_healthy
@@ -500,8 +517,9 @@ services:
     ports:
       - "18090:8090"
     environment:
-      <<: *service-env
+      <<: *java-service-env
       OTEL_SERVICE_NAME: notification-service
+      CW_APP_NAME: ${NOTIFICATION_CW_APP_NAME:-notification-service}
     depends_on:
       mysql:
         condition: service_healthy
