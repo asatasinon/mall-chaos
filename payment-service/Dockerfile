@@ -9,5 +9,7 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY assets/opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
 COPY --from=javaagent-extractor /opt/agent/JavaAgent /data/app/JavaAgent
+COPY scripts/java-service-entrypoint.sh /app/entrypoint.sh
 COPY payment-service/target/*.jar app.jar
-ENTRYPOINT ["java", "-jar", "app.jar"]
+RUN chmod +x /app/entrypoint.sh
+ENTRYPOINT ["/app/entrypoint.sh"]

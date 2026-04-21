@@ -32,6 +32,7 @@ x-cloudwise-agent-env: &cloudwise-agent-env
 
 x-java-service-env: &java-service-env
   <<: [*service-env, *cloudwise-agent-env]
+  JAVA_DUMP_DIR: /service-data/heapdumps
 
 x-healthcheck-defaults: &healthcheck-defaults
   interval: 30s
@@ -238,6 +239,8 @@ services:
     <<: *service-defaults
     ports:
       - "18080:8080"
+    volumes:
+      - ./data/gateway-service:/service-data
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: gateway-service
@@ -275,6 +278,8 @@ services:
     <<: *service-defaults
     ports:
       - "18081:8081"
+    volumes:
+      - ./data/user-service:/service-data
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: user-service
@@ -297,6 +302,8 @@ services:
     <<: *service-defaults
     ports:
       - "18082:8082"
+    volumes:
+      - ./data/catalog-service:/service-data
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: catalog-service
@@ -319,6 +326,8 @@ services:
     <<: *service-defaults
     ports:
       - "18083:8083"
+    volumes:
+      - ./data/inventory-service:/service-data
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: inventory-service
@@ -341,6 +350,8 @@ services:
     <<: *service-defaults
     ports:
       - "18084:8084"
+    volumes:
+      - ./data/order-service:/service-data
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: order-service
@@ -349,7 +360,6 @@ services:
       CATALOG_SERVICE_URL: http://catalog-service:8082
       INVENTORY_SERVICE_URL: http://toxiproxy:18083
       PAYMENT_SERVICE_URL: http://toxiproxy:18085
-      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m -javaagent:/app/opentelemetry-javaagent.jar -javaagent:/data/app/JavaAgent/lib/agent.jar=/data/app/JavaAgent -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-order.hprof"
     depends_on:
       mysql:
         condition: service_healthy
@@ -368,11 +378,12 @@ services:
     <<: *service-defaults
     ports:
       - "18085:8085"
+    volumes:
+      - ./data/payment-service:/service-data
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: payment-service
       CW_APP_NAME: ${PAYMENT_CW_APP_NAME:-payment-service}
-      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m -javaagent:/app/opentelemetry-javaagent.jar -javaagent:/data/app/JavaAgent/lib/agent.jar=/data/app/JavaAgent -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump-payment.hprof"
     depends_on:
       mysql:
         condition: service_healthy
@@ -391,6 +402,8 @@ services:
     <<: *service-defaults
     ports:
       - "18086:3086"
+    volumes:
+      - ./data/traffic-control-plane:/app/data
     environment:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
@@ -422,6 +435,8 @@ services:
     container_name: castrel-traffic-control-plane-worker
     <<: *service-defaults
     command: ["pnpm", "worker"]
+    volumes:
+      - ./data/traffic-control-plane-worker:/app/data
     environment:
       NODE_ENV: production
       GATEWAY_BASE_URL: http://gateway-service:8080
@@ -450,6 +465,8 @@ services:
     <<: *service-defaults
     ports:
       - "18087:8087"
+    volumes:
+      - ./data/promotion-service:/service-data
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: promotion-service
@@ -472,6 +489,8 @@ services:
     <<: *service-defaults
     ports:
       - "18088:8088"
+    volumes:
+      - ./data/risk-service:/service-data
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: risk-service
@@ -494,6 +513,8 @@ services:
     <<: *service-defaults
     ports:
       - "18089:8089"
+    volumes:
+      - ./data/fulfillment-service:/service-data
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: fulfillment-service
@@ -516,6 +537,8 @@ services:
     <<: *service-defaults
     ports:
       - "18090:8090"
+    volumes:
+      - ./data/notification-service:/service-data
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: notification-service
