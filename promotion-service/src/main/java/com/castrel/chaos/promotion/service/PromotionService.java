@@ -103,19 +103,30 @@ public class PromotionService {
         int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
         if ("product_price_history".equals(joinTable)) {
             jdbcTemplate.queryForList(
-                    "SELECT pr.* FROM promotions pr" +
+                    "SELECT s.* FROM (" +
+                    " SELECT pr.*, pph.effective_at AS __pph_effective_at" +
+                    " FROM promotions pr" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = pr.name" +
-                    " WHERE pr.enabled = 1" +
-                    " AND pph.effective_at <= NOW()" +
                     " ORDER BY pph.effective_at DESC, pr.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
+                    ") s" +
+                    " WHERE s.enabled = 1" +
+                    " AND s.__pph_effective_at <= NOW()" +
+                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
+                    " LIMIT " + limitRows);
         } else if ("user_behavior_log".equals(joinTable)) {
             jdbcTemplate.queryForList(
-                    "SELECT pr.* FROM promotions pr" +
-                    " JOIN user_behavior_log ubl ON ubl.action_type = 'PLACE_ORDER'" +
-                    " WHERE pr.enabled = 1" +
+                    "SELECT s.* FROM (" +
+                    " SELECT pr.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
+                    " FROM promotions pr" +
+                    " JOIN user_behavior_log ubl ON TRUE" +
                     " ORDER BY ubl.created_at DESC, pr.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
+                    ") s" +
+                    " WHERE s.enabled = 1" +
+                    " AND s.__ubl_action_type = 'PLACE_ORDER'" +
+                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
+                    " LIMIT " + limitRows);
         }
     }
 

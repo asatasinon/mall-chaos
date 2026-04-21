@@ -137,18 +137,28 @@ public class RiskService {
         int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
         if ("user_behavior_log".equals(joinTable)) {
             jdbcTemplate.queryForList(
-                    "SELECT re.* FROM risk_events re" +
+                    "SELECT s.* FROM (" +
+                    " SELECT re.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
+                    " FROM risk_events re" +
                     " JOIN user_behavior_log ubl ON ubl.user_id = re.user_id" +
-                    " AND ubl.action_type = 'PLACE_ORDER'" +
                     " ORDER BY ubl.created_at DESC, re.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
+                    ") s" +
+                    " WHERE s.__ubl_action_type = 'PLACE_ORDER'" +
+                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
+                    " LIMIT " + limitRows);
         } else if ("product_price_history".equals(joinTable)) {
             jdbcTemplate.queryForList(
-                    "SELECT re.* FROM risk_events re" +
+                    "SELECT s.* FROM (" +
+                    " SELECT re.*, pph.effective_at AS __pph_effective_at" +
+                    " FROM risk_events re" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = re.order_no" +
-                    " WHERE pph.effective_at <= NOW()" +
                     " ORDER BY pph.effective_at DESC, re.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
+                    ") s" +
+                    " WHERE s.__pph_effective_at <= NOW()" +
+                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
+                    " LIMIT " + limitRows);
         }
     }
 

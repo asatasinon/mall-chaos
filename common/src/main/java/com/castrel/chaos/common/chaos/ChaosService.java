@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.Map;
@@ -249,7 +250,8 @@ public class ChaosService {
             exec.submit(() -> lockInOrder("orders", "payments"));
             exec.submit(() -> lockInOrder("payments", "orders"));
         } catch (Exception e) {
-            log.debug("Deadlock attempt error: {}", e.getMessage());
+            log.warn("chaosType=deadlock event=deadlock_attempt_dispatch_failed service={} message={}",
+                    serviceName, e.getMessage(), e);
         } finally {
             exec.shutdown();
         }
@@ -265,7 +267,16 @@ public class ChaosService {
             }
             conn.commit();
         } catch (Exception e) {
-            log.debug("Deadlock injection (expected): {}", e.getMessage());
+            if (e instanceof SQLException sqlException) {
+                log.warn(
+                        "chaosType=deadlock event=deadlock_conflict_expected service={} table1={} table2={} sqlState={} errorCode={} message={}",
+                        serviceName, table1, table2,
+                        sqlException.getSQLState(), sqlException.getErrorCode(), sqlException.getMessage());
+            } else {
+                log.warn(
+                        "chaosType=deadlock event=deadlock_conflict_expected service={} table1={} table2={} message={}",
+                        serviceName, table1, table2, e.getMessage());
+            }
         }
     }
 

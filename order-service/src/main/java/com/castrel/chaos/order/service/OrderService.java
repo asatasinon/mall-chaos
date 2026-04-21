@@ -212,20 +212,30 @@ public class OrderService {
         int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
         if ("user_behavior_log".equals(joinTable)) {
             jdbcTemplate.queryForList(
-                    "SELECT o.* FROM orders o" +
+                    "SELECT s.* FROM (" +
+                    " SELECT o.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
+                    " FROM orders o" +
                     " JOIN user_behavior_log ubl ON ubl.user_id = o.user_id" +
-                    " WHERE o.status = 'PENDING'" +
-                    " AND ubl.action_type = 'PLACE_ORDER'" +
                     " ORDER BY ubl.created_at DESC, o.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
+                    ") s" +
+                    " WHERE s.status = 'PENDING'" +
+                    " AND s.__ubl_action_type = 'PLACE_ORDER'" +
+                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
+                    " LIMIT " + limitRows);
         } else if ("product_price_history".equals(joinTable)) {
             jdbcTemplate.queryForList(
-                    "SELECT o.* FROM orders o" +
+                    "SELECT s.* FROM (" +
+                    " SELECT o.*, pph.effective_at AS __pph_effective_at" +
+                    " FROM orders o" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = o.sku" +
-                    " WHERE o.status = 'PENDING'" +
-                    " AND pph.effective_at <= NOW()" +
                     " ORDER BY pph.effective_at DESC, o.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
+                    ") s" +
+                    " WHERE s.status = 'PENDING'" +
+                    " AND s.__pph_effective_at <= NOW()" +
+                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
+                    " LIMIT " + limitRows);
         }
     }
 

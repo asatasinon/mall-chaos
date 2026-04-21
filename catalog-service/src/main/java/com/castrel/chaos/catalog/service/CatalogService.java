@@ -89,19 +89,30 @@ public class CatalogService {
         int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
         if ("product_price_history".equals(joinTable)) {
             jdbcTemplate.queryForList(
-                    "SELECT p.* FROM products p" +
+                    "SELECT s.* FROM (" +
+                    " SELECT p.*, pph.effective_at AS __pph_effective_at" +
+                    " FROM products p" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = p.sku" +
-                    " WHERE p.status = 1" +
-                    " AND pph.effective_at <= NOW()" +
                     " ORDER BY pph.effective_at DESC, p.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
+                    ") s" +
+                    " WHERE s.status = 1" +
+                    " AND s.__pph_effective_at <= NOW()" +
+                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
+                    " LIMIT " + limitRows);
         } else if ("user_behavior_log".equals(joinTable)) {
             jdbcTemplate.queryForList(
-                    "SELECT p.* FROM products p" +
-                    " JOIN user_behavior_log ubl ON ubl.action_type = 'VIEW_PRODUCT'" +
-                    " WHERE p.status = 1" +
+                    "SELECT s.* FROM (" +
+                    " SELECT p.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
+                    " FROM products p" +
+                    " JOIN user_behavior_log ubl ON TRUE" +
                     " ORDER BY ubl.created_at DESC, p.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows);
+                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
+                    ") s" +
+                    " WHERE s.status = 1" +
+                    " AND s.__ubl_action_type = 'VIEW_PRODUCT'" +
+                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
+                    " LIMIT " + limitRows);
         }
     }
 
