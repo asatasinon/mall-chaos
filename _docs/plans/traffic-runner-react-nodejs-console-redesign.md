@@ -665,7 +665,7 @@ memory leak 不再沿用旧的 `start / stop / clear` 协议，统一切换为�
 
 ## 11. 技术设计建议
 
-## 11.1 Node.js 技术边界
+## 11.1 Next.js / Worker 技术边界
 
 Next.js + worker 建议承担以下职责：
 
@@ -701,7 +701,7 @@ Next.js + worker 建议承担以下职责：
 状态来源分层：
 
 1. Runner 配置状态：MySQL
-2. 触发中的 Chaos 运行态：Node.js 内存 + Redis
+2. 触发中的 Chaos 运行态：control plane 运行态内存 + Redis
 3. 通过 gateway 聚合或转发获取的下游实时状态：按需轮询 / 拉取
 
 建议：
@@ -720,9 +720,15 @@ Next.js + worker 建议承担以下职责：
 ### 12.1 控制入口规则
 
 1. 新前端只能调用 Next.js 自身的服务端 API。
-2. React 不可直接调用业务服务 chaos endpoint。
-3. React 不可直接调用 gateway toxiproxy endpoint。
+2. 浏览器前端不可直接调用业务服务 chaos endpoint。
+3. 浏览器前端不可直接调用 gateway toxiproxy endpoint。
 4. traffic control plane 不可直接调用业务服务 HTTP 接口，只能调用 gateway。
+
+### 12.1.1 运行模式规则
+
+1. `traffic-runner-service` 采用 `web + worker` 双角色运行
+2. `worker` 默认单实例运行，避免重复发流量
+3. `web` 可横向扩展，`worker` 不允许无约束扩容
 
 ### 12.2 API 规则
 

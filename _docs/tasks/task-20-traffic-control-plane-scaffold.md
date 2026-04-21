@@ -53,6 +53,7 @@
 - [ ] 前后端同仓管理
 - [ ] 提供本地开发与生产构建方式
 - [ ] 保留现有端口语义：对外入口仍为 `18086`
+- [ ] 明确 `web` 与 `worker` 两种运行角色
 
 ### 20.2 Next.js Route Handlers / BFF 骨架
 
@@ -74,6 +75,7 @@
 - [ ] 实现 `jitter_pct`
 - [ ] 实现 `cycle_minutes`
 - [ ] 记录滚动窗口成功率与失败率
+- [ ] 明确 `worker` 默认单实例运行
 
 ### 20.5 配置与库存重置
 
@@ -82,9 +84,17 @@
 - [ ] 保留库存重置定时器与立即触发能力
 - [ ] 库存重置调用统一经 gateway 分发
 
-### 20.6 验证
+### 20.6 构建、镜像与运行模型
+
+- [ ] 使用 `pnpm install` / `pnpm build` 生成 Next.js 产物
+- [ ] 设计新的 `traffic-runner-service` Dockerfile
+- [ ] 明确 `web` 与 `worker` 是同镜像双入口，还是拆分成两个镜像
+- [ ] 在文档中明确生产默认采用“单实例 worker”
+- [ ] 补齐环境变量约定：gateway base url、MySQL、Redis、Grafana base url
+### 20.7 验证
 
 - [ ] traffic 控制平面可独立启动
 - [ ] Next.js 页面可访问
 - [ ] Runner 状态接口可返回 `running=true`
 - [ ] traffic 发出的业务流量统一经过 gateway
+- [ ] `web` 与 `worker` 的启动方式清晰可复现

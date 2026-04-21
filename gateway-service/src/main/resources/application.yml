@@ -1,6 +1,10 @@
 server:
   port: 8080
 
+chaos:
+  endpoints:
+    enabled: false
+
 spring:
   application:
     name: gateway-service
@@ -14,83 +18,20 @@ spring:
     gateway:
       globalcors:
         cors-configurations:
-          '[/ops/**]':
+          '[/internal/**]':
             allowedOriginPatterns: "*"
             allowedMethods: GET, POST, PUT, PATCH, DELETE, OPTIONS
             allowedHeaders: "*"
             allowCredentials: false
-      server:
-        webflux:
-          globalcors:
-            cors-configurations:
-              '[/ops/**]':
-                allowedOriginPatterns: "*"
-                allowedMethods: GET, POST, PUT, PATCH, DELETE, OPTIONS
-                allowedHeaders: "*"
-                allowCredentials: false
-          routes:
-            - id: orders
-              uri: ${ORDER_SERVICE_URL:http://localhost:18084}
-              predicates:
-                - Path=/api/orders/**
-            - id: products
-              uri: ${CATALOG_SERVICE_URL:http://localhost:18082}
-              predicates:
-                - Path=/api/products/**
-            - id: chaos-order
-              uri: ${CHAOS_ORDER_URL:${ORDER_SERVICE_URL:http://localhost:18084}}
-              predicates:
-                - Path=/ops/chaos/order/**
-              filters:
-                - RewritePath=/ops/chaos/order/?(?<segment>.*), /$\{segment}
-            - id: chaos-payment
-              uri: ${CHAOS_PAYMENT_URL:http://localhost:18085}
-              predicates:
-                - Path=/ops/chaos/payment/**
-              filters:
-                - RewritePath=/ops/chaos/payment/?(?<segment>.*), /$\{segment}
-            - id: chaos-catalog
-              uri: ${CHAOS_CATALOG_URL:${CATALOG_SERVICE_URL:http://localhost:18082}}
-              predicates:
-                - Path=/ops/chaos/catalog/**
-              filters:
-                - RewritePath=/ops/chaos/catalog/?(?<segment>.*), /$\{segment}
-            - id: chaos-inventory
-              uri: ${CHAOS_INVENTORY_URL:http://localhost:18083}
-              predicates:
-                - Path=/ops/chaos/inventory/**
-              filters:
-                - RewritePath=/ops/chaos/inventory/?(?<segment>.*), /$\{segment}
-            - id: chaos-promotion
-              uri: ${CHAOS_PROMOTION_URL:http://localhost:18087}
-              predicates:
-                - Path=/ops/chaos/promotion/**
-              filters:
-                - RewritePath=/ops/chaos/promotion/?(?<segment>.*), /$\{segment}
-            - id: chaos-risk
-              uri: ${CHAOS_RISK_URL:http://localhost:18088}
-              predicates:
-                - Path=/ops/chaos/risk/**
-              filters:
-                - RewritePath=/ops/chaos/risk/?(?<segment>.*), /$\{segment}
-            - id: chaos-fulfillment
-              uri: ${CHAOS_FULFILLMENT_URL:http://localhost:18089}
-              predicates:
-                - Path=/ops/chaos/fulfillment/**
-              filters:
-                - RewritePath=/ops/chaos/fulfillment/?(?<segment>.*), /$\{segment}
-            - id: chaos-notification
-              uri: ${CHAOS_NOTIFICATION_URL:http://localhost:18090}
-              predicates:
-                - Path=/ops/chaos/notification/**
-              filters:
-                - RewritePath=/ops/chaos/notification/?(?<segment>.*), /$\{segment}
-            - id: toxiproxy-api
-              uri: ${TOXIPROXY_API_URL:http://localhost:18474}
-              predicates:
-                - Path=/ops/toxiproxy/**
-              filters:
-                - RewritePath=/ops/toxiproxy/?(?<segment>.*), /$\{segment}
+      routes:
+        - id: orders
+          uri: ${ORDER_SERVICE_URL:http://localhost:18084}
+          predicates:
+            - Path=/api/orders/**
+        - id: products
+          uri: ${CATALOG_SERVICE_URL:http://localhost:18082}
+          predicates:
+            - Path=/api/products/**
 
 management:
   endpoints:
@@ -102,6 +43,48 @@ management:
       export:
         enabled: true
 
+# ── Chaos dispatch: service name → base URL mapping ──
 chaos:
-  console:
-    grafana-base-url: ${CHAOS_CONSOLE_GRAFANA_BASE_URL:}
+  dispatch:
+    services:
+      catalog-service: ${CATALOG_SERVICE_URL:http://localhost:18082}
+      inventory-service: ${INVENTORY_SERVICE_URL:http://localhost:18083}
+      order-service: ${ORDER_SERVICE_URL:http://localhost:18084}
+      payment-service: ${PAYMENT_SERVICE_URL:http://localhost:18085}
+      promotion-service: ${PROMOTION_SERVICE_URL:http://localhost:18087}
+      risk-service: ${RISK_SERVICE_URL:http://localhost:18088}
+      fulfillment-service: ${FULFILLMENT_SERVICE_URL:http://localhost:18089}
+      notification-service: ${NOTIFICATION_SERVICE_URL:http://localhost:18090}
+    # Which services support which chaos type
+    whitelist:
+      slow-sql:
+        - catalog-service
+        - inventory-service
+        - order-service
+        - payment-service
+        - promotion-service
+        - risk-service
+        - fulfillment-service
+        - notification-service
+      memory-leak:
+        - order-service
+        - payment-service
+      deadlock:
+        - order-service
+        - payment-service
+      table-lock:
+        - order-service
+        - payment-service
+        - fulfillment-service
+        - notification-service
+  toxiproxy:
+    api-url: ${TOXIPROXY_API_URL:http://localhost:18474}
+    proxy-whitelist:
+      - order-service-proxy
+      - payment-service-proxy
+      - catalog-service-proxy
+      - inventory-service-proxy
+      - promotion-service-proxy
+      - risk-service-proxy
+      - fulfillment-service-proxy
+      - notification-service-proxy

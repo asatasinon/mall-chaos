@@ -22,12 +22,12 @@
 
 ## 项目概述
 
-Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、库存、促销、风控、履约、通知等完整链路。系统内置**自动流量生成器**（traffic-runner），启动即持续产生业务流量；配合 Chaos 注入接口，可随时触发网络延迟、内存泄漏、慢 SQL、死锁等故障场景，用于混沌工程培训与系统韧性验证。
+Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、库存、促销、风控、履约、通知等完整链路。系统内置一个 **traffic control plane**（`traffic-runner-service`），由 `Next.js + pnpm + TypeScript + worker` 构成：控制台负责可视化与操作，worker 负责持续业务流量生成；配合 gateway 分发的 Chaos 控制接口，可随时触发网络延迟、内存泄漏、慢 SQL、死锁等故障场景，用于混沌工程培训与系统韧性验证。
 
 **核心特性：**
 
-- 11 个 Spring Boot 微服务构成完整电商链路
-- traffic-runner 自动产生真实业务流量，支持热更新 QPS
+- 10 个 Spring Boot 业务/网关服务 + 1 个 `Next.js` traffic control plane
+- traffic control plane 自动产生真实业务流量，支持热更新 QPS、场景编排与控制台操作
 - 4 类 Chaos 注入：网络故障 / JVM 内存泄漏 / 慢 SQL / 数据库死锁
 - 所有 Chaos 均支持 `injectRate + durationSec` 自动关闭
 - Prometheus + Grafana + Loki + Tempo 全链路可观测
@@ -37,50 +37,37 @@ Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、
 
 ## 架构总览
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   外部 / Runner                     │
-└──────────────────────┬──────────────────────────────┘
-                       │
-              ┌────────▼────────┐
-              │  gateway-service │ :18080  路由、traceId 注入
-              └────────┬────────┘
-          ┌────────────┼──────────────────┐
-          │            │                  │
-   ┌──────▼──────┐  ┌──▼──────────┐  ┌───▼───────────┐
-  │ user-service│  │catalog-svc  │  │ order-service  │ :18084
-  │   :18081    │  │   :18082    │  │ 状态机 / 幂等  │
-   └─────────────┘  └─────────────┘  └───┬───────────┘
-                                          │ 编排调用
-              ┌───────────────────────────┼───────────────────┐
-              │                           │                   │
-   ┌──────────▼──┐            ┌───────────▼──┐   ┌──────────▼──┐
-  │inventory-svc│            │ payment-svc  │   │  risk-svc   │
-  │   :18083    │            │   :18085     │   │   :18088    │
-   │ 预占/释放   │            │  支付模拟    │   │  前置风控   │
-   └─────────────┘            └──────────────┘   └─────────────┘
-                                      │
-              ┌───────────────────────┼───────────────────┐
-              │                       │                   │
-   ┌──────────▼──┐       ┌────────────▼──┐   ┌──────────▼──┐
-  │fulfillment  │       │ promotion-svc  │   │notification │
-  │   :18089    │       │   :18087       │   │   :18090    │
-   └─────────────┘       └───────────────┘   └─────────────┘
+```text
+Browser
+  -> traffic-runner-service :18086 (Next.js UI + Route Handlers)
+  -> gateway-service :18080 (仅由 traffic/业务流量访问)
 
-   ┌──────────────────────────────────────────────────┐
-  │ traffic-runner-service :18086 自动流量 + 热更新 │
-   └──────────────────────────────────────────────────┘
+traffic-runner-service
+  -> Runner Worker
+  -> gateway-service
+
+gateway-service
+  -> user-service         :18081
+  -> catalog-service      :18082
+  -> inventory-service    :18083
+  -> order-service        :18084
+  -> payment-service      :18085
+  -> promotion-service    :18087
+  -> risk-service         :18088
+  -> fulfillment-service  :18089
+  -> notification-service :18090
+  -> toxiproxy / infra proxy
 ```
 
 | 服务 | 端口 | 职责 |
 |---|---|---|
-| gateway-service | 18080 | 统一入口、路由转发、traceId 注入 |
+| gateway-service | 18080 | 统一入口、路由转发、traceId 注入、traffic 控制分发 |
 | user-service | 18081 | 用户资料、收货地址 |
 | catalog-service | 18082 | 商品查询、SKU 价格 |
 | inventory-service | 18083 | 库存预占/释放/重置 |
 | order-service | 18084 | 下单编排、状态机、3 类 Chaos |
 | payment-service | 18085 | 支付模拟、3 类 Chaos |
-| traffic-runner-service | 18086 | 自动流量生成、配置热更新 |
+| traffic-runner-service | 18086 | Next.js 控制台、Route Handlers、Runner worker |
 | promotion-service | 18087 | 优惠券计算、慢 SQL Chaos |
 | risk-service | 18088 | 前置风控、支付后复核 |
 | fulfillment-service | 18089 | 履约单、发货状态流转 |
@@ -92,7 +79,8 @@ Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、
 
 | 类别 | 选型 |
 |---|---|
-| 语言 / 框架 | Java 21 · Spring Boot 3.3.x · Maven 3.8+ |
+| 语言 / 框架 | Java 21 · Spring Boot 3.3.x · Maven 3.8+ · Next.js · TypeScript |
+| Node 工具链 | Node.js 20+ · pnpm |
 | 数据存储 | MySQL 8.0（慢查询日志开启）· Redis 7.2（LRU 策略） |
 | 可观测 | Prometheus · Grafana · Loki · Tempo (OTLP) |
 | 网络故障 | ToxiProxy · Pumba |
@@ -112,7 +100,7 @@ castrel-chaos/
 ├── inventory-service/
 ├── order-service/
 ├── payment-service/
-├── traffic-runner-service/
+├── traffic-runner-service/       # Next.js control plane + worker
 ├── promotion-service/
 ├── risk-service/
 ├── fulfillment-service/
@@ -153,6 +141,22 @@ castrel-chaos/
 └── pom.xml
 ```
 
+`traffic-runner-service/` 在重构后建议包含：
+
+```text
+traffic-runner-service/
+├── app/                          # Next.js UI + Route Handlers
+├── components/
+├── lib/
+├── server/
+├── worker/                       # Runner worker 入口与调度逻辑
+├── public/
+├── package.json
+├── pnpm-lock.yaml
+├── tsconfig.json
+└── next.config.* 
+```
+
 ---
 
 ## 快速开始（Docker Compose）
@@ -160,7 +164,8 @@ castrel-chaos/
 ### 前置条件
 
 - Docker 24+ 与 Docker Compose v2
-- （可选）JDK 21 + Maven 3.8+（仅需本地构建时）
+- JDK 21 + Maven 3.8+（构建 Java 服务）
+- Node.js 20+ 与 `pnpm`（构建 traffic control plane）
 
 ### 1. 启动基础服务（无需本地构建）
 
@@ -169,8 +174,14 @@ castrel-chaos/
 git clone https://github.com/your-org/castrel-chaos.git
 cd castrel-chaos
 
-# jar打包
+# Java 服务打包
 mvn clean package -DskipTests
+
+# traffic control plane 安装依赖并构建
+cd traffic-runner-service
+pnpm install
+pnpm build
+cd ..
 
 # 启动基础设施 + 全部业务服务
 docker compose up -d
@@ -192,7 +203,7 @@ curl http://localhost:18080/api/products
 curl http://localhost:18086/internal/traffic/runner/status
 ```
 
-服务启动后，traffic-runner 会自动以默认 QPS 向系统发送业务流量。
+服务启动后，traffic control plane 会自动以默认 QPS 向系统发送业务流量。
 
 ### 3. 关闭可观测性栏（可选）
 
@@ -221,6 +232,12 @@ docker compose down -v       # 同时删除数据卷（清空数据库）
 ```bash
 mvn clean package -DskipTests
 
+# 重新构建 Java 服务
+mvn clean package -DskipTests
+
+# 重新构建 traffic control plane
+(cd traffic-runner-service && pnpm install && pnpm build)
+
 # 保留数据，重建全部容器并重新构建镜像
 docker compose down
 docker compose up -d --build --force-recreate
@@ -237,22 +254,55 @@ docker compose up -d --build --force-recreate
 ### 全量构建（推荐）
 
 ```bash
-# 构建所有 Maven 模块 + Docker 镜像
+# 构建 Java 模块
 ./scripts/build-all.sh
 
-# 构建并推送到镜像仓库
-./scripts/build-all.sh --push --tag v1.0.0
+# 构建 traffic control plane
+cd traffic-runner-service
+pnpm install
+pnpm build
+cd ..
+
+# 再构建 Docker 镜像
+./scripts/build-all.sh
 ```
 
 ### 单服务构建
 
 ```bash
-# 仅构建 Maven JAR
+# 仅构建 Java JAR
 mvn clean package -pl order-service -DskipTests
 
 # 构建 Docker 镜像
 docker build -t castrel/order-service:latest ./order-service
 ```
+
+### traffic-runner-service 构建
+
+```bash
+cd traffic-runner-service
+
+# 安装依赖
+pnpm install
+
+# 开发模式
+pnpm dev
+
+# 生产构建
+pnpm build
+
+# 启动 Next.js 服务
+pnpm start
+
+# 启动 Runner worker
+pnpm worker
+```
+
+部署约束：
+
+- `traffic-runner-service` 至少包含两个运行角色：`web` 与 `worker`
+- `worker` 默认单实例运行，避免重复产生业务流量
+- 所有业务 HTTP 调用仍必须经由 `gateway-service`
 
 ### common 模块
 

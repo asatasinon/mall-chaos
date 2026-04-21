@@ -13,7 +13,8 @@ import org.springframework.context.annotation.ComponentScan;
 @ComponentScan(basePackages = {
         "com.castrel.chaos.common.interceptor",
         "com.castrel.chaos.common.maintenance",
-        "com.castrel.chaos.common.cache"
+        "com.castrel.chaos.common.cache",
+        "com.castrel.chaos.common.chaos"
 })
 public class ServiceComponentAutoConfiguration {
 }
