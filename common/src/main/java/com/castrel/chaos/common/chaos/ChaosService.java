@@ -109,7 +109,7 @@ public class ChaosService {
         if (durationSec > 0) {
             slowSqlAutoDisable = scheduler.schedule(this::disableSlowSql, durationSec, TimeUnit.SECONDS);
         }
-        log.info("Slow SQL enrichment enabled: service={}, joinTable={}, limitRows={}, offsetRows={}, durationSec={}",
+        log.info("Data calibration profile activated: service={}, sourceTable={}, windowSize={}, windowOffset={}, ttlSec={}",
                 serviceName, normalizedJoinTable, normalizedLimitRows, normalizedOffsetRows, durationSec);
     }
 
@@ -125,9 +125,9 @@ public class ChaosService {
                 "offsetRows", Integer.toString(slowSqlOffsetRows)
             ));
         } catch (Exception e) {
-            log.warn("Failed to disable slow SQL enrichment in Redis: {}", e.getMessage());
+            log.warn("Failed to persist calibration profile shutdown: {}", e.getMessage());
         }
-        log.info("Slow SQL enrichment disabled: service={}", serviceName);
+        log.info("Data calibration profile deactivated: service={}", serviceName);
     }
 
     public Map<String, Object> getSlowSqlStatus() {
@@ -168,7 +168,7 @@ public class ChaosService {
         }, 0, this.memoryLeakIntervalMs, TimeUnit.MILLISECONDS);
 
         memoryLeakAutoDisable = null;
-        log.info("Memory leak enabled: chunkKb={}, intervalMs={}, maxMbIgnored={}, durationSecIgnored={}",
+        log.info("Cache prewarm pressure task activated: batchKb={}, cadenceMs={}, ceilingMbHint={}, ttlSecHint={}",
             chunkSizeKb, intervalMs, maxMb, durationSec);
     }
 
@@ -176,14 +176,14 @@ public class ChaosService {
         memoryLeakActive = false;
         cancelFuture(memoryLeakAutoDisable);
         cancelFuture(memoryLeakAllocator);
-        log.info("Memory leak injection stopped (leak retained: {} chunks)", leakedChunks.size());
+        log.info("Cache prewarm pressure task paused (retainedBuffers={})", leakedChunks.size());
     }
 
     public void cleanupMemoryLeak() {
         disableMemoryLeak();
         leakedChunks.clear();
         System.gc();
-        log.info("Memory leak cleaned up");
+        log.info("Cache prewarm buffer cleanup completed");
     }
 
     public Map<String, Object> getMemoryLeakStatus() {
@@ -221,7 +221,7 @@ public class ChaosService {
         if (durationSec > 0) {
             deadlockAutoDisable = scheduler.schedule(this::disableDeadlock, durationSec, TimeUnit.SECONDS);
         }
-        log.info("Deadlock enabled: rate={}, scope={}, durationSec={}", injectRate, scope, durationSec);
+        log.info("Dual-channel consistency drill activated: sampleRate={}, scope={}, ttlSec={}", injectRate, scope, durationSec);
     }
 
     public void disableDeadlock() {
@@ -229,12 +229,12 @@ public class ChaosService {
         cancelFuture(deadlockAutoDisable);
         ScheduledFuture<?> trigger = deadlockTrigger.getAndSet(null);
         cancelFuture(trigger);
-        log.info("Deadlock disabled");
+        log.info("Dual-channel consistency drill deactivated");
     }
 
     public void cleanupDeadlock() {
         disableDeadlock();
-        log.info("Deadlock cleaned up");
+        log.info("Dual-channel consistency drill cleanup completed");
     }
 
     public Map<String, Object> getDeadlockStatus() {
@@ -255,7 +255,7 @@ public class ChaosService {
         try {
             triggerCoordinatedDeadlock("orders", "payments");
         } catch (Exception e) {
-            log.warn("chaosType=deadlock event=deadlock_attempt_dispatch_failed service={} message={}",
+            log.warn("opsCategory=consistency-drill event=dispatch_failed service={} message={}",
                     serviceName, e.getMessage(), e);
         } finally {
             deadlockInFlight.set(false);
@@ -271,7 +271,7 @@ public class ChaosService {
 
         boolean finished = done.await(8, TimeUnit.SECONDS);
         if (!finished) {
-            log.warn("chaosType=deadlock event=deadlock_attempt_timeout service={} tableA={} tableB={}",
+            log.warn("opsCategory=consistency-drill event=attempt_timeout service={} tableA={} tableB={}",
                     serviceName, tableA, tableB);
         }
     }
@@ -287,7 +287,7 @@ public class ChaosService {
                 firstLockReady.countDown();
 
                 if (!firstLockReady.await(3, TimeUnit.SECONDS)) {
-                    log.warn("chaosType=deadlock event=deadlock_barrier_timeout service={} firstTable={} secondTable={}",
+                    log.warn("opsCategory=consistency-drill event=barrier_timeout service={} firstTable={} secondTable={}",
                             serviceName, firstTable, secondTable);
                     return;
                 }
@@ -298,12 +298,12 @@ public class ChaosService {
         } catch (Exception e) {
             if (e instanceof SQLException sqlException) {
                 log.warn(
-                        "chaosType=deadlock event=deadlock_conflict_expected service={} table1={} table2={} sqlState={} errorCode={} message={}",
+                        "opsCategory=consistency-drill event=conflict_expected service={} table1={} table2={} sqlState={} errorCode={} message={}",
                         serviceName, firstTable, secondTable,
                         sqlException.getSQLState(), sqlException.getErrorCode(), sqlException.getMessage());
             } else {
                 log.warn(
-                        "chaosType=deadlock event=deadlock_conflict_expected service={} table1={} table2={} message={}",
+                        "opsCategory=consistency-drill event=conflict_expected service={} table1={} table2={} message={}",
                         serviceName, firstTable, secondTable, e.getMessage());
             }
         } finally {
@@ -331,7 +331,7 @@ public class ChaosService {
         memoryLeakActive = false;
         cancelFuture(memoryLeakAutoDisable);
         cancelFuture(memoryLeakAllocator);
-        System.err.println("Fatal OOM triggered by chaos memory leak; halting JVM process.");
+        System.err.println("Fatal OOM during cache prewarm pressure task; halting JVM process.");
         outOfMemoryError.printStackTrace(System.err);
         Runtime.getRuntime().halt(137);
     }

@@ -7,7 +7,7 @@ volumes: {}
 x-service-defaults: &service-defaults
   networks:
     - castrel-net
-  restart: unless-stopped
+#  restart: unless-stopped
 
 x-service-env: &service-env
   SPRING_PROFILES_ACTIVE: docker,chaos
@@ -45,7 +45,7 @@ services:
   # ─── Infrastructure ──────────────────────────────────────────────────────────
 
   mysql:
-    image: harbor.cloudwise.com/noname/mysql:8.0
+    image: ${MYSQL_IMAGE:-harbor.cloudwise.com/noname/mysql:8.0}
     container_name: castrel-mysql
     <<: *service-defaults
     environment:
@@ -67,7 +67,7 @@ services:
       start_period: 30s
 
   redis:
-    image: harbor.cloudwise.com/noname/redis:7.2-alpine
+    image: ${REDIS_IMAGE:-harbor.cloudwise.com/noname/redis:7.2-alpine}
     container_name: castrel-redis
     <<: *service-defaults
     command: redis-server /usr/local/etc/redis/redis.conf
@@ -85,7 +85,7 @@ services:
   # ─── Observability（默认启动，可手动关闭：docker compose stop prometheus grafana loki tempo obs-auth-proxy mysqld-exporter node-exporter promtail）──
 
   prometheus:
-    image: harbor.cloudwise.com/noname/prometheus:v3.11.2
+    image: ${PROMETHEUS_IMAGE:-harbor.cloudwise.com/noname/prometheus:v3.11.2}
     container_name: castrel-prometheus
     <<: *service-defaults
     # Port 19090 is exposed via obs-auth-proxy (nginx) with basic auth
@@ -100,7 +100,7 @@ services:
       - '--storage.tsdb.retention.time=7d'
 
   loki:
-    image: harbor.cloudwise.com/noname/loki:3.6.10
+    image: ${LOKI_IMAGE:-harbor.cloudwise.com/noname/loki:3.6.10}
     container_name: castrel-loki
     <<: *service-defaults
     # Port 13100 is exposed via obs-auth-proxy (nginx) with basic auth
@@ -110,7 +110,7 @@ services:
     command: -config.file=/etc/loki/local-config.yaml
 
   tempo:
-    image: harbor.cloudwise.com/noname/tempo:2.10.4
+    image: ${TEMPO_IMAGE:-harbor.cloudwise.com/noname/tempo:2.10.4}
     container_name: castrel-tempo
     <<: *service-defaults
     ports:
@@ -123,7 +123,7 @@ services:
     command: -config.file=/etc/tempo/config.yml
 
   grafana:
-    image: harbor.cloudwise.com/noname/grafana:12.4.3
+    image: ${GRAFANA_IMAGE:-harbor.cloudwise.com/noname/grafana:12.4.3}
     container_name: castrel-grafana
     <<: *service-defaults
     ports:
@@ -144,7 +144,7 @@ services:
       - tempo
 
   obs-auth-proxy:
-    image: harbor.cloudwise.com/noname/nginx:alpine
+    image: ${NGINX_IMAGE:-harbor.cloudwise.com/noname/nginx:alpine}
     container_name: castrel-obs-auth-proxy
     <<: *service-defaults
     ports:
@@ -160,7 +160,7 @@ services:
       - tempo
 
   node-exporter:
-    image: harbor.cloudwise.com/noname/node-exporter:v1.9.1
+    image: ${NODE_EXPORTER_IMAGE:-harbor.cloudwise.com/noname/node-exporter:v1.9.1}
     container_name: castrel-node-exporter
     <<: *service-defaults
     pid: host
@@ -177,7 +177,7 @@ services:
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
 
   mysqld-exporter:
-    image: harbor.cloudwise.com/noname/mysqld-exporter:v0.15.1
+    image: ${MYSQLD_EXPORTER_IMAGE:-harbor.cloudwise.com/noname/mysqld-exporter:v0.15.1}
     container_name: castrel-mysqld-exporter
     <<: *service-defaults
     ports:
@@ -204,7 +204,7 @@ services:
         condition: service_healthy
 
   promtail:
-    image: harbor.cloudwise.com/noname/promtail:3.6.10
+    image: ${PROMTAIL_IMAGE:-harbor.cloudwise.com/noname/promtail:3.6.10}
     container_name: castrel-promtail
     <<: *service-defaults
     volumes:
@@ -216,7 +216,7 @@ services:
       - loki
 
   toxiproxy:
-    image: harbor.cloudwise.com/noname/toxiproxy:latest
+    image: ${TOXIPROXY_IMAGE:-harbor.cloudwise.com/noname/toxiproxy:latest}
     container_name: castrel-toxiproxy
     <<: *service-defaults
     ports:

@@ -7,11 +7,12 @@
 ## 目录
 
 - [项目概述](#项目概述)
+- [开发者常用命令速查表](#开发者常用命令速查表)
 - [架构总览](#架构总览)
 - [技术栈](#技术栈)
 - [目录结构](#目录结构)
-- [快速开始（Docker Compose）](#快速开始docker-compose)
-- [构建](#构建)
+- [本地启动](#本地启动)
+- [打包、构建与推镜像](#打包构建与推镜像)
 - [Kubernetes 部署](#kubernetes-部署)
 - [配置说明](#配置说明)
 - [Chaos 注入](#chaos-注入)
@@ -32,6 +33,25 @@ Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、
 - 所有 Chaos `enable` 接口均支持 `durationSec` 自动关闭（死锁支持 `injectRate`）
 - Prometheus + Grafana + Loki + Tempo 全链路可观测
 - 双轨部署：Docker Compose（本地）/ Kubernetes（生产演练）
+
+---
+
+## 开发者常用命令速查表
+
+| 场景 | 命令 |
+|---|---|
+| 直接拉取预构建镜像并启动本地环境 | `./scripts/compose-up.sh` |
+| 从 Docker Hub / 官方源拉取镜像启动 | `./scripts/compose-up.sh --image-source dockerhub` |
+| 本地改完代码后，重新打包并构建全部镜像 | `./scripts/build-all.sh` |
+| 用本地刚构建的镜像拉起容器 | `docker compose up -d --no-build` |
+| 构建并推送业务镜像 | `REGISTRY=harbor.cloudwise.com/noname BASE_IMAGE_REGISTRY=harbor.cloudwise.com/noname/ ./scripts/build-all.sh --push --tag v1.0.0` |
+| 同步基础镜像到 Harbor | `./scripts/push-base-images.sh` |
+| 同步基础设施镜像到 Harbor | `./scripts/push-infra-images.sh` |
+| 单独开发 `traffic-control-plane` Web | `cd traffic-control-plane && pnpm dev` |
+| 单独启动 `traffic-control-plane` Worker | `cd traffic-control-plane && pnpm worker` |
+| 关闭服务并保留数据卷 | `docker compose down` |
+| 关闭服务并清空数据卷 | `docker compose down -v` |
+| 运行混沌验收助手 | `./scripts/chaos/chaos-verify.sh` |
 
 ---
 
@@ -59,7 +79,7 @@ gateway-service
   -> toxiproxy / infra proxy
 ```
 
-| 服务 | 端口 | 职责 |
+| 服务 | 宿主机访问端口 | 职责 |
 |---|---|---|
 | gateway-service | 18080 | 统一入口、路由转发、traceId 注入、traffic 控制分发 |
 | user-service | 18081 | 用户资料、收货地址 |
@@ -72,6 +92,8 @@ gateway-service
 | risk-service | 18088 | 前置风控、支付后复核 |
 | fulfillment-service | 18089 | 履约单、发货状态流转 |
 | notification-service | 18090 | 事件驱动通知、结构化日志 |
+
+说明：上表列的是宿主机访问端口；容器内部端口仍分别使用 `8080` 到 `8090`，`traffic-control-plane` 容器内部端口为 `3086`。
 
 ---
 
@@ -159,38 +181,80 @@ traffic-control-plane/
 
 ---
 
-## 快速开始（Docker Compose）
+## 本地启动
 
 ### 前置条件
 
-- Docker 24+ 与 Docker Compose v2
-- JDK 21 + Maven 3.8+（构建 Java 服务）
-- Node.js 20+ 与 `pnpm`（构建 traffic control plane）
+| 使用场景 | 必需环境 |
+|---|---|
+| 直接拉取预构建镜像启动 | Docker 24+ 与 Docker Compose v2 |
+| 本地改代码并重新打包 / 构建镜像 | Docker 24+、Docker Compose v2、JDK 21、Maven 3.8+ |
+| 单独开发 `traffic-control-plane` | 额外需要 Node.js 20+ 与 `pnpm` |
 
-### 1. 启动基础服务（无需本地构建）
+### 先判断你要走哪条路径
+
+| 目标 | 推荐命令 |
+|---|---|
+| 直接跑现成镜像 | `./scripts/compose-up.sh` |
+| 改了源码后，用本地刚构建的镜像启动 | `./scripts/build-all.sh` + `docker compose up -d --no-build` |
+| 改了 `traffic-control-plane` 前端，单独本地调试 | `pnpm dev` / `pnpm worker` |
+
+关键区别：
+
+- `./scripts/compose-up.sh` 会先执行 `docker compose pull`，适合“直接拉远端镜像启动”，不适合“优先使用本地刚构建的镜像”。
+- `./scripts/build-all.sh` 会完成 `common` 安装、各 Java 服务 `mvn package`、以及全部业务镜像和 `traffic-control-plane` 镜像构建。
+- 如果你的目标只是产出 Docker 镜像，不需要先手动执行 `mvn clean package -DskipTests` 或 `pnpm build`；`build-all.sh` 和 `traffic-control-plane/Dockerfile` 会处理这些步骤。
+
+### 路径 A：直接拉取预构建镜像启动
 
 ```bash
 # 克隆项目
 git clone https://git.cloudwise.com/castrel/castrel-chaos.git
 cd castrel-chaos
 
-# Java 服务打包
-mvn clean package -DskipTests
+# 默认从内网 Harbor 拉取镜像并启动
+./scripts/compose-up.sh
 
-# traffic control plane 安装依赖并构建
-cd traffic-control-plane
-pnpm install
-pnpm build
-cd ..
+# 如果要改为从 Docker Hub / 官方镜像源拉取
+./scripts/compose-up.sh --image-source dockerhub
 
-# 启动基础设施 + 全部业务服务
-docker compose up -d
-
-# 查看各服务状态
+# 查看容器状态
 docker compose ps
 ```
 
-### 2. 验证启动成功
+说明：
+
+- `./scripts/compose-up.sh` 默认等价于“设置镜像来源变量后，先 `docker compose pull`，再 `docker compose up -d --no-build`”。
+- `--image-source dockerhub` 会把业务镜像切到 `castrel/*`，基础设施镜像切到 Docker Hub / GHCR 对应官方源。
+- 如需显式覆盖单个镜像，仍可传环境变量，例如 `MYSQL_IMAGE=... ./scripts/compose-up.sh --image-source dockerhub`。
+
+### 路径 B：修改源码后，本地打包并启动本地镜像
+
+```bash
+# 克隆项目
+git clone https://git.cloudwise.com/castrel/castrel-chaos.git
+cd castrel-chaos
+
+# 本地打包并构建全部镜像
+./scripts/build-all.sh
+
+# 使用本地刚构建的镜像启动
+docker compose up -d --no-build
+```
+
+如果你希望使用自定义镜像前缀或标签，构建和启动阶段必须保持一致：
+
+```bash
+REGISTRY=castrel IMAGE_TAG=dev ./scripts/build-all.sh --tag dev
+REGISTRY=castrel IMAGE_TAG=dev docker compose up -d --no-build
+```
+
+说明：
+
+- 本地镜像启动时，不要再执行 `./scripts/compose-up.sh`，否则脚本会先 `pull` 远端同名镜像。
+- `docker-compose.yml` 使用的是 `image:`，不是 `build:`；因此“重新打包 / 重建镜像”的正确入口是 `./scripts/build-all.sh`，而不是 `docker compose up --build`。
+
+### 验证启动成功
 
 ```bash
 # 网关健康检查
@@ -205,94 +269,118 @@ curl http://localhost:18086/internal/traffic/runner/status
 
 服务启动后，traffic control plane 会自动以默认 QPS 向系统发送业务流量。
 
-### 3. 关闭可观测性栏（可选）
-
-可观测性栏（Grafana / Prometheus / Loki / Tempo）默认随 `docker compose up -d` 一起启动。如需关闭：
+### 常用运维命令
 
 ```bash
-# 停止可观测性服务
+# 停止可观测性组件
 docker compose stop prometheus grafana loki tempo obs-auth-proxy mysqld-exporter promtail
-```
 
-访问 Grafana：
-
-```bash
+# 打开 Grafana
 open http://localhost:13000   # admin / admin
-```
 
-### 4. 停止服务
-
-```bash
-docker compose down          # 保留数据卷
-docker compose down -v       # 同时删除数据卷（清空数据库）
-```
-
-### 5. 全部重建
-
-```bash
-# 重新构建 Java 服务
-mvn clean package -DskipTests
-
-# 保留数据，重建全部容器并重新构建镜像
+# 停止服务，保留数据卷
 docker compose down
-docker compose up -d --build --force-recreate
 
-# 连数据卷一起清空，做彻底重建
+# 停止服务并删除数据卷
 docker compose down -v
-docker compose up -d --build --force-recreate
+```
+
+### 重新拉起 / 重新打包
+
+```bash
+# 重新拉取远端镜像并强制重建容器
+./scripts/compose-up.sh -- --force-recreate
+
+# 重新打包本地源码并强制重建容器
+./scripts/build-all.sh
+docker compose up -d --no-build --force-recreate
+
+# 连数据卷一起清空后重建本地环境
+docker compose down -v
+./scripts/build-all.sh
+docker compose up -d --no-build
 ```
 
 ---
 
-## 构建
+## 打包、构建与推镜像
 
-### 全量构建（推荐）
+### 命令职责总览
+
+| 命令 | 用途 |
+|---|---|
+| `./scripts/build-all.sh` | 安装 `common`、打包所有 Java 服务，并构建全部业务镜像与 `traffic-control-plane` 镜像 |
+| `./scripts/build-all.sh --push --tag <tag>` | 在构建完成后推送业务镜像与 `traffic-control-plane` 镜像 |
+| `./scripts/push-base-images.sh` | 同步基础镜像：`alpine`、`eclipse-temurin`、`node` |
+| `./scripts/push-infra-images.sh` | 同步 MySQL / Redis / Prometheus / Loki / Tempo / Grafana / ToxiProxy 等基础设施镜像 |
+| `./scripts/compose-up.sh` | 拉取远端镜像并启动容器，不负责编译源码或构建镜像 |
+
+### 全量打包与镜像构建
 
 ```bash
-# 构建所有 Java 模块 + Docker 镜像
+# 使用默认镜像前缀 harbor.cloudwise.com/noname，默认标签 latest
 ./scripts/build-all.sh
 
-# 单独构建 traffic control plane（build-all.sh 会自动调用，手动可用以下命令）
-cd traffic-control-plane && pnpm install && pnpm build && cd ..
+# 显式指定镜像前缀与标签
+REGISTRY=harbor.cloudwise.com/noname IMAGE_TAG=v1.0.0 ./scripts/build-all.sh --tag v1.0.0
 ```
 
-### 服务器直连 Harbor 构建
+补充说明：
 
-如果服务器不能稳定访问 Docker Hub，先把基础镜像同步到内部 Harbor，再让项目构建时统一从 Harbor 拉取基础镜像：
+- `build-all.sh` 会先执行 `mvn clean install -pl common -DskipTests`。
+- 随后逐个执行业务服务的 `mvn package -DskipTests` 与 `docker build`。
+- `traffic-control-plane` 的 Docker 构建会在镜像构建阶段内部完成 `pnpm install` 和 `pnpm build`。
+
+### 推送业务镜像
 
 ```bash
-# 1) 登录内部 Harbor
-docker login harbor.cloudwise.com
-
-# 2) 同步基础镜像到默认 Harbor 项目 harbor.cloudwise.com/noname
-./scripts/push-base-images.sh
-
-# 3) 在服务器上直接构建并推送业务镜像
-BASE_IMAGE_REGISTRY=harbor.cloudwise.com/noname/ \
 REGISTRY=harbor.cloudwise.com/noname \
-IMAGE_TAG=v1.0.0 \
+BASE_IMAGE_REGISTRY=harbor.cloudwise.com/noname/ \
 ./scripts/build-all.sh --push --tag v1.0.0
 ```
 
 说明：
 
-- `push-base-images.sh` 和 `push-infra-images.sh` 默认都推送到 `harbor.cloudwise.com/noname`
-- `HARBOR_REGISTRY` / `BASE_IMAGE_REGISTRY` 需要指向同一个 Harbor 项目；如有需要可以显式覆盖
-- `push-base-images.sh` 仍兼容旧的 `TARGET_REGISTRY` 变量名
-- `BASE_IMAGE_REGISTRY` 必须带结尾 `/`，例如 `harbor.example.com/base-images/`
-- 当前会同步 3 个基础镜像：`alpine:3.20`、`eclipse-temurin:21-jre-alpine`、`node:22-alpine`
+- `REGISTRY` 控制业务镜像与 `traffic-control-plane` 的目标前缀。
+- `BASE_IMAGE_REGISTRY` 控制 Dockerfile 里的基础镜像来源，必须带结尾 `/`。
+- 如果构建机无法稳定访问 Docker Hub，先同步基础镜像和基础设施镜像，再执行 `build-all.sh --push`。
 
-### 单服务构建
+### 同步基础镜像 / 基础设施镜像到 Harbor
 
 ```bash
-# 仅构建 Java JAR
-mvn clean package -pl order-service -DskipTests
+# 登录 Harbor
+docker login harbor.cloudwise.com
 
-# 构建 Docker 镜像
-docker build -t castrel/order-service:latest ./order-service
+# 同步基础镜像（alpine、eclipse-temurin、node）
+./scripts/push-base-images.sh
+
+# 同步基础设施镜像（mysql、redis、prometheus、grafana、loki、tempo、toxiproxy 等）
+./scripts/push-infra-images.sh
 ```
 
-### traffic-control-plane 构建
+说明：
+
+- `push-base-images.sh` 和 `push-infra-images.sh` 默认目标仓库都是 `harbor.cloudwise.com/noname`。
+- `push-base-images.sh` 兼容 `HARBOR_REGISTRY` 和旧变量名 `TARGET_REGISTRY`。
+- `BASE_IMAGE_REGISTRY` 与 `HARBOR_REGISTRY` 最好指向同一个 Harbor 项目，避免构建时基础镜像找不到。
+
+### 单服务打包 / 构建示例
+
+```bash
+# 仅打包单个 Java 服务
+mvn clean package -pl order-service -DskipTests
+
+# 基于仓库根目录作为构建上下文，构建单个服务镜像
+docker build -t harbor.cloudwise.com/noname/order-service:latest -f order-service/Dockerfile .
+```
+
+如果首次单独打包某个服务，建议先安装 `common`：
+
+```bash
+mvn clean install -pl common -DskipTests
+```
+
+### traffic-control-plane 单独开发 / 构建
 
 ```bash
 cd traffic-control-plane
@@ -300,32 +388,24 @@ cd traffic-control-plane
 # 安装依赖
 pnpm install
 
-# 开发模式
+# 本地开发：Next.js Web
 pnpm dev
 
 # 生产构建
 pnpm build
 
-# 启动 Next.js 服务
+# 启动 Next.js Web
 pnpm start
 
-# 启动 Runner worker
+# 单独启动 Runner worker
 pnpm worker
 ```
 
 部署约束：
 
-- `traffic-control-plane` 包含两个运行角色：`web` 与 `worker`
-- `worker` 默认单实例运行，避免重复产生业务流量
-- 所有业务 HTTP 调用仍必须经由 `gateway-service`
-
-### common 模块
-
-所有业务服务依赖 `common` 模块，首次构建必须先安装：
-
-```bash
-mvn clean install -pl common -DskipTests
-```
+- `traffic-control-plane` 包含两个运行角色：`web` 与 `worker`。
+- `worker` 默认单实例运行，避免重复产生业务流量。
+- 所有业务 HTTP 调用仍必须经由 `gateway-service`。
 
 ---
 
@@ -350,7 +430,7 @@ helm install chaos-mesh chaos-mesh/chaos-mesh \
 ### 2. 构建并打标镜像
 
 ```bash
-./scripts/build-all.sh --tag v1.0.0
+REGISTRY=castrel ./scripts/build-all.sh --tag v1.0.0
 
 # 如使用 minikube，加载镜像到本地 cluster
 for svc in gateway-service user-service catalog-service inventory-service order-service payment-service promotion-service risk-service fulfillment-service notification-service; do
@@ -358,6 +438,8 @@ for svc in gateway-service user-service catalog-service inventory-service order-
 done
 minikube image load castrel/traffic-control-plane:v1.0.0
 ```
+
+说明：当前 `k8s/services/*` 清单默认引用 `castrel/*:latest`；如果不修改清单，构建 K8s 本地镜像时应显式设置 `REGISTRY=castrel`。
 
 ### 3. 部署
 
@@ -402,24 +484,71 @@ curl http://castrel.local/api/products
 
 ## 配置说明
 
-### Spring Profiles
+### Spring Profiles 与 Chaos 开关
 
 | Profile | 用途 |
 |---|---|
 | `local` | 本地开发，连接 localhost |
 | `docker` | Docker Compose / K8s 容器网络 |
-| `chaos` | **必须加载此 profile，Chaos 注入接口才会注册** |
+| `chaos` | 当前 `docker-compose.yml` 与 `k8s/configmap/app-config.yaml` 仍保留的兼容 profile；v2 不再依赖它来注册 Chaos 端点 |
 
-生产部署默认激活 `docker,chaos`（见 ConfigMap `app-config`）。
+当前仓库现状：
+
+- Docker Compose 和 Kubernetes ConfigMap 仍默认传入 `SPRING_PROFILES_ACTIVE=docker,chaos`。
+- v2 下 Chaos 端点是否可用，实际由 `chaos.endpoints.enabled` 控制，而不是由 `chaos` profile 决定。
+- `gateway-service` 在配置中显式设置 `chaos.endpoints.enabled=false`，因此网关自身不会注册业务 Chaos 端点。
+- 业务服务侧 `ChaosService` 使用 `matchIfMissing=true`，未显式关闭时默认启用。
+
+如果要在生产环境关闭业务 Chaos 端点，应优先关闭 `chaos.endpoints.enabled`，不要只依赖是否带有 `chaos` profile。
+
+### 默认端口映射
+
+| 组件 | 宿主机端口 | 容器内端口 |
+|---|---|---|
+| gateway-service | `18080` | `8080` |
+| user-service | `18081` | `8081` |
+| catalog-service | `18082` | `8082` |
+| inventory-service | `18083` | `8083` |
+| order-service | `18084` | `8084` |
+| payment-service | `18085` | `8085` |
+| traffic-control-plane | `18086` | `3086` |
+| promotion-service | `18087` | `8087` |
+| risk-service | `18088` | `8088` |
+| fulfillment-service | `18089` | `8089` |
+| notification-service | `18090` | `8090` |
+| MySQL | `13306` | `3306` |
+| Redis | `16379` | `6379` |
+| Grafana | `13000` | `3000` |
+| Prometheus（经 nginx Basic Auth） | `19090` | `19090` |
+| Loki（经 nginx Basic Auth） | `13100` | `13100` |
+| Tempo HTTP API（经 nginx Basic Auth） | `13200` | `13200` |
+| Tempo OTLP gRPC | `14317` | `4317` |
+| Tempo OTLP HTTP | `14318` | `4318` |
+| ToxiProxy API | `18474` | `8474` |
+
+### 默认镜像仓库与标签
+
+| 场景 | 默认值 | 说明 |
+|---|---|---|
+| Docker Compose 业务镜像前缀 | `harbor.cloudwise.com/noname` | 由 `REGISTRY` 控制，默认用于 `gateway-service` 等业务镜像与 `traffic-control-plane` |
+| Docker Compose 基础设施镜像 | `harbor.cloudwise.com/noname/*` | 由 `MYSQL_IMAGE`、`REDIS_IMAGE`、`GRAFANA_IMAGE` 等变量控制 |
+| `build-all.sh` 输出镜像前缀 | `harbor.cloudwise.com/noname` | 未显式传入 `REGISTRY` 时的默认值 |
+| Dockerfile 基础镜像前缀 | `harbor.cloudwise.com/noname/` | 由 `BASE_IMAGE_REGISTRY` 控制，必须带结尾 `/` |
+| `compose-up.sh --image-source dockerhub` | 业务镜像切到 `castrel/*`，基础设施镜像切到官方源 | 适合直接拉取预构建镜像运行 |
+| Kubernetes manifests | `castrel/*:latest` | 当前 `k8s/services/*` 清单写死使用 `castrel/*` |
 
 ### 关键环境变量
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `SPRING_PROFILES_ACTIVE` | `docker,chaos` | Spring Profile |
+| `SPRING_PROFILES_ACTIVE` | `docker,chaos` | 当前 Compose / K8s 兼容 profile 组合 |
+| `REGISTRY` | `harbor.cloudwise.com/noname` | 业务镜像与 `traffic-control-plane` 镜像前缀 |
+| `IMAGE_TAG` | `latest` | 业务镜像与 `traffic-control-plane` 镜像标签 |
+| `BASE_IMAGE_REGISTRY` | `harbor.cloudwise.com/noname/` | Dockerfile 基础镜像前缀，必须带 `/` |
 | `SPRING_DATASOURCE_URL` | `jdbc:mysql://mysql:3306/castrel` | MySQL 连接串 |
 | `SPRING_DATA_REDIS_HOST` | `redis` | Redis 主机 |
-| `MANAGEMENT_OTLP_TRACING_ENDPOINT` | `http://tempo:4318/v1/traces` | Tempo OTLP 地址 |
+| `OTLP_ENDPOINT` | `http://tempo:4318` | Docker Compose 中注入给 Java 服务的 OTLP 端点 |
+| `CHAOS_CONSOLE_GRAFANA_BASE_URL` | `http://localhost:13000` | Grafana 深链基础地址 |
 | `JAVA_OPTS` | `-Xms256m -Xmx512m` | JVM 参数 |
 
 ### 数据库
@@ -453,7 +582,7 @@ curl -X POST http://localhost:18086/internal/traffic/runner/rate \
 
 ## Chaos 注入
 
-> **安全约束**：Chaos 接口仅在 `chaos` Spring Profile 下注册。生产环境禁用此 profile 即可关闭所有 Chaos 端点。
+> **安全约束**：v2 中业务 Chaos 端点不再以 `chaos` Spring Profile 作为唯一注册条件，而是由 `chaos.endpoints.enabled` 控制。当前实现里 `gateway-service` 显式关闭该开关，业务服务默认开启；生产环境如需禁用，应显式关闭该属性。
 
 ### 可视化控制台（故障触发）
 
@@ -611,13 +740,10 @@ curl -X POST http://localhost:18086/internal/traffic/runner/inventory-reset/trig
 > 默认账号 `castrel`，密码 `C@stre1_best_ai`，可在 `infra/nginx/.htpasswd` 中修改（使用 `openssl passwd -apr1 '<new-password>'` 重新生成哈希）。  
 > Grafana 与各组件之间的内部通信无需认证。
 
-可观测性栏默认随 `docker compose up -d` 一起启动，无需额外命令。
+可观测性组件会随“本地启动”流程一起拉起，无需单独执行额外命令：
 
-```bash
-mvn clean package -DskipTests
-
-docker compose up -d
-```
+- 直接拉预构建镜像：`./scripts/compose-up.sh`
+- 使用本地刚构建的镜像：`./scripts/build-all.sh` 后执行 `docker compose up -d --no-build`
 
 **关键指标：**
 
