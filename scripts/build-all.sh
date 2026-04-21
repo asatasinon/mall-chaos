@@ -40,7 +40,7 @@ for svc in "${SERVICES[@]}"; do
   mvn package -pl "$svc" -DskipTests -q
 
   echo "--- [$svc] Docker build (tag: ${REGISTRY}/${svc}:${IMAGE_TAG}) ---"
-  docker build -t "${REGISTRY}/${svc}:${IMAGE_TAG}" "$REPO_ROOT/$svc"
+  docker build -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "$REPO_ROOT/$svc/Dockerfile" "$REPO_ROOT"
 
   if [[ "$PUSH_IMAGE" == "true" ]]; then
     echo "--- [$svc] Docker push ---"
