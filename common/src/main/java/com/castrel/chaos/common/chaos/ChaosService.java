@@ -159,10 +159,12 @@ public class ChaosService {
         // Start allocating memory
         memoryLeakAllocator = scheduler.scheduleAtFixedRate(() -> {
             if (!memoryLeakActive) return;
-            long currentMb = (long) leakedChunks.size() * memoryLeakChunkSizeKb / 1024;
-            if (currentMb >= memoryLeakMaxMb) return;
-            byte[] chunk = new byte[memoryLeakChunkSizeKb * 1024];
-            leakedChunks.add(chunk);
+            try {
+                byte[] chunk = new byte[memoryLeakChunkSizeKb * 1024];
+                leakedChunks.add(chunk);
+            } catch (OutOfMemoryError outOfMemoryError) {
+                handleMemoryLeakOutOfMemory(outOfMemoryError);
+            }
         }, 0, this.memoryLeakIntervalMs, TimeUnit.MILLISECONDS);
 
         if (durationSec > 0) {
@@ -326,6 +328,15 @@ public class ChaosService {
     // ═══════════════════════════════════════════════════════════════════════
     // Helpers
     // ═══════════════════════════════════════════════════════════════════════
+
+    private void handleMemoryLeakOutOfMemory(OutOfMemoryError outOfMemoryError) {
+        memoryLeakActive = false;
+        cancelFuture(memoryLeakAutoDisable);
+        cancelFuture(memoryLeakAllocator);
+        System.err.println("Fatal OOM triggered by chaos memory leak; halting JVM process.");
+        outOfMemoryError.printStackTrace(System.err);
+        Runtime.getRuntime().halt(137);
+    }
 
     private void cancelFuture(ScheduledFuture<?> future) {
         if (future != null && !future.isDone()) {
