@@ -2,13 +2,13 @@
 
 **阶段**：Phase 3.5 — 控制面重构  
 **依赖**：Task 03、Task 09  
-**产出**：`traffic-runner-service` 重构为 `Next.js + pnpm` 项目，具备基础控制平面骨架、Runner 控制 API 与独立 worker
+**产出**：`traffic-control-plane` 重构为 `Next.js + pnpm` 项目，具备基础控制平面骨架、Runner 控制 API 与独立 worker
 
 ---
 
 ## 职责
 
-将原有 `traffic-runner-service` 从 Java Spring Boot Runner 重构为新的 traffic control plane：
+将原有 `traffic-control-plane` 从 Java Spring Boot Runner 重构为新的 traffic control plane：
 
 1. Next.js 前端入口
 2. Next.js Route Handlers / BFF
@@ -17,7 +17,7 @@
 
 关键约束：
 
-- [ ] `traffic-runner-service` 只能访问 `gateway-service`
+- [ ] `traffic-control-plane` 只能访问 `gateway-service`
 - [ ] 不允许直连业务服务
 - [ ] Node 包管理统一使用 `pnpm`
 - [ ] 默认使用 TypeScript
@@ -49,7 +49,7 @@
 
 ### 20.1 项目结构
 
-- [ ] 将 `traffic-runner-service` 重构为 `Next.js + pnpm`
+- [ ] 将 `traffic-control-plane` 重构为 `Next.js + pnpm`
 - [ ] 前后端同仓管理
 - [ ] 提供本地开发与生产构建方式
 - [ ] 保留现有端口语义：对外入口仍为 `18086`
@@ -87,7 +87,7 @@
 ### 20.6 构建、镜像与运行模型
 
 - [ ] 使用 `pnpm install` / `pnpm build` 生成 Next.js 产物
-- [ ] 设计新的 `traffic-runner-service` Dockerfile
+- [ ] 设计新的 `traffic-control-plane` Dockerfile
 - [ ] 明确 `web` 与 `worker` 是同镜像双入口，还是拆分成两个镜像
 - [ ] 在文档中明确生产默认采用“单实例 worker”
 - [ ] 补齐环境变量约定：gateway base url、MySQL、Redis、Grafana base url

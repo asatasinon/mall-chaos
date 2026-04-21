@@ -281,7 +281,7 @@ public class CacheManagementController {
 
 ### 16.6 Gateway Chaos 分发 API
 
-根据最新控制面设计，`traffic-runner-service` 不再直连业务服务。  
+根据最新控制面设计，`traffic-control-plane` 不再直连业务服务。  
 Console/Traffic 触发的所有 chaos 请求必须先到 `gateway-service`，由 gateway 统一分发到目标服务或基础设施代理。
 
 在 `gateway-service` 中新增统一分发 API：
@@ -371,12 +371,12 @@ public record TableLockDispatchRequest(
 - [ ] `gateway-service` 实现 `ChaosDispatchController`
 - [ ] gateway 按目标服务白名单分发 chaos 请求
 - [ ] gateway 统一注入 traceId、审计日志、错误格式
-- [ ] traffic-runner-service 只调用 gateway 分发 API
+- [ ] traffic-control-plane 只调用 gateway 分发 API
 - [ ] 不保留 `/internal/runner/scenario/*`
 
 ### 16.6.1 traffic 控制面 API 对接
 
-`traffic-runner-service` 中保留的是控制平面 API，而不是直连业务服务的 `ScenarioController`：
+`traffic-control-plane` 中保留的是控制平面 API，而不是直连业务服务的 `ScenarioController`：
 
 ```text
 GET    /internal/traffic/chaos/overview

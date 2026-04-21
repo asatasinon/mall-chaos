@@ -22,7 +22,7 @@
 
 ## 项目概述
 
-Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、库存、促销、风控、履约、通知等完整链路。系统内置一个 **traffic control plane**（`traffic-runner-service`），由 `Next.js + pnpm + TypeScript + worker` 构成：控制台负责可视化与操作，worker 负责持续业务流量生成；配合 gateway 分发的 Chaos 控制接口，可随时触发网络延迟、内存泄漏、慢 SQL、死锁等故障场景，用于混沌工程培训与系统韧性验证。
+Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、库存、促销、风控、履约、通知等完整链路。系统内置一个 **traffic control plane**（`traffic-control-plane`），由 `Next.js + pnpm + TypeScript + worker` 构成：控制台负责可视化与操作，worker 负责持续业务流量生成；配合 gateway 分发的 Chaos 控制接口，可随时触发网络延迟、内存泄漏、慢 SQL、死锁等故障场景，用于混沌工程培训与系统韧性验证。
 
 **核心特性：**
 
@@ -39,10 +39,10 @@ Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、
 
 ```text
 Browser
-  -> traffic-runner-service :18086 (Next.js UI + Route Handlers)
+  -> traffic-control-plane :18086 (Next.js UI + Route Handlers)
   -> gateway-service :18080 (仅由 traffic/业务流量访问)
 
-traffic-runner-service
+traffic-control-plane
   -> Runner Worker
   -> gateway-service
 
@@ -67,7 +67,7 @@ gateway-service
 | inventory-service | 18083 | 库存预占/释放/重置 |
 | order-service | 18084 | 下单编排、状态机、3 类 Chaos |
 | payment-service | 18085 | 支付模拟、3 类 Chaos |
-| traffic-runner-service | 18086 | Next.js 控制台、Route Handlers、Runner worker |
+| traffic-control-plane | 18086 | Next.js 控制台、Route Handlers、Runner worker |
 | promotion-service | 18087 | 优惠券计算、慢 SQL Chaos |
 | risk-service | 18088 | 前置风控、支付后复核 |
 | fulfillment-service | 18089 | 履约单、发货状态流转 |
@@ -100,7 +100,6 @@ castrel-chaos/
 ├── inventory-service/
 ├── order-service/
 ├── payment-service/
-├── traffic-runner-service/       # Java Spring Boot 流量服务（数据预热、库存重置）
 ├── traffic-control-plane/        # Next.js 控制台 + Runner worker
 ├── promotion-service/
 ├── risk-service/
@@ -328,9 +327,10 @@ helm install chaos-mesh chaos-mesh/chaos-mesh \
 ./scripts/build-all.sh --tag v1.0.0
 
 # 如使用 minikube，加载镜像到本地 cluster
-for svc in gateway user catalog inventory order payment traffic-runner promotion risk fulfillment notification; do
-  minikube image load castrel/${svc}-service:v1.0.0
+for svc in gateway-service user-service catalog-service inventory-service order-service payment-service promotion-service risk-service fulfillment-service notification-service; do
+  minikube image load castrel/${svc}:v1.0.0
 done
+minikube image load castrel/traffic-control-plane:v1.0.0
 ```
 
 ### 3. 部署
@@ -431,7 +431,7 @@ curl -X POST http://localhost:18086/internal/traffic/runner/rate \
 
 ### 可视化控制台（故障触发）
 
-新的控制台由 `traffic-runner-service` 承载，提供流量控制、场景执行、slow SQL / memory leak / deadlock / table lock / network fault 控制：
+新的控制台由 `traffic-control-plane` 承载，提供流量控制、场景执行、slow SQL / memory leak / deadlock / table lock / network fault 控制：
 
 ```bash
 # 启动后访问
@@ -450,8 +450,8 @@ http://localhost:18086/
 
 网络访问约束：
 
-- 浏览器只访问 `traffic-runner-service`
-- `traffic-runner-service` 只访问 `gateway-service`
+- 浏览器只访问 `traffic-control-plane`
+- `traffic-control-plane` 只访问 `gateway-service`
 - 所有控制请求统一走 `traffic -> gateway -> services`
 
 深链地址配置：
@@ -565,7 +565,7 @@ curl -X POST http://localhost:18080/internal/gateway/inventory-reset \
   -H 'Content-Type: application/json' \
   -d '{"expectedVersion": 1}'
 
-# 通过 traffic-runner 触发（带分布式锁保护）
+# 通过 traffic-control-plane 触发（带分布式锁保护）
 curl -X POST http://localhost:18086/internal/traffic/runner/inventory-reset/trigger
 ```
 

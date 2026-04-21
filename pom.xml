@@ -33,7 +33,6 @@
     <module>inventory-service</module>
     <module>order-service</module>
     <module>payment-service</module>
-    <module>traffic-runner-service</module>
     <module>promotion-service</module>
     <module>risk-service</module>
     <module>fulfillment-service</module>

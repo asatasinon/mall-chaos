@@ -368,12 +368,12 @@ services:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
       <<: *healthcheck-defaults
 
-  traffic-runner-service:
-    image: ${REGISTRY:-harbor.cloudwise.com/noname}/traffic-runner-service:${IMAGE_TAG:-latest}
+  traffic-control-plane:
+    image: ${REGISTRY:-harbor.cloudwise.com/noname}/traffic-control-plane:${IMAGE_TAG:-latest}
     build:
       context: ./traffic-control-plane
       dockerfile: Dockerfile
-    container_name: castrel-traffic-web
+    container_name: castrel-traffic-control-plane
     <<: *service-defaults
     ports:
       - "18086:3086"
@@ -399,12 +399,12 @@ services:
       test: ["CMD", "wget", "-qO-", "http://localhost:3086/"]
       <<: *healthcheck-defaults
 
-  traffic-runner-worker:
-    image: ${REGISTRY:-harbor.cloudwise.com/noname}/traffic-runner-service:${IMAGE_TAG:-latest}
+  traffic-control-plane-worker:
+    image: ${REGISTRY:-harbor.cloudwise.com/noname}/traffic-control-plane:${IMAGE_TAG:-latest}
     build:
       context: ./traffic-control-plane
       dockerfile: Dockerfile
-    container_name: castrel-traffic-worker
+    container_name: castrel-traffic-control-plane-worker
     <<: *service-defaults
     command: ["pnpm", "worker"]
     environment:

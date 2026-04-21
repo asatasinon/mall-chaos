@@ -7,7 +7,7 @@
 ---
 
 ## 目标
-提供 `docker-compose up -d` 可运行的完整环境，包含 MySQL 8、Redis、Prometheus、Grafana、Loki、Tempo，以及所有业务服务容器。对于 `traffic-runner-service`，需支持 `Next.js web + worker` 的运行模型。
+提供 `docker-compose up -d` 可运行的完整环境，包含 MySQL 8、Redis、Prometheus、Grafana、Loki、Tempo，以及所有业务服务容器。对于 `traffic-control-plane`，需支持 `Next.js web + worker` 的运行模型。
 
 ## 文件结构
 ```
@@ -89,9 +89,9 @@ castrel-chaos/
   - `depends_on: [mysql, redis]`
   - 环境变量注入：DB URL、Redis URL、服务间调用 URL
   - `SPRING_PROFILES_ACTIVE=docker,chaos`
-- [ ] `traffic-runner-service` 改为 Node/Next.js 运行模型：
-  - `traffic-runner-web`
-  - `traffic-runner-worker`
+- [ ] `traffic-control-plane` 改为 Node/Next.js 运行模型：
+  - `traffic-control-plane`
+  - `traffic-control-plane-worker`
   - 两者共享相同代码与环境变量
   - `worker` 默认单实例
 - [ ] 网络：统一 `castrel-net` bridge 网络
@@ -99,14 +99,14 @@ castrel-chaos/
 
 ### 2.7.1 traffic control plane 环境变量
 
-- [ ] `traffic-runner-web` / `traffic-runner-worker` 注入：
+- [ ] `traffic-control-plane` / `traffic-control-plane-worker` 注入：
   - `GATEWAY_BASE_URL`
   - `MYSQL_URL`
   - `REDIS_URL`
   - `GRAFANA_BASE_URL`
   - `NODE_ENV`
-- [ ] `traffic-runner-worker` 不对外暴露页面端口
-- [ ] `traffic-runner-web` 暴露 `18086`
+- [ ] `traffic-control-plane-worker` 不对外暴露页面端口
+- [ ] `traffic-control-plane` 暴露 `18086`
 
 ### 2.8 ToxiProxy 集成（Chaos 网络注入）
 - [ ] 添加 `toxiproxy` 容器

@@ -53,13 +53,13 @@ done
 
 echo ""
 echo "=== Building traffic-control-plane (Node.js) ==="
-echo "--- [traffic-runner-service] Docker build (tag: ${REGISTRY}/traffic-runner-service:${IMAGE_TAG}) ---"
-docker build -t "${REGISTRY}/traffic-runner-service:${IMAGE_TAG}" "$REPO_ROOT/traffic-control-plane"
+echo "--- [traffic-control-plane] Docker build (tag: ${REGISTRY}/traffic-control-plane:${IMAGE_TAG}) ---"
+docker build -t "${REGISTRY}/traffic-control-plane:${IMAGE_TAG}" "$REPO_ROOT/traffic-control-plane"
 if [[ "$PUSH_IMAGE" == "true" ]]; then
-  echo "--- [traffic-runner-service] Docker push ---"
-  docker push "${REGISTRY}/traffic-runner-service:${IMAGE_TAG}"
+  echo "--- [traffic-control-plane] Docker push ---"
+  docker push "${REGISTRY}/traffic-control-plane:${IMAGE_TAG}"
 fi
-echo "--- [traffic-runner-service] Done ---"
+echo "--- [traffic-control-plane] Done ---"
 
 echo ""
 echo "=== Build complete. All images tagged as ${REGISTRY}/*:${IMAGE_TAG} ==="

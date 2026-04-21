@@ -23,7 +23,6 @@ v1 architecture: [`_docs/plans/chaos-v1.md`](_docs/plans/chaos-v1.md); v2 stealt
 | inventory-service | 8083 | Reservation, distributed locks | Slow SQL · Memory Leak · Table Lock |
 | order-service | 8084 | Order orchestration, idempotency | Slow SQL · Memory Leak · Table Lock |
 | payment-service | 8085 | Payment simulation (90/5/5%) | Slow SQL · Memory Leak · Table Lock |
-| traffic-runner-service (legacy) | 8086 | — | replaced by traffic-control-plane |
 | promotion-service | 8087 | Discounts, coupons, Redis cache | Slow SQL · Memory Leak |
 | risk-service | 8088 | Pre-order + post-pay risk checks | Slow SQL · Memory Leak · Table Lock |
 | fulfillment-service | 8089 | Fulfillment, async shipping | Slow SQL · Memory Leak · Table Lock |

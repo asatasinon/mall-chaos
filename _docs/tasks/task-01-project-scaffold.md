@@ -20,7 +20,7 @@ castrel-chaos/
 ├── inventory-service/
 ├── order-service/
 ├── payment-service/
-├── traffic-runner-service/
+├── traffic-control-plane/
 ├── promotion-service/
 ├── risk-service/
 ├── fulfillment-service/
@@ -63,7 +63,7 @@ castrel-chaos/
   | inventory-service | 8083 |
   | order-service | 8084 |
   | payment-service | 8085 |
-  | traffic-runner-service | 8086 |
+  | traffic-control-plane | 8086 |
   | promotion-service | 8087 |
   | risk-service | 8088 |
   | fulfillment-service | 8089 |

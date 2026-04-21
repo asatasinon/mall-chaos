@@ -130,7 +130,7 @@
 | `POST /internal/notifications/payment-result` | 内部 | 发送支付成功/失败通知。 |
 | `POST /internal/notifications/shipping-created` | 内部 | 发货后发送物流通知。 |
 
-### traffic-runner-service
+### traffic-control-plane
 职责：启动后自动持续执行正常业务流量，并按定时策略触发库存 reset。
 
 | 接口 | 分组 | 说明 |
@@ -161,7 +161,7 @@
 ```mermaid
 flowchart LR
   CUST["client"] --> G["gateway-service"]
-  TR["traffic-runner-service"] --> G
+  TR["traffic-control-plane"] --> G
   TR -->|"定时 reset 库存"| I
   G --> O["order-service"]
   O --> U["user-service"]

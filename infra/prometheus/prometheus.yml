@@ -46,12 +46,12 @@ scrape_configs:
         labels:
           service: 'payment'
 
-  - job_name: 'traffic-runner'
+  - job_name: 'traffic-control-plane'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['traffic-runner-service:8086']
+      - targets: ['traffic-control-plane:3086']
         labels:
-          service: 'traffic-runner'
+          service: 'traffic-control-plane'
 
   - job_name: 'promotion'
     metrics_path: '/actuator/prometheus'
@@ -92,5 +92,3 @@ scrape_configs:
       - targets: ['node-exporter:9100']
         labels:
           service: 'node'
-
-

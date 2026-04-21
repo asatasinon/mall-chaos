@@ -1,7 +1,7 @@
 # Traffic Runner Next.js + pnpm 重构设计
 
 **状态**：Draft / 待审批  
-**目标**：将 `traffic-runner-service` 从 Java Spring Boot 控制服务，重构为 `Next.js + pnpm` 项目，并吸收现有 `chaos-console` 的前端与控制能力；同时重新定义 Chaos 触发 API 与适配规则，消除现有“gateway 静态页 + 多服务直连 chaos endpoint + runner 局部控制 API”并存的问题，并确保 traffic 控制面只能通过 gateway 访问后端能力。
+**目标**：将 `traffic-control-plane` 从 Java Spring Boot 控制服务，重构为 `Next.js + pnpm` 项目，并吸收现有 `chaos-console` 的前端与控制能力；同时重新定义 Chaos 触发 API 与适配规则，消除现有“gateway 静态页 + 多服务直连 chaos endpoint + runner 局部控制 API”并存的问题，并确保 traffic 控制面只能通过 gateway 访问后端能力。
 
 ---
 
@@ -17,7 +17,7 @@
    - `/internal/chaos/memory-leak/start`
    - `/internal/chaos/deadlock/enable`
    - `/internal/toxiproxy/...`
-3. `traffic-runner-service` 又已经开始承载新的控制面后端，例如：
+3. `traffic-control-plane` 又已经开始承载新的控制面后端，例如：
    - `/internal/runner/status`
    - `/internal/runner/config`
    - `/internal/runner/scenario/table-lock/*`
@@ -29,7 +29,7 @@
 
 1. 控制面入口分裂。
    - 页面挂在 `gateway-service`
-   - 运行控制在 `traffic-runner-service`
+   - 运行控制在 `traffic-control-plane`
    - 网络故障代理在 `gateway-service`
    - 各类 chaos 触发又分散在业务服务自身
 
@@ -48,7 +48,7 @@
    - 现有 console 直接依赖服务级旧 API，导致前端逻辑高度耦合实现细节。
 
 5. 技术栈不符合新目标。
-   - 新目标是将 `traffic-runner-service` 改造成 `Next.js + pnpm` 项目。
+   - 新目标是将 `traffic-control-plane` 改造成 `Next.js + pnpm` 项目。
    - 因此需要重新界定它是“Next.js 控制台 + BFF + 独立 worker”的新形态，而不是 Spring Boot 微服务。
 
 ---
@@ -57,7 +57,7 @@
 
 ### 2.1 目标
 
-1. `traffic-runner-service` 重构为一个独立的 `Next.js + pnpm` 应用。
+1. `traffic-control-plane` 重构为一个独立的 `Next.js + pnpm` 应用。
 2. 将 `chaos-console` 的 UI 与操作能力整体迁移到新的 traffic 应用。
 3. 将“流量控制、场景控制、故障注入、状态聚合、预设场景触发”统一收口到 traffic 应用。
 4. 对外重新定义统一触发 API，作为唯一有效的开发协议。
@@ -76,7 +76,7 @@
 
 ## 3.1 新的角色定义
 
-重构后的 `traffic-runner-service` 变成一个新的控制平面应用，包含三部分：
+重构后的 `traffic-control-plane` 变成一个新的控制平面应用，包含三部分：
 
 1. `Next.js UI`
    - 替代旧 `chaos-console.html`
@@ -102,7 +102,7 @@
    - 调用 gateway 控制分发 API
    - 状态聚合
 3. `Runner Worker` 负责持续调度、定时器、恢复任务等后台职责。
-4. `traffic-runner-service` 不允许直连任何业务服务。
+4. `traffic-control-plane` 不允许直连任何业务服务。
 5. 业务服务继续负责“真正执行 chaos”，但只能通过 gateway 暴露受控入口。
 6. gateway 负责统一分发 traffic 控制请求到业务服务、toxiproxy、以及必要的基础设施代理。
 7. gateway 不再承载控制台前端。
@@ -111,7 +111,7 @@
 
 ```mermaid
 flowchart LR
-  U["User"] --> W["traffic-runner-service (Next.js UI)"]
+  U["User"] --> W["traffic-control-plane (Next.js UI)"]
   W --> A["Next.js Route Handlers"]
   A --> WK["Runner Worker"]
 
@@ -261,7 +261,7 @@ traffic control plane 对下游分三种调用模式：
 原因：
 
 1. `runner` 与 `chaos` 是不同控制域。
-2. 后续 `traffic-runner-service` 已不再只是“runner”，而是整个 traffic control plane。
+2. 后续 `traffic-control-plane` 已不再只是“runner”，而是整个 traffic control plane。
 3. 可以避免继续扩散 `/internal/runner/scenario/...` 这种层级混杂的路径。
 
 ### 6.3 Gateway 分发职责
@@ -689,7 +689,7 @@ Next.js + worker 建议承担以下职责：
 
 ### 11.3 Runner 调度迁移原则
 
-由于原 `traffic-runner-service` 是 Java 实现，迁移到 Node 后需保证以下不变量不变：
+由于原 `traffic-control-plane` 是 Java 实现，迁移到 Node 后需保证以下不变量不变：
 
 1. 配置热更新仍要求 `version` 乐观锁。
 2. DB 更新成功后再原子替换内存规则。
@@ -726,7 +726,7 @@ Next.js + worker 建议承担以下职责：
 
 ### 12.1.1 运行模式规则
 
-1. `traffic-runner-service` 采用 `web + worker` 双角色运行
+1. `traffic-control-plane` 采用 `web + worker` 双角色运行
 2. `worker` 默认单实例运行，避免重复发流量
 3. `web` 可横向扩展，`worker` 不允许无约束扩容
 
@@ -759,7 +759,7 @@ Next.js + worker 建议承担以下职责：
 为了降低风险，建议按以下顺序实施：
 
 1. 先完成设计文档审批。
-2. 搭建新的 `traffic-runner-service` Next.js + pnpm 项目骨架。
+2. 搭建新的 `traffic-control-plane` Next.js + pnpm 项目骨架。
 3. 先迁移“旧 console 前端 UI + 新 BFF 壳层”。
 4. 再把旧 console 的操作调用改成 traffic API。
 5. 再迁移 Runner 控制能力。
@@ -772,7 +772,7 @@ Next.js + worker 建议承担以下职责：
 
 请重点确认以下设计决策是否符合你的预期：
 
-1. `traffic-runner-service` 是否接受被定义为“Next.js UI + Route Handlers + 独立 worker”的一体化控制平面应用。
+1. `traffic-control-plane` 是否接受被定义为“Next.js UI + Route Handlers + 独立 worker”的一体化控制平面应用。
 2. 新 API 前缀是否接受统一收口到 `/internal/traffic/*`，而不是继续沿用 `/internal/runner/scenario/*`。
 3. `traffic -> gateway -> services` 是否作为唯一允许的网络访问路径。
 4. `chaos-console` 是否按“gateway 直接下线、traffic 完整接管”处理。
@@ -788,7 +788,7 @@ Next.js + worker 建议承担以下职责：
 
 审批通过后，下一步我会继续补齐并更新以下文档：
 
-1. `task-09-traffic-runner-service.md`
+1. `task-09-traffic-control-plane.md`
 2. `task-16-v2-service-integration.md`
 3. `README.md`
 4. 如有必要，新增专门的 `task-xx-traffic-console-react-node.md`

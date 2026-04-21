@@ -27,7 +27,7 @@ resources:
   - services/inventory/deployment.yaml
   - services/order/deployment.yaml
   - services/payment/deployment.yaml
-  - services/traffic-runner/deployment.yaml
+  - services/traffic-control-plane/deployment.yaml
   - services/promotion/deployment.yaml
   - services/risk/deployment.yaml
   - services/fulfillment/deployment.yaml
@@ -50,7 +50,7 @@ images:
     newTag: latest
   - name: castrel/payment-service
     newTag: latest
-  - name: castrel/traffic-runner-service
+  - name: castrel/traffic-control-plane
     newTag: latest
   - name: castrel/promotion-service
     newTag: latest

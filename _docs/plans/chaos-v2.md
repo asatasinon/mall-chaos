@@ -281,7 +281,7 @@ CREATE TABLE IF NOT EXISTS user_behavior_log (
 
 ### 4.3 数据填充策略
 
-由 `traffic-runner-service` 负责在启动后台线程持续写入数据：
+由 `traffic-control-plane` 负责在启动后台线程持续写入数据：
 
 ```java
 @Service
@@ -715,7 +715,7 @@ v2 不再需要以下 v1 表（可保留但不使用）：
 | `common/.../config/ServiceComponentAutoConfiguration.java` | 自动注册 v2 组件 |
 | 各服务 `MaintenanceController.java` | 数据审计 API（表锁场景） |
 | 各服务 `CacheManagementController.java` | 缓存管理 API（内存泄漏场景） |
-| `traffic-runner-service/.../service/DataWarmupService.java` | 大表数据填充服务 |
+| `traffic-control-plane/.../service/DataWarmupService.java` | 大表数据填充服务 |
 
 ---
 
@@ -764,7 +764,7 @@ v2 不再需要以下 v1 表（可保留但不使用）：
 
 ### 9.2 Console API（供前端调用）
 
-Console 后端 API 建议放在 `traffic-runner-service`（已有控制面板职能）：
+Console 后端 API 建议放在 `traffic-control-plane`（已有控制面板职能）：
 
 ```
 -- 表锁阻塞

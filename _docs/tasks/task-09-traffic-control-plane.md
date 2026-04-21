@@ -1,4 +1,4 @@
-# Task 09 — traffic-runner-service
+# Task 09 — traffic-control-plane
 
 **阶段**：Phase 1 — 基础 7 服务  
 **依赖**：Task 01–08（所有基础服务）  
@@ -8,7 +8,7 @@
 
 ## 职责
 
-`traffic-runner-service` 不再是单纯的 Java Runner，而是新的 traffic 控制平面，包含：
+`traffic-control-plane` 不再是单纯的 Java Runner，而是新的 traffic 控制平面，包含：
 
 1. Next.js 控制台 UI
 2. Next.js Route Handlers / 控制 API
@@ -18,7 +18,7 @@
 
 关键网络约束：
 
-- [ ] `traffic-runner-service` **只能访问 `gateway-service`**
+- [ ] `traffic-control-plane` **只能访问 `gateway-service`**
 - [ ] 不允许从 traffic 直连任何业务服务
 - [ ] 所有 HTTP 控制调用统一走 `traffic -> gateway -> service`
 
@@ -74,14 +74,14 @@
 
 ### 9.1 技术形态调整
 
-- [ ] 将 `traffic-runner-service` 从 Spring Boot 服务重构为 `Next.js + pnpm`
+- [ ] 将 `traffic-control-plane` 从 Spring Boot 服务重构为 `Next.js + pnpm`
 - [ ] 默认使用 TypeScript
 - [ ] 默认使用 `pnpm`
 - [ ] Node.js 承担 Runner API、控制编排、状态聚合与场景执行职责
 - [ ] Next.js 页面层承担控制台页面、拓扑展示、操作面板、执行日志面板
 - [ ] 独立 worker 承担持续调度、库存重置调度、自动恢复定时器
 - [ ] 旧 gateway 内置 `chaos-console.html` 下线
-- [ ] 新控制台入口统一为 `traffic-runner-service`
+- [ ] 新控制台入口统一为 `traffic-control-plane`
 
 ### 9.2 数据模型（建于 MySQL，初始化时插入默认行）
 
@@ -252,5 +252,5 @@ INSERT INTO runner_inventory_reset_policy VALUES (1, 1, '0 */30 * * * *', 'Asia/
 - [ ] 配置更新（版本冲突）正确返回 409
 - [ ] 库存定时重置自动执行，重置后下单不再因库存不足失败
 - [ ] 暂停/恢复功能正常，恢复后流量自动恢复
-- [ ] 控制台加载与场景执行只访问 `traffic-runner-service`
+- [ ] 控制台加载与场景执行只访问 `traffic-control-plane`
 - [ ] traffic 到业务侧的访问链路统一体现为 `traffic -> gateway -> services`

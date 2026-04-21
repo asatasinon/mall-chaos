@@ -11,14 +11,14 @@
 `gateway-service` 在最新设计中承担三类职责：
 
 1. 业务请求统一入口
-2. `traffic-runner-service` 的唯一控制分发层
+2. `traffic-control-plane` 的唯一控制分发层
 3. ToxiProxy 等基础设施能力代理
 
 关键网络约束：
 
 - [ ] 浏览器不直接访问 gateway 的控制台页面
-- [ ] `traffic-runner-service` 只能访问 `gateway-service`
-- [ ] 业务服务不对 `traffic-runner-service` 直接暴露控制入口
+- [ ] `traffic-control-plane` 只能访问 `gateway-service`
+- [ ] 业务服务不对 `traffic-control-plane` 直接暴露控制入口
 - [ ] 所有 traffic 控制请求统一走 `traffic -> gateway -> services`
 
 ---
@@ -36,7 +36,7 @@
 
 ### 3.0.1 traffic 控制分发 API
 
-以下接口供 `traffic-runner-service` 调用，不面向浏览器直接使用：
+以下接口供 `traffic-control-plane` 调用，不面向浏览器直接使用：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -89,7 +89,7 @@
   - `/api/orders/**`
   - `/api/products/**`
 - [ ] 业务流量仍由 gateway 转发到各微服务
-- [ ] `traffic-runner-service` 的正常下单流量统一走 gateway
+- [ ] `traffic-control-plane` 的正常下单流量统一走 gateway
 
 示例：
 
@@ -130,7 +130,7 @@ spring:
 
 ### 3.5 traffic 控制分发 API
 
-新增 `ChaosDispatchController`，统一接收来自 `traffic-runner-service` 的控制请求。
+新增 `ChaosDispatchController`，统一接收来自 `traffic-control-plane` 的控制请求。
 
 建议结构：
 
@@ -257,7 +257,7 @@ public record TableLockDispatchRequest(
 ### 3.9 安全与约束
 
 - [ ] Chaos 分发接口仅在 `chaos` profile 下启用
-- [ ] 仅允许来自 `traffic-runner-service` 的内部控制访问
+- [ ] 仅允许来自 `traffic-control-plane` 的内部控制访问
 - [ ] 对目标服务、proxyName、tableName 做白名单校验
 - [ ] 对 `durationSec` 做上限校验
 - [ ] 对异常统一返回友好错误信息
@@ -277,11 +277,11 @@ public record TableLockDispatchRequest(
 - [ ] `POST /api/orders` 能路由到 order-service
 - [ ] 响应中包含 `X-Trace-Id` 头
 - [ ] `/internal/gateway/routes` 返回路由列表
-- [ ] `traffic-runner-service` 可仅通过 gateway 完成 slow-sql 控制
-- [ ] `traffic-runner-service` 可仅通过 gateway 完成 memory-leak 控制
-- [ ] `traffic-runner-service` 可仅通过 gateway 完成 deadlock 控制
-- [ ] `traffic-runner-service` 可仅通过 gateway 完成 table-lock 控制
-- [ ] `traffic-runner-service` 可仅通过 gateway 完成 network-delay / network-reset 控制
+- [ ] `traffic-control-plane` 可仅通过 gateway 完成 slow-sql 控制
+- [ ] `traffic-control-plane` 可仅通过 gateway 完成 memory-leak 控制
+- [ ] `traffic-control-plane` 可仅通过 gateway 完成 deadlock 控制
+- [ ] `traffic-control-plane` 可仅通过 gateway 完成 table-lock 控制
+- [ ] `traffic-control-plane` 可仅通过 gateway 完成 network-delay / network-reset 控制
 
 ## 数据模型
 

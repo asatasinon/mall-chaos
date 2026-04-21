@@ -1,15 +1,15 @@
 # Task 15 — v2 大表数据填充服务
 
 **阶段**：Phase 3 — Chaos 功能（v2 改版）  
-**依赖**：Task 14（DDL 建表）、Task 09（traffic-runner-service）  
-**产出**：`DataWarmupService` — 在 `traffic-runner-service` 中后台填充 2 张大表至 ≥ 3000 万行  
+**依赖**：Task 14（DDL 建表）、Task 09（traffic-control-plane）  
+**产出**：`DataWarmupService` — 在 `traffic-control-plane` 中后台填充 2 张大表至 ≥ 3000 万行  
 **设计文档**：[chaos-v2.md](../plans/chaos-v2.md) §4.3
 
 ---
 
 ## 目标
 
-在 `traffic-runner-service` 中实现后台数据填充服务，项目启动后自动以后台线程方式向 `product_price_history` 和 `user_behavior_log` 两张表持续写入数据，直到每张表 ≥ 3000 万行。
+在 `traffic-control-plane` 中实现后台数据填充服务，项目启动后自动以后台线程方式向 `product_price_history` 和 `user_behavior_log` 两张表持续写入数据，直到每张表 ≥ 3000 万行。
 
 填充过程不影响正常业务流量，完全静默执行。
 
@@ -19,7 +19,7 @@
 
 ### 15.1 DataWarmupService 设计
 
-**路径**：`traffic-runner-service/src/main/java/com/castrel/runner/service/DataWarmupService.java`
+**路径**：`traffic-control-plane/src/main/java/com/castrel/runner/service/DataWarmupService.java`
 
 ```java
 @Service
@@ -111,7 +111,7 @@ public record WarmupProgress(
 
 ### 15.5 进度查询 API
 
-在 `traffic-runner-service` 的 RunnerController 中增加：
+在 `traffic-control-plane` 的 RunnerController 中增加：
 
 ```
 GET /internal/runner/data-warmup/progress
@@ -150,7 +150,7 @@ GET /internal/runner/data-warmup/progress
 
 ### 15.8 验证
 
-- [ ] 启动 traffic-runner-service，观察日志输出进度
+- [ ] 启动 traffic-control-plane，观察日志输出进度
 - [ ] 调用 `GET /internal/runner/data-warmup/progress` 能正常返回进度
 - [ ] 填充完毕后 `SELECT COUNT(*)` 两张表均 ≥ 3000 万
 - [ ] 重启后不重复填充

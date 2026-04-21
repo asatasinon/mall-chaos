@@ -8,7 +8,7 @@
 
 ## 职责
 
-`gateway-service` 负责承接 `traffic-runner-service` 的控制请求，并统一分发到：
+`gateway-service` 负责承接 `traffic-control-plane` 的控制请求，并统一分发到：
 
 1. 业务服务的 chaos endpoint
 2. ToxiProxy 代理

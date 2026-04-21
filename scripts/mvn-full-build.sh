@@ -21,7 +21,6 @@ SERVICES=(
   inventory-service
   order-service
   payment-service
-  traffic-runner-service
   promotion-service
   risk-service
   fulfillment-service
@@ -99,6 +98,16 @@ for svc in "${SERVICES[@]}"; do
     docker push "${image}"
   fi
 done
+
+echo "==> Docker image build for traffic-control-plane"
+tcp_image="castrel/traffic-control-plane:${IMAGE_TAG}"
+echo "--> Building ${tcp_image}"
+docker build -t "${tcp_image}" "${REPO_ROOT}/traffic-control-plane"
+
+if [[ "$PUSH_IMAGE" == "true" ]]; then
+  echo "--> Pushing ${tcp_image}"
+  docker push "${tcp_image}"
+fi
 
 echo "==> All done"
 echo "Built images: castrel/*:${IMAGE_TAG}"

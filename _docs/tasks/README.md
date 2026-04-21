@@ -17,7 +17,7 @@ Phase 1 (基础 7 服务) — 依赖 Phase 0
   ├── Task 06: inventory-service        ← 含分布式锁、库存重置
   ├── Task 07: order-service            ← 下单编排、幂等
   ├── Task 08: payment-service          ← 支付模拟
-  └── Task 09: traffic-runner-service   ← 含配置热更新、库存重置调度
+  └── Task 09: traffic-control-plane   ← 含配置热更新、库存重置调度
 
 Phase 2 (进阶 4 服务) — 依赖 Phase 1
   ├── Task 10: promotion-service
@@ -54,7 +54,7 @@ Phase 3.5 (控制面重构) — 依赖 Phase 1/3 的相关能力
 | 06 | [inventory-service](task-06-inventory-service.md) | Phase 1 | 库存预占/释放/重置 |
 | 07 | [order-service](task-07-order-service.md) | Phase 1 | 下单编排、幂等 |
 | 08 | [payment-service](task-08-payment-service.md) | Phase 1 | 支付模拟 |
-| 09 | [traffic-runner-service](task-09-traffic-runner-service.md) | Phase 1 | 自动流量、热更新、库存重置调度 |
+| 09 | [traffic-control-plane](task-09-traffic-control-plane.md) | Phase 1 | 自动流量、热更新、库存重置调度 |
 | 10 | [promotion-service](task-10-promotion-service.md) | Phase 2 | 优惠券计算 |
 | 11 | [risk-service](task-11-risk-service.md) | Phase 2 | 前置风控、支付后复核 |
 | 12 | [fulfillment-service](task-12-fulfillment-service.md) | Phase 2 | 履约单、发货状态流转 |

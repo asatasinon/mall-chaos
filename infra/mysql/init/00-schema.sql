@@ -253,7 +253,7 @@ CREATE TABLE IF NOT EXISTS payments (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =============================================================================
--- traffic-runner-service  (Task 09)
+-- traffic-control-plane  (Task 09)
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS runner_profile (
