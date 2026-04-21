@@ -1,10 +1,6 @@
 server:
   port: 8080
 
-chaos:
-  endpoints:
-    enabled: false
-
 spring:
   application:
     name: gateway-service
@@ -45,6 +41,8 @@ management:
 
 # ── Chaos dispatch: service name → base URL mapping ──
 chaos:
+  endpoints:
+    enabled: false
   dispatch:
     services:
       catalog-service: ${CATALOG_SERVICE_URL:http://localhost:18082}

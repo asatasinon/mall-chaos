@@ -587,7 +587,7 @@ curl -X POST http://localhost:18086/internal/traffic/runner/inventory-reset/trig
 | ToxiProxy API | http://localhost:18474 | — | 网络故障管理 |
 
 > **认证说明**：Prometheus、Loki、Tempo 的外部端口通过 nginx 反向代理保护，需要 HTTP Basic Auth。  
-> 默认账号 `castrel`，密码 `castrel`，可在 `infra/nginx/.htpasswd` 中修改（使用 `openssl passwd -apr1 '<new-password>'` 重新生成哈希）。  
+> 默认账号 `castrel`，密码 `C@stre1_best_ai`，可在 `infra/nginx/.htpasswd` 中修改（使用 `openssl passwd -apr1 '<new-password>'` 重新生成哈希）。  
 > Grafana 与各组件之间的内部通信无需认证。
 
 可观测性栏默认随 `docker compose up -d` 一起启动，无需额外命令。
