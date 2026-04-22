@@ -5,18 +5,16 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compose-common.sh"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/compose-up.sh [--image-source dockerhub|internal] [--hub dockerhub|internal] [-- <docker compose up args>]
+Usage: ./scripts/compose-restart.sh [--image-source dockerhub|internal] [--hub dockerhub|internal] [-- <docker compose up args>]
 
 Examples:
-  ./scripts/compose-up.sh
-  ./scripts/compose-up.sh --image-source dockerhub
-  ./scripts/compose-up.sh --hub internal
-  ./scripts/compose-up.sh --image-source dockerhub -- --force-recreate
+  ./scripts/compose-restart.sh
+  ./scripts/compose-restart.sh --hub dockerhub
+  ./scripts/compose-restart.sh -- --force-recreate
 
 Notes:
   - Default image source is internal.
-  - The script runs 'docker compose pull' first, then 'docker compose up --no-build'.
-  - You can still override individual image variables such as REGISTRY or MYSQL_IMAGE.
+  - The script runs 'docker compose down', then 'docker compose pull', then 'docker compose up --no-build'.
 EOF
 }
 
@@ -35,7 +33,9 @@ fi
 cd "$CASTREL_REPO_ROOT"
 
 echo "==> Image source: ${CASTREL_IMAGE_SOURCE}"
-echo "==> Business registry: ${REGISTRY}"
+echo "==> Stopping existing services"
+docker compose down
+
 echo "==> Pulling images from configured registry"
 docker compose pull
 

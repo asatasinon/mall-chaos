@@ -218,6 +218,15 @@ cd castrel-chaos
 # 如果要改为从 Docker Hub / 官方镜像源拉取
 ./scripts/compose-up.sh --image-source dockerhub
 
+# 短参数别名也可以
+./scripts/compose-up.sh --hub dockerhub
+
+# 停止容器
+./scripts/compose-down.sh
+
+# 按当前选定镜像源重新拉取并重启
+./scripts/compose-restart.sh --hub internal
+
 # 查看容器状态
 docker compose ps
 ```
@@ -225,8 +234,11 @@ docker compose ps
 说明：
 
 - `./scripts/compose-up.sh` 默认等价于“设置镜像来源变量后，先 `docker compose pull`，再 `docker compose up -d --no-build`”。
+- `--hub` 是 `--image-source` 的短别名，支持 `dockerhub` 和 `internal` 两个值。
 - `--image-source dockerhub` 会把业务镜像切到 `castrel/*`，基础设施镜像切到 Docker Hub / GHCR 对应官方源。
 - 如需显式覆盖单个镜像，仍可传环境变量，例如 `MYSQL_IMAGE=... ./scripts/compose-up.sh --image-source dockerhub`。
+- `./scripts/compose-down.sh` 和 `./scripts/compose-restart.sh` 也支持同样的 `--hub` / `--image-source` 参数。
+- `./scripts/compose-restart.sh` 会执行 `down -> pull -> up --no-build`，适合切换镜像源后整套服务重启。
 
 ### 路径 B：修改源码后，本地打包并启动本地镜像
 
