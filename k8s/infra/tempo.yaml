@@ -1,3 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: castrel
+data:
+  config.yml: |
+    server:
+      http_listen_port: 3200
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+
+    ingester:
+      trace_idle_period: 10s
+      max_block_bytes: 1_000_000
+      max_block_duration: 5m
+
+    compactor:
+      compaction:
+        block_retention: 168h
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /tmp/tempo/blocks
+        wal:
+          path: /tmp/tempo/wal
+
+    metrics_generator:
+      registry:
+        external_labels:
+          source: tempo
+      traces_storage:
+        path: /tmp/tempo/generator/traces
+      storage:
+        path: /tmp/tempo/generator/wal
+        remote_write:
+          - url: http://prometheus:9090/api/v1/write
+            send_exemplars: true
+      processor:
+        local_blocks: {}
+        service_graphs:
+          histogram_buckets: [0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8]
+        span_metrics:
+          histogram_buckets: [0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128, 0.256, 0.512, 1.02, 2.05, 4.10]
+
+    overrides:
+      defaults:
+        metrics_generator:
+          processors: [local-blocks, service-graphs, span-metrics]
+
+    query_frontend:
+      search:
+        duration_slo: 5s
+        throughput_bytes_slo: 1.073741824e+09
+      trace_by_id:
+        duration_slo: 5s
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,7 +81,7 @@ spec:
     spec:
       containers:
         - name: tempo
-          image: grafana/tempo:2.3.1
+          image: grafana/tempo:2.10.4
           args: ["-config.file=/etc/tempo/config.yml"]
           ports:
             - containerPort: 3200   # Tempo HTTP
@@ -23,6 +89,10 @@ spec:
             - containerPort: 4317   # OTLP gRPC
             - containerPort: 4318   # OTLP HTTP
           volumeMounts:
+            - name: tempo-config
+              mountPath: /etc/tempo/config.yml
+              subPath: config.yml
+              readOnly: true
             - name: tempo-data
               mountPath: /tmp/tempo
           resources:
@@ -33,6 +103,9 @@ spec:
               memory: "256Mi"
               cpu: "200m"
       volumes:
+        - name: tempo-config
+          configMap:
+            name: tempo-config
         - name: tempo-data
           emptyDir: {}
 ---
