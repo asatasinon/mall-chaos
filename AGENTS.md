@@ -4,7 +4,7 @@
 
 ## Project State
 
-v1 architecture: [`_docs/plans/chaos-v1.md`](_docs/plans/chaos-v1.md); v2 stealth chaos redesign: [`_docs/plans/chaos-v2.md`](_docs/plans/chaos-v2.md); per-task specs in [`_docs/tasks/`](_docs/tasks/). Before implementing anything, read the relevant task file first.
+Current architecture and chaos design: [`_docs/plans/chaos-v2.md`](_docs/plans/chaos-v2.md); per-task specs in [`_docs/tasks/`](_docs/tasks/). Before implementing anything, read the relevant task file first.
 
 **Task execution order**: See [`_docs/tasks/README.md`](_docs/tasks/README.md) for the full dependency graph.
 
@@ -66,18 +66,18 @@ Shared classes every service depends on (never duplicate these):
 - `BizException` — business errors with `errorCode`
 - `TraceContext` — traceId propagation utility
 - `DistributedLockService` — Redis-backed distributed lock
-- `interceptor/QueryEnrichmentInterceptor` — slow SQL injection via large-table JOIN (v2)
-- `DataAuditService` — table-lock injection disguised as data audit (v2)
-- `LocalQueryCacheManager` — memory leak injection via unbounded cache (v2)
+- `interceptor/QueryEnrichmentInterceptor` — slow SQL injection via large-table JOIN
+- `DataAuditService` — table-lock injection disguised as data audit
+- `LocalQueryCacheManager` — memory leak injection via unbounded cache
 - `chaos/ChaosService` — unified slow-sql / memory-leak / deadlock / table-lock control (Task 22)
 - `chaos/ChaosController` — `/internal/chaos/**` endpoints; all 8 business services auto-register this
-- `config/ServiceComponentAutoConfiguration` — Spring auto-config replacing v1 `ChaosCommonAutoConfiguration`
+- `config/ServiceComponentAutoConfiguration` — Spring auto-config for shared service components
 
 ### Chaos Component Rules (from [`_docs/tasks/task-14-v2-common-components.md`](_docs/tasks/task-14-v2-common-components.md))
 - Every chaos bean must support `enable` flag + `durationSec` for auto-disable
 - Chaos REST endpoints are always present; enabled via `chaos.endpoints.enabled` property (`false` on gateway, `true` on business services)
-- Slow SQL "real" mode: `SELECT SLEEP(N)` inside the transaction
-- Deadlock injection: two concurrent transactions with swapped lock order
+- Slow SQL is driven by JOIN enrichment on large tables
+- Deadlock injection must support `injectRate`, `scope`, and `durationSec`
 
 ### Critical Invariants
 | Rule | Reference |
@@ -85,7 +85,7 @@ Shared classes every service depends on (never duplicate these):
 | Runner config update must include `version` (optimistic lock) | Task 09 §9.5 |
 | Inventory reset requires `expectedVersion` + distributed Redis lock | Task 06 §6.3 |
 | All chaos beans must auto-disable after `durationSec` | Task 22 |
-| `SELECT SLEEP(N)` for realistic slow SQL | Task 22 |
+| Slow SQL uses JOIN enrichment and status introspection | Task 22 |
 | Table lock = `LOCK TABLES <table> WRITE` disguised as data audit | Task 16 §16.2 |
 
 ### application.yml Baseline
@@ -105,8 +105,7 @@ logging:
 
 | Topic | File |
 |---|---|
-| Master architecture | [`_docs/plans/chaos-v1.md`](_docs/plans/chaos-v1.md) |
-| v2 stealth chaos design | [`_docs/plans/chaos-v2.md`](_docs/plans/chaos-v2.md) |
+| Architecture and chaos design | [`_docs/plans/chaos-v2.md`](_docs/plans/chaos-v2.md) |
 | Task dependency graph | [`_docs/tasks/README.md`](_docs/tasks/README.md) |
 | Project scaffold (POM layout) | [`_docs/tasks/task-01-project-scaffold.md`](_docs/tasks/task-01-project-scaffold.md) |
 | Docker Compose + infra | [`_docs/tasks/task-02-infra-compose.md`](_docs/tasks/task-02-infra-compose.md) |
@@ -120,6 +119,3 @@ logging:
 | gateway chaos dispatch | [`_docs/tasks/task-21-gateway-chaos-dispatch.md`](_docs/tasks/task-21-gateway-chaos-dispatch.md) |
 | chaos protocol unification | [`_docs/tasks/task-22-chaos-protocol-unification.md`](_docs/tasks/task-22-chaos-protocol-unification.md) |
 | traffic console & scenario orchestration | [`_docs/tasks/task-23-traffic-console-and-scenarios.md`](_docs/tasks/task-23-traffic-console-and-scenarios.md) |
-| Archived v1 slow SQL chaos | [`_docs/tasks/archived-v1/task-14-chaos-slow-sql.md`](_docs/tasks/archived-v1/task-14-chaos-slow-sql.md) |
-| Archived v1 memory leak chaos | [`_docs/tasks/archived-v1/task-15-chaos-memory-leak.md`](_docs/tasks/archived-v1/task-15-chaos-memory-leak.md) |
-| Archived v1 deadlock chaos | [`_docs/tasks/archived-v1/task-16-chaos-deadlock.md`](_docs/tasks/archived-v1/task-16-chaos-deadlock.md) |

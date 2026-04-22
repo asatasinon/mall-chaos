@@ -794,8 +794,8 @@ GATEWAY_URL=http://castrel.local ./scripts/chaos/chaos-verify.sh --scenario 4
 |---|---|---|
 | 1 | 基线稳定性 | 无 Chaos，30 分钟成功率 > 95% |
 | 2 | order→payment 网络延迟 2-5s | 超时订单 FAILED，熔断触发，恢复后 > 90% |
-| 3 | order JVM 内存泄漏 10 分钟 | 堆告警触发，clear 后 Heap 回落 |
-| 4 | payment 慢 SQL（sleep + real） | 慢查询日志可见，durationSec 到期自动关闭 |
+| 3 | order JVM 内存泄漏 10 分钟 | 堆告警触发，cleanup 后 Heap 回落 |
+| 4 | payment 慢 SQL（v2 JOIN） | JOIN 放大查询可观测，durationSec 到期自动关闭 |
 | 5 | order + payment 死锁注入 | 退避重试成功，超限报错不卡死 |
 | 6 | 库存定时重置演练 | 版本冲突 409，并发锁保护，调度立即生效 |
 | 7 | 组合故障（网络+慢SQL+死锁） | 成功率 > 20%，5 分钟内恢复 > 90% |

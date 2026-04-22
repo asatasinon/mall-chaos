@@ -57,7 +57,7 @@ scenario_1() {
   curl -sf "$GATEWAY_URL/internal/runner/status" | python3 -m json.tool || true
   echo ""
   warn "Manual step: Monitor Grafana for 30 minutes."
-  warn "Acceptance: Success rate > 95%, P95 < 500ms, no chaos_event_log entries"
+  warn "Acceptance: Success rate > 95%, P95 < 500ms, all chaos status endpoints remain inactive"
 }
 
 # ── Scenario 2: Network Delay order→payment ──────────────────────────────────
@@ -88,8 +88,8 @@ scenario_3() {
   check_runner_running
   echo ""
   info "Starting memory leak: chunkSizeKb=1024, intervalMs=300, maxMb=350"
-  chaos_post "$GATEWAY_URL/internal/chaos/memory-leak/start" \
-    '{"chunkSizeKb":1024,"intervalMs":300,"maxMb":350}'
+  chaos_post "$GATEWAY_URL/internal/gateway/chaos/memory-leak/enable" \
+    '{"targets":["order-service"],"chunkSizeKb":1024,"intervalMs":300,"maxMb":350,"durationSec":600}'
   echo ""
   warn "Monitor Grafana JVM Heap for 10 minutes."
   warn "  - heap should reach ~350 MB"
@@ -97,10 +97,10 @@ scenario_3() {
   warn "  - Prometheus alert: JVM Heap > 80%"
   echo ""
   read -rp "Press Enter to stop memory leak (after ~10 min)..."
-  chaos_post "$GATEWAY_URL/internal/chaos/memory-leak/stop" '{}'
+  chaos_post "$GATEWAY_URL/internal/gateway/chaos/memory-leak/disable" '{"targets":["order-service"]}'
   echo ""
   info "Clearing held references..."
-  chaos_post "$GATEWAY_URL/internal/chaos/memory-leak/clear" '{}'
+  chaos_post "$GATEWAY_URL/internal/gateway/chaos/memory-leak/cleanup" '{"targets":["order-service"]}'
   echo ""
   warn "Acceptance: Heap drops below 40% after next GC cycle"
 }
@@ -112,13 +112,13 @@ scenario_4() {
   check_runner_running
   echo ""
   info "Enable v2 slow SQL via JOIN user_behavior_log (duration=180s)"
-  chaos_post "$GATEWAY_URL/internal/chaos/slow-sql/enable" \
-    '{"joinTable":"user_behavior_log","durationSec":180}'
+  chaos_post "$GATEWAY_URL/internal/gateway/chaos/slow-sql/enable" \
+    '{"targets":["payment-service"],"joinTable":"user_behavior_log","limitRows":1,"offsetRows":200000,"durationSec":180}'
   echo ""
   warn "Observe 3 minutes."
   warn "  - MySQL slow query log should show JOIN-related slow queries"
   warn "  - durationSec expires -> auto-disable -> P95 drops"
-  warn "  - chaos_event_log has payment/slow-sql entry"
+  warn "  - slow-sql status returns active=false after auto-disable"
 }
 
 # ── Scenario 5: Deadlock ─────────────────────────────────────────────────────
@@ -128,12 +128,12 @@ scenario_5() {
   check_runner_running
   echo ""
   info "Injecting deadlock in order-service (rate=0.4, duration=180s)..."
-  chaos_post "$GATEWAY_URL/internal/chaos/deadlock/enable" \
-    '{"service":"order","injectRate":0.4,"durationSec":180}'
+  chaos_post "$GATEWAY_URL/internal/gateway/chaos/deadlock/enable" \
+    '{"targets":["order-service"],"injectRate":0.4,"scope":"ALL","durationSec":180}'
   echo ""
   info "Injecting deadlock in payment-service (rate=0.3, duration=180s)..."
-  chaos_post "$GATEWAY_URL/internal/chaos/deadlock/enable" \
-    '{"service":"payment","injectRate":0.3,"durationSec":180}'
+  chaos_post "$GATEWAY_URL/internal/gateway/chaos/deadlock/enable" \
+    '{"targets":["payment-service"],"injectRate":0.3,"scope":"ALL","durationSec":180}'
   echo ""
   warn "Observe 3 minutes:"
   warn "  - chaos.deadlock.count rising for both services"
@@ -190,12 +190,12 @@ scenario_7() {
   bash "$(dirname "$0")/network-delay.sh" order-to-payment 2000 500 300
   echo ""
   info "Injecting 2: order slow SQL (JOIN user_behavior_log, duration=300s)..."
-  chaos_post "$GATEWAY_URL/internal/chaos/slow-sql/enable" \
-    '{"joinTable":"user_behavior_log","durationSec":300}'
+  chaos_post "$GATEWAY_URL/internal/gateway/chaos/slow-sql/enable" \
+    '{"targets":["order-service"],"joinTable":"user_behavior_log","limitRows":1,"offsetRows":200000,"durationSec":300}'
   echo ""
   info "Injecting 3: order deadlock (rate=0.2, duration=300s)..."
-  chaos_post "$GATEWAY_URL/internal/chaos/deadlock/enable" \
-    '{"service":"order","injectRate":0.2,"durationSec":300}'
+  chaos_post "$GATEWAY_URL/internal/gateway/chaos/deadlock/enable" \
+    '{"targets":["order-service"],"injectRate":0.2,"scope":"ALL","durationSec":300}'
   echo ""
   warn "Observe 5 minutes. Acceptance:"
   warn "  - Success rate > 20% (not fully unavailable)"
@@ -205,14 +205,14 @@ scenario_7() {
   read -rp "Press Enter to remove all chaos..."
   echo ""
   info "Removing deadlock..."
-  chaos_post "$GATEWAY_URL/internal/chaos/deadlock/disable" '{"service":"order"}'
+  chaos_post "$GATEWAY_URL/internal/gateway/chaos/deadlock/disable" '{"targets":["order-service"]}'
   info "Removing slow SQL..."
-  chaos_post "$GATEWAY_URL/internal/chaos/slow-sql/disable" '{}'
+  chaos_post "$GATEWAY_URL/internal/gateway/chaos/slow-sql/disable" '{"targets":["order-service"]}'
   info "Removing network toxic..."
   bash "$(dirname "$0")/network-remove-toxic.sh" order-to-payment chaos-delay
   echo ""
   warn "Observe recovery for 5 minutes. Acceptance: success rate > 90% within 5 min"
-  warn "chaos_event_log should show complete event timeline"
+  warn "slow-sql and deadlock status should both return inactive"
 }
 
 # ── Global Checks ─────────────────────────────────────────────────────────────
@@ -223,13 +223,11 @@ global_checks() {
   info "Runner status:"
   curl -sf "$GATEWAY_URL/internal/runner/status" | python3 -m json.tool || true
   echo ""
-  info "Chaos event log (last 10 entries):"
-  curl -sf "$GATEWAY_URL/internal/chaos/events?limit=10&action=INJECT" | python3 -m json.tool || true
-  echo ""
   echo "Manual checklist:"
   echo "  [ ] All Chaos enables support durationSec (deadlock supports injectRate)"
   echo "  [ ] durationSec auto-disables all chaos on schedule"
-  echo "  [ ] Chaos endpoints return 404 on non-chaos profile"
+  echo "  [ ] Gateway dispatch entry is /internal/gateway/chaos/..."
+  echo "  [ ] Business services expose /internal/chaos/... only when chaos.endpoints.enabled=true"
   echo "  [ ] Grafana: Services Overview dashboard complete"
   echo "  [ ] Grafana: Chaos Events dashboard complete"
   echo "  [ ] Tempo: full trace visible for each scenario"

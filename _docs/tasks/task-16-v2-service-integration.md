@@ -9,9 +9,9 @@
 
 ## 目标
 
-将 Task 14 提供的 3 个公共组件（`DataAuditService`、`QueryEnrichmentInterceptor`、`LocalQueryCacheManager`）接入所有业务服务，替换 v1 的 ChaosController。每个服务需要：
+将 Task 14 提供的 3 个公共组件（`DataAuditService`、`QueryEnrichmentInterceptor`、`LocalQueryCacheManager`）接入所有业务服务。每个服务需要：
 
-1. 删除 v1 的 `ChaosController` 和相关 chaos 代码
+1. 清理现有的旧故障控制代码
 2. 新增 `MaintenanceController`（表锁阻塞 API）
 3. 在数据访问层接入 `QueryEnrichmentInterceptor`（慢 SQL JOIN）
 4. 在业务层接入 `LocalQueryCacheManager`（内存泄漏缓存）
@@ -21,7 +21,7 @@
 
 ## 子任务
 
-### 16.1 各服务 v1 代码清理
+### 16.1 各服务现有故障控制代码清理
 
 移除以下文件/代码：
 

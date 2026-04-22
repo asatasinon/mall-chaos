@@ -9,7 +9,7 @@
 
 ## 目标
 
-在 `common` 模块中实现 v2 隐蔽式故障注入的 3 个核心公共组件，替代 v1 的 `SlowSqlChaosService`、`MemoryLeakChaosService`、`DeadlockChaosService`。所有组件命名不包含任何 chaos 字样，以正常业务逻辑命名。
+在 `common` 模块中实现隐蔽式故障注入的 3 个核心公共组件，统一承载慢 SQL、表锁阻塞和内存泄漏场景。所有组件命名不包含任何 chaos 字样，以正常业务逻辑命名。
 
 ### 核心约束
 
@@ -22,19 +22,10 @@
 
 ## 子任务
 
-### 14.1 清理 v1 Chaos 代码
+### 14.1 组件交付基线
 
-从 `common` 模块中移除以下 v1 文件：
-
-| 文件 | 操作 |
-|------|------|
-| `common/.../chaos/SlowSqlChaosService.java` | 删除 |
-| `common/.../chaos/MemoryLeakChaosService.java` | 删除 |
-| `common/.../ChaosScope.java` | 删除 |
-| `common/.../config/ChaosCommonAutoConfiguration.java` | 重写 → `ServiceComponentAutoConfiguration` |
-| `common/.../config/ChaosJdbcAutoConfiguration.java` | 删除 |
-| `common/.../config/ChaosRedisAutoConfiguration.java` | 删除 |
-
+- [ ] 在 `common` 模块交付 `QueryEnrichmentInterceptor`、`DataAuditService`、`LocalQueryCacheManager`
+- [ ] 通过自动配置统一注册共享组件
 - [ ] 确保 `common` 模块编译通过（其他服务暂时可以报错，后续 Task 16 修复）
 
 ### 14.2 QueryEnrichmentInterceptor（慢 SQL 场景）
@@ -192,7 +183,7 @@ public class ServiceComponentAutoConfiguration {
 
 - [ ] 注册到 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
 - [ ] 仅当 Redis 可用时激活
-- [ ] 替代原有 `ChaosCommonAutoConfiguration`
+- [ ] 作为共享组件自动配置入口供各服务复用
 
 ### 14.6 数据库 DDL 变更
 
@@ -243,7 +234,7 @@ CREATE TABLE IF NOT EXISTS user_behavior_log (
 | `castrel:query:enrichment` | Hash | 慢 SQL | `enabled`, `joinTable`, `targetServices`, `operator`, `startedAt` |
 | `castrel:cache:local-buffer` | Hash | 内存泄漏 | `enabled`, `targetServices`, `bufferSizeKb`, `operator`, `startedAt` |
 
-### 14.8 v1 表处理
+### 14.8 相关表处理
 
 | 表名 | 处理方式 |
 |------|---------|

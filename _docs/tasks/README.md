@@ -1,7 +1,6 @@
 # Castrel Chaos — 任务总览
 
-> 基于 [chaos-v1.md](../plans/chaos-v1.md) + [chaos-v2.md](../plans/chaos-v2.md) 以及 traffic control plane redesign 拆分，共 23 个 Task，分 5 个阶段。  
-> v2 改版说明：Task 14-16 已按 [chaos-v2.md](../plans/chaos-v2.md) 重新设计为隐蔽式故障注入，旧版归档于 [`archived-v1/`](archived-v1/)。
+> 基于 [chaos-v2.md](../plans/chaos-v2.md) 以及 traffic control plane redesign 拆分，共 23 个 Task，分 5 个阶段。
 
 ## 阶段依赖关系
 
@@ -69,14 +68,6 @@ Phase 3.5 (控制面重构) — 依赖 Phase 1/3 的相关能力
 | 21 | [gateway chaos dispatch](task-21-gateway-chaos-dispatch.md) | Phase 3.5 | gateway 统一控制分发与基础设施代理 |
 | 22 | [chaos protocol 统一化](task-22-chaos-protocol-unification.md) | Phase 3.5 | 各服务 chaos endpoint 最新协议统一 |
 | 23 | [traffic console 与场景编排](task-23-traffic-console-and-scenarios.md) | Phase 3.5 | 新控制台、overview、scenarios、recover-all |
-
-### 归档的 v1 任务
-
-| 原编号 | 任务 | 归档路径 |
-|--------|------|---------|
-| 14 (v1) | 慢 SQL Chaos 公共模块 | [archived-v1/task-14-chaos-slow-sql.md](archived-v1/task-14-chaos-slow-sql.md) |
-| 15 (v1) | JVM 内存泄漏 Chaos | [archived-v1/task-15-chaos-memory-leak.md](archived-v1/task-15-chaos-memory-leak.md) |
-| 16 (v1) | 数据库死锁 Chaos | [archived-v1/task-16-chaos-deadlock.md](archived-v1/task-16-chaos-deadlock.md) |
 
 ## 推荐执行顺序
 

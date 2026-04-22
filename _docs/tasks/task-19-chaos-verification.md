@@ -25,7 +25,7 @@
 - [ ] Grafana 成功率持续 > 95%
 - [ ] P95 延迟 < 500ms
 - [ ] 无 `BizException` 以外的未知错误
-- [ ] `chaos_event_log` 无记录（未注入）
+- [ ] 各业务服务的 chaos `status` 均为 `active=false`
 
 ---
 
@@ -50,39 +50,38 @@
 
 ## 场景 3：order-service JVM 内存泄漏（10-15 分钟）
 
-**目标**：验证堆告警与 clear 后恢复。
+**目标**：验证堆告警与 cleanup 后恢复。
 
 **执行步骤**：
-- [ ] 注入：`POST /internal/chaos/memory-leak/start`（chunkSizeKb=1024, intervalMs=300, maxMb=350）
+- [ ] 注入：`POST order-service /internal/chaos/memory-leak/enable`（chunkSizeKb=1024, intervalMs=300, maxMb=350, durationSec=600）
 - [ ] 观察 Grafana JVM Heap 持续上升，GC 时间增加
-- [ ] 10 分钟后调用 `stop`
-- [ ] 再调用 `clear`，观察 Heap 回落
+- [ ] 10 分钟后调用 `disable`
+- [ ] 再调用 `cleanup`，观察 Heap 回落
 
 **验收标准**：
 - [ ] Grafana JVM Heap > 80% 触发 Prometheus 告警
 - [ ] GC `gc.pause.total` 明显增加
 - [ ] `chaos.memory_leak.holding_mb` gauge 上升到 ~350 MB 后停止
-- [ ] `clear` 后下次 GC Heap 回落到正常水位（< 40%）
-- [ ] order-service P95 延迟在 heap 高位时上升，clear 后下降
+- [ ] `cleanup` 后下次 GC Heap 回落到正常水位（< 40%）
+- [ ] order-service P95 延迟在 heap 高位时上升，cleanup 后下降
 
 ---
 
-## 场景 4：payment 慢 SQL（real + sleep 模式）
+## 场景 4：payment 慢 SQL（v2 JOIN enrichment）
 
-**目标**：验证慢查询日志、P95 上升与错误率可观测。
+**目标**：验证 JOIN 放大查询导致的慢日志、P95 上升与自动恢复可观测。
 
 **执行步骤**：
-- [ ] 注入 sleep 模式：`POST payment-service /internal/chaos/slow-sql/enable`（mode=sleep, delayMs=3000, injectRate=1.0, durationSec=180）
+- [ ] 注入：`POST payment-service /internal/chaos/slow-sql/enable`（joinTable=user_behavior_log, limitRows=1, offsetRows=200000, durationSec=180）
 - [ ] 观察 3 分钟
-- [ ] 调用 disable 后，注入 real 模式（mode=real, delayMs=2000, injectRate=0.5, durationSec=180）
-- [ ] 观察 3 分钟
+- [ ] 查询 `GET payment-service /internal/chaos/slow-sql/status`，确认 `active=true`
+- [ ] 等待 `durationSec` 到期或调用 `disable`，观察恢复
 
 **验收标准**：
-- [ ] sleep 模式：payment 接口 P50 > 3s，`payment.charge.timeout.count` 上升
-- [ ] real 模式：MySQL 慢查询日志中出现 `SELECT SLEEP(2)`
+- [ ] MySQL 慢查询日志中出现与 `user_behavior_log` 相关的 JOIN 放大查询
 - [ ] Grafana payment P95 曲线可见明显抬升
-- [ ] durationSec 到期后自动 disable，P95 自动回落
-- [ ] `chaos_event_log` 有 payment/slow-sql 注入记录
+- [ ] 压力较高时 `payment.charge.timeout.count` 或超时率上升
+- [ ] durationSec 到期后 slow-sql `status.active=false`，P95 自动回落
 
 ---
 
@@ -98,7 +97,6 @@
 **验收标准**：
 - [ ] `chaos.deadlock.count` counter 上升（order + payment 各维度）
 - [ ] MySQL error log 出现 `Deadlock found when trying to get lock`
-- [ ] `chaos_event_log` 有 deadlock 事件记录（含 traceId）
 - [ ] 应用层指数退避重试成功（`chaos.deadlock.retry.count` 上升）
 - [ ] 超过重试上限的请求以 `ORDER_DEADLOCK_MAX_RETRY` 错误结束，不卡死
 - [ ] Runner 成功率下降但不为 0
@@ -133,8 +131,8 @@
 **执行步骤**：
 - [ ] 同时注入三个 Chaos：
   1. ToxiProxy：order→payment 延迟 2s
-  2. `POST order-service /internal/chaos/slow-sql/enable`（delayMs=1500, injectRate=0.5）
-  3. `POST order-service /internal/chaos/deadlock/enable`（injectRate=0.2）
+  2. `POST order-service /internal/chaos/slow-sql/enable`（joinTable=user_behavior_log, durationSec=300）
+  3. `POST order-service /internal/chaos/deadlock/enable`（injectRate=0.2, durationSec=300）
 - [ ] 观察 5 分钟
 - [ ] 移除所有 Chaos（按顺序：deadlock disable → slow-sql disable → toxic remove）
 - [ ] 观察恢复过程
@@ -144,7 +142,7 @@
 - [ ] Grafana 全链路可观测（trace 存在，metrics 可见，日志有 traceId）
 - [ ] 移除所有 chaos 后 5 分钟内成功率恢复 > 90%
 - [ ] Runner 全程未崩溃，恢复后继续产生流量
-- [ ] `chaos_event_log` 有完整事件时间线
+- [ ] slow-sql、deadlock 状态均恢复为 `active=false`，ToxiProxy toxic 已移除
 
 ---
 
@@ -153,7 +151,7 @@
 - [ ] 故障注入全程有统一 `traceId`（Tempo 可查完整链路）
 - [ ] Runner 支持不停机动态调速（`POST /internal/runner/rate`）
 - [ ] Runner 配置更新即生效（`PUT /internal/runner/config`，版本乐观锁）
-- [ ] 所有 Chaos enable 接口支持 `scope + injectRate + durationSec`
+- [ ] 所有 Chaos enable 接口支持 `durationSec`；deadlock 支持 `injectRate`；slow-sql 支持 JOIN 参数
 - [ ] `durationSec` 到期后所有 Chaos 自动关闭
-- [ ] Chaos 接口仅在 `chaos` profile 下注册（生产环境不暴露）
+- [ ] gateway 通过 `/internal/gateway/chaos/...` 分发；业务服务通过 `chaos.endpoints.enabled` 控制 `/internal/chaos/...` 暴露
 - [ ] Grafana 两个 Dashboard 完整展示（Services Overview + Chaos Events）
