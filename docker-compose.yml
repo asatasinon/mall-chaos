@@ -23,7 +23,7 @@ x-service-env: &service-env
   OTEL_TRACES_SAMPLER: parentbased_always_on
   OTEL_METRICS_EXPORTER: none
   OTEL_LOGS_EXPORTER: none
-  JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m -javaagent:/app/opentelemetry-javaagent.jar -javaagent:/data/app/JavaAgent/lib/agent.jar=/data/app/JavaAgent"
+  JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m  -javaagent:/data/app/JavaAgent/lib/agent.jar=/data/app/JavaAgent -javaagent:/app/opentelemetry-javaagent.jar"
 
 x-cloudwise-agent-env: &cloudwise-agent-env
   CW_CONFIG_SERVER: ${CW_CONFIG_SERVER:-http://10.106.0.58:18080/docp}
