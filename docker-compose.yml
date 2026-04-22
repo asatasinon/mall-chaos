@@ -25,7 +25,20 @@ x-service-env: &service-env
   OTEL_LOGS_EXPORTER: none
   ENABLE_OTEL_AGENT: ${ENABLE_OTEL_AGENT:-true}
   ENABLE_CLOUDWISE_AGENT: ${ENABLE_CLOUDWISE_AGENT:-false}
-  JAVA_TOOL_OPTIONS: "-Xms256m -Xmx256m"
+  JAVA_TOOL_OPTIONS: >-
+    -Xms256m
+    -Xmx256m
+    -Dfile.encoding=UTF-8
+    -Dsun.jnu.encoding=UTF-8
+    -Djava.security.egd=file:/dev/./urandom
+    -XX:+UseContainerSupport
+    -XX:+UseG1GC
+    -XX:+UseStringDeduplication
+    -XX:+ParallelRefProcEnabled
+    -XX:MaxGCPauseMillis=200
+    -XX:InitialRAMPercentage=25.0
+    -XX:MinRAMPercentage=25.0
+    -XX:MaxRAMPercentage=75.0
 
 x-cloudwise-agent-env: &cloudwise-agent-env
   CW_CONFIG_SERVER: ${CW_CONFIG_SERVER:-http://10.106.0.58:18080/docp}

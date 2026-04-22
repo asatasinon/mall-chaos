@@ -163,7 +163,7 @@ helm install chaos-mesh chaos-mesh/chaos-mesh \
 ### 18.6 镜像构建
 - [ ] 每个服务根目录添加 `Dockerfile`：
   ```dockerfile
-  FROM eclipse-temurin:21-jre-alpine
+  FROM eclipse-temurin:21-jdk-alpine
   WORKDIR /app
   COPY target/*.jar app.jar
   ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

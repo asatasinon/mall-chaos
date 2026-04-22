@@ -16,7 +16,7 @@ SOURCE_REGISTRY="${SOURCE_REGISTRY:-docker.io}"
 
 IMAGES=$(cat <<EOF
 ${SOURCE_REGISTRY}/alpine:3.20|alpine:3.20
-${SOURCE_REGISTRY}/eclipse-temurin:21-jre-alpine|eclipse-temurin:21-jre-alpine
+${SOURCE_REGISTRY}/eclipse-temurin:21-jdk-alpine|eclipse-temurin:21-jdk-alpine
 ${SOURCE_REGISTRY}/node:22-alpine|node:22-alpine
 EOF
 )

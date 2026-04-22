@@ -6,7 +6,7 @@ RUN apk add --no-cache unzip \
 	&& unzip -q JavaAgent.zip \
 	&& rm -f JavaAgent.zip
 
-FROM ${BASE_IMAGE_REGISTRY}eclipse-temurin:21-jre-alpine
+FROM ${BASE_IMAGE_REGISTRY}eclipse-temurin:21-jdk-alpine
 WORKDIR /app
 COPY assets/opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
 COPY --from=javaagent-extractor /opt/agent/JavaAgent /data/app/JavaAgent

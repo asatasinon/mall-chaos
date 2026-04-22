@@ -593,13 +593,21 @@ public Order getOrder(String orderNo) {
 ### 5.6 JVM 参数配置
 
 ```yaml
-# docker-compose.yml 中相关服务的 JAVA_OPTS
-JAVA_OPTS: >-
-  -Xms256m -Xmx512m
-  -XX:+HeapDumpOnOutOfMemoryError
-  -XX:HeapDumpPath=/tmp/heapdump.hprof
+# docker-compose.yml 中相关服务的 JAVA_TOOL_OPTIONS
+# Kubernetes 中也可继续使用 JAVA_OPTS，入口脚本会透传并补齐通用默认项
+JAVA_TOOL_OPTIONS: >-
+  -Xms256m -Xmx256m
+  -Dfile.encoding=UTF-8
+  -Dsun.jnu.encoding=UTF-8
+  -Djava.security.egd=file:/dev/./urandom
+  -XX:+UseContainerSupport
   -XX:+UseG1GC
-  -Xlog:gc*:file=/tmp/gc.log:time,uptime,level,tags
+  -XX:+UseStringDeduplication
+  -XX:+ParallelRefProcEnabled
+  -XX:MaxGCPauseMillis=200
+  -XX:InitialRAMPercentage=25.0
+  -XX:MinRAMPercentage=25.0
+  -XX:MaxRAMPercentage=75.0
 ```
 
 ### 5.7 管理 API

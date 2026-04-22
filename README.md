@@ -561,7 +561,7 @@ curl http://castrel.local/api/products
 | `SPRING_DATA_REDIS_HOST` | `redis` | Redis 主机 |
 | `OTLP_ENDPOINT` | `http://tempo:4318` | Docker Compose 中注入给 Java 服务的 OTLP 端点 |
 | `CHAOS_CONSOLE_GRAFANA_BASE_URL` | `http://localhost:13000` | Grafana 深链基础地址 |
-| `JAVA_OPTS` | `-Xms256m -Xmx512m` | JVM 参数 |
+| `JAVA_TOOL_OPTIONS` / `JAVA_OPTS` | `-Xms256m -Xmx256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 ...` | JVM 参数；Compose 直接注入 `JAVA_TOOL_OPTIONS`，K8s 可继续使用 `JAVA_OPTS` |
 
 ### 数据库
 

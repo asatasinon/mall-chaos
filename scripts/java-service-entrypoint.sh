@@ -24,6 +24,10 @@ append_java_tool_option() {
   fi
 }
 
+if [ -n "${JAVA_OPTS:-}" ] && [ -z "${JAVA_TOOL_OPTIONS:-}" ]; then
+  export JAVA_TOOL_OPTIONS="$JAVA_OPTS"
+fi
+
 case "${ENABLE_CLOUDWISE_AGENT:-false}" in
   1|true|TRUE|yes|YES|on|ON)
     append_java_tool_option "-javaagent:/data/app/JavaAgent/lib/agent.jar=/data/app/JavaAgent"
@@ -36,6 +40,17 @@ case "${ENABLE_OTEL_AGENT:-true}" in
     ;;
 esac
 
+append_java_tool_option "-Dfile.encoding=UTF-8"
+append_java_tool_option "-Dsun.jnu.encoding=UTF-8"
+append_java_tool_option "-Djava.security.egd=file:/dev/./urandom"
+append_java_tool_option "-XX:+UseContainerSupport"
+append_java_tool_option "-XX:+UseG1GC"
+append_java_tool_option "-XX:+UseStringDeduplication"
+append_java_tool_option "-XX:+ParallelRefProcEnabled"
+append_java_tool_option "-XX:MaxGCPauseMillis=${JAVA_MAX_GC_PAUSE_MILLIS:-200}"
+append_java_tool_option "-XX:InitialRAMPercentage=${JAVA_INITIAL_RAM_PERCENTAGE:-25.0}"
+append_java_tool_option "-XX:MinRAMPercentage=${JAVA_MIN_RAM_PERCENTAGE:-25.0}"
+append_java_tool_option "-XX:MaxRAMPercentage=${JAVA_MAX_RAM_PERCENTAGE:-75.0}"
 append_java_tool_option "-XX:+HeapDumpOnOutOfMemoryError"
 append_java_tool_option "-XX:+ExitOnOutOfMemoryError"
 append_java_tool_option "-XX:HeapDumpPath=$dump_path"
