@@ -24,6 +24,18 @@ append_java_tool_option() {
   fi
 }
 
+case "${ENABLE_CLOUDWISE_AGENT:-false}" in
+  1|true|TRUE|yes|YES|on|ON)
+    append_java_tool_option "-javaagent:/data/app/JavaAgent/lib/agent.jar=/data/app/JavaAgent"
+    ;;
+esac
+
+case "${ENABLE_OTEL_AGENT:-true}" in
+  1|true|TRUE|yes|YES|on|ON)
+    append_java_tool_option "-javaagent:/app/opentelemetry-javaagent.jar"
+    ;;
+esac
+
 append_java_tool_option "-XX:+HeapDumpOnOutOfMemoryError"
 append_java_tool_option "-XX:+ExitOnOutOfMemoryError"
 append_java_tool_option "-XX:HeapDumpPath=$dump_path"
