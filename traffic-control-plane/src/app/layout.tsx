@@ -1,44 +1,36 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import NavBar from '@/components/NavBar';
+import { ThemeProvider } from '@/components/ThemeProvider';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export const metadata: Metadata = {
-  title: 'Castrel Chaos · Traffic Control Plane',
+  title: 'Castrel · Chaos Control Plane',
   description: 'Traffic generation and chaos engineering control console',
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN">
-      <body className="bg-gray-950 text-gray-100 min-h-screen antialiased">
-        <div className="flex h-screen">
-          <nav className="w-56 bg-gray-900 border-r border-gray-800 flex flex-col p-4 shrink-0">
-            <div className="text-lg font-bold text-amber-400 mb-6 tracking-tight">
-              Castrel Chaos
+    <html lang="zh-CN" suppressHydrationWarning>
+      <body className="bg-background text-foreground antialiased min-h-screen flex flex-col">
+        <ThemeProvider>
+          <header className="h-13 border-b border-border bg-card/50 backdrop-blur-sm flex items-stretch px-6 shrink-0 sticky top-0 z-40">
+            <div className="flex items-center pr-6 border-r border-border mr-1 shrink-0">
+              <span className="text-lg font-bold tracking-tight text-foreground">Castrel</span>
+              <span className="mx-2 text-border font-light">/</span>
+              <span className="text-lg font-semibold text-primary">Chaos</span>
             </div>
-            <a href="/" className="block py-2 px-3 rounded hover:bg-gray-800 text-sm mb-1">
-              Overview
-            </a>
-            <a href="/runner" className="block py-2 px-3 rounded hover:bg-gray-800 text-sm mb-1">
-              Runner
-            </a>
-            <a href="/chaos" className="block py-2 px-3 rounded hover:bg-gray-800 text-sm mb-1">
-              Chaos Control
-            </a>
-            <a href="/scenarios" className="block py-2 px-3 rounded hover:bg-gray-800 text-sm mb-1">
-              Scenarios
-            </a>
-            <div className="mt-auto text-xs text-gray-600">
-              v1.0.0
+            <NavBar />
+            <div className="flex items-center pl-3 border-l border-border ml-3">
+              <ThemeToggle />
             </div>
-          </nav>
-          <main className="flex-1 overflow-auto p-6">
-            {children}
-          </main>
-        </div>
+          </header>
+          <main className="flex-1 p-6 overflow-auto">{children}</main>
+          <footer className="border-t border-border px-6 py-2.5 flex justify-between text-[11px] text-muted-foreground tracking-wide">
+            <span>Traffic Control Plane · v2.0</span>
+            <span>All chaos endpoints active</span>
+          </footer>
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -1,22 +1,45 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(mvn install -pl common*)",
+      "Bash(mvn clean package*)",
+      "Bash(mvn test*)",
+      "Bash(docker compose*)",
+      "Bash(curl http://localhost:18086*)",
+      "Bash(curl http://localhost:18080*)",
+      "Bash(curl http://localhost:18081*)",
+      "Bash(curl http://localhost:18082*)",
+      "Bash(curl http://localhost:18083*)",
+      "Bash(curl http://localhost:18084*)",
+      "Bash(curl http://localhost:18085*)",
+      "Bash(curl http://localhost:18087*)",
+      "Bash(curl http://localhost:18088*)",
+      "Bash(curl http://localhost:18089*)",
+      "Bash(curl http://localhost:18090*)",
+      "Bash(sleep *)"
+    ]
+  },
   "hooks": {
-    "postToolUse": [
+    "PreToolUse": [
       {
-        "tool": "Edit",
-        "match": "**/*.py",
-        "command": "ruff check --fix {file_path}"
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | python3 -c \"import sys,json; inp=json.load(sys.stdin); path=inp.get('file_path',''); exit(0 if 'infra/mysql/init/00-schema.sql' not in path else 1)\" 2>/dev/null; then exit 0; fi; echo '[WARN] 00-schema.sql 仅在首次容器启动时执行。修改后须运行 docker compose down -v 再重建才能生效。确定继续？按 Ctrl-C 取消，或等待 5 秒继续。' >&2; sleep 5"
+          }
+        ]
       }
     ],
-    "preToolUse": [
+    "PostToolUse": [
       {
-        "tool": "Edit",
-        "match": "**/.env*",
-        "command": "echo 'Editing .env files requires explicit permission. Use --force to override.' && exit 1"
-      },
-      {
-        "tool": "Write",
-        "match": "**/.env*",
-        "command": "echo 'Writing .env files requires explicit permission. Use --force to override.' && exit 1"
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | python3 -c \"import sys,json; inp=json.load(sys.stdin); path=inp.get('file_path',''); exit(0 if '/common/src/' not in path else 1)\" 2>/dev/null; then exit 0; fi; echo '[auto] common 模块已变更，正在重新安装...' >&2; cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && mvn install -pl common -DskipTests -q && echo '[auto] common install 完成' >&2"
+          }
+        ]
       }
     ]
   }
