@@ -55,6 +55,9 @@ export default function OverviewPage() {
         <p className="text-sm text-muted-foreground mt-0.5">Live telemetry · auto-refresh every 5s {tick > 0 && `· #${tick}`}</p>
       </div>
 
+      {/* Active chaos banner — always visible */}
+      <ActiveChaosStrip chaos={data?.chaos ?? null} />
+
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
           {error}
@@ -117,7 +120,6 @@ export default function OverviewPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <ActiveChaosStrip chaos={data?.chaos ?? null} />
             {!data && <p className="text-sm text-muted-foreground">Loading…</p>}
             {data && (
               <div className="grid grid-cols-3 gap-2.5">
@@ -152,29 +154,45 @@ export default function OverviewPage() {
 }
 
 function ActiveChaosStrip({ chaos }: { chaos: Record<string, unknown> | null }) {
-  if (!chaos) return null;
-  const active = Object.entries(chaos)
-    .filter(([, v]) => {
-      const o = (typeof v === 'object' && v !== null ? v : {}) as Record<string, unknown>;
-      return o.enabled === true || o.active === true;
-    })
-    .map(([key, v]) => {
-      const o = v as Record<string, unknown>;
-      const label = key.replace(/([A-Z])/g, ' $1').trim();
-      const targets = Array.isArray(o.targets) ? (o.targets as string[]).map((t: string) => t.replace('-service', '')).join(', ') : null;
-      return { key, label, targets };
-    });
+  const active = chaos
+    ? Object.entries(chaos)
+        .filter(([, v]) => {
+          const o = (typeof v === 'object' && v !== null ? v : {}) as Record<string, unknown>;
+          return o.enabled === true || o.active === true;
+        })
+        .map(([key, v]) => {
+          const o = v as Record<string, unknown>;
+          const label = key.replace(/([A-Z])/g, ' $1').trim();
+          const targets = Array.isArray(o.targets)
+            ? (o.targets as string[]).map((t: string) => t.replace('-service', '')).join(', ')
+            : null;
+          return { key, label, targets };
+        })
+    : null;
+
+  if (!active) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+        <span className="status-dot status-dot-off" style={{ width: 6, height: 6 }} />
+        <span className="text-xs text-muted-foreground">Loading chaos status…</span>
+      </div>
+    );
+  }
 
   if (active.length === 0) {
     return (
-      <p className="text-xs text-muted-foreground/60 italic">No active injections</p>
+      <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+        <span className="status-dot status-dot-green" style={{ width: 6, height: 6 }} />
+        <span className="text-xs text-muted-foreground">No active fault injections</span>
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+      <span className="text-[11px] font-medium text-destructive/70 shrink-0">Active:</span>
       {active.map(({ key, label, targets }) => (
-        <span key={key} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-destructive/10 border border-destructive/30 text-destructive">
+        <span key={key} className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-destructive/10 border border-destructive/30 text-destructive">
           <span className="status-dot status-dot-red" style={{ width: 6, height: 6 }} />
           {label}{targets ? ` · ${targets}` : ''}
         </span>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Zap, ShieldOff, Trash2, Activity, Pencil, Save, X, Play, Pause, Check } from 'lucide-react';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -86,8 +87,8 @@ export default function ChaosControlPage() {
         <p className="text-sm text-muted-foreground mt-0.5">Fault injection — armed and ready</p>
       </div>
 
-      {/* Active chaos banner */}
-      {armedCount > 0 && (
+      {/* Active chaos banner — always visible */}
+      {armedCount > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
           <span className="text-[11px] font-medium text-destructive/70 shrink-0">Active:</span>
           {CHAOS_LIST.filter((c) => armed[c.id]).map((c) => (
@@ -100,6 +101,11 @@ export default function ChaosControlPage() {
               {c.label}
             </button>
           ))}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+          <span className="status-dot status-dot-green" style={{ width: 6, height: 6 }} />
+          <span className="text-xs text-muted-foreground">No active fault injections</span>
         </div>
       )}
 
@@ -259,12 +265,20 @@ function SelectField({ label, value, onChange, options }: { label: string; value
 function ActionRow({ onInject, onDisarm, onCleanup, onStatus, loading }: { onInject: () => void; onDisarm: () => void; onCleanup?: () => void; onStatus: () => void; loading: boolean }) {
   return (
     <div className="flex gap-2 flex-wrap">
-      <Button size="sm" variant="destructive" onClick={onInject} disabled={loading}>Inject</Button>
-      <Button size="sm" variant="outline" onClick={onDisarm} disabled={loading}>Disarm</Button>
+      <Button size="sm" variant="destructive" onClick={onInject} disabled={loading}>
+        <Zap />Inject
+      </Button>
+      <Button size="sm" variant="outline" onClick={onDisarm} disabled={loading}>
+        <ShieldOff />Disarm
+      </Button>
       {onCleanup && (
-        <Button size="sm" variant="outline" className="border-warning/40 text-warning hover:bg-warning/10" onClick={onCleanup} disabled={loading}>Cleanup</Button>
+        <Button size="sm" variant="outline" className="border-warning/40 text-warning hover:bg-warning/10" onClick={onCleanup} disabled={loading}>
+          <Trash2 />Cleanup
+        </Button>
       )}
-      <Button size="sm" variant="ghost" className="ml-auto" onClick={onStatus} disabled={loading}>Status</Button>
+      <Button size="sm" variant="ghost" className="ml-auto" onClick={onStatus} disabled={loading}>
+        <Activity />Status
+      </Button>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Play, Pause, Pencil, Save, X, Check } from 'lucide-react';
 
 interface RunnerStatus {
   running: boolean; paused: boolean;
@@ -100,11 +101,11 @@ export default function RunnerPage() {
   const stateLabel   = !status ? '—' : status.paused ? 'Paused' : status.running ? 'Running' : 'Stopped';
 
   const KPI_ITEMS = [
-    { label: 'QPS',        value: status ? String(status.currentQps) : '—',                       highlight: true },
-    { label: 'Success',    value: status ? `${successPct.toFixed(1)}%` : '—',                     color: successPct >= 95 ? 'green' : 'red' },
-    { label: 'Fail',       value: status ? `${failPct.toFixed(1)}%` : '—',                        color: failPct > 0.05 ? 'red' : 'muted' },
-    { label: 'Total req',  value: status ? status.totalRequests.toLocaleString() : '—',           color: 'muted' },
-    { label: 'Multiplier', value: status ? `${status.rateMultiplier}×` : '—',                     highlight: true },
+    { label: 'QPS',        value: status ? String(status.currentQps) : '—',              color: 'green' },
+    { label: 'Success',    value: status ? `${successPct.toFixed(1)}%` : '—',            color: 'green' },
+    { label: 'Fail',       value: status ? `${failPct.toFixed(1)}%` : '—',               color: failPct > 5 ? 'red' : 'muted' },
+    { label: 'Total req',  value: status ? status.totalRequests.toLocaleString() : '—',  color: 'muted' },
+    { label: 'Multiplier', value: status ? `${status.rateMultiplier}×` : '—',            color: 'muted' },
   ] as const;
 
   return (
@@ -121,9 +122,8 @@ export default function RunnerPage() {
             <CardContent className="pt-4 pb-3 px-4">
               <p className="text-[11px] text-muted-foreground mb-1.5">{k.label}</p>
               <p className={`text-2xl font-semibold tabular-nums ${
-                'highlight' in k && k.highlight ? 'text-primary' :
-                'color' in k && k.color === 'green' ? 'text-[oklch(0.55_0.15_155)]' :
-                'color' in k && k.color === 'red'   ? 'text-destructive' :
+                k.color === 'green' ? 'text-[oklch(0.55_0.15_155)]' :
+                k.color === 'red'   ? 'text-destructive' :
                 'text-muted-foreground'
               }`}>{k.value}</p>
             </CardContent>
@@ -131,94 +131,88 @@ export default function RunnerPage() {
         ))}
       </div>
 
-      {/* Controls + Config */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Controls */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center justify-between">
-              Controls
-              <div className="flex items-center gap-2">
-                <span className={`status-dot ${dotCls}`} />
-                <span className="text-xs font-normal text-muted-foreground">{stateLabel}</span>
-              </div>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex gap-2">
-              <Button size="sm" className="w-28"
-                onClick={() => action('/internal/traffic/runner/resume')}>
-                ▶ Resume
-              </Button>
-              <Button size="sm" variant="outline" className="w-28 border-warning/40 text-warning hover:bg-warning/10"
-                onClick={() => action('/internal/traffic/runner/pause')}>
-                ⏸ Pause
-              </Button>
-            </div>
-            <div className="h-px bg-border" />
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs text-muted-foreground shrink-0">Rate multiplier</span>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number" step="0.1" min="0.1" max="10" value={multiplier}
-                  onChange={(e) => setMult(e.target.value)}
-                  className="w-20 rounded-md border border-border bg-input px-2.5 py-1.5 text-sm font-mono text-foreground outline-none focus:ring-1 focus:ring-ring"
-                />
-                <Button size="sm" variant="outline"
-                  onClick={() => action('/internal/traffic/runner/rate', { multiplier: parseFloat(multiplier) })}>
-                  Set ×
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Baseline Config */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                Baseline Config
-                {config && <Badge variant="secondary" className="text-[10px] font-mono">v{config.version}</Badge>}
-              </span>
+      {/* Config card (merged with controls) */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              Baseline Config
+              {config && <Badge variant="secondary" className="text-[10px] font-mono">v{config.version}</Badge>}
+            </span>
+            <div className="flex items-center gap-3">
+              <span className={`status-dot ${dotCls}`} />
+              <span className="text-xs font-normal text-muted-foreground">{stateLabel}</span>
               {!editing ? (
-                <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setEditing(true)}>Edit</Button>
+                <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setEditing(true)}>
+                  <Pencil />Edit
+                </Button>
               ) : (
                 <div className="flex items-center gap-2">
                   {saveMsg && <span className={`text-xs ${saveMsg.ok ? 'text-[oklch(0.55_0.15_155)]' : 'text-destructive'}`}>{saveMsg.text}</span>}
                   <Button size="sm" variant="outline" className="text-xs h-7" onClick={saveConfig} disabled={saving}>
-                    {saving ? 'Saving…' : 'Save'}
+                    <Save />{saving ? 'Saving…' : 'Save'}
                   </Button>
-                  <Button size="sm" variant="ghost" className="text-xs h-7" onClick={cancelEdit}>Cancel</Button>
+                  <Button size="sm" variant="ghost" className="text-xs h-7" onClick={cancelEdit}>
+                    <X />Cancel
+                  </Button>
                 </div>
               )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {!config && <p className="text-sm text-muted-foreground">Loading…</p>}
-            {config && !editing && (
-              <div className="grid grid-cols-2 gap-3">
-                <KVTile label="Base QPS"   value={String(config.baseQps)} />
-                <KVTile label="Peak mult." value={`${config.peakMultiplier}×`} />
-                <KVTile label="Cycle"      value={`${config.cycleMinutes} min`} />
-                <KVTile label="Jitter"     value={`${(config.jitterPct * 100).toFixed(0)}%`} />
-              </div>
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Lifecycle + rate row */}
+          <div className="flex items-center gap-4">
+            {status?.running && !status.paused ? (
+              <Button size="sm" variant="outline" className="border-warning/40 text-warning hover:bg-warning/10"
+                onClick={() => action('/internal/traffic/runner/pause')}>
+                <Pause />Pause
+              </Button>
+            ) : (
+              <Button size="sm" className="bg-[oklch(0.55_0.15_155)] hover:bg-[oklch(0.50_0.15_155)] text-white"
+                onClick={() => action('/internal/traffic/runner/resume')}>
+                <Play />Resume
+              </Button>
             )}
-            {config && editing && (
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Base QPS"    hint="req/s baseline" value={form.baseQps}        type="number" min="1"   step="1"
-                  onChange={(v) => setForm((f) => ({ ...f, baseQps: v }))} />
-                <Field label="Peak mult."  hint="spike factor"   value={form.peakMultiplier} type="number" min="1"   step="0.1"
-                  onChange={(v) => setForm((f) => ({ ...f, peakMultiplier: v }))} />
-                <Field label="Cycle (min)" hint="wave period"    value={form.cycleMinutes}   type="number" min="1"   step="1"
-                  onChange={(v) => setForm((f) => ({ ...f, cycleMinutes: v }))} />
-                <Field label="Jitter %"    hint="0–100"          value={form.jitterPct}      type="number" min="0"   max="100" step="1"
-                  onChange={(v) => setForm((f) => ({ ...f, jitterPct: v }))} />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            <div className="h-5 w-px bg-border" />
+            <span className="text-xs text-muted-foreground shrink-0">Rate multiplier</span>
+            <div className="flex items-center gap-2">
+              <input
+                type="number" step="0.1" min="0.1" max="10" value={multiplier}
+                onChange={(e) => setMult(e.target.value)}
+                className="w-20 h-8 rounded-md border border-border bg-input px-2.5 text-sm font-mono text-foreground outline-none focus:ring-1 focus:ring-ring"
+              />
+              <Button size="sm" variant="outline" className="h-8"
+                onClick={() => action('/internal/traffic/runner/rate', { multiplier: parseFloat(multiplier) })}>
+                <Check />Apply
+              </Button>
+            </div>
+          </div>
+          <div className="h-px bg-border" />
+          {/* Config values */}
+          {!config && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {config && !editing && (
+            <div className="grid grid-cols-4 gap-3">
+              <KVTile label="Base QPS"   value={String(config.baseQps)} />
+              <KVTile label="Peak mult." value={`${config.peakMultiplier}×`} />
+              <KVTile label="Cycle"      value={`${config.cycleMinutes} min`} />
+              <KVTile label="Jitter"     value={`${(config.jitterPct * 100).toFixed(0)}%`} />
+            </div>
+          )}
+          {config && editing && (
+            <div className="grid grid-cols-4 gap-3">
+              <Field label="Base QPS"    hint="req/s baseline" value={form.baseQps}        type="number" min="1"   step="1"
+                onChange={(v) => setForm((f) => ({ ...f, baseQps: v }))} />
+              <Field label="Peak mult."  hint="spike factor"   value={form.peakMultiplier} type="number" min="1"   step="0.1"
+                onChange={(v) => setForm((f) => ({ ...f, peakMultiplier: v }))} />
+              <Field label="Cycle (min)" hint="wave period"    value={form.cycleMinutes}   type="number" min="1"   step="1"
+                onChange={(v) => setForm((f) => ({ ...f, cycleMinutes: v }))} />
+              <Field label="Jitter %"    hint="0–100"          value={form.jitterPct}      type="number" min="0"   max="100" step="1"
+                onChange={(v) => setForm((f) => ({ ...f, jitterPct: v }))} />
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
