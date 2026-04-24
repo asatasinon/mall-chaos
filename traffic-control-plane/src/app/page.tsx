@@ -116,7 +116,8 @@ export default function OverviewPage() {
               )}
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            <ActiveChaosStrip chaos={data?.chaos ?? null} />
             {!data && <p className="text-sm text-muted-foreground">Loading…</p>}
             {data && (
               <div className="grid grid-cols-3 gap-2.5">
@@ -146,6 +147,38 @@ export default function OverviewPage() {
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function ActiveChaosStrip({ chaos }: { chaos: Record<string, unknown> | null }) {
+  if (!chaos) return null;
+  const active = Object.entries(chaos)
+    .filter(([, v]) => {
+      const o = (typeof v === 'object' && v !== null ? v : {}) as Record<string, unknown>;
+      return o.enabled === true || o.active === true;
+    })
+    .map(([key, v]) => {
+      const o = v as Record<string, unknown>;
+      const label = key.replace(/([A-Z])/g, ' $1').trim();
+      const targets = Array.isArray(o.targets) ? (o.targets as string[]).map((t: string) => t.replace('-service', '')).join(', ') : null;
+      return { key, label, targets };
+    });
+
+  if (active.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground/60 italic">No active injections</p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {active.map(({ key, label, targets }) => (
+        <span key={key} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-destructive/10 border border-destructive/30 text-destructive">
+          <span className="status-dot status-dot-red" style={{ width: 6, height: 6 }} />
+          {label}{targets ? ` · ${targets}` : ''}
+        </span>
+      ))}
     </div>
   );
 }

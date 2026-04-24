@@ -4,10 +4,9 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 const LINKS = [
-  { href: '/',          label: 'Overview'   },
-  { href: '/runner',    label: 'Runner'     },
-  { href: '/chaos',     label: 'Chaos Ctl'  },
-  { href: '/scenarios', label: 'Scenarios'  },
+  { href: '/',       label: 'Overview'   },
+  { href: '/runner', label: 'Runner'     },
+  { href: '/chaos',  label: 'Chaos Ctl'  },
 ];
 
 export default function NavBar() {
