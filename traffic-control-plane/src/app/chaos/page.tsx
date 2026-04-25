@@ -47,8 +47,25 @@ const CHAOS_LIST: { id: ChaosId; label: string; danger: DangerLevel; statusPath:
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
 
+function isActive(d: unknown): boolean {
+  if (typeof d !== 'object' || d === null) return false;
+  const o = d as Record<string, unknown>;
+  if (o.active === true || o.enabled === true) return true;
+  return Object.values(o).some((v) => isActive(v));
+}
+
+function activeServices(d: unknown): string[] {
+  if (typeof d !== 'object' || d === null) return [];
+  const o = d as Record<string, unknown>;
+  if ('active' in o || 'enabled' in o) return [];
+  return Object.entries(o)
+    .filter(([, child]) => isActive(child))
+    .map(([svc]) => svc.replace('-service', ''));
+}
+
 function useArmedStatus() {
-  const [armed, setArmed] = useState<Record<string, boolean>>({});
+  const [armed, setArmed]       = useState<Record<string, boolean>>({});
+  const [armedSvcs, setArmedSvcs] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     const poll = async () => {
@@ -56,27 +73,33 @@ function useArmedStatus() {
         CHAOS_LIST.map(async (c) => {
           const res  = await fetch(c.statusPath);
           const json = await res.json();
-          const d    = json.data ?? {};
-          return { id: c.id, active: d.enabled === true || d.active === true };
+          return { id: c.id, active: isActive(json.data), svcs: activeServices(json.data) };
         })
       );
-      const next: Record<string, boolean> = {};
-      results.forEach((r) => { if (r.status === 'fulfilled') next[r.value.id] = r.value.active; });
-      setArmed(next);
+      const nextArmed: Record<string, boolean>   = {};
+      const nextSvcs:  Record<string, string[]>  = {};
+      results.forEach((r) => {
+        if (r.status === 'fulfilled') {
+          nextArmed[r.value.id] = r.value.active;
+          nextSvcs[r.value.id]  = r.value.svcs;
+        }
+      });
+      setArmed(nextArmed);
+      setArmedSvcs(nextSvcs);
     };
     poll();
     const id = setInterval(poll, 5000);
     return () => clearInterval(id);
   }, []);
 
-  return armed;
+  return { armed, armedSvcs };
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ChaosControlPage() {
   const [selected, setSelected] = useState<ChaosId>('slow-sql');
-  const armed = useArmedStatus();
+  const { armed, armedSvcs } = useArmedStatus();
 
   const armedCount = Object.values(armed).filter(Boolean).length;
 
@@ -91,16 +114,19 @@ export default function ChaosControlPage() {
       {armedCount > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
           <span className="text-[11px] font-medium text-destructive/70 shrink-0">Active:</span>
-          {CHAOS_LIST.filter((c) => armed[c.id]).map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setSelected(c.id)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-colors"
-            >
-              <span className="status-dot status-dot-red" style={{ width: 6, height: 6 }} />
-              {c.label}
-            </button>
-          ))}
+          {CHAOS_LIST.filter((c) => armed[c.id]).map((c) => {
+            const svcs = armedSvcs[c.id] ?? [];
+            return (
+              <button
+                key={c.id}
+                onClick={() => setSelected(c.id)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-colors"
+              >
+                <span className="status-dot status-dot-red" style={{ width: 6, height: 6 }} />
+                {c.label}{svcs.length > 0 ? ` · ${svcs.join(', ')}` : ''}
+              </button>
+            );
+          })}
         </div>
       ) : (
         <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">

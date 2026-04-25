@@ -42,10 +42,7 @@ export default function OverviewPage() {
     : data.runner.running ? 'status-dot-green' : 'status-dot-off';
 
   const anyArmed = data
-    ? Object.values(data.chaos).some((v) => {
-        const o = v as Record<string, unknown>;
-        return o.enabled === true || o.active === true;
-      })
+    ? Object.values(data.chaos).some((v) => isChaosActive(v))
     : false;
 
   return (
@@ -70,13 +67,13 @@ export default function OverviewPage() {
           <span className="metric-value text-primary">{data?.runner.currentQps ?? '—'}</span>
         </MetricCard>
         <MetricCard title="Success Rate">
-          <span className={`metric-value ${successPct < 90 ? 'text-destructive' : 'text-[oklch(0.62_0.18_155)]'}`}>
+          <span className="metric-value text-[oklch(0.62_0.18_155)]">
             {data ? `${successPct.toFixed(1)}%` : '—'}
           </span>
-          <ProgressBar value={successPct} variant={successPct < 90 ? 'danger' : 'success'} />
+          <ProgressBar value={successPct} variant="success" />
         </MetricCard>
         <MetricCard title="Error Rate">
-          <span className={`metric-value ${failPct > 5 ? 'text-destructive' : 'text-muted-foreground'}`}>
+          <span className="metric-value text-destructive">
             {data ? `${failPct.toFixed(1)}%` : '—'}
           </span>
           <ProgressBar value={Math.min(failPct * 4, 100)} variant="danger" />
@@ -125,8 +122,8 @@ export default function OverviewPage() {
               <div className="grid grid-cols-3 gap-2.5">
                 {Object.entries(data.chaos).map(([key, value]) => {
                   const obj = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
-                  const isError   = !!obj.error;
-                  const isEnabled = obj.enabled === true || obj.active === true;
+                  const isError   = typeof value === 'object' && value !== null && 'error' in (value as object) && !!(value as Record<string,unknown>).error;
+                  const isEnabled = isChaosActive(value);
                   return (
                     <div key={key} className={[
                       'rounded-md border px-3 py-2.5 flex items-center justify-between',
@@ -153,20 +150,38 @@ export default function OverviewPage() {
   );
 }
 
+function isChaosActive(v: unknown): boolean {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as Record<string, unknown>;
+  if (o.active === true || o.enabled === true) return true;
+  return Object.values(o).some((child) => isChaosActive(child));
+}
+
+// Extract service names that are actively injecting from a status payload.
+// Single-service shape: { active: true } → returns the chaos type label as target.
+// Multi-service shape: { "payment-service": { active: true }, "order-service": { active: false } }
+//   → returns ["payment"]
+function activeServices(v: unknown): string[] {
+  if (typeof v !== 'object' || v === null) return [];
+  const o = v as Record<string, unknown>;
+  // Single-service shape
+  if ('active' in o || 'enabled' in o) {
+    return (o.active === true || o.enabled === true) ? ['—'] : [];
+  }
+  // Multi-service map shape
+  return Object.entries(o)
+    .filter(([, child]) => isChaosActive(child))
+    .map(([svc]) => svc.replace('-service', ''));
+}
+
 function ActiveChaosStrip({ chaos }: { chaos: Record<string, unknown> | null }) {
   const active = chaos
     ? Object.entries(chaos)
-        .filter(([, v]) => {
-          const o = (typeof v === 'object' && v !== null ? v : {}) as Record<string, unknown>;
-          return o.enabled === true || o.active === true;
-        })
+        .filter(([, v]) => isChaosActive(v))
         .map(([key, v]) => {
-          const o = v as Record<string, unknown>;
           const label = key.replace(/([A-Z])/g, ' $1').trim();
-          const targets = Array.isArray(o.targets)
-            ? (o.targets as string[]).map((t: string) => t.replace('-service', '')).join(', ')
-            : null;
-          return { key, label, targets };
+          const svcs  = activeServices(v).filter((s) => s !== '—');
+          return { key, label, targets: svcs.length > 0 ? svcs.join(', ') : null };
         })
     : null;
 
