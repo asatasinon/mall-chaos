@@ -117,3 +117,29 @@ export async function consumeInventoryResetTrigger(): Promise<boolean> {
   await redis.del(TRIGGER_RESET_KEY);
   return true;
 }
+
+// ── Activity feed (written by worker, read by API route via Redis list) ──
+
+export interface ActivityEntry {
+  ts: number;
+  action: string;
+  success: boolean;
+  latencyMs: number;
+}
+
+const ACTIVITY_KEY = 'traffic-control-plane:runner:activity';
+const ACTIVITY_MAX = 50;
+
+export async function pushActivity(entry: ActivityEntry): Promise<void> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  await redis.lpush(ACTIVITY_KEY, JSON.stringify(entry));
+  await redis.ltrim(ACTIVITY_KEY, 0, ACTIVITY_MAX - 1);
+}
+
+export async function getRunnerActivity(limit = 20): Promise<ActivityEntry[]> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  const items = await redis.lrange(ACTIVITY_KEY, 0, limit - 1);
+  return items.map((s) => JSON.parse(s) as ActivityEntry);
+}

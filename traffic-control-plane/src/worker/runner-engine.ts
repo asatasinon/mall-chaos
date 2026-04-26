@@ -1,6 +1,6 @@
 import { getGatewayClient } from '../lib/gateway-client';
 import { loadRunnerConfigFromDb, RunnerConfig, MixRule } from '../lib/runner-config';
-import { getRunnerControlState, setRunnerStatus } from '../lib/runtime-state';
+import { getRunnerControlState, setRunnerStatus, pushActivity } from '../lib/runtime-state';
 import pino from 'pino';
 
 const log = pino({ name: 'runner-engine' });
@@ -123,8 +123,11 @@ export class RunnerEngine {
     if (this.paused) return;
     const action = this.pickAction();
     this.totalRequests++;
+    const t0 = Date.now();
     const success = await this.executeAction(action);
-    this.window.push({ ts: Date.now(), success });
+    const latencyMs = Date.now() - t0;
+    this.window.push({ ts: t0, success });
+    void pushActivity({ ts: t0, action, success, latencyMs });
     await this.publishStatus();
   }
 

@@ -11,20 +11,35 @@ interface RunnerStatus {
   currentQps: number; successRate: number; failRate: number;
   totalRequests: number; rateMultiplier: number;
 }
+interface MixRule { actionType: string; ratio: number; }
 interface RunnerConfig {
   version: number; baseQps: number; peakMultiplier: number;
-  cycleMinutes: number; jitterPct: number;
+  cycleMinutes: number; jitterPct: number; mixRules: MixRule[];
 }
 interface ConfigForm { baseQps: string; peakMultiplier: string; cycleMinutes: string; jitterPct: string; }
+interface ActivityEntry { ts: number; action: string; success: boolean; latencyMs: number; }
+
+const ACTION_LABELS: Record<string, string> = {
+  ORDER_SUCCESS: 'Order',
+  ORDER_FAIL:    'Fail',
+  CANCEL:        'Cancel',
+};
 
 export default function RunnerPage() {
-  const [status, setStatus]   = useState<RunnerStatus | null>(null);
-  const [config, setConfig]   = useState<RunnerConfig | null>(null);
-  const [multiplier, setMult] = useState('1.0');
-  const [editing, setEditing] = useState(false);
-  const [form, setForm]       = useState<ConfigForm>({ baseQps: '', peakMultiplier: '', cycleMinutes: '', jitterPct: '' });
-  const [saving, setSaving]   = useState(false);
-  const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [status, setStatus]       = useState<RunnerStatus | null>(null);
+  const [config, setConfig]       = useState<RunnerConfig | null>(null);
+  const [multiplier, setMult]     = useState('1.0');
+  const [editing, setEditing]     = useState(false);
+  const [form, setForm]           = useState<ConfigForm>({ baseQps: '', peakMultiplier: '', cycleMinutes: '', jitterPct: '' });
+  const [saving, setSaving]       = useState(false);
+  const [saveMsg, setSaveMsg]     = useState<{ ok: boolean; text: string } | null>(null);
+
+  const [mixEditing, setMixEditing] = useState(false);
+  const [mixForm, setMixForm]       = useState<MixRule[]>([]);
+  const [mixSaving, setMixSaving]   = useState(false);
+  const [mixMsg, setMixMsg]         = useState<{ ok: boolean; text: string } | null>(null);
+
+  const [activity, setActivity]   = useState<ActivityEntry[]>([]);
 
   const loadConfig = async () => {
     const res  = await fetch('/internal/traffic/runner/config');
@@ -37,6 +52,7 @@ export default function RunnerPage() {
         cycleMinutes:   String(json.data.cycleMinutes),
         jitterPct:      String((json.data.jitterPct * 100).toFixed(0)),
       });
+      setMixForm(json.data.mixRules ?? []);
     }
   };
 
@@ -48,10 +64,19 @@ export default function RunnerPage() {
         if (json.code === 0) setStatus(json.data);
       } catch {}
     };
+    const loadActivity = async () => {
+      try {
+        const res  = await fetch('/internal/traffic/runner/activity?limit=20');
+        const json = await res.json();
+        if (json.code === 0) setActivity(json.data);
+      } catch {}
+    };
     loadConfig().catch(() => {});
     loadStatus();
-    const id = setInterval(loadStatus, 3000);
-    return () => clearInterval(id);
+    loadActivity();
+    const id1 = setInterval(loadStatus, 3000);
+    const id2 = setInterval(loadActivity, 5000);
+    return () => { clearInterval(id1); clearInterval(id2); };
   }, []);
 
   const action = (path: string, body?: unknown) =>
@@ -95,17 +120,47 @@ export default function RunnerPage() {
     });
   };
 
-  const successPct   = status ? status.successRate * 100 : 0;
-  const failPct      = status ? status.failRate    * 100 : 0;
-  const dotCls       = !status ? 'status-dot-off' : status.paused ? 'status-dot-yellow' : status.running ? 'status-dot-green' : 'status-dot-off';
-  const stateLabel   = !status ? '—' : status.paused ? 'Paused' : status.running ? 'Running' : 'Stopped';
+  const saveMix = async () => {
+    if (!config) return;
+    const total = mixForm.reduce((s, r) => s + r.ratio, 0);
+    if (total <= 0) { setMixMsg({ ok: false, text: 'Ratios must sum > 0' }); return; }
+    const normalised = mixForm.map((r) => ({ ...r, ratio: +(r.ratio / total).toFixed(4) }));
+    setMixSaving(true); setMixMsg(null);
+    try {
+      const res  = await fetch('/internal/traffic/runner/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: config.version, mixRules: normalised }),
+      });
+      const json = await res.json();
+      if (json.code === 0) {
+        setMixMsg({ ok: true, text: `Saved · v${json.data.newVersion}` });
+        setMixEditing(false);
+        await loadConfig();
+      } else {
+        setMixMsg({ ok: false, text: json.message || 'Save failed' });
+      }
+    } catch (e: unknown) {
+      setMixMsg({ ok: false, text: e instanceof Error ? e.message : 'error' });
+    } finally { setMixSaving(false); }
+  };
+
+  const cancelMix = () => {
+    setMixEditing(false); setMixMsg(null);
+    setMixForm(config?.mixRules ?? []);
+  };
+
+  const successPct = status ? status.successRate * 100 : 0;
+  const failPct    = status ? status.failRate    * 100 : 0;
+  const dotCls     = !status ? 'status-dot-off' : status.paused ? 'status-dot-yellow' : status.running ? 'status-dot-green' : 'status-dot-off';
+  const stateLabel = !status ? '—' : status.paused ? 'Paused' : status.running ? 'Running' : 'Stopped';
 
   const KPI_ITEMS = [
-    { label: 'QPS',        value: status ? String(status.currentQps) : '—',              color: 'green' },
-    { label: 'Success',    value: status ? `${successPct.toFixed(1)}%` : '—',            color: 'green' },
-    { label: 'Fail',       value: status ? `${failPct.toFixed(1)}%` : '—',               color: failPct > 5 ? 'red' : 'muted' },
-    { label: 'Total req',  value: status ? status.totalRequests.toLocaleString() : '—',  color: 'muted' },
-    { label: 'Multiplier', value: status ? `${status.rateMultiplier}×` : '—',            color: 'muted' },
+    { label: 'QPS',        value: status ? String(status.currentQps) : '—',             color: 'green' },
+    { label: 'Success',    value: status ? `${successPct.toFixed(1)}%` : '—',           color: 'green' },
+    { label: 'Fail',       value: status ? `${failPct.toFixed(1)}%` : '—',              color: failPct > 5 ? 'red' : 'muted' },
+    { label: 'Total req',  value: status ? status.totalRequests.toLocaleString() : '—', color: 'muted' },
+    { label: 'Multiplier', value: status ? `${status.rateMultiplier}×` : '—',           color: 'muted' },
   ] as const;
 
   return (
@@ -131,7 +186,7 @@ export default function RunnerPage() {
         ))}
       </div>
 
-      {/* Config card (merged with controls) */}
+      {/* Baseline Config card */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium flex items-center justify-between">
@@ -189,7 +244,6 @@ export default function RunnerPage() {
             </div>
           </div>
           <div className="h-px bg-border" />
-          {/* Config values */}
           {!config && <p className="text-sm text-muted-foreground">Loading…</p>}
           {config && !editing && (
             <div className="grid grid-cols-4 gap-3">
@@ -209,6 +263,114 @@ export default function RunnerPage() {
                 onChange={(v) => setForm((f) => ({ ...f, cycleMinutes: v }))} />
               <Field label="Jitter %"    hint="0–100"          value={form.jitterPct}      type="number" min="0"   max="100" step="1"
                 onChange={(v) => setForm((f) => ({ ...f, jitterPct: v }))} />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Traffic Mix card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center justify-between">
+            Traffic Mix
+            {!mixEditing ? (
+              <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => { setMixEditing(true); setMixMsg(null); }}>
+                <Pencil />Edit
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2">
+                {mixMsg && <span className={`text-xs ${mixMsg.ok ? 'text-[oklch(0.55_0.15_155)]' : 'text-destructive'}`}>{mixMsg.text}</span>}
+                <Button size="sm" variant="outline" className="text-xs h-7" onClick={saveMix} disabled={mixSaving}>
+                  <Save />{mixSaving ? 'Saving…' : 'Save'}
+                </Button>
+                <Button size="sm" variant="ghost" className="text-xs h-7" onClick={cancelMix}>
+                  <X />Cancel
+                </Button>
+              </div>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!config && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {config && (
+            <div className="space-y-2.5">
+              {(mixEditing ? mixForm : config.mixRules).map((rule, i) => {
+                const displayPct = (rule.ratio * 100).toFixed(1);
+                const actionLabel = ACTION_LABELS[rule.actionType] ?? rule.actionType;
+                const barColor = rule.actionType === 'ORDER_SUCCESS'
+                  ? 'bg-[oklch(0.55_0.15_155)]'
+                  : rule.actionType === 'ORDER_FAIL'
+                  ? 'bg-destructive'
+                  : 'bg-muted-foreground/40';
+
+                return (
+                  <div key={rule.actionType} className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground w-20 shrink-0 font-mono">{actionLabel}</span>
+                    <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+                        style={{ width: `${Math.min(rule.ratio * 100, 100)}%` }} />
+                    </div>
+                    {!mixEditing ? (
+                      <span className="text-xs font-mono tabular-nums w-12 text-right">{displayPct}%</span>
+                    ) : (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <input
+                          type="number" min="0" max="100" step="1"
+                          value={(mixForm[i].ratio * 100).toFixed(0)}
+                          onChange={(e) => {
+                            const v = Math.max(0, parseFloat(e.target.value) || 0) / 100;
+                            setMixForm((prev) => prev.map((r, j) => j === i ? { ...r, ratio: v } : r));
+                          }}
+                          className="w-16 h-7 rounded-md border border-border bg-input px-2 text-xs font-mono text-foreground outline-none focus:ring-1 focus:ring-ring"
+                        />
+                        <span className="text-xs text-muted-foreground">%</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {mixEditing && (
+                <p className="text-[11px] text-muted-foreground pt-1">
+                  Values are normalised to 100% on save. Current sum: {(mixForm.reduce((s, r) => s + r.ratio, 0) * 100).toFixed(0)}%
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Recent Activity card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center justify-between">
+            Recent Activity
+            <span className="text-[11px] text-muted-foreground font-normal">auto-refresh every 5s</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {activity.length === 0 && (
+            <p className="text-sm text-muted-foreground">No activity yet — start the runner to see requests.</p>
+          )}
+          {activity.length > 0 && (
+            <div className="space-y-1">
+              {activity.map((e, i) => {
+                const time = new Date(e.ts).toISOString().slice(11, 19);
+                const label = ACTION_LABELS[e.action] ?? e.action;
+                return (
+                  <div key={i} className="flex items-center gap-3 text-xs">
+                    <span className="font-mono text-muted-foreground tabular-nums w-20 shrink-0">{time}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      e.action === 'ORDER_SUCCESS' ? 'bg-[oklch(0.55_0.15_155)]/10 text-[oklch(0.55_0.15_155)]' :
+                      e.action === 'ORDER_FAIL'    ? 'bg-destructive/10 text-destructive' :
+                      'bg-muted text-muted-foreground'
+                    }`}>{label}</span>
+                    <span className={e.success ? 'text-[oklch(0.55_0.15_155)]' : 'text-destructive'}>
+                      {e.success ? '✓' : '✗'}
+                    </span>
+                    <span className="text-muted-foreground tabular-nums">{e.latencyMs}ms</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
