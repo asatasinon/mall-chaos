@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Zap, ShieldOff, Trash2, Activity, Pencil, Save, X, Play, Pause, Check } from 'lucide-react';
+import { Zap, ShieldOff, Trash2, Activity, Pencil, Save, X, Play, Pause, Check, AlertCircle } from 'lucide-react';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -309,12 +309,132 @@ function ActionRow({ onInject, onDisarm, onCleanup, onStatus, loading }: { onInj
   );
 }
 
-function ResultOutput({ result }: { result: string | null }) {
+function ResultOutput({ result }: { result: ApiResult | null }) {
   if (!result) return null;
+
+  if (!result.ok) {
+    return (
+      <div className="flex items-start gap-2.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5">
+        <AlertCircle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-destructive capitalize">{result.action} failed</p>
+          <p className="text-xs text-destructive/80 mt-0.5 break-words">{result.message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (result.action === 'status') {
+    return <StatusResult data={result.data} />;
+  }
+
+  // inject / disarm / cleanup success
+  const icons: Record<ApiAction, React.ReactNode> = {
+    inject:  <Zap className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />,
+    disarm:  <ShieldOff className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />,
+    cleanup: <Trash2 className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />,
+    status:  <Activity className="h-3.5 w-3.5 shrink-0" />,
+  };
+  const colors: Record<ApiAction, string> = {
+    inject:  'border-emerald-500/30 bg-emerald-500/5',
+    disarm:  'border-blue-500/30 bg-blue-500/5',
+    cleanup: 'border-amber-500/30 bg-amber-500/5',
+    status:  'border-border bg-muted/30',
+  };
+
   return (
-    <pre className="text-xs text-muted-foreground bg-muted/40 rounded-md border border-border px-3 py-2.5 max-h-40 overflow-auto whitespace-pre-wrap font-mono">
-      {result}
-    </pre>
+    <div className={`flex items-start gap-2.5 rounded-md border px-3 py-2.5 ${colors[result.action]}`}>
+      {icons[result.action]}
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium capitalize text-foreground">{result.action} succeeded</p>
+        {result.data !== null && result.data !== undefined && (
+          <ActionSummary action={result.action} data={result.data} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ActionSummary({ action, data }: { action: ApiAction; data: unknown }) {
+  if (typeof data !== 'object' || data === null) {
+    return <p className="text-xs text-muted-foreground mt-0.5">{String(data)}</p>;
+  }
+  const d = data as Record<string, unknown>;
+
+  if (action === 'inject') {
+    const targets = Array.isArray(d.targets) ? (d.targets as string[]).map((s) => s.replace('-service', '')).join(', ') : null;
+    const dur     = d.durationSec != null ? `${d.durationSec}s` : null;
+    const kvs     = [targets && `targets: ${targets}`, dur && `duration: ${dur}`].filter(Boolean);
+    if (kvs.length === 0) return null;
+    return <p className="text-xs text-muted-foreground mt-0.5">{kvs.join(' · ')}</p>;
+  }
+
+  if (action === 'disarm' || action === 'cleanup') {
+    const keys = Object.keys(d);
+    if (keys.length === 0) return null;
+    return <p className="text-xs text-muted-foreground mt-0.5">{keys.length} service{keys.length !== 1 ? 's' : ''} updated</p>;
+  }
+
+  return null;
+}
+
+function StatusResult({ data }: { data: unknown }) {
+  const isObj = typeof data === 'object' && data !== null;
+
+  if (!isObj) {
+    return (
+      <pre className="text-xs text-muted-foreground bg-muted/40 rounded-md border border-border px-3 py-2.5 max-h-40 overflow-auto whitespace-pre-wrap font-mono">
+        {JSON.stringify(data, null, 2)}
+      </pre>
+    );
+  }
+
+  const entries = Object.entries(data as Record<string, unknown>);
+  const hasActive = entries.some(([, v]) => typeof v === 'object' && v !== null && ('active' in (v as object) || 'enabled' in (v as object)));
+
+  if (hasActive) {
+    // Per-service status map
+    return (
+      <div className="space-y-1.5">
+        {entries.map(([svc, val]) => {
+          const v = val as Record<string, unknown>;
+          const active = v?.active === true || v?.enabled === true;
+          return (
+            <div key={svc} className="flex items-center justify-between gap-3 rounded border border-border/60 bg-muted/20 px-2.5 py-1.5">
+              <span className="text-xs font-mono text-muted-foreground">{svc.replace('-service', '')}</span>
+              <div className="flex items-center gap-2">
+                {v?.durationSec != null && (
+                  <span className="text-[10px] text-muted-foreground/70">{String(v.durationSec)}s</span>
+                )}
+                <Badge variant={active ? 'destructive' : 'secondary'} className="text-[10px] py-0 px-1.5 gap-1">
+                  {active && <span className="status-dot status-dot-red" style={{ width: 5, height: 5 }} />}
+                  {active ? 'active' : 'idle'}
+                </Badge>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Flat status object (e.g. network, table-lock)
+  const active = (data as Record<string, unknown>).active === true || (data as Record<string, unknown>).enabled === true;
+  const rest   = Object.entries(data as Record<string, unknown>).filter(([k]) => k !== 'active' && k !== 'enabled');
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <Badge variant={active ? 'destructive' : 'secondary'} className="text-[10px] py-0 px-1.5 gap-1">
+          {active && <span className="status-dot status-dot-red" style={{ width: 5, height: 5 }} />}
+          {active ? 'active' : 'idle'}
+        </Badge>
+      </div>
+      {rest.length > 0 && (
+        <pre className="text-xs text-muted-foreground bg-muted/40 rounded-md border border-border px-3 py-2 max-h-32 overflow-auto whitespace-pre-wrap font-mono">
+          {JSON.stringify(Object.fromEntries(rest), null, 2)}
+        </pre>
+      )}
+    </div>
   );
 }
 
@@ -329,15 +449,31 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 
 // ── API helper ────────────────────────────────────────────────────────────────
 
-async function callApi(path: string, body?: unknown): Promise<string> {
+type ApiAction = 'inject' | 'disarm' | 'cleanup' | 'status';
+
+interface ApiResult {
+  ok: boolean;
+  action: ApiAction;
+  data: unknown;
+  message?: string;
+}
+
+async function callApi(action: ApiAction, path: string, body?: unknown): Promise<ApiResult> {
   const isGet = path.includes('/status');
-  const res   = await fetch(path, {
-    method:  isGet ? 'GET' : 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    !isGet && body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  const json = await res.json();
-  return JSON.stringify(json.data ?? json, null, 2);
+  try {
+    const res  = await fetch(path, {
+      method:  isGet ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    !isGet && body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    const json = await res.json();
+    if (!res.ok || (json.code !== undefined && json.code !== 0)) {
+      return { ok: false, action, data: json.data ?? null, message: json.message ?? `HTTP ${res.status}` };
+    }
+    return { ok: true, action, data: json.data ?? json };
+  } catch (e: unknown) {
+    return { ok: false, action, data: null, message: String(e) };
+  }
 }
 
 // ── Panel implementations ─────────────────────────────────────────────────────
@@ -352,9 +488,9 @@ function SlowSqlPanel({ armed }: { armed?: boolean }) {
   const [selected, setSelected] = useState(['inventory-service']);
   const [params, setParams]     = useState(Object.fromEntries(EXTRA.map((p) => [p.key, p.default])));
   const [loading, setLoading]   = useState(false);
-  const [result, setResult]     = useState<string | null>(null);
+  const [result, setResult]     = useState<ApiResult | null>(null);
 
-  const call = async (path: string, body?: unknown) => { setLoading(true); try { setResult(await callApi(path, body)); } catch (e: unknown) { setResult(String(e)); } finally { setLoading(false); } };
+  const call = async (action: ApiAction, path: string, body?: unknown) => { setLoading(true); setResult(await callApi(action, path, body)); setLoading(false); };
   const body = () => ({ targets: selected, ...Object.fromEntries(EXTRA.map((p) => [p.key, p.type === 'number' ? parseFloat(params[p.key]) : params[p.key]])) });
 
   return (
@@ -367,9 +503,9 @@ function SlowSqlPanel({ armed }: { armed?: boolean }) {
         <ParamGrid params={params} defs={EXTRA} onChange={(k, v) => setParams((p) => ({ ...p, [k]: v }))} />
       </Section>
       <ActionRow loading={loading}
-        onInject={() => call('/internal/traffic/chaos/slow-sql/enable', body())}
-        onDisarm={() => call('/internal/traffic/chaos/slow-sql/disable', { targets: selected })}
-        onStatus={() => call('/internal/traffic/chaos/slow-sql/status')} />
+        onInject={() => call('inject', '/internal/traffic/chaos/slow-sql/enable', body())}
+        onDisarm={() => call('disarm', '/internal/traffic/chaos/slow-sql/disable', { targets: selected })}
+        onStatus={() => call('status', '/internal/traffic/chaos/slow-sql/status')} />
       <ResultOutput result={result} />
     </div>
   );
@@ -383,9 +519,9 @@ function MemoryLeakPanel({ armed }: { armed?: boolean }) {
   const [selected, setSelected] = useState(['payment-service']);
   const [params, setParams]     = useState(Object.fromEntries(EXTRA.map((p) => [p.key, p.default])));
   const [loading, setLoading]   = useState(false);
-  const [result, setResult]     = useState<string | null>(null);
+  const [result, setResult]     = useState<ApiResult | null>(null);
 
-  const call = async (path: string, body?: unknown) => { setLoading(true); try { setResult(await callApi(path, body)); } catch (e: unknown) { setResult(String(e)); } finally { setLoading(false); } };
+  const call = async (action: ApiAction, path: string, body?: unknown) => { setLoading(true); setResult(await callApi(action, path, body)); setLoading(false); };
   const body = () => ({ targets: selected, ...Object.fromEntries(EXTRA.map((p) => [p.key, parseFloat(params[p.key])])) });
 
   return (
@@ -398,10 +534,10 @@ function MemoryLeakPanel({ armed }: { armed?: boolean }) {
         <ParamGrid params={params} defs={EXTRA} onChange={(k, v) => setParams((p) => ({ ...p, [k]: v }))} />
       </Section>
       <ActionRow loading={loading}
-        onInject={() => call('/internal/traffic/chaos/memory-leak/enable', body())}
-        onDisarm={() => call('/internal/traffic/chaos/memory-leak/disable', { targets: selected })}
-        onCleanup={() => call('/internal/traffic/chaos/memory-leak/cleanup', { targets: selected })}
-        onStatus={() => call('/internal/traffic/chaos/memory-leak/status')} />
+        onInject={() => call('inject', '/internal/traffic/chaos/memory-leak/enable', body())}
+        onDisarm={() => call('disarm', '/internal/traffic/chaos/memory-leak/disable', { targets: selected })}
+        onCleanup={() => call('cleanup', '/internal/traffic/chaos/memory-leak/cleanup', { targets: selected })}
+        onStatus={() => call('status', '/internal/traffic/chaos/memory-leak/status')} />
       <ResultOutput result={result} />
     </div>
   );
@@ -415,9 +551,9 @@ function DeadlockPanel({ armed }: { armed?: boolean }) {
   const [selected, setSelected] = useState(['payment-service']);
   const [params, setParams]     = useState(Object.fromEntries(EXTRA.map((p) => [p.key, p.default])));
   const [loading, setLoading]   = useState(false);
-  const [result, setResult]     = useState<string | null>(null);
+  const [result, setResult]     = useState<ApiResult | null>(null);
 
-  const call = async (path: string, body?: unknown) => { setLoading(true); try { setResult(await callApi(path, body)); } catch (e: unknown) { setResult(String(e)); } finally { setLoading(false); } };
+  const call = async (action: ApiAction, path: string, body?: unknown) => { setLoading(true); setResult(await callApi(action, path, body)); setLoading(false); };
   const body = () => ({ targets: selected, scope: 'ALL', ...Object.fromEntries(EXTRA.map((p) => [p.key, parseFloat(params[p.key])])) });
 
   return (
@@ -430,10 +566,10 @@ function DeadlockPanel({ armed }: { armed?: boolean }) {
         <ParamGrid params={params} defs={EXTRA} onChange={(k, v) => setParams((p) => ({ ...p, [k]: v }))} />
       </Section>
       <ActionRow loading={loading}
-        onInject={() => call('/internal/traffic/chaos/deadlock/enable', body())}
-        onDisarm={() => call('/internal/traffic/chaos/deadlock/disable', { targets: selected })}
-        onCleanup={() => call('/internal/traffic/chaos/deadlock/cleanup', { targets: selected })}
-        onStatus={() => call('/internal/traffic/chaos/deadlock/status')} />
+        onInject={() => call('inject', '/internal/traffic/chaos/deadlock/enable', body())}
+        onDisarm={() => call('disarm', '/internal/traffic/chaos/deadlock/disable', { targets: selected })}
+        onCleanup={() => call('cleanup', '/internal/traffic/chaos/deadlock/cleanup', { targets: selected })}
+        onStatus={() => call('status', '/internal/traffic/chaos/deadlock/status')} />
       <ResultOutput result={result} />
     </div>
   );
@@ -444,17 +580,15 @@ function TableLockPanel({ armed }: { armed?: boolean }) {
   const [table, setTable]       = useState(TABLES_PER_SERVICE[TABLE_LOCK_SERVICES[0]]?.[0] ?? '');
   const [duration, setDuration] = useState('300');
   const [loading, setLoading]   = useState(false);
-  const [result, setResult]     = useState<string | null>(null);
+  const [result, setResult]     = useState<ApiResult | null>(null);
 
   const handleSvc = (s: string) => { setService(s); setTable(TABLES_PER_SERVICE[s]?.[0] ?? ''); };
-  const call = async (path: string, body?: unknown) => {
+  const call = async (action: ApiAction, path: string, body?: unknown) => {
     setLoading(true);
-    try {
-      const isGet = path.includes('/status');
-      const url   = isGet ? `${path}?targetService=${service}&targetTable=${table}` : path;
-      setResult(await callApi(isGet ? url : path, !isGet ? body : undefined));
-    } catch (e: unknown) { setResult(String(e)); }
-    finally { setLoading(false); }
+    const isGet = path.includes('/status');
+    const url   = isGet ? `${path}?targetService=${service}&targetTable=${table}` : path;
+    setResult(await callApi(action, isGet ? url : path, !isGet ? body : undefined));
+    setLoading(false);
   };
 
   return (
@@ -474,9 +608,9 @@ function TableLockPanel({ armed }: { armed?: boolean }) {
         </div>
       </Section>
       <ActionRow loading={loading}
-        onInject={() => call('/internal/traffic/chaos/table-lock/enable', { targetService: service, targetTable: table, durationSec: parseInt(duration, 10) })}
-        onDisarm={() => call('/internal/traffic/chaos/table-lock/disable', { targetService: service, targetTable: table })}
-        onStatus={() => call('/internal/traffic/chaos/table-lock/status')} />
+        onInject={() => call('inject', '/internal/traffic/chaos/table-lock/enable', { targetService: service, targetTable: table, durationSec: parseInt(duration, 10) })}
+        onDisarm={() => call('disarm', '/internal/traffic/chaos/table-lock/disable', { targetService: service, targetTable: table })}
+        onStatus={() => call('status', '/internal/traffic/chaos/table-lock/status')} />
       <ResultOutput result={result} />
     </div>
   );
@@ -490,16 +624,14 @@ function NetworkDelayPanel({ armed }: { armed?: boolean }) {
   const [proxy, setProxy]     = useState(PROXY_NAMES[0]);
   const [params, setParams]   = useState(Object.fromEntries(EXTRA.map((p) => [p.key, p.default])));
   const [loading, setLoading] = useState(false);
-  const [result, setResult]   = useState<string | null>(null);
+  const [result, setResult]   = useState<ApiResult | null>(null);
 
-  const call = async (path: string, body?: unknown) => {
+  const call = async (action: ApiAction, path: string, body?: unknown) => {
     setLoading(true);
-    try {
-      const isGet = path.includes('/status');
-      const url   = isGet ? `${path}?proxyName=${proxy}` : path;
-      setResult(await callApi(isGet ? url : path, !isGet ? body : undefined));
-    } catch (e: unknown) { setResult(String(e)); }
-    finally { setLoading(false); }
+    const isGet = path.includes('/status');
+    const url   = isGet ? `${path}?proxyName=${proxy}` : path;
+    setResult(await callApi(action, isGet ? url : path, !isGet ? body : undefined));
+    setLoading(false);
   };
 
   return (
@@ -519,9 +651,9 @@ function NetworkDelayPanel({ armed }: { armed?: boolean }) {
         </div>
       </Section>
       <ActionRow loading={loading}
-        onInject={() => call('/internal/traffic/chaos/network-delay/enable', { proxyName: proxy, ...Object.fromEntries(EXTRA.map((p) => [p.key, parseInt(params[p.key], 10)])) })}
-        onDisarm={() => call('/internal/traffic/chaos/network-delay/disable', { proxyName: proxy })}
-        onStatus={() => call('/internal/traffic/chaos/network-delay/status')} />
+        onInject={() => call('inject', '/internal/traffic/chaos/network-delay/enable', { proxyName: proxy, ...Object.fromEntries(EXTRA.map((p) => [p.key, parseInt(params[p.key], 10)])) })}
+        onDisarm={() => call('disarm', '/internal/traffic/chaos/network-delay/disable', { proxyName: proxy })}
+        onStatus={() => call('status', '/internal/traffic/chaos/network-delay/status')} />
       <ResultOutput result={result} />
     </div>
   );
@@ -530,16 +662,14 @@ function NetworkDelayPanel({ armed }: { armed?: boolean }) {
 function NetworkResetPanel({ armed }: { armed?: boolean }) {
   const [proxy, setProxy]     = useState(PROXY_NAMES[0]);
   const [loading, setLoading] = useState(false);
-  const [result, setResult]   = useState<string | null>(null);
+  const [result, setResult]   = useState<ApiResult | null>(null);
 
-  const call = async (path: string, body?: unknown) => {
+  const call = async (action: ApiAction, path: string, body?: unknown) => {
     setLoading(true);
-    try {
-      const isGet = path.includes('/status');
-      const url   = isGet ? `${path}?proxyName=${proxy}` : path;
-      setResult(await callApi(isGet ? url : path, !isGet ? body : undefined));
-    } catch (e: unknown) { setResult(String(e)); }
-    finally { setLoading(false); }
+    const isGet = path.includes('/status');
+    const url   = isGet ? `${path}?proxyName=${proxy}` : path;
+    setResult(await callApi(action, isGet ? url : path, !isGet ? body : undefined));
+    setLoading(false);
   };
 
   return (
@@ -552,9 +682,9 @@ function NetworkResetPanel({ armed }: { armed?: boolean }) {
         </div>
       </Section>
       <ActionRow loading={loading}
-        onInject={() => call('/internal/traffic/chaos/network-reset/enable', { proxyName: proxy, latencyMs: 0, jitter: 0 })}
-        onDisarm={() => call('/internal/traffic/chaos/network-reset/disable', { proxyName: proxy })}
-        onStatus={() => call('/internal/traffic/chaos/network-reset/status')} />
+        onInject={() => call('inject', '/internal/traffic/chaos/network-reset/enable', { proxyName: proxy, latencyMs: 0, jitter: 0 })}
+        onDisarm={() => call('disarm', '/internal/traffic/chaos/network-reset/disable', { proxyName: proxy })}
+        onStatus={() => call('status', '/internal/traffic/chaos/network-reset/status')} />
       <ResultOutput result={result} />
     </div>
   );
