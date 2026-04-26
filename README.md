@@ -777,8 +777,6 @@ curl -X POST http://localhost:18086/internal/traffic/runner/inventory-reset/trig
 
 使用交互式验收助手运行 7 个必测场景：
 
-场景触发原因、预期信号和分析判定口径见 [Chaos 场景触发原因手册](_docs/guides/chaos-scenario-trigger-handbook.md)。建议在执行每个场景前先阅读对应章节，避免只看到现象却无法判断根因分析是否正确。
-
 ```bash
 # 交互菜单（本地 Docker Compose）
 ./scripts/chaos/chaos-verify.sh

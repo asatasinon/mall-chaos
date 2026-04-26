@@ -152,4 +152,4 @@ curl http://localhost:18086/internal/traffic/runner/status   # should show runni
 | v2 service integration | `_docs/tasks/task-16-v2-service-integration.md` |
 | Gateway chaos dispatch | `_docs/tasks/task-21-gateway-chaos-dispatch.md` |
 | Chaos protocol unification | `_docs/tasks/task-22-chaos-protocol-unification.md` |
-| Traffic console & scenarios | `_docs/tasks/task-23-traffic-console-and-scenarios.md` |
+

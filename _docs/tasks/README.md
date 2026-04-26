@@ -67,7 +67,7 @@ Phase 3.5 (控制面重构) — 依赖 Phase 1/3 的相关能力
 | 20 | [traffic control plane 脚手架](task-20-traffic-control-plane-scaffold.md) | Phase 3.5 | Next.js + pnpm traffic 控制平面骨架 |
 | 21 | [gateway chaos dispatch](task-21-gateway-chaos-dispatch.md) | Phase 3.5 | gateway 统一控制分发与基础设施代理 |
 | 22 | [chaos protocol 统一化](task-22-chaos-protocol-unification.md) | Phase 3.5 | 各服务 chaos endpoint 最新协议统一 |
-| 23 | [traffic console 与场景编排](task-23-traffic-console-and-scenarios.md) | Phase 3.5 | 新控制台、overview、scenarios、recover-all |
+
 
 ## 推荐执行顺序
 
