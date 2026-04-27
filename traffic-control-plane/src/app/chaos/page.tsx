@@ -361,6 +361,30 @@ function ActionSummary({ action, data }: { action: ApiAction; data: unknown }) {
   }
   const d = data as Record<string, unknown>;
 
+  // Per-service result map: { "payment-service": { code, message, ... }, ... }
+  const isPerService = Object.keys(d).length > 0 &&
+    Object.keys(d).every((k) => k.includes('-service') || k.includes('-'));
+
+  if (isPerService && (action === 'inject' || action === 'disarm' || action === 'cleanup')) {
+    return (
+      <div className="mt-1.5 space-y-0.5">
+        {Object.entries(d).map(([svc, v]) => {
+          const name    = svc.replace('-service', '');
+          const ok      = typeof v === 'object' && v !== null ? (v as Record<string, unknown>).code === 0 || (v as Record<string, unknown>).success === true : true;
+          const msg     = typeof v === 'object' && v !== null ? String((v as Record<string, unknown>).message ?? '') : '';
+          return (
+            <div key={svc} className="flex items-center gap-1.5 text-xs">
+              <span className="font-mono text-muted-foreground w-24 truncate">{name}</span>
+              <span className={ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}>
+                {ok ? `${action} ok` : (msg || `${action} failed`)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   if (action === 'inject') {
     const targets = Array.isArray(d.targets) ? (d.targets as string[]).map((s) => s.replace('-service', '')).join(', ') : null;
     const dur     = d.durationSec != null ? `${d.durationSec}s` : null;
@@ -390,14 +414,26 @@ function StatusResult({ data }: { data: unknown }) {
   }
 
   const entries = Object.entries(data as Record<string, unknown>);
-  const hasActive = entries.some(([, v]) => typeof v === 'object' && v !== null && ('active' in (v as object) || 'enabled' in (v as object)));
 
-  if (hasActive) {
+  // Unwrap per-service ApiResponse envelope: { code, message, data: { active, ... } }
+  const unwrap = (v: unknown): Record<string, unknown> => {
+    if (typeof v !== 'object' || v === null) return {};
+    const obj = v as Record<string, unknown>;
+    if ('code' in obj && 'data' in obj && typeof obj.data === 'object' && obj.data !== null) {
+      return obj.data as Record<string, unknown>;
+    }
+    return obj;
+  };
+
+  const hasPerService = entries.length > 0 && entries.every(([k]) => k.includes('-') || k.includes('service'));
+  const unwrappedEntries = entries.map(([k, v]) => [k, unwrap(v)] as [string, Record<string, unknown>]);
+  const hasActive = unwrappedEntries.some(([, v]) => 'active' in v || 'enabled' in v);
+
+  if (hasActive || hasPerService) {
     // Per-service status map
     return (
       <div className="space-y-1.5">
-        {entries.map(([svc, val]) => {
-          const v = val as Record<string, unknown>;
+        {unwrappedEntries.map(([svc, v]) => {
           const active = v?.active === true || v?.enabled === true;
           return (
             <div key={svc} className="flex items-center justify-between gap-3 rounded border border-border/60 bg-muted/20 px-2.5 py-1.5">

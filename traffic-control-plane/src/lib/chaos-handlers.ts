@@ -6,6 +6,12 @@ import { NextRequest } from 'next/server';
 /**
  * Creates standard chaos control route handlers that proxy through gateway.
  */
+function unwrapGateway(result: unknown): unknown {
+  if (typeof result !== 'object' || result === null) return result;
+  const r = result as Record<string, unknown>;
+  return ('code' in r && 'data' in r) ? r.data : result;
+}
+
 export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
   return {
     enable: async (request: NextRequest) => {
@@ -14,7 +20,7 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
       const gateway = getGatewayClient();
       try {
         const result = await gateway.post(`${gatewayPrefix}/enable`, body, traceId);
-        return jsonOk(result);
+        return jsonOk(unwrapGateway(result));
       } catch (e: any) {
         return jsonError(502, `Failed to enable ${chaosType}: ${e.message}`, 502);
       }
@@ -26,7 +32,7 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
       const gateway = getGatewayClient();
       try {
         const result = await gateway.post(`${gatewayPrefix}/disable`, body, traceId);
-        return jsonOk(result);
+        return jsonOk(unwrapGateway(result));
       } catch (e: any) {
         return jsonError(502, `Failed to disable ${chaosType}: ${e.message}`, 502);
       }
@@ -38,7 +44,7 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
       const gateway = getGatewayClient();
       try {
         const result = await gateway.post(`${gatewayPrefix}/cleanup`, body, traceId);
-        return jsonOk(result);
+        return jsonOk(unwrapGateway(result));
       } catch (e: any) {
         return jsonError(502, `Failed to cleanup ${chaosType}: ${e.message}`, 502);
       }
@@ -54,7 +60,7 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
       const gateway = getGatewayClient();
       try {
         const result = await gateway.get(`${gatewayPrefix}/status`, params, traceId);
-        return jsonOk(result);
+        return jsonOk(unwrapGateway(result));
       } catch (e: any) {
         return jsonError(502, `Failed to get ${chaosType} status: ${e.message}`, 502);
       }
