@@ -28,6 +28,11 @@ public class OrderController {
         return ApiResponse.ok(orderService.createOrder(req));
     }
 
+    @PostMapping("/api/orders/{id}/cancel")
+    public ApiResponse<OrderDTO> cancelOrderPublic(@PathVariable Long id) {
+        return ApiResponse.ok(orderService.cancelOrder(id));
+    }
+
     @PostMapping("/internal/orders/{id}/cancel")
     public ApiResponse<OrderDTO> cancelOrder(@PathVariable Long id) {
         return ApiResponse.ok(orderService.cancelOrder(id));

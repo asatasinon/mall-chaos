@@ -30,9 +30,12 @@ interface ResetPolicy {
 interface ResetPolicyForm { cronExpr: string; allowedWindow: string; resetScope: string; }
 
 const ACTION_LABELS: Record<string, string> = {
-  ORDER_SUCCESS: 'Order',
-  ORDER_FAIL:    'Fail',
-  CANCEL:        'Cancel',
+  ORDER_SUCCESS:  'Order',
+  ORDER_FAIL:     'Fail',
+  CANCEL:         'Cancel',
+  CANCEL_ORDER:   'Cancel',
+  BROWSE_PRODUCT: 'Browse',
+  SEARCH_CATALOG: 'Search',
 };
 
 export default function RunnerPage() {

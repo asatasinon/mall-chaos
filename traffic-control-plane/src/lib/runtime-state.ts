@@ -143,3 +143,21 @@ export async function getRunnerActivity(limit = 20): Promise<ActivityEntry[]> {
   const items = await redis.lrange(ACTIVITY_KEY, 0, limit - 1);
   return items.map((s) => JSON.parse(s) as ActivityEntry);
 }
+
+// ── Recent order IDs (used by CANCEL_ORDER action to cancel real orders) ──
+
+const RECENT_ORDERS_KEY = 'traffic-control-plane:runner:recent-orders';
+const RECENT_ORDERS_MAX = 100;
+
+export async function pushRecentOrderId(orderId: string): Promise<void> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  await redis.lpush(RECENT_ORDERS_KEY, orderId);
+  await redis.ltrim(RECENT_ORDERS_KEY, 0, RECENT_ORDERS_MAX - 1);
+}
+
+export async function popRecentOrderId(): Promise<string | null> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  return redis.rpop(RECENT_ORDERS_KEY);
+}

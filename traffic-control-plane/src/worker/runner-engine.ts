@@ -1,6 +1,6 @@
 import { getGatewayClient } from '../lib/gateway-client';
 import { loadRunnerConfigFromDb, RunnerConfig, MixRule } from '../lib/runner-config';
-import { getRunnerControlState, setRunnerStatus, pushActivity } from '../lib/runtime-state';
+import { getRunnerControlState, setRunnerStatus, pushActivity, pushRecentOrderId, popRecentOrderId } from '../lib/runtime-state';
 import pino from 'pino';
 
 const log = pino({ name: 'runner-engine' });
@@ -13,6 +13,7 @@ interface SlidingEntry {
 const WINDOW_SECONDS = 60;
 const SKUS = Array.from({ length: 50 }, (_, i) => `SKU-${String(i + 1).padStart(3, '0')}`);
 const USER_COUNT = 20;
+const CATEGORIES = ['electronics', 'clothing', 'home', 'sports', 'books', 'toys'];
 
 export class RunnerEngine {
   private config: RunnerConfig;
@@ -142,21 +143,44 @@ export class RunnerEngine {
   }
 
   private async executeAction(action: string): Promise<boolean> {
-    if (action === 'CANCEL') return true;
-
     const userId = Math.floor(Math.random() * USER_COUNT) + 1;
     const sku = SKUS[Math.floor(Math.random() * SKUS.length)];
     const qty = Math.floor(Math.random() * 3) + 1;
-    const orderNo = `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
     try {
-      const resp = await this.gateway.post<any>('/api/orders', {
-        orderNo,
-        userId,
-        sku,
-        qty,
-      });
-      return resp?.data?.status === 'PAID';
+      switch (action) {
+        case 'ORDER_SUCCESS': {
+          const orderNo = `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+          const resp = await this.gateway.post<any>('/api/orders', { orderNo, userId, sku, qty });
+          const paid = resp?.data?.status === 'PAID';
+          if (paid && resp?.data?.id) {
+            void pushRecentOrderId(String(resp.data.id));
+          }
+          return paid;
+        }
+
+        case 'BROWSE_PRODUCT': {
+          const resp = await this.gateway.get<any>(`/api/products/${sku}`);
+          return resp?.data != null;
+        }
+
+        case 'SEARCH_CATALOG': {
+          const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+          const page = String(Math.floor(Math.random() * 5));
+          const resp = await this.gateway.get<any>('/api/products', { category, page, size: '10' });
+          return Array.isArray(resp?.data) && resp.data.length > 0;
+        }
+
+        case 'CANCEL_ORDER': {
+          const orderId = await popRecentOrderId();
+          if (!orderId) return true;
+          const resp = await this.gateway.post<any>(`/api/orders/${orderId}/cancel`, {});
+          return resp?.data?.status === 'CANCELLED';
+        }
+
+        default:
+          return true;
+      }
     } catch {
       return false;
     }
