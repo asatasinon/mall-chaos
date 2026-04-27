@@ -143,9 +143,8 @@ flowchart LR
 4. Deadlock 开关与状态展示
 5. ToxiProxy 网络故障注入
 6. Grafana / Tempo 深链
-7. Task 19 预设场景按钮
-8. 一键恢复
-9. 操作日志面板
+7. 一键恢复
+8. 操作日志面板
 
 ### 4.2 保留在 traffic 中的原有能力
 

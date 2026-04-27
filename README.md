@@ -613,7 +613,6 @@ http://localhost:18086/
 - 表锁阻塞控制
 - ToxiProxy 网络故障注入（延迟、reset_peer、清空 toxics）
 - Grafana/Tempo 深链跳转（dashboard、按服务过滤、按 traceId 检索）
-- 预置 Task 19 场景按钮（场景 2/4/5/7 + 一键恢复）
 
 网络访问约束：
 

@@ -31,14 +31,12 @@ Phase 3 (隐蔽式故障注入 v2) — 依赖 Phase 0，与 Phase 1/2 并行或�
   └── Task 17: 网络故障注入             ← ToxiProxy + Pumba + Chaos Mesh
 
 Phase 4 (部署与验收) — 依赖全部
-  ├── Task 18: Kubernetes 部署
-  └── Task 19: Chaos 演练验收（7 个场景）
+  └── Task 18: Kubernetes 部署
 
 Phase 3.5 (控制面重构) — 依赖 Phase 1/3 的相关能力
   ├── Task 20: traffic control plane 脚手架
   ├── Task 21: gateway chaos dispatch
-  ├── Task 22: chaos protocol 统一化
-  └── Task 23: traffic console 与场景编排
+  └── Task 22: chaos protocol 统一化
 ```
 
 ## 任务清单
@@ -63,7 +61,6 @@ Phase 3.5 (控制面重构) — 依赖 Phase 1/3 的相关能力
 | **16** | [**v2 各服务场景接入**](task-16-v2-service-integration.md) | **Phase 3** | **表锁阻塞 + 慢 SQL JOIN + 内存泄漏，8 服务改造** |
 | 17 | [网络故障注入](task-17-chaos-network.md) | Phase 3 | ToxiProxy + Pumba + Chaos Mesh |
 | 18 | [Kubernetes 部署](task-18-kubernetes.md) | Phase 4 | K8s 全量部署 YAML |
-| 19 | [Chaos 演练验收](task-19-chaos-verification.md) | Phase 4 | 7 个必测场景验收清单 |
 | 20 | [traffic control plane 脚手架](task-20-traffic-control-plane-scaffold.md) | Phase 3.5 | Next.js + pnpm traffic 控制平面骨架 |
 | 21 | [gateway chaos dispatch](task-21-gateway-chaos-dispatch.md) | Phase 3.5 | gateway 统一控制分发与基础设施代理 |
 | 22 | [chaos protocol 统一化](task-22-chaos-protocol-unification.md) | Phase 3.5 | 各服务 chaos endpoint 最新协议统一 |
@@ -75,13 +72,13 @@ Phase 3.5 (控制面重构) — 依赖 Phase 1/3 的相关能力
 `01 → 02 → 03 → 04 → 05 → 06 → 08 → 07 → 09`
 
 **完整方案（含 v2 故障注入）**：
-`01 → 02 → [03~09 并行] → [10~13 并行] → 14 → 15 → 16 → [17 并行] → [20 → 21 → 22 → 23] → 18 → 19`
+`01 → 02 → [03~09 并行] → [10~13 并行] → 14 → 15 → 16 → [17 并行] → [20 → 21 → 22] → 18`
 
 **v2 故障注入专项路径**（假设 Phase 1/2 已完成）：
 `14 → 15 → 16`
 
 **控制面重构专项路径**：
-`03 → 09 → 20 → 21 → 22 → 23`
+`03 → 09 → 20 → 21 → 22`
 
 ## 关键约束速查
 

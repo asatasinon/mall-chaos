@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Pause, Pencil, Save, X, Check } from 'lucide-react';
+import { Play, Pause, Pencil, Save, X, Check, Zap } from 'lucide-react';
 
 interface RunnerStatus {
   running: boolean; paused: boolean;
@@ -18,6 +18,16 @@ interface RunnerConfig {
 }
 interface ConfigForm { baseQps: string; peakMultiplier: string; cycleMinutes: string; jitterPct: string; }
 interface ActivityEntry { ts: number; action: string; success: boolean; latencyMs: number; }
+interface WarmupProgress {
+  priceHistoryCount: number; priceHistoryTarget: number;
+  behaviorLogCount: number;  behaviorLogTarget: number;
+  completed: boolean; status: string;
+}
+interface ResetPolicy {
+  id: number; enabled: boolean; cronExpr: string; timezone: string;
+  allowedWindow: string; resetScope: string; baselineVersion: number; version: number;
+}
+interface ResetPolicyForm { cronExpr: string; allowedWindow: string; resetScope: string; }
 
 const ACTION_LABELS: Record<string, string> = {
   ORDER_SUCCESS: 'Order',
@@ -41,6 +51,16 @@ export default function RunnerPage() {
 
   const [activity, setActivity]   = useState<ActivityEntry[]>([]);
 
+  const [warmup, setWarmup]         = useState<WarmupProgress | null>(null);
+  const warmupIntervalRef           = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [resetPolicy, setResetPolicy]   = useState<ResetPolicy | null>(null);
+  const [resetEditing, setResetEditing] = useState(false);
+  const [resetForm, setResetForm]       = useState<ResetPolicyForm>({ cronExpr: '', allowedWindow: '', resetScope: '' });
+  const [resetSaving, setResetSaving]   = useState(false);
+  const [resetMsg, setResetMsg]         = useState<{ ok: boolean; text: string } | null>(null);
+  const [triggerMsg, setTriggerMsg]     = useState<{ ok: boolean; text: string } | null>(null);
+
   const loadConfig = async () => {
     const res  = await fetch('/internal/traffic/runner/config');
     const json = await res.json();
@@ -56,9 +76,33 @@ export default function RunnerPage() {
     }
   };
 
+  const loadWarmup = async () => {
+    try {
+      const res  = await fetch('/internal/traffic/runner/data-warmup/progress');
+      const json = await res.json();
+      if (json.code === 0) {
+        setWarmup(json.data);
+        if (json.data.completed && warmupIntervalRef.current) {
+          clearInterval(warmupIntervalRef.current);
+          warmupIntervalRef.current = null;
+        }
+      }
+    } catch {}
+  };
+
+  const loadResetPolicy = async () => {
+    try {
+      const res  = await fetch('/internal/traffic/runner/inventory-reset/schedule');
+      const json = await res.json();
+      if (json.code === 0 && json.data) {
+        setResetPolicy(json.data);
+        setResetForm({ cronExpr: json.data.cronExpr, allowedWindow: json.data.allowedWindow, resetScope: json.data.resetScope });
+      }
+    } catch {}
+  };
+
   useEffect(() => {
-    const loadStatus = async () => {
-      try {
+    const loadStatus = async () => {      try {
         const res  = await fetch('/internal/traffic/runner/status');
         const json = await res.json();
         if (json.code === 0) setStatus(json.data);
@@ -74,10 +118,22 @@ export default function RunnerPage() {
     loadConfig().catch(() => {});
     loadStatus();
     loadActivity();
+    loadResetPolicy();
+    loadWarmup();
     const id1 = setInterval(loadStatus, 3000);
     const id2 = setInterval(loadActivity, 5000);
     return () => { clearInterval(id1); clearInterval(id2); };
   }, []);
+
+  useEffect(() => {
+    if (warmup && !warmup.completed) {
+      warmupIntervalRef.current = setInterval(loadWarmup, 10000);
+    }
+    return () => {
+      if (warmupIntervalRef.current) clearInterval(warmupIntervalRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warmup?.completed]);
 
   const action = (path: string, body?: unknown) =>
     fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
@@ -148,6 +204,44 @@ export default function RunnerPage() {
   const cancelMix = () => {
     setMixEditing(false); setMixMsg(null);
     setMixForm(config?.mixRules ?? []);
+  };
+
+  const saveResetPolicy = async () => {
+    if (!resetPolicy) return;
+    setResetSaving(true); setResetMsg(null);
+    try {
+      const res  = await fetch('/internal/traffic/runner/inventory-reset/schedule', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: resetPolicy.version, ...resetForm }),
+      });
+      const json = await res.json();
+      if (json.code === 0) {
+        setResetMsg({ ok: true, text: `Saved · v${json.data.version}` });
+        setResetEditing(false);
+        await loadResetPolicy();
+      } else {
+        setResetMsg({ ok: false, text: json.message || 'Save failed' });
+      }
+    } catch (e: unknown) {
+      setResetMsg({ ok: false, text: e instanceof Error ? e.message : 'error' });
+    } finally { setResetSaving(false); }
+  };
+
+  const cancelResetEdit = () => {
+    setResetEditing(false); setResetMsg(null);
+    if (resetPolicy) setResetForm({ cronExpr: resetPolicy.cronExpr, allowedWindow: resetPolicy.allowedWindow, resetScope: resetPolicy.resetScope });
+  };
+
+  const triggerReset = async () => {
+    setTriggerMsg(null);
+    try {
+      const res  = await fetch('/internal/traffic/runner/inventory-reset/trigger', { method: 'POST' });
+      const json = await res.json();
+      setTriggerMsg(json.code === 0 ? { ok: true, text: 'Reset triggered' } : { ok: false, text: json.message || 'Failed' });
+    } catch (e: unknown) {
+      setTriggerMsg({ ok: false, text: e instanceof Error ? e.message : 'error' });
+    }
   };
 
   const successPct = status ? status.successRate * 100 : 0;
@@ -371,6 +465,107 @@ export default function RunnerPage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Data Warmup Progress card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center justify-between">
+            Data Warmup
+            {warmup && (
+              <Badge variant="secondary" className={`text-[10px] ${warmup.completed ? 'bg-[oklch(0.55_0.15_155)]/10 text-[oklch(0.55_0.15_155)]' : 'bg-warning/10 text-warning'}`}>
+                {warmup.status}
+              </Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!warmup && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {warmup && (
+            <div className="space-y-3">
+              {[
+                { label: 'product_price_history', count: warmup.priceHistoryCount, target: warmup.priceHistoryTarget },
+                { label: 'user_behavior_log',     count: warmup.behaviorLogCount,  target: warmup.behaviorLogTarget  },
+              ].map(({ label, count, target }) => {
+                const pct = Math.min((count / target) * 100, 100);
+                const done = count >= target;
+                return (
+                  <div key={label}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-mono text-muted-foreground">{label}</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {(count / 1_000_000).toFixed(1)}M / {(target / 1_000_000).toFixed(0)}M
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${done ? 'bg-[oklch(0.55_0.15_155)]' : 'bg-warning'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Inventory Reset card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              Inventory Reset
+              {resetPolicy && <Badge variant="secondary" className="text-[10px] font-mono">v{resetPolicy.version}</Badge>}
+              {resetPolicy && (
+                <Badge variant="secondary" className={`text-[10px] ${resetPolicy.enabled ? 'bg-[oklch(0.55_0.15_155)]/10 text-[oklch(0.55_0.15_155)]' : 'bg-muted text-muted-foreground'}`}>
+                  {resetPolicy.enabled ? 'enabled' : 'disabled'}
+                </Badge>
+              )}
+            </span>
+            <div className="flex items-center gap-2">
+              {triggerMsg && <span className={`text-xs ${triggerMsg.ok ? 'text-[oklch(0.55_0.15_155)]' : 'text-destructive'}`}>{triggerMsg.text}</span>}
+              {!resetEditing ? (
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={triggerReset}>
+                    <Zap className="h-3.5 w-3.5" />Trigger Now
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => { setResetEditing(true); setResetMsg(null); }}>
+                    <Pencil />Edit
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {resetMsg && <span className={`text-xs ${resetMsg.ok ? 'text-[oklch(0.55_0.15_155)]' : 'text-destructive'}`}>{resetMsg.text}</span>}
+                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={saveResetPolicy} disabled={resetSaving}>
+                    <Save />{resetSaving ? 'Saving…' : 'Save'}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-xs h-7" onClick={cancelResetEdit}>
+                    <X />Cancel
+                  </Button>
+                </div>
+              )}
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!resetPolicy && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {resetPolicy && !resetEditing && (
+            <div className="grid grid-cols-3 gap-3">
+              <KVTile label="Cron"           value={resetPolicy.cronExpr} />
+              <KVTile label="Allowed window" value={resetPolicy.allowedWindow} />
+              <KVTile label="Scope"          value={resetPolicy.resetScope} />
+            </div>
+          )}
+          {resetPolicy && resetEditing && (
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Cron expr"      hint="e.g. 0 */4 * * *"    value={resetForm.cronExpr}      onChange={(v) => setResetForm((f) => ({ ...f, cronExpr: v }))} />
+              <Field label="Allowed window" hint="e.g. 00:00-06:00"    value={resetForm.allowedWindow} onChange={(v) => setResetForm((f) => ({ ...f, allowedWindow: v }))} />
+              <Field label="Scope"          hint="e.g. ALL or service" value={resetForm.resetScope}    onChange={(v) => setResetForm((f) => ({ ...f, resetScope: v }))} />
             </div>
           )}
         </CardContent>
