@@ -92,8 +92,22 @@ public class NetworkFaultDispatchController {
         return toxiproxyClient.get()
                 .uri("/proxies")
                 .retrieve()
-                .bodyToMono(Object.class)
-                .map(ApiResponse::ok)
+                .bodyToMono(new org.springframework.core.ParameterizedTypeReference<Map<String, Map<String, Object>>>() {})
+                .map(proxies -> {
+                    Map<String, Object> perProxy = new java.util.LinkedHashMap<>();
+                    boolean anyActive = false;
+                    for (var entry : proxies.entrySet()) {
+                        Object toxicsRaw = entry.getValue().get("toxics");
+                        boolean hasLatency = false;
+                        if (toxicsRaw instanceof java.util.List<?> toxicList) {
+                            hasLatency = toxicList.stream().anyMatch(t ->
+                                t instanceof Map<?,?> m && "latency".equals(m.get("type")));
+                        }
+                        perProxy.put(entry.getKey(), Map.of("active", hasLatency));
+                        if (hasLatency) anyActive = true;
+                    }
+                    return ApiResponse.ok((Object) Map.of("active", anyActive, "services", perProxy));
+                })
                 .onErrorResume(e -> Mono.just(ApiResponse.error(502, "ToxiProxy unavailable: " + e.getMessage())));
     }
 
@@ -158,8 +172,22 @@ public class NetworkFaultDispatchController {
         return toxiproxyClient.get()
                 .uri("/proxies")
                 .retrieve()
-                .bodyToMono(Object.class)
-                .map(ApiResponse::ok)
+                .bodyToMono(new org.springframework.core.ParameterizedTypeReference<Map<String, Map<String, Object>>>() {})
+                .map(proxies -> {
+                    Map<String, Object> perProxy = new java.util.LinkedHashMap<>();
+                    boolean anyActive = false;
+                    for (var entry : proxies.entrySet()) {
+                        Object toxicsRaw = entry.getValue().get("toxics");
+                        boolean hasReset = false;
+                        if (toxicsRaw instanceof java.util.List<?> toxicList) {
+                            hasReset = toxicList.stream().anyMatch(t ->
+                                t instanceof Map<?,?> m && "reset_peer".equals(m.get("type")));
+                        }
+                        perProxy.put(entry.getKey(), Map.of("active", hasReset));
+                        if (hasReset) anyActive = true;
+                    }
+                    return ApiResponse.ok((Object) Map.of("active", anyActive, "services", perProxy));
+                })
                 .onErrorResume(e -> Mono.just(ApiResponse.error(502, "ToxiProxy unavailable: " + e.getMessage())));
     }
 }
