@@ -49,10 +49,7 @@ echo "=== Building common module ==="
 cd "$REPO_ROOT"
 mvn clean install -pl common -DskipTests -q
 
-DOCKER_BUILD_ARGS=()
-if [[ -n "$BASE_IMAGE_REGISTRY" ]]; then
-  DOCKER_BUILD_ARGS+=(--build-arg "BASE_IMAGE_REGISTRY=${BASE_IMAGE_REGISTRY}")
-fi
+DOCKER_BUILD_ARGS=(--build-arg "BASE_IMAGE_REGISTRY=${BASE_IMAGE_REGISTRY}")
 
 echo ""
 echo "=== Building & packaging services ==="
