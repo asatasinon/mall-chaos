@@ -1,0 +1,26 @@
+.git
+.github
+.idea
+.claude
+.remember
+
+_docs
+infra
+k8s
+data
+traffic-control-plane
+
+# Java services only need packaged jars for image build.
+*/src
+*/target/classes
+*/target/generated-sources
+*/target/generated-test-sources
+*/target/maven-archiver
+*/target/maven-status
+*/target/site
+*/target/surefire-reports
+*/target/test-classes
+*/target/*.original
+
+**/.DS_Store
+**/*.iml

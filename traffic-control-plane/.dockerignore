@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+dist
+coverage
+
+.git
+.idea
+.vscode
+
+*.log
+.DS_Store
