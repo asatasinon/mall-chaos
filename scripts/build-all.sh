@@ -29,7 +29,7 @@ castrel_apply_image_source
 if [[ "${CASTREL_IMAGE_SOURCE}" == "internal" ]]; then
   BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-harbor.cloudwise.com/noname/}"
 else
-  BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-}"
+  BASE_IMAGE_REGISTRY=""
 fi
 
 SERVICES=(
