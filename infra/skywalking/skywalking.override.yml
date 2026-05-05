@@ -1,0 +1,6 @@
+services:
+  skywalking-oap:
+    environment:
+      SW_JDBC_DRIVER: com.mysql.cj.jdbc.Driver
+    volumes:
+      - ./infra/skywalking/ext-libs/mysql-connector-j-8.0.33.jar:/skywalking/oap-libs/mysql-connector-j-8.0.33.jar:ro
