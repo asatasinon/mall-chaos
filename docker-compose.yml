@@ -25,6 +25,10 @@ x-service-env: &service-env
   OTEL_LOGS_EXPORTER: none
   ENABLE_OTEL_AGENT: ${ENABLE_OTEL_AGENT:-true}
   ENABLE_CLOUDWISE_AGENT: ${ENABLE_CLOUDWISE_AGENT:-true}
+  # SkyWalking agent configuration (active when TRACING_MODE=sw-only or both)
+  TRACING_MODE: ${TRACING_MODE:-otel-only}
+  SW_AGENT_COLLECTOR_BACKEND_SERVICES: skywalking-oap:11800
+  SW_AGENT_LOGGING_FILE_NAME: /dev/stdout
   JAVA_TOOL_OPTIONS: >-
     -Xms256m
     -Xmx256m
@@ -166,6 +170,7 @@ services:
       - "19090:19090"   # Prometheus (auth)
       - "13100:13100"   # Loki       (auth)
       - "13200:13200"   # Tempo      (auth)
+      - "13091:13091"   # SkyWalking UI (auth, active when --profile skywalking)
     volumes:
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./infra/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
@@ -259,6 +264,7 @@ services:
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: gateway-service
+      SW_AGENT_NAME: gateway-service
       CW_APP_NAME: ${GATEWAY_CW_APP_NAME:-gateway-service}
       ORDER_SERVICE_URL: http://toxiproxy:18084
       CATALOG_SERVICE_URL: http://catalog-service:8082
@@ -298,6 +304,7 @@ services:
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: user-service
+      SW_AGENT_NAME: user-service
       CW_APP_NAME: ${USER_CW_APP_NAME:-user-service}
     depends_on:
       mysql:
@@ -322,6 +329,7 @@ services:
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: catalog-service
+      SW_AGENT_NAME: catalog-service
       CW_APP_NAME: ${CATALOG_CW_APP_NAME:-catalog-service}
     depends_on:
       mysql:
@@ -346,6 +354,7 @@ services:
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: inventory-service
+      SW_AGENT_NAME: inventory-service
       CW_APP_NAME: ${INVENTORY_CW_APP_NAME:-inventory-service}
     depends_on:
       mysql:
@@ -370,6 +379,7 @@ services:
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: order-service
+      SW_AGENT_NAME: order-service
       CW_APP_NAME: ${ORDER_CW_APP_NAME:-order-service}
       USER_SERVICE_URL: http://user-service:8081
       CATALOG_SERVICE_URL: http://catalog-service:8082
@@ -398,6 +408,7 @@ services:
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: payment-service
+      SW_AGENT_NAME: payment-service
       CW_APP_NAME: ${PAYMENT_CW_APP_NAME:-payment-service}
     depends_on:
       mysql:
@@ -485,6 +496,7 @@ services:
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: promotion-service
+      SW_AGENT_NAME: promotion-service
       CW_APP_NAME: ${PROMOTION_CW_APP_NAME:-promotion-service}
     depends_on:
       mysql:
@@ -509,6 +521,7 @@ services:
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: risk-service
+      SW_AGENT_NAME: risk-service
       CW_APP_NAME: ${RISK_CW_APP_NAME:-risk-service}
     depends_on:
       mysql:
@@ -533,6 +546,7 @@ services:
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: fulfillment-service
+      SW_AGENT_NAME: fulfillment-service
       CW_APP_NAME: ${FULFILLMENT_CW_APP_NAME:-fulfillment-service}
     depends_on:
       mysql:
@@ -557,6 +571,7 @@ services:
     environment:
       <<: *java-service-env
       OTEL_SERVICE_NAME: notification-service
+      SW_AGENT_NAME: notification-service
       CW_APP_NAME: ${NOTIFICATION_CW_APP_NAME:-notification-service}
     depends_on:
       mysql:
@@ -566,6 +581,43 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8090/actuator/health"]
       <<: *healthcheck-defaults
+
+  # ─── SkyWalking（opt-in：docker compose --profile skywalking up -d）──────────
+  # TRACING_MODE=sw-only  → 仅 SkyWalking agent，停用 OTel
+  # TRACING_MODE=both     → OTel + SkyWalking 同时上报
+  # TRACING_MODE=otel-only（默认）→ 无需启动此 profile
+
+  skywalking-oap:
+    image: ${SKYWALKING_OAP_IMAGE:-apache/skywalking-oap-server:10.2.0}
+    container_name: castrel-skywalking-oap
+    <<: *service-defaults
+    environment:
+      SW_STORAGE: mysql
+      SW_JDBC_URL: "jdbc:mysql://mysql:3306/skywalking?rewriteBatchedStatements=true&allowMultiQueries=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+      SW_DATA_SOURCE_USER: ${MYSQL_USER:-castrel}
+      SW_DATA_SOURCE_PASSWORD: ${MYSQL_PASSWORD:-castrel}
+      SW_OTEL_RECEIVER: default
+    ports:
+      - "11800:11800"   # gRPC agent ingestion
+      - "12800:12800"   # HTTP REST / GraphQL API
+    depends_on:
+      mysql:
+        condition: service_healthy
+    profiles:
+      - skywalking
+
+  skywalking-ui:
+    image: ${SKYWALKING_UI_IMAGE:-apache/skywalking-ui:10.2.0}
+    container_name: castrel-skywalking-ui
+    <<: *service-defaults
+    environment:
+      SW_OAP_ADDRESS: http://skywalking-oap:12800
+    ports:
+      - "18091:8080"
+    depends_on:
+      - skywalking-oap
+    profiles:
+      - skywalking
 
   # ─── Chaos Infrastructure (opt-in) ─────────────────────────────────────────
 

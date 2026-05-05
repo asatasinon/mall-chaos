@@ -34,9 +34,27 @@ case "${ENABLE_CLOUDWISE_AGENT:-false}" in
     ;;
 esac
 
+# TRACING_MODE controls OTel vs SkyWalking agent selection:
+#   otel-only (default) - OTel agent only, respects ENABLE_OTEL_AGENT
+#   sw-only             - SkyWalking agent only, forces ENABLE_OTEL_AGENT=false
+#   both                - both agents active simultaneously
+tracing_mode="${TRACING_MODE:-otel-only}"
+
+case "$tracing_mode" in
+  sw-only)
+    ENABLE_OTEL_AGENT=false
+    ;;
+esac
+
 case "${ENABLE_OTEL_AGENT:-true}" in
   1|true|TRUE|yes|YES|on|ON)
     append_java_tool_option "-javaagent:/app/opentelemetry-javaagent.jar"
+    ;;
+esac
+
+case "$tracing_mode" in
+  sw-only|both)
+    append_java_tool_option "-javaagent:/app/skywalking-agent/skywalking-agent.jar"
     ;;
 esac
 

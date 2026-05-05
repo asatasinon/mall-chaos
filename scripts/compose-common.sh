@@ -48,6 +48,8 @@ castrel_apply_image_source() {
       export MYSQLD_EXPORTER_IMAGE="${MYSQLD_EXPORTER_IMAGE:-prom/mysqld-exporter:v0.15.1}"
       export PROMTAIL_IMAGE="${PROMTAIL_IMAGE:-grafana/promtail:3.6.10}"
       export TOXIPROXY_IMAGE="${TOXIPROXY_IMAGE:-ghcr.io/shopify/toxiproxy:latest}"
+      export SKYWALKING_OAP_IMAGE="${SKYWALKING_OAP_IMAGE:-apache/skywalking-oap-server:10.2.0}"
+      export SKYWALKING_UI_IMAGE="${SKYWALKING_UI_IMAGE:-apache/skywalking-ui:10.2.0}"
       ;;
     internal)
       export REGISTRY="${REGISTRY:-harbor.cloudwise.com/noname}"
@@ -62,6 +64,8 @@ castrel_apply_image_source() {
       export MYSQLD_EXPORTER_IMAGE="${MYSQLD_EXPORTER_IMAGE:-harbor.cloudwise.com/noname/mysqld-exporter:v0.15.1}"
       export PROMTAIL_IMAGE="${PROMTAIL_IMAGE:-harbor.cloudwise.com/noname/promtail:3.6.10}"
       export TOXIPROXY_IMAGE="${TOXIPROXY_IMAGE:-harbor.cloudwise.com/noname/toxiproxy:latest}"
+      export SKYWALKING_OAP_IMAGE="${SKYWALKING_OAP_IMAGE:-apache/skywalking-oap-server:10.2.0}"
+      export SKYWALKING_UI_IMAGE="${SKYWALKING_UI_IMAGE:-apache/skywalking-ui:10.2.0}"
       ;;
     *)
       echo "Unsupported image source: ${CASTREL_IMAGE_SOURCE}" >&2

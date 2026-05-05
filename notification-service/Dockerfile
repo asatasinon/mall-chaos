@@ -6,9 +6,12 @@ RUN apk add --no-cache unzip \
 	&& unzip -q JavaAgent.zip \
 	&& rm -f JavaAgent.zip
 
+FROM apache/skywalking-java-agent:9.4.0-java21 AS sw-agent
+
 FROM ${BASE_IMAGE_REGISTRY}eclipse-temurin:21-jdk-alpine
 WORKDIR /app
 COPY assets/opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
+COPY --from=sw-agent /skywalking/agent /app/skywalking-agent
 COPY --from=javaagent-extractor /opt/agent/JavaAgent /data/app/JavaAgent
 COPY scripts/java-service-entrypoint.sh /app/entrypoint.sh
 COPY notification-service/target/*.jar app.jar
