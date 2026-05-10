@@ -596,7 +596,10 @@ services:
       SW_JDBC_URL: "jdbc:mysql://mysql:3306/skywalking?rewriteBatchedStatements=true&allowMultiQueries=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
       SW_DATA_SOURCE_USER: ${MYSQL_USER:-castrel}
       SW_DATA_SOURCE_PASSWORD: ${MYSQL_PASSWORD:-castrel}
+      SW_JDBC_DRIVER: com.mysql.cj.jdbc.Driver
       SW_OTEL_RECEIVER: default
+    volumes:
+      - ./infra/skywalking/ext-libs/mysql-connector-j-8.0.33.jar:/skywalking/oap-libs/mysql-connector-j-8.0.33.jar:ro
     ports:
       - "11800:11800"   # gRPC agent ingestion
       - "12800:12800"   # HTTP REST / GraphQL API
