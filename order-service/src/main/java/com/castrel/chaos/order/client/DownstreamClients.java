@@ -6,7 +6,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -15,7 +20,7 @@ import java.util.Map;
 @Component
 public class DownstreamClients {
 
-    private final RestClient client;
+    private final RestTemplate client;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Value("${services.user-url:http://localhost:8081}")
@@ -30,32 +35,34 @@ public class DownstreamClients {
     @Value("${services.payment-url:http://localhost:8085}")
     private String paymentUrl;
 
-    public DownstreamClients(RestClient.Builder builder) {
-        this.client = builder
-                .defaultHeader(TraceContext.TRACE_ID_HEADER, "")
-                .build();
+    public DownstreamClients(RestTemplateBuilder builder) {
+        this.client = builder.build();
     }
 
-    private RestClient.RequestHeadersSpec<?> withTrace(RestClient.RequestHeadersSpec<?> spec) {
+    private HttpHeaders headersWithTrace() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
         String tid = TraceContext.getTraceId();
         if (tid != null) {
-            return spec.header(TraceContext.TRACE_ID_HEADER, tid);
+            headers.set(TraceContext.TRACE_ID_HEADER, tid);
         }
-        return spec;
+        return headers;
+    }
+
+    private <T> T exchange(String url, HttpMethod method, Object body, Class<T> responseType) {
+        HttpEntity<?> entity = body == null
+                ? new HttpEntity<>(headersWithTrace())
+                : new HttpEntity<>(body, headersWithTrace());
+        return client.exchange(url, method, entity, responseType).getBody();
     }
 
     public Map<String, Object> getUser(Long userId) {
-        return withTrace(client.get().uri(userUrl + "/internal/users/" + userId))
-                .retrieve()
-                .body(Map.class);
+        return exchange(userUrl + "/internal/users/" + userId, HttpMethod.GET, null, Map.class);
     }
 
     public List<Map<String, Object>> batchCatalog(List<String> skus) {
         Map<String, Object> reqBody = Map.of("skus", skus);
-        Map<String, Object> resp = withTrace(
-                client.post().uri(catalogUrl + "/internal/catalog/batch").body(reqBody))
-                .retrieve()
-                .body(Map.class);
+        Map<String, Object> resp = exchange(catalogUrl + "/internal/catalog/batch", HttpMethod.POST, reqBody, Map.class);
         Object data = ((Map<?, ?>) resp).get("data");
         if (data instanceof Map<?, ?> dataMap) {
             return (List<Map<String, Object>>) dataMap.get("products");
@@ -65,27 +72,19 @@ public class DownstreamClients {
 
     public Map<String, Object> reserveInventory(String orderId, String sku, int qty) {
         Map<String, Object> reqBody = Map.of("orderId", orderId, "sku", sku, "qty", qty);
-        Map<String, Object> resp = withTrace(
-                client.post().uri(inventoryUrl + "/internal/inventory/reserve").body(reqBody))
-                .retrieve()
-                .body(Map.class);
+    Map<String, Object> resp = exchange(inventoryUrl + "/internal/inventory/reserve", HttpMethod.POST, reqBody, Map.class);
         return (Map<String, Object>) ((Map<?, ?>) resp).get("data");
     }
 
     public void releaseInventory(String orderId, String sku, int qty) {
         Map<String, Object> reqBody = Map.of("orderId", orderId, "sku", sku, "qty", qty);
-        withTrace(client.post().uri(inventoryUrl + "/internal/inventory/release").body(reqBody))
-                .retrieve()
-                .body(Map.class);
+    exchange(inventoryUrl + "/internal/inventory/release", HttpMethod.POST, reqBody, Map.class);
     }
 
     public Map<String, Object> charge(String orderId, String orderNo, Long userId, BigDecimal amount) {
         Map<String, Object> reqBody = Map.of(
                 "orderId", orderId, "orderNo", orderNo, "userId", userId, "amount", amount);
-        Map<String, Object> resp = withTrace(
-                client.post().uri(paymentUrl + "/internal/payments/charge").body(reqBody))
-                .retrieve()
-                .body(Map.class);
+    Map<String, Object> resp = exchange(paymentUrl + "/internal/payments/charge", HttpMethod.POST, reqBody, Map.class);
         return (Map<String, Object>) ((Map<?, ?>) resp).get("data");
     }
 }

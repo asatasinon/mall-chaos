@@ -24,6 +24,21 @@ append_java_tool_option() {
   fi
 }
 
+enable_skywalking_optional_plugin() {
+  pattern="$1"
+  optional_dir="/app/skywalking-agent/optional-plugins"
+  plugins_dir="/app/skywalking-agent/plugins"
+
+  [ -d "$optional_dir" ] || return
+  [ -d "$plugins_dir" ] || return
+
+  for jar in "$optional_dir"/$pattern; do
+    [ -f "$jar" ] || continue
+    target="$plugins_dir/$(basename "$jar")"
+    [ -f "$target" ] || cp "$jar" "$target"
+  done
+}
+
 if [ -n "${JAVA_OPTS:-}" ] && [ -z "${JAVA_TOOL_OPTIONS:-}" ]; then
   export JAVA_TOOL_OPTIONS="$JAVA_OPTS"
 fi
@@ -54,6 +69,10 @@ esac
 
 case "$tracing_mode" in
   sw-only|both)
+    enable_skywalking_optional_plugin "apm-spring-webflux-6.x-plugin-*.jar"
+    enable_skywalking_optional_plugin "apm-spring-cloud-gateway-4.x-plugin-*.jar"
+    enable_skywalking_optional_plugin "apm-springmvc-annotation-6.x-plugin-*.jar"
+    enable_skywalking_optional_plugin "apm-resttemplate-6.x-plugin-*.jar"
     append_java_tool_option "-javaagent:/app/skywalking-agent/skywalking-agent.jar"
     ;;
 esac

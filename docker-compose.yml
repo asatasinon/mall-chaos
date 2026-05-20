@@ -29,9 +29,6 @@ x-service-env: &service-env
   TRACING_MODE: ${TRACING_MODE:-otel-only}
   SW_AGENT_COLLECTOR_BACKEND_SERVICES: skywalking-oap:11800
   SW_AGENT_LOGGING_FILE_NAME: /dev/stdout
-  # SkyWalking plugin activation — WebFlux/Gateway support (required for gateway-service)
-  SW_PLUGIN_SPRING_WEBFLUX_5X_ENABLE: "true"
-  SW_PLUGIN_SPRING_CLOUD_GATEWAY_3X_ENABLE: "true"
   JAVA_TOOL_OPTIONS: >-
     -Xms256m
     -Xmx256m
