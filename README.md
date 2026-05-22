@@ -237,6 +237,7 @@ docker compose ps
 - `--hub` 是 `--image-source` 的短别名，支持 `dockerhub` 和 `internal` 两个值。
 - `--image-source dockerhub` 会把业务镜像切到 `castrel/*`，基础设施镜像切到 Docker Hub / GHCR 对应官方源。
 - 如需显式覆盖单个镜像，仍可传环境变量，例如 `MYSQL_IMAGE=... ./scripts/compose-up.sh --image-source dockerhub`。
+- 如需切换 SkyWalking 版本，可在启动时传 `SKYWALKING_VERSION`，例如 `TRACING_MODE=sw-only SKYWALKING_VERSION=8.0.0 ./scripts/compose-up.sh -- --profile skywalking`。
 - `./scripts/compose-down.sh` 和 `./scripts/compose-restart.sh` 也支持同样的 `--hub` / `--image-source` 参数。
 - `./scripts/compose-restart.sh` 会执行 `down -> pull -> up --no-build`，适合切换镜像源后整套服务重启。
 

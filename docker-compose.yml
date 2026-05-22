@@ -588,7 +588,7 @@ services:
   # TRACING_MODE=otel-only（默认）→ 无需启动此 profile
 
   skywalking-oap:
-    image: ${SKYWALKING_OAP_IMAGE:-apache/skywalking-oap-server:10.2.0}
+    image: ${SKYWALKING_OAP_IMAGE:-apache/skywalking-oap-server:${SKYWALKING_VERSION:-10.2.0}}
     container_name: castrel-skywalking-oap
     <<: *service-defaults
     environment:
@@ -610,7 +610,7 @@ services:
       - skywalking
 
   skywalking-ui:
-    image: ${SKYWALKING_UI_IMAGE:-apache/skywalking-ui:10.2.0}
+    image: ${SKYWALKING_UI_IMAGE:-apache/skywalking-ui:${SKYWALKING_VERSION:-10.2.0}}
     container_name: castrel-skywalking-ui
     <<: *service-defaults
     environment:
