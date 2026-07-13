@@ -86,7 +86,10 @@ public class QueryEnrichmentInterceptor {
             long costMs = (System.nanoTime() - start) / 1_000_000;
             log.info("HGETALL {} cost={}ms fieldCount={}", redisKey, costMs, hash.size());
             if (hash.isEmpty()) {
+                long legacyStart = System.nanoTime();
                 hash = redisTemplate.opsForHash().entries(LEGACY_REDIS_KEY);
+                long legacyCostMs = (System.nanoTime() - legacyStart) / 1_000_000;
+                log.info("HGETALL {} cost={}ms fieldCount={}", LEGACY_REDIS_KEY, legacyCostMs, hash.size());
             }
             if (hash.isEmpty()) {
                 cachedConfig = null;
