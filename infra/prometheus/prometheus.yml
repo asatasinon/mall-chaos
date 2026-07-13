@@ -92,3 +92,9 @@ scrape_configs:
       - targets: ['node-exporter:9100']
         labels:
           service: 'node'
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: [ 'redis-exporter:9121' ]
+        labels:
+          service: 'redis'

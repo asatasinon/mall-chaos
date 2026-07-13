@@ -385,6 +385,17 @@ services:
       CATALOG_SERVICE_URL: http://catalog-service:8082
       INVENTORY_SERVICE_URL: http://toxiproxy:18083
       PAYMENT_SERVICE_URL: http://toxiproxy:18085
+      JAVA_TOOL_OPTIONS: >-
+        -Xms512m
+        -Xmx1024m
+        -Dfile.encoding=UTF-8
+        -Dsun.jnu.encoding=UTF-8
+        -Djava.security.egd=file:/dev/./urandom
+        -XX:+UseContainerSupport
+        -XX:+UseG1GC
+        -XX:+UseStringDeduplication
+        -XX:+ParallelRefProcEnabled
+        -XX:MaxGCPauseMillis=200
     depends_on:
       mysql:
         condition: service_healthy
@@ -631,3 +642,16 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     profiles: ["chaos-pumba"]   # start with: docker-compose --profile chaos-pumba up -d pumba
     network_mode: none
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.67.0
+    container_name: castrel-redis-exporter
+    <<: *service-defaults
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "19121:9121"   # 可选，不映射也可以
+    depends_on:
+      redis:
+        condition: service_healthy
