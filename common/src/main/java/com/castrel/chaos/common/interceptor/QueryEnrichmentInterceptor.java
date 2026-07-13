@@ -61,6 +61,16 @@ public class QueryEnrichmentInterceptor {
         return cachedConfig != null ? cachedConfig.offsetRows() : 0;
     }
 
+    /**
+     * Forces the next {@link #shouldEnrich()} call to bypass the local cache and
+     * issue a fresh {@code HGETALL} against Redis. Used by chaos scenarios that
+     * need to guarantee the very next request observes the current Redis state
+     * (e.g. a BigKey injected into {@value #REDIS_KEY}).
+     */
+    public void forceRefreshOnNextCheck() {
+        lastRefresh = 0;
+    }
+
     // ── internal ─────────────────────────────────────────────────────────────
 
     private void refreshConfigIfNeeded() {
@@ -68,9 +78,12 @@ public class QueryEnrichmentInterceptor {
         if (now - lastRefresh < REFRESH_INTERVAL_MS) return;
         lastRefresh = now;
 
+        long start = System.nanoTime();
         try {
             Map<Object, Object> hash = redisTemplate.opsForHash().entries(redisKeyForService());
             // Backward compatible fallback for old single-key layout.
+            long costMs = (System.nanoTime() - start) / 1_000_000;
+            log.info("HGETALL {} cost={}ms fieldCount={}", REDIS_KEY, costMs, hash.size());
             if (hash.isEmpty()) {
                 hash = redisTemplate.opsForHash().entries(LEGACY_REDIS_KEY);
             }
