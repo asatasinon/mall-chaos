@@ -6,7 +6,7 @@ RUN apk add --no-cache unzip \
 	&& unzip -q JavaAgent.zip \
 	&& rm -f JavaAgent.zip
 
-FROM apache/skywalking-java-agent:9.4.0-java21 AS sw-agent
+FROM ${BASE_IMAGE_REGISTRY}apache/skywalking-java-agent:9.4.0-java21 AS sw-agent
 
 FROM ${BASE_IMAGE_REGISTRY}eclipse-temurin:21-jdk-alpine
 WORKDIR /app
