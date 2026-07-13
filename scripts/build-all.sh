@@ -47,7 +47,7 @@ SERVICES=(
 
 echo "=== Building common module ==="
 cd "$REPO_ROOT"
-mvn clean install -pl common -DskipTests -q
+mvn clean install -pl common -am -DskipTests -q
 
 DOCKER_BUILD_ARGS=(--build-arg "BASE_IMAGE_REGISTRY=${BASE_IMAGE_REGISTRY}")
 
