@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
 # 稳定复现 "Redis BigKey 导致 GET /api/orders/{id} 变慢" 场景。
 #
-# 解决的两个问题（对照 inject-bigkey-query-enrichment.sh 的单独注入）：
+# 解决的三个问题（对照 inject-bigkey-query-enrichment.sh 的单独注入）：
 #   1. QueryEnrichmentInterceptor 有 5s 本地缓存，直接注入后单次 curl 大概率
 #      读不到 Redis —— 这里用 /internal/maintenance/query-enrichment/force-refresh
 #      强制下一次请求必定触发 HGETALL。
 #   2. 该 hash 里的 enabled/joinTable 字段会额外触发一次 SQL JOIN 慢查询，
 #      污染"变慢是否来自 Redis"的判断 —— 这里显式把 enabled 设为 false，
 #      只保留 BigKey 本身的 HGETALL 开销。
+#   3. QueryEnrichmentInterceptor 优先读取 per-service key
+#      castrel:query:enrichment:{serviceName}，只有它为空时才 fallback 到
+#      全局 legacy key castrel:query:enrichment —— legacy key 被所有业务
+#      服务共享，注入大 key 会导致其他服务（例如堆内存更小的 catalog-service）
+#      在自己的 per-service key 为空时也去反序列化这个大 hash，曾经因此把
+#      catalog-service 直接 OOM 打死。因此这里改为只注入 order-service 专属的
+#      per-service key，不再写 legacy key，避免误伤其他服务。
 #
 # 用法: ./scripts/repro-bigkey-slow-orders.sh [order_id] [field_count] [value_size]
 set -euo pipefail
 
 REDIS_HOST="${REDIS_HOST:-10.106.2.78}"
 REDIS_PORT="${REDIS_PORT:-16379}"
-REDIS_KEY="castrel:query:enrichment"
+TARGET_SERVICE="order-service"
+REDIS_KEY="castrel:query:enrichment:${TARGET_SERVICE}"
 ORDER_SERVICE_URL="${ORDER_SERVICE_URL:-http://localhost:8084}"
 ORDER_ID="${1:-10}"
 FIELD_COUNT="${2:-50000}"
@@ -71,7 +79,7 @@ echo
 echo "== 复现完成 =="
 echo "对比 Step 1 与 Step 3 的 RT 差值,即为 BigKey 引入的额外开销。"
 echo "详细耗时来源(HGETALL 本身耗时 vs 应用侧反序列化)可查看 order-service 日志中:"
-echo "  \"HGETALL castrel:query:enrichment cost=...ms fieldCount=...\""
+echo "  \"HGETALL ${REDIS_KEY} cost=...ms fieldCount=...\""
 echo "或对应 APM trace 中 opsForHash().entries 这个 span。"
 echo
 echo "清理: redis-cli -h ${REDIS_HOST} -p ${REDIS_PORT} DEL ${REDIS_KEY}"

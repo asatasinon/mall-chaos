@@ -4,7 +4,12 @@ set -euo pipefail
 
 REDIS_HOST="${REDIS_HOST:-10.106.2.78}"
 REDIS_PORT="${REDIS_PORT:-16379}"
-REDIS_KEY="castrel:query:enrichment"
+# 使用 per-service key，避免污染全局 legacy key 而误伤其他业务服务
+# （legacy key 是所有服务共享的 fallback，注入大 key 会导致每个服务在自己的
+# per-service key 为空时都去反序列化这个大 hash，例如把只有 256MB 堆的
+# catalog-service 直接 OOM 打死）。
+TARGET_SERVICE="${TARGET_SERVICE:-order-service}"
+REDIS_KEY="castrel:query:enrichment:${TARGET_SERVICE}"
 FIELD_COUNT="${1:-50000}"
 VALUE_SIZE="${2:-100}"
 START_INDEX="${3:-1}"
