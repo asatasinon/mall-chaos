@@ -650,6 +650,7 @@ services:
     restart: unless-stopped
     environment:
       REDIS_ADDR: redis://redis:6379
+      REDIS_EXPORTER_CHECK_SINGLE_KEYS: "castrel:query:enrichment:order-service,castrel:query:enrichment:user-service,castrel:query:enrichment:catalog-service,castrel:query:enrichment:inventory-service,castrel:query:enrichment:payment-service,castrel:query:enrichment:promotion-service,castrel:query:enrichment:risk-service,castrel:query:enrichment:fulfillment-service,castrel:query:enrichment:notification-service,castrel:query:enrichment"
     ports:
       - "19121:9121"   # 可选，不映射也可以
     depends_on:

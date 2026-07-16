@@ -27,7 +27,7 @@ echo "注入前该 key 的字段数: $(redis-cli "${REDIS_CLI_ARGS[@]}" HLEN "$R
 PADDING=$(printf 'x%.0s' $(seq 1 "$VALUE_SIZE"))
 
 {
-  for i in $(seq "$START_INDEX" "$END_INDEX"); do
+  for i in $(seq -f '%.0f' "$START_INDEX" "$END_INDEX"); do
     printf 'HSET %s field-%06d %s\n' "$REDIS_KEY" "$i" "$PADDING"
   done
 } | redis-cli "${REDIS_CLI_ARGS[@]}" --pipe

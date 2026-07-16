@@ -36,12 +36,10 @@ fi
 force_refresh_and_time() {
   local label="$1"
   curl -s -o /dev/null -X POST "${ORDER_SERVICE_URL}/internal/maintenance/query-enrichment/force-refresh"
-  local t0 t1 rt_ms
-  t0=$(date +%s%3N)
-  curl -s -o /dev/null -w "http_status=%{http_code}\n" "${ORDER_SERVICE_URL}/api/orders/${ORDER_ID}"
-  t1=$(date +%s%3N)
-  rt_ms=$((t1 - t0))
-  echo "[$label] GET /api/orders/${ORDER_ID} RT = ${rt_ms} ms"
+  local rt_sec http_status
+  # 用 curl 自带的 time_total，避免 `date +%s%3N` 在 macOS (BSD date) 上不支持 %N 的问题
+  read -r http_status rt_sec < <(curl -s -o /dev/null -w "%{http_code} %{time_total}\n" "${ORDER_SERVICE_URL}/api/orders/${ORDER_ID}"; true)
+  echo "[$label] GET /api/orders/${ORDER_ID} http_status=${http_status} RT = ${rt_sec}s"
 }
 
 echo "== Step 0: 清理旧状态,还原为正常小 hash（baseline） =="
