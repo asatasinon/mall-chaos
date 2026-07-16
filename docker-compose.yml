@@ -123,6 +123,8 @@ services:
     container_name: castrel-loki
     <<: *service-defaults
     # Port 13100 is exposed via obs-auth-proxy (nginx) with basic auth
+    ports:
+      - "13100:3100"
     volumes:
       - ./infra/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
       - ./data/loki:/loki
@@ -134,6 +136,7 @@ services:
     <<: *service-defaults
     ports:
       # Port 13200 (HTTP API) is exposed via obs-auth-proxy (nginx) with basic auth
+      - "13200:3200"
       - "14317:4317"   # OTLP gRPC — ingestion, no auth required
       - "14318:4318"   # OTLP HTTP — ingestion, no auth required
     volumes:
