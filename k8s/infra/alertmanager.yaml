@@ -1,0 +1,127 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: castrel
+data:
+  alertmanager.yml: |
+    global:
+      repeat_interval: 5m
+      resolve_timeout: 5m
+
+    route:
+      receiver: 'default-receiver'
+      group_by: ['alertname', 'severity', 'service']
+      group_wait: 30s
+      group_interval: 3m
+      routes:
+        - receiver: 'critical-receiver'
+          match:
+            severity: critical
+          repeat_interval: 2m
+          continue: false
+
+        - receiver: 'warning-receiver'
+          match:
+            severity: warning
+          repeat_interval: 5m
+          continue: false
+
+    receivers:
+      - name: 'default-receiver'
+        webhook_configs:
+          - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'
+            send_resolved: true
+
+      - name: 'critical-receiver'
+        webhook_configs:
+          - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'
+            send_resolved: true
+
+      - name: 'warning-receiver'
+        webhook_configs:
+          - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'
+            send_resolved: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: castrel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:latest
+          args:
+            - "--config.file=/etc/alertmanager/alertmanager.yml"
+            - "--storage.path=/alertmanager"
+            - "--web.listen-address=:9093"
+          ports:
+            - containerPort: 9093
+          volumeMounts:
+            - name: alertmanager-config
+              mountPath: /etc/alertmanager
+            - name: alertmanager-data
+              mountPath: /alertmanager
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+      volumes:
+        - name: alertmanager-config
+          configMap:
+            name: alertmanager-config
+        - name: alertmanager-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: castrel
+spec:
+  selector:
+    app: alertmanager
+  ports:
+    - port: 9093
+      targetPort: 9093
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alertmanager
+  namespace: castrel
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: castrel-alertmanager
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, secrets, services, endpoints, pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: castrel-alertmanager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: castrel-alertmanager
+subjects:
+  - kind: ServiceAccount
+    name: alertmanager
+    namespace: castrel

@@ -1,0 +1,49 @@
+# Alertmanager 配置 — Castrel Chaos
+# 告警路由规则：根据严重级别和标签分发告警通知
+global:
+  # 告警重复间隔：同一条告警在 resolve 之前每隔多久重新发送
+  repeat_interval: 5m
+  # 告警初始等待时间：告警触发后等待多久才发送通知
+  resolve_timeout: 5m
+
+route:
+  # 默认接收器
+  receiver: 'default-receiver'
+  # 分组依据：相同 group_by 标签的告警合并为一条通知
+  group_by: ['alertname', 'severity', 'service']
+  # 同组告警首次通知等待时间（积累更多告警后一起发送）
+  group_wait: 30s
+  # 同组告警发送间隔
+  group_interval: 3m
+  # 子路由：按严重级别分流
+  routes:
+    - receiver: 'critical-receiver'
+      match:
+        severity: critical
+      repeat_interval: 2m
+      continue: false
+
+    - receiver: 'warning-receiver'
+      match:
+        severity: warning
+      repeat_interval: 5m
+      continue: false
+
+receivers:
+  # ── 默认接收器：仅记录，不发送外部通知 ─────────────────────────────────
+  - name: 'default-receiver'
+    webhook_configs:
+      - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'
+        send_resolved: true
+
+  # ── Critical 接收器：日志 + 可配置的 webhook ────────────────────────────
+  - name: 'critical-receiver'
+    webhook_configs:
+      - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'
+        send_resolved: true
+
+  # ── Warning 接收器 ──────────────────────────────────────────────────────
+  - name: 'warning-receiver'
+    webhook_configs:
+      - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'
+        send_resolved: true

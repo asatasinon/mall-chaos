@@ -1,0 +1,305 @@
+# Prometheus 告警规则 — Castrel Chaos
+# 覆盖服务健康、HTTP 错误率、延迟、JVM 内存、连接池、业务指标异常等场景
+groups:
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # 1. 服务可用性
+  # ──────────────────────────────────────────────────────────────────────────────
+  - name: castrel-service-health
+    interval: 30s
+    rules:
+      - alert: ServiceDown
+        expr: up{service!~"node|mysql|redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: '服务 {{ $labels.service }} 已离线'
+          description: '服务 {{ $labels.service }} (job={{ $labels.job }}) 已停止响应超过 1 分钟。'
+
+      - alert: InfraExporterDown
+        expr: up{service=~"node|mysql|redis"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: '基础设施 Exporter {{ $labels.service }} 已离线'
+          description: 'Exporter {{ $labels.service }} (job={{ $labels.job }}) 已停止响应超过 2 分钟。'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # 2. HTTP 请求错误率 & 延迟
+  # ──────────────────────────────────────────────────────────────────────────────
+  - name: castrel-http-performance
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) by (service, uri)
+          /
+          sum(rate(http_server_requests_seconds_count[5m])) by (service, uri)
+          > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.service }} 错误率过高'
+          description: '服务 {{ $labels.service }} 的 URI {{ $labels.uri }} 在最近 5 分钟内错误率超过 5%（当前 {{ $value | humanizePercentage }}）。'
+
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_server_requests_seconds_bucket[5m])) by (service, uri, le)
+          ) > 5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} P99 延迟过高'
+          description: '服务 {{ $labels.service }} 的 URI {{ $labels.uri }} P99 延迟超过 5 秒（当前 {{ $value | humanizeDuration }}）。'
+
+      - alert: CriticalLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_server_requests_seconds_bucket[5m])) by (service, uri, le)
+          ) > 10
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.service }} P99 延迟严重超标'
+          description: '服务 {{ $labels.service }} 的 URI {{ $labels.uri }} P99 延迟超过 10 秒（当前 {{ $value | humanizeDuration }}）。'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # 3. JVM 内存 & GC
+  # ──────────────────────────────────────────────────────────────────────────────
+  - name: castrel-jvm-health
+    interval: 30s
+    rules:
+      - alert: HighHeapUsage
+        expr: |
+          jvm_memory_used_bytes{area="heap"}
+          /
+          jvm_memory_max_bytes{area="heap"}
+          > 0.85
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} 堆内存使用率过高'
+          description: '服务 {{ $labels.service }} 的堆内存使用率已达 {{ $value | humanizePercentage }}，超过 85% 阈值。'
+
+      - alert: CriticalHeapUsage
+        expr: |
+          jvm_memory_used_bytes{area="heap"}
+          /
+          jvm_memory_max_bytes{area="heap"}
+          > 0.95
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.service }} 堆内存即将耗尽'
+          description: '服务 {{ $labels.service }} 的堆内存使用率已达 {{ $value | humanizePercentage }}，超过 95% 阈值，可能触发 OOM。'
+
+      - alert: FrequentGCPause
+        expr: |
+          rate(jvm_gc_pause_seconds_count{action="end of major GC"}[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} Major GC 频繁'
+          description: '服务 {{ $labels.service }} 在最近 5 分钟内 Major GC 次数超过 0.1 次/秒（当前 {{ $value | humanize }} 次/秒）。'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # 4. 数据库连接池 (HikariCP)
+  # ──────────────────────────────────────────────────────────────────────────────
+  - name: castrel-database
+    interval: 30s
+    rules:
+      - alert: HikariPoolExhaustion
+        expr: |
+          hikaricp_connections_active
+          /
+          hikaricp_connections_max
+          > 0.80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} 数据库连接池使用率过高'
+          description: '服务 {{ $labels.service }} 的 HikariCP 连接池使用率已达 {{ $value | humanizePercentage }}。'
+
+      - alert: HikariPoolFull
+        expr: |
+          hikaricp_connections_active
+          /
+          hikaricp_connections_max
+          > 0.95
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.service }} 数据库连接池即将耗尽'
+          description: '服务 {{ $labels.service }} 的 HikariCP 连接池使用率已达 {{ $value | humanizePercentage }}，连接可能被阻塞。'
+
+      - alert: HikariPoolPending
+        expr: hikaricp_connections_pending > 10
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.service }} 数据库连接等待积压'
+          description: '服务 {{ $labels.service }} 的 HikariCP 连接池有 {{ $value }} 个请求在等待连接。'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # 5. 业务指标异常
+  # ──────────────────────────────────────────────────────────────────────────────
+  - name: castrel-business-metrics
+    interval: 30s
+    rules:
+      - alert: OrderFailureRateHigh
+        expr: |
+          rate(order_create_fail_count_total[5m])
+          /
+          (rate(order_create_success_count_total[5m]) + rate(order_create_fail_count_total[5m]))
+          > 0.10
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: '订单创建失败率过高'
+          description: '订单创建失败率 {{ $value | humanizePercentage }}，超过 10% 阈值。'
+
+      - alert: PaymentFailureRateHigh
+        expr: |
+          rate(payment_charge_fail_count_total[5m])
+          /
+          (rate(payment_charge_success_count_total[5m]) + rate(payment_charge_fail_count_total[5m]))
+          > 0.10
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: '支付失败率过高'
+          description: '支付扣款失败率 {{ $value | humanizePercentage }}，超过 10% 阈值。'
+
+      - alert: PaymentTimeoutSpike
+        expr: |
+          rate(payment_charge_timeout_count_total[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: '支付超时激增'
+          description: '支付扣款超时速率 {{ $value | humanize }} 次/秒，可能上游服务异常。'
+
+      - alert: InventoryReserveFailRateHigh
+        expr: |
+          rate(inventory_reserve_fail_count_total[5m])
+          /
+          (rate(inventory_reserve_success_count_total[5m]) + rate(inventory_reserve_fail_count_total[5m]))
+          > 0.20
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: '库存预扣失败率过高'
+          description: '库存预扣失败率 {{ $value | humanizePercentage }}，超过 20% 阈值。'
+
+      - alert: RiskRejectRateHigh
+        expr: |
+          rate(risk_pre_check_reject_count_total[5m])
+          /
+          (rate(risk_pre_check_pass_count_total[5m]) + rate(risk_pre_check_reject_count_total[5m]))
+          > 0.50
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: '风控拒绝率过高'
+          description: '风控预检查拒绝率 {{ $value | humanizePercentage }}，超过 50% 阈值。'
+
+      - alert: NotificationFailRateHigh
+        expr: |
+          rate(notification_fail_count_total[5m])
+          /
+          (rate(notification_sent_count_total[5m]) + rate(notification_fail_count_total[5m]))
+          > 0.10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: '通知发送失败率过高'
+          description: '通知发送失败率 {{ $value | humanizePercentage }}，超过 10% 阈值。'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # 6. 基础设施 (Node / MySQL / Redis)
+  # ──────────────────────────────────────────────────────────────────────────────
+  - name: castrel-infrastructure
+    interval: 30s
+    rules:
+      - alert: NodeHighCPU
+        expr: 100 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance) * 100 > 80
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: '节点 CPU 使用率过高'
+          description: '节点 {{ $labels.instance }} CPU 使用率超过 80%（当前 {{ $value | humanize }}%）。'
+
+      - alert: NodeHighMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: '节点内存使用率过高'
+          description: '节点 {{ $labels.instance }} 内存使用率超过 85%（当前 {{ $value | humanize }}%）。'
+
+      - alert: MySQLHighThreads
+        expr: mysql_global_status_threads_connected > 100
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'MySQL 连接数过高'
+          description: 'MySQL 当前连接数 {{ $value }}，超过 100 阈值。'
+
+      - alert: MySQLSlowQueries
+        expr: rate(mysql_global_status_slow_queries[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'MySQL 慢查询增多'
+          description: 'MySQL 慢查询速率 {{ $value | humanize }} 次/秒，可能存在 SQL 性能问题。'
+
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 80
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Redis 内存使用率过高'
+          description: 'Redis 内存使用率 {{ $value | humanize }}%，超过 80% 阈值。'
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # 7. 混沌工程注入检测
+  # ──────────────────────────────────────────────────────────────────────────────
+  - name: castrel-chaos-detection
+    interval: 30s
+    rules:
+      - alert: ServiceDegradationLikelyChaos
+        expr: |
+          (rate(http_server_requests_seconds_count{status=~"5.."}[5m]) > 0)
+          and
+          (rate(inventory_reserve_fail_count_total[5m]) > 0)
+          or
+          (rate(payment_charge_timeout_count_total[5m]) > 0)
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: '可能正在进行混沌工程注入'
+          description: '检测到多个服务同时出现错误/超时，可能处于混沌工程演练中。'

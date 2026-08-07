@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-Castrel Chaos is an e-commerce microservices platform purpose-built for **chaos engineering training**. It generates realistic business traffic and supports injecting network faults, JVM memory leaks, slow SQL, and database deadlocks — all observable through a full Prometheus/Grafana/Loki/Tempo stack.
+Castrel Chaos is an e-commerce microservices platform purpose-built for **chaos engineering training**. It generates realistic business traffic and supports injecting network faults, JVM memory leaks, slow SQL, and database deadlocks — all observable through a full Prometheus/Alertmanager/Grafana/Loki/Tempo stack.
 
 Before implementing any feature, read the relevant task spec in `_docs/tasks/` and check `_docs/tasks/README.md` for the task dependency graph. The canonical architecture and chaos design is in `_docs/plans/chaos-v2.md`.
 

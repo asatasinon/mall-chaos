@@ -10,12 +10,14 @@ resources:
   # Config & Secrets
   - configmap/app-config.yaml
   - configmap/mysql-config.yaml
+  - configmap/prometheus-alert-rules.yaml
   - secrets/db-secret.yaml
 
   # Infrastructure
   - infra/mysql.yaml
   - infra/redis.yaml
   - infra/prometheus.yaml
+  - infra/alertmanager.yaml
   - infra/grafana.yaml
   - infra/loki.yaml
   - infra/tempo.yaml

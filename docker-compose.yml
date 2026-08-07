@@ -101,7 +101,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # ─── Observability（默认启动，可手动关闭：docker compose stop prometheus grafana loki tempo obs-auth-proxy mysqld-exporter node-exporter promtail）──
+  # ─── Observability（默认启动，可手动关闭：docker compose stop prometheus alertmanager grafana loki tempo obs-auth-proxy mysqld-exporter node-exporter promtail）──
 
   prometheus:
     image: ${PROMETHEUS_IMAGE:-harbor.cloudwise.com/noname/prometheus:v3.11.2}
@@ -110,6 +110,7 @@ services:
     # Port 19090 is exposed via obs-auth-proxy (nginx) with basic auth
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
       - ./data/prometheus:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -117,6 +118,23 @@ services:
       - '--web.enable-lifecycle'
       - '--web.enable-remote-write-receiver'
       - '--storage.tsdb.retention.time=7d'
+
+  alertmanager:
+    image: ${ALERTMANAGER_IMAGE:-harbor.cloudwise.com/noname/alertmanager:v0.28.1}
+    container_name: castrel-alertmanager
+    <<: *service-defaults
+    ports:
+      - "19093:9093"   # Alertmanager HTTP API
+    volumes:
+      - ./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./data/alertmanager:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.listen-address=:9093'
+      - '--log.level=info'
+    depends_on:
+      - prometheus
 
   loki:
     image: ${LOKI_IMAGE:-harbor.cloudwise.com/noname/loki:3.6.10}
@@ -168,6 +186,7 @@ services:
     <<: *service-defaults
     ports:
       - "19090:19090"   # Prometheus (auth)
+      - "19093:19093"   # Alertmanager (auth)
       - "13100:13100"   # Loki       (auth)
       - "13200:13200"   # Tempo      (auth)
       - "13091:13091"   # SkyWalking UI (auth, active when --profile skywalking)
@@ -176,6 +195,7 @@ services:
       - ./infra/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
     depends_on:
       - prometheus
+      - alertmanager
       - loki
       - tempo
 

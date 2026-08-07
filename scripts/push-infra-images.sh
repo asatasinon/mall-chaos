@@ -16,6 +16,7 @@ mysql:8.0|mysql:8.0
 redis:7.2-alpine|redis:7.2-alpine
 nginx:alpine|nginx:alpine
 prom/prometheus:v3.11.2|prometheus:v3.11.2
+prom/alertmanager:v0.28.1|alertmanager:v0.28.1
 prom/node-exporter:v1.9.1|node-exporter:v1.9.1
 prom/mysqld-exporter:v0.15.1|mysqld-exporter:v0.15.1
 grafana/loki:3.6.10|loki:3.6.10
