@@ -71,6 +71,10 @@ chaos:
         - payment-service
         - fulfillment-service
         - notification-service
+      storage-growth:
+        - catalog-service
+        - risk-service
+        - notification-service
   toxiproxy:
     api-url: ${TOXIPROXY_API_URL:http://localhost:18474}
     proxy-whitelist:

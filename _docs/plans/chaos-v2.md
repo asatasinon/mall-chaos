@@ -4,6 +4,8 @@
 
 v2 对 **慢 SQL**、**MySQL 死锁（表锁阻塞）**、**内存泄漏** 三个场景进行重新设计，核心目标：
 
+存储突增是后续独立扩展场景，设计基线见 [storage-growth-scenario.md](storage-growth-scenario.md)，执行拆解见 [Task 23](../tasks/task-23-storage-growth.md)。它不改变本文件中三类故障的语义，也不复用大表预热或内存压力实现。
+
 1. **代码零 chaos 痕迹**：所有类名、方法名、API 路径、Redis Key、表名均使用符合正常业务逻辑的命名。代码审查无法识别出这是故障注入工程。
 2. **Redis 统一开关**：所有场景通过 Redis Key 控制启停，Console 管理页面操作 Redis，各服务轮询 Redis 获取指令。
 3. **真实故障表现**：不使用 `Thread.sleep()` 或 `SELECT SLEEP(N)` 等人为延迟，所有故障均由真实的数据库行为产生（表锁竞争、大表全表扫描、堆内存持续增长）。

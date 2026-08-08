@@ -10,6 +10,7 @@ import { Zap, ShieldOff, Trash2, Activity, Pencil, Save, X, Play, Pause, Check, 
 const SLOW_SQL_TARGETS    = ['catalog-service','inventory-service','order-service','payment-service','promotion-service','risk-service','fulfillment-service','notification-service'];
 const MEMORY_LEAK_TARGETS = ['order-service','payment-service'];
 const DEADLOCK_TARGETS    = ['order-service','payment-service'];
+const STORAGE_GROWTH_TARGETS = ['catalog-service','risk-service','notification-service'];
 const TABLE_LOCK_SERVICES = ['order-service','payment-service','fulfillment-service','notification-service'];
 const TABLES_PER_SERVICE: Record<string, string[]> = {
   'order-service':        ['orders','order_items'],
@@ -34,13 +35,14 @@ interface ParamDef {
 
 // ── Chaos registry ────────────────────────────────────────────────────────────
 
-type ChaosId = 'slow-sql' | 'memory-leak' | 'deadlock' | 'table-lock' | 'network-delay' | 'network-reset';
+type ChaosId = 'slow-sql' | 'memory-leak' | 'deadlock' | 'table-lock' | 'storage-growth' | 'network-delay' | 'network-reset';
 
 const CHAOS_LIST: { id: ChaosId; label: string; danger: DangerLevel; statusPath: string }[] = [
   { id: 'slow-sql',      label: 'Slow SQL',       danger: 'high',     statusPath: '/internal/traffic/chaos/slow-sql/status' },
   { id: 'memory-leak',   label: 'Memory Leak',    danger: 'high',     statusPath: '/internal/traffic/chaos/memory-leak/status' },
   { id: 'deadlock',      label: 'Deadlock',       danger: 'critical', statusPath: '/internal/traffic/chaos/deadlock/status' },
   { id: 'table-lock',    label: 'Table Lock',     danger: 'high',     statusPath: '/internal/traffic/chaos/table-lock/status' },
+  { id: 'storage-growth',label: 'Storage Growth', danger: 'critical', statusPath: '/internal/traffic/chaos/storage-growth/status' },
   { id: 'network-delay', label: 'Network Delay',  danger: 'medium',   statusPath: '/internal/traffic/chaos/network-delay/status' },
   { id: 'network-reset', label: 'Network Reset',  danger: 'high',     statusPath: '/internal/traffic/chaos/network-reset/status' },
 ];
@@ -170,6 +172,7 @@ export default function ChaosControlPage() {
           {selected === 'memory-leak'   && <MemoryLeakPanel armed={armed['memory-leak']} />}
           {selected === 'deadlock'      && <DeadlockPanel   armed={armed['deadlock']} />}
           {selected === 'table-lock'    && <TableLockPanel  armed={armed['table-lock']} />}
+          {selected === 'storage-growth' && <StorageGrowthPanel armed={armed['storage-growth']} />}
           {selected === 'network-delay' && <NetworkDelayPanel armed={armed['network-delay']} />}
           {selected === 'network-reset' && <NetworkResetPanel armed={armed['network-reset']} />}
         </div>
@@ -647,6 +650,80 @@ function TableLockPanel({ armed }: { armed?: boolean }) {
         onInject={() => call('inject', '/internal/traffic/chaos/table-lock/enable', { targetService: service, targetTable: table, durationSec: parseInt(duration, 10) })}
         onDisarm={() => call('disarm', '/internal/traffic/chaos/table-lock/disable', { targetService: service, targetTable: table })}
         onStatus={() => call('status', '/internal/traffic/chaos/table-lock/status')} />
+      <ResultOutput result={result} />
+    </div>
+  );
+}
+
+function StorageGrowthPanel({ armed }: { armed?: boolean }) {
+  const [service, setService] = useState(STORAGE_GROWTH_TARGETS[0]);
+  const [storageType, setStorageType] = useState('mysql');
+  const [runId, setRunId] = useState('storage-demo-001');
+  const [targetMb, setTargetMb] = useState('16');
+  const [rateMb, setRateMb] = useState('1');
+  const [duration, setDuration] = useState('60');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<ApiResult | null>(null);
+
+  const call = async (action: ApiAction, path: string, body?: unknown) => {
+    setLoading(true);
+    const isGet = path.includes('/status');
+    const url = isGet ? `${path}?targetService=${service}` : path;
+    setResult(await callApi(action, isGet ? url : path, !isGet ? body : undefined));
+    setLoading(false);
+  };
+
+  const body = () => ({
+    targetService: service,
+    storageType,
+    runId,
+    targetBytes: Number(targetMb) * 1024 * 1024,
+    rateBytesPerSec: Number(rateMb) * 1024 * 1024,
+    durationSec: Number(duration),
+    minFreeBytes: 1024 * 1024 * 1024,
+    minFreePercent: 10,
+  });
+
+  return (
+    <div className="space-y-6">
+      <PanelHeader title="Storage Growth" danger="critical" armed={armed} />
+      <Section label="Target service">
+        <SelectField label="Service" value={service} onChange={setService}
+          options={STORAGE_GROWTH_TARGETS.map((s) => ({ value: s, label: s.replace('-service', '') }))} />
+      </Section>
+      <Section label="Storage target">
+        <SelectField label="Type" value={storageType} onChange={setStorageType}
+          options={[{ value: 'mysql', label: 'MySQL data volume' }, { value: 'filesystem', label: 'Service filesystem' }]} />
+        <div className="mt-4 space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Run ID</label>
+          <input value={runId} onChange={(e) => setRunId(e.target.value)}
+            className="w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-sm font-mono text-foreground outline-none focus:ring-1 focus:ring-ring" />
+        </div>
+      </Section>
+      <Section label="Write parameters">
+        <div className="grid grid-cols-3 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Target (MB)</label>
+            <input type="number" min="1" max="10240" value={targetMb} onChange={(e) => setTargetMb(e.target.value)}
+              className="w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-sm font-mono text-foreground outline-none focus:ring-1 focus:ring-ring" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Rate (MB/s)</label>
+            <input type="number" min="1" max="100" value={rateMb} onChange={(e) => setRateMb(e.target.value)}
+              className="w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-sm font-mono text-foreground outline-none focus:ring-1 focus:ring-ring" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Duration (s)</label>
+            <input type="number" min="1" max="3600" value={duration} onChange={(e) => setDuration(e.target.value)}
+              className="w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-sm font-mono text-foreground outline-none focus:ring-1 focus:ring-ring" />
+          </div>
+        </div>
+      </Section>
+      <ActionRow loading={loading}
+        onInject={() => call('inject', '/internal/traffic/chaos/storage-growth/enable', body())}
+        onDisarm={() => call('disarm', '/internal/traffic/chaos/storage-growth/disable', { targetService: service })}
+        onCleanup={() => call('cleanup', '/internal/traffic/chaos/storage-growth/cleanup', { targetService: service, storageType, runId })}
+        onStatus={() => call('status', '/internal/traffic/chaos/storage-growth/status')} />
       <ResultOutput result={result} />
     </div>
   );

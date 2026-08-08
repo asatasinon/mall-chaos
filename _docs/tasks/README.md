@@ -1,6 +1,6 @@
 # Castrel Chaos — 任务总览
 
-> 基于 [chaos-v2.md](../plans/chaos-v2.md) 以及 traffic control plane redesign 拆分，共 23 个 Task，分 5 个阶段。
+> 基于 [chaos-v2.md](../plans/chaos-v2.md) 以及 traffic control plane redesign 拆分，共 24 个 Task，分 5 个阶段。
 
 ## 阶段依赖关系
 
@@ -37,6 +37,9 @@ Phase 3.5 (控制面重构) — 依赖 Phase 1/3 的相关能力
   ├── Task 20: traffic control plane 脚手架
   ├── Task 21: gateway chaos dispatch
   └── Task 22: chaos protocol 统一化
+
+Phase 5 (存储增长演练) — 依赖 Task 14、15、20、21、22
+  └── Task 23: 存储突增场景      ← MySQL 专用表 + 业务容器文件系统 + 控制台
 ```
 
 ## 任务清单
@@ -64,6 +67,7 @@ Phase 3.5 (控制面重构) — 依赖 Phase 1/3 的相关能力
 | 20 | [traffic control plane 脚手架](task-20-traffic-control-plane-scaffold.md) | Phase 3.5 | Next.js + pnpm traffic 控制平面骨架 |
 | 21 | [gateway chaos dispatch](task-21-gateway-chaos-dispatch.md) | Phase 3.5 | gateway 统一控制分发与基础设施代理 |
 | 22 | [chaos protocol 统一化](task-22-chaos-protocol-unification.md) | Phase 3.5 | 各服务 chaos endpoint 最新协议统一 |
+| 23 | [存储突增场景](task-23-storage-growth.md) | Phase 5 | MySQL 专用表增长 + 业务容器文件增长 + 控制台 |
 
 
 ## 推荐执行顺序
@@ -80,6 +84,9 @@ Phase 3.5 (控制面重构) — 依赖 Phase 1/3 的相关能力
 **控制面重构专项路径**：
 `03 → 09 → 20 → 21 → 22`
 
+**存储增长演练专项路径**：
+`14 → 15 → 20 → 21 → 22 → 23`
+
 ## 关键约束速查
 
 | 约束 | 位置 |
@@ -92,3 +99,5 @@ Phase 3.5 (控制面重构) — 依赖 Phase 1/3 的相关能力
 | Redis 不可用时所有注入默认关闭（fail-safe） | Task 14 核心约束 |
 | 大表每张 ≥ 3000 万行 | Task 15 §15.1 |
 | 表名白名单校验防 SQL 注入 | Task 14 §14.3 |
+| 存储增长必须使用专用表或固定目录，禁止写入任意路径 | Task 23 |
+| 存储增长必须支持限速、自动停止、剩余空间保护和 run 级清理 | Task 23 |

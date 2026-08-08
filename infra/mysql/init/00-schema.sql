@@ -475,3 +475,17 @@ CREATE TABLE IF NOT EXISTS user_behavior_log (
     created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   COMMENT='用户行为日志';
+
+-- =============================================================================
+-- 存储增长演练记录（仅由固定目标业务服务写入）
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS storage_growth_records (
+    id                   BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    run_id               VARCHAR(64)   NOT NULL,
+    source_service       VARCHAR(64)   NOT NULL,
+    payload              VARBINARY(65535) NOT NULL,
+    created_at           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_storage_growth_run_id (run_id),
+    INDEX idx_storage_growth_source_service (source_service)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='存储增长演练记录';

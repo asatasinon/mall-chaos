@@ -28,6 +28,9 @@ spec:
                 name: app-config
             - secretRef:
                 name: db-secret
+          volumeMounts:
+            - name: storage-growth
+              mountPath: /service-data/storage-growth
           resources:
             requests:
               memory: "256Mi"
@@ -47,6 +50,10 @@ spec:
               port: 8090
             initialDelaySeconds: 60
             periodSeconds: 30
+      volumes:
+        - name: storage-growth
+          emptyDir:
+            sizeLimit: 10Gi
 ---
 apiVersion: v1
 kind: Service

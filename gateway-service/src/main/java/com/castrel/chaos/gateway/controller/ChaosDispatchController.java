@@ -181,4 +181,58 @@ public class ChaosDispatchController {
                         "/internal/chaos/table-lock/status?targetTable=" + targetTable, traceId)
                 .map(ApiResponse::ok);
     }
+
+    // ── Storage Growth ──────────────────────────────────────────────────
+
+    @PostMapping("/storage-growth/enable")
+    public Mono<ApiResponse<Map<String, Object>>> enableStorageGrowth(
+            @RequestBody StorageGrowthDispatchRequest req,
+            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId
+    ) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("targetService", req.targetService());
+        body.put("storageType", req.storageType());
+        body.put("runId", req.runId());
+        body.put("targetBytes", req.targetBytes());
+        body.put("rateBytesPerSec", req.rateBytesPerSec());
+        body.put("durationSec", req.durationSec());
+        body.put("minFreeBytes", req.minFreeBytes());
+        body.put("minFreePercent", req.minFreePercent());
+        return dispatchService.dispatchPost("storage-growth", List.of(req.targetService()),
+                        "/internal/chaos/storage-growth/enable", body, traceId)
+                .map(ApiResponse::ok);
+    }
+
+    @PostMapping("/storage-growth/disable")
+    public Mono<ApiResponse<Map<String, Object>>> disableStorageGrowth(
+            @RequestBody StorageGrowthDispatchRequest req,
+            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId
+    ) {
+        return dispatchService.dispatchPost("storage-growth", List.of(req.targetService()),
+                        "/internal/chaos/storage-growth/disable", Map.of(), traceId)
+                .map(ApiResponse::ok);
+    }
+
+    @PostMapping("/storage-growth/cleanup")
+    public Mono<ApiResponse<Map<String, Object>>> cleanupStorageGrowth(
+            @RequestBody StorageGrowthDispatchRequest req,
+            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId
+    ) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("runId", req.runId());
+        body.put("storageType", req.storageType());
+        return dispatchService.dispatchPost("storage-growth", List.of(req.targetService()),
+                        "/internal/chaos/storage-growth/cleanup", body, traceId)
+                .map(ApiResponse::ok);
+    }
+
+    @GetMapping("/storage-growth/status")
+    public Mono<ApiResponse<Map<String, Object>>> storageGrowthStatus(
+            @RequestParam String targetService,
+            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId
+    ) {
+        return dispatchService.dispatchGet("storage-growth", List.of(targetService),
+                        "/internal/chaos/storage-growth/status", traceId)
+                .map(ApiResponse::ok);
+    }
 }
