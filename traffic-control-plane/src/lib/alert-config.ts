@@ -102,9 +102,10 @@ async function importSourceConfig(): Promise<void> {
   const pool = getPool();
   const [ruleCount] = await pool.query('SELECT COUNT(*) AS count FROM alert_rule');
   const [receiverCount] = await pool.query('SELECT COUNT(*) AS count FROM alert_receiver');
-  if (Number((ruleCount as any[])[0]?.count) > 0 || Number((receiverCount as any[])[0]?.count) > 0) return;
+  const shouldImportRules = Number((ruleCount as any[])[0]?.count) === 0;
+  const shouldImportReceivers = Number((receiverCount as any[])[0]?.count) === 0;
 
-  try {
+  if (shouldImportRules) try {
     const rulesDoc = yaml.load(await fs.readFile(env.ALERT_SOURCE_RULES_PATH, 'utf8')) as any;
     const rules = (rulesDoc?.groups ?? []).flatMap((group: any) =>
       (group.rules ?? []).map((rule: any) => ({
@@ -126,7 +127,7 @@ async function importSourceConfig(): Promise<void> {
     // A production image may not contain the source YAML. The UI can still create rules.
   }
 
-  try {
+  if (shouldImportReceivers) try {
     const managerDoc = yaml.load(await fs.readFile(env.ALERT_SOURCE_MANAGER_PATH, 'utf8')) as any;
     const route = managerDoc?.route ?? {};
     await pool.query(
@@ -156,6 +157,16 @@ async function importSourceConfig(): Promise<void> {
       [DEFAULT_RECEIVER, INTERNAL_WEBHOOK],
     );
   }
+
+  await ensureDefaultReceiver(pool);
+}
+
+async function ensureDefaultReceiver(pool: ReturnType<typeof getPool>): Promise<void> {
+  await pool.query(
+    `INSERT IGNORE INTO alert_receiver (receiver_name, receiver_type, endpoint, severity_match, send_resolved, enabled)
+     VALUES (?, 'webhook', ?, 'all', 1, 1)`,
+    [DEFAULT_RECEIVER, INTERNAL_WEBHOOK],
+  );
 }
 
 export async function loadAlertConfig(includeSecrets = false): Promise<AlertConfig> {
