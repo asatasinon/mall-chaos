@@ -315,6 +315,7 @@ CREATE TABLE IF NOT EXISTS alert_config_meta (
   group_interval   VARCHAR(32) NOT NULL DEFAULT '3m',
   repeat_interval  VARCHAR(32) NOT NULL DEFAULT '5m',
   route_continue   TINYINT(1) NOT NULL DEFAULT 0,
+  child_routes_json JSON NULL,
   updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
