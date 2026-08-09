@@ -307,12 +307,18 @@ VALUES (1, '0 */30 * * * *', 'Asia/Shanghai', '00:00-06:00', 'ALL', 1, 1);
 -- Alert configuration is managed by traffic-control-plane and rendered to
 -- Prometheus/Alertmanager files after each successful update.
 CREATE TABLE IF NOT EXISTS alert_config_meta (
-  id         BIGINT NOT NULL PRIMARY KEY,
-  version    INT NOT NULL DEFAULT 1,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  id               BIGINT NOT NULL PRIMARY KEY,
+  version          INT NOT NULL DEFAULT 1,
+  route_receiver   VARCHAR(128) NOT NULL DEFAULT 'default-receiver',
+  group_by_json    JSON NULL,
+  group_wait       VARCHAR(32) NOT NULL DEFAULT '30s',
+  group_interval   VARCHAR(32) NOT NULL DEFAULT '3m',
+  repeat_interval  VARCHAR(32) NOT NULL DEFAULT '5m',
+  route_continue   TINYINT(1) NOT NULL DEFAULT 0,
+  updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT INTO alert_config_meta (id, version) VALUES (1, 1);
+INSERT INTO alert_config_meta (id, version, group_by_json) VALUES (1, 1, '["alertname", "severity", "service"]');
 
 CREATE TABLE IF NOT EXISTS alert_rule (
   id            BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -334,6 +340,8 @@ CREATE TABLE IF NOT EXISTS alert_receiver (
   receiver_name  VARCHAR(128) NOT NULL,
   receiver_type  VARCHAR(32) NOT NULL DEFAULT 'webhook',
   endpoint       VARCHAR(1024) NOT NULL,
+  basic_auth_username VARCHAR(256),
+  basic_auth_password VARCHAR(1024),
   severity_match VARCHAR(16) NOT NULL DEFAULT 'all',
   send_resolved  TINYINT(1) NOT NULL DEFAULT 1,
   enabled        TINYINT(1) NOT NULL DEFAULT 1,

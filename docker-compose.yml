@@ -456,6 +456,11 @@ services:
       dockerfile: Dockerfile
     container_name: castrel-traffic-control-plane
     <<: *service-defaults
+    # The alert config is a host bind mount. The image's UID 1001 does not
+    # match macOS/Linux host ownership, so use root by default; override with
+    # CONTROL_PLANE_UID/CONTROL_PLANE_GID when the host directory is prepared
+    # for a non-root user.
+    user: "${CONTROL_PLANE_UID:-0}:${CONTROL_PLANE_GID:-0}"
     ports:
       - "18086:3086"
     volumes:

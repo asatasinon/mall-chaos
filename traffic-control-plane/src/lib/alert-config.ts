@@ -23,6 +23,9 @@ export interface AlertReceiver {
   receiverName: string;
   receiverType: 'webhook';
   endpoint: string;
+  basicAuthUsername?: string;
+  basicAuthPassword?: string;
+  basicAuthPasswordSet?: boolean;
   severityMatch: 'all' | 'critical' | 'warning' | 'info';
   sendResolved: boolean;
   enabled: boolean;
@@ -33,6 +36,14 @@ export interface AlertConfig {
   rules: AlertRule[];
   receivers: AlertReceiver[];
   updatedAt: string | null;
+  route: {
+    receiver: string;
+    groupBy: string[];
+    groupWait: string;
+    groupInterval: string;
+    repeatInterval: string;
+    continue: boolean;
+  };
 }
 
 const DEFAULT_RECEIVER = 'default-receiver';
@@ -43,6 +54,12 @@ async function ensureTables(): Promise<void> {
   await pool.query(`CREATE TABLE IF NOT EXISTS alert_config_meta (
     id BIGINT NOT NULL PRIMARY KEY,
     version INT NOT NULL DEFAULT 1,
+    route_receiver VARCHAR(128) NOT NULL DEFAULT 'default-receiver',
+    group_by_json JSON NOT NULL,
+    group_wait VARCHAR(32) NOT NULL DEFAULT '30s',
+    group_interval VARCHAR(32) NOT NULL DEFAULT '3m',
+    repeat_interval VARCHAR(32) NOT NULL DEFAULT '5m',
+    route_continue TINYINT(1) NOT NULL DEFAULT 0,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   await pool.query(`CREATE TABLE IF NOT EXISTS alert_rule (
@@ -70,7 +87,15 @@ async function ensureTables(): Promise<void> {
     version INT NOT NULL DEFAULT 1,
     UNIQUE KEY uq_alert_receiver_name (receiver_name)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
-  await pool.query('INSERT IGNORE INTO alert_config_meta (id, version) VALUES (1, 1)');
+  await addColumn(pool, 'alert_config_meta', 'route_receiver', "VARCHAR(128) NOT NULL DEFAULT 'default-receiver'");
+  await addColumn(pool, 'alert_config_meta', 'group_by_json', "JSON NULL");
+  await addColumn(pool, 'alert_config_meta', 'group_wait', "VARCHAR(32) NOT NULL DEFAULT '30s'");
+  await addColumn(pool, 'alert_config_meta', 'group_interval', "VARCHAR(32) NOT NULL DEFAULT '3m'");
+  await addColumn(pool, 'alert_config_meta', 'repeat_interval', "VARCHAR(32) NOT NULL DEFAULT '5m'");
+  await addColumn(pool, 'alert_config_meta', 'route_continue', 'TINYINT(1) NOT NULL DEFAULT 0');
+  await addColumn(pool, 'alert_receiver', 'basic_auth_username', 'VARCHAR(256)');
+  await addColumn(pool, 'alert_receiver', 'basic_auth_password', 'VARCHAR(1024)');
+  await pool.query('INSERT IGNORE INTO alert_config_meta (id, version, group_by_json) VALUES (1, 1, ?)', ['["alertname", "severity", "service"]']);
 }
 
 async function importSourceConfig(): Promise<void> {
@@ -103,18 +128,25 @@ async function importSourceConfig(): Promise<void> {
 
   try {
     const managerDoc = yaml.load(await fs.readFile(env.ALERT_SOURCE_MANAGER_PATH, 'utf8')) as any;
+    const route = managerDoc?.route ?? {};
+    await pool.query(
+      `UPDATE alert_config_meta SET route_receiver = ?, group_by_json = ?, group_wait = ?, group_interval = ?, repeat_interval = ?, route_continue = ? WHERE id = 1`,
+      [String(route.receiver ?? DEFAULT_RECEIVER), JSON.stringify(route.group_by ?? ['alertname', 'severity', 'service']), String(route.group_wait ?? '30s'), String(route.group_interval ?? '3m'), String(route.repeat_interval ?? '5m'), Boolean(route.continue)],
+    );
     const receivers = (managerDoc?.receivers ?? []).flatMap((receiver: any) =>
       (receiver.webhook_configs ?? []).map((webhook: any) => ({
         receiverName: String(receiver.name ?? DEFAULT_RECEIVER), receiverType: 'webhook' as const,
         endpoint: String(webhook.url ?? ''), severityMatch: receiver.name === 'critical-receiver' ? 'critical' : receiver.name === 'warning-receiver' ? 'warning' : 'all',
         sendResolved: webhook.send_resolved !== false, enabled: true,
+        basicAuthUsername: String(webhook.http_config?.basic_auth?.username ?? ''),
+        basicAuthPassword: String(webhook.http_config?.basic_auth?.password ?? ''),
       })).filter((receiver: AlertReceiver) => receiver.endpoint),
     );
     for (const receiver of receivers) {
       await pool.query(
-        `INSERT IGNORE INTO alert_receiver (receiver_name, receiver_type, endpoint, severity_match, send_resolved, enabled)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [receiver.receiverName, receiver.receiverType, receiver.endpoint, receiver.severityMatch, receiver.sendResolved, receiver.enabled],
+        `INSERT IGNORE INTO alert_receiver (receiver_name, receiver_type, endpoint, basic_auth_username, basic_auth_password, severity_match, send_resolved, enabled)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [receiver.receiverName, receiver.receiverType, receiver.endpoint, receiver.basicAuthUsername || null, receiver.basicAuthPassword || null, receiver.severityMatch, receiver.sendResolved, receiver.enabled],
       );
     }
   } catch {
@@ -126,23 +158,25 @@ async function importSourceConfig(): Promise<void> {
   }
 }
 
-export async function loadAlertConfig(): Promise<AlertConfig> {
+export async function loadAlertConfig(includeSecrets = false): Promise<AlertConfig> {
   await ensureTables();
   await importSourceConfig();
   const pool = getPool();
-  const [metaRows] = await pool.query('SELECT version, updated_at FROM alert_config_meta WHERE id = 1');
+  const [metaRows] = await pool.query('SELECT * FROM alert_config_meta WHERE id = 1');
   const [ruleRows] = await pool.query('SELECT * FROM alert_rule ORDER BY group_name, rule_name');
   const [receiverRows] = await pool.query('SELECT * FROM alert_receiver ORDER BY receiver_name');
   return {
     version: Number((metaRows as any[])[0]?.version ?? 1),
     updatedAt: (metaRows as any[])[0]?.updated_at ? new Date((metaRows as any[])[0].updated_at).toISOString() : null,
-    rules: (ruleRows as any[]).map(toRule), receivers: (receiverRows as any[]).map(toReceiver),
+    rules: (ruleRows as any[]).map(toRule), receivers: (receiverRows as any[]).map((row) => toReceiver(row, includeSecrets)),
+    route: toRoute((metaRows as any[])[0]),
   };
 }
 
 export async function saveAlertConfig(input: AlertConfig): Promise<AlertConfig> {
   validateConfig(input);
   const current = await loadAlertConfig();
+  const currentWithSecrets = await loadAlertConfig(true);
   if (input.version !== current.version) throw new Error('VERSION_CONFLICT');
   const pool = getPool();
   const connection = await pool.getConnection();
@@ -162,11 +196,15 @@ export async function saveAlertConfig(input: AlertConfig): Promise<AlertConfig> 
     await connection.query('DELETE FROM alert_receiver');
     for (const receiver of input.receivers.filter((item) => item.enabled)) {
       await connection.query(
-        `INSERT INTO alert_receiver (receiver_name, receiver_type, endpoint, severity_match, send_resolved, enabled, version)
-         VALUES (?, ?, ?, ?, ?, 1, ?)`,
-        [receiver.receiverName, receiver.receiverType, receiver.endpoint, receiver.severityMatch, receiver.sendResolved, nextVersion],
+        `INSERT INTO alert_receiver (receiver_name, receiver_type, endpoint, basic_auth_username, basic_auth_password, severity_match, send_resolved, enabled, version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+        [receiver.receiverName, receiver.receiverType, receiver.endpoint, receiver.basicAuthUsername || null, receiver.basicAuthPassword || currentWithSecrets.receivers.find((item) => item.receiverName === receiver.receiverName)?.basicAuthPassword || null, receiver.severityMatch, receiver.sendResolved, nextVersion],
       );
     }
+    await connection.query(
+      `UPDATE alert_config_meta SET route_receiver = ?, group_by_json = ?, group_wait = ?, group_interval = ?, repeat_interval = ?, route_continue = ? WHERE id = 1`,
+      [input.route.receiver, JSON.stringify(input.route.groupBy), input.route.groupWait, input.route.groupInterval, input.route.repeatInterval, input.route.continue],
+    );
     await connection.commit();
   } catch (error) {
     await connection.rollback();
@@ -175,9 +213,35 @@ export async function saveAlertConfig(input: AlertConfig): Promise<AlertConfig> 
     connection.release();
   }
 
-  const saved = await loadAlertConfig();
-  await renderAndReload(saved);
-  return saved;
+  const savedWithSecrets = await loadAlertConfig(true);
+  await renderAndReload(savedWithSecrets);
+  return loadAlertConfig();
+}
+
+export function parseAlertmanagerYaml(source: string, current: AlertConfig): AlertConfig {
+  const document = yaml.load(source) as any;
+  if (!document || typeof document !== 'object') throw new Error('INVALID_ALERTMANAGER_YAML');
+  const route = document.route ?? {};
+  const receivers = (document.receivers ?? []).flatMap((receiver: any) =>
+    (receiver.webhook_configs ?? []).map((webhook: any) => ({
+      receiverName: String(receiver.name ?? DEFAULT_RECEIVER), receiverType: 'webhook' as const,
+      endpoint: String(webhook.url ?? ''), severityMatch: 'all' as const,
+      sendResolved: webhook.send_resolved !== false, enabled: true,
+      basicAuthUsername: String(webhook.http_config?.basic_auth?.username ?? ''),
+      basicAuthPassword: String(webhook.http_config?.basic_auth?.password ?? ''),
+    })).filter((receiver: AlertReceiver) => receiver.endpoint),
+  );
+  if (!receivers.length) throw new Error('INVALID_ALERTMANAGER_RECEIVERS');
+  return {
+    ...current,
+    receivers,
+    route: {
+      receiver: String(route.receiver ?? receivers[0].receiverName),
+      groupBy: Array.isArray(route.group_by) ? route.group_by.map(String) : ['alertname'],
+      groupWait: String(route.group_wait ?? '30s'), groupInterval: String(route.group_interval ?? '3m'),
+      repeatInterval: String(route.repeat_interval ?? '5m'), continue: Boolean(route.continue),
+    },
+  };
 }
 
 async function renderAndReload(config: AlertConfig): Promise<void> {
@@ -199,7 +263,12 @@ async function atomicWrite(filePath: string, contents: string): Promise<void> {
 }
 
 async function reload(url: string, service: string): Promise<void> {
-  const response = await fetch(url, { method: 'POST', signal: AbortSignal.timeout(5000) });
+  let response: Response;
+  try {
+    response = await fetch(url, { method: 'POST', signal: AbortSignal.timeout(5000) });
+  } catch {
+    throw new Error(`${service.toUpperCase()}_RELOAD_UNREACHABLE`);
+  }
   if (!response.ok) throw new Error(`${service.toUpperCase()}_RELOAD_FAILED`);
 }
 
@@ -213,17 +282,22 @@ function toPrometheusConfig(config: AlertConfig) {
 }
 
 function toAlertmanagerConfig(config: AlertConfig) {
-  const receivers = config.receivers.filter((item) => item.enabled).map((item) => ({ name: item.receiverName, webhook_configs: [{ url: item.endpoint, send_resolved: item.sendResolved }] }));
-  const fallback = receivers[0]?.name ?? DEFAULT_RECEIVER;
+  const receivers = config.receivers.filter((item) => item.enabled).map((item) => ({ name: item.receiverName, webhook_configs: [{ url: item.endpoint, send_resolved: item.sendResolved, ...(item.basicAuthUsername && item.basicAuthPassword ? { http_config: { basic_auth: { username: item.basicAuthUsername, password: item.basicAuthPassword } } } : {}) }] }));
+  const fallback = config.route.receiver || receivers[0]?.name || DEFAULT_RECEIVER;
   const routes = config.receivers.filter((item) => item.enabled && item.severityMatch !== 'all').map((item) => ({ receiver: item.receiverName, match: { severity: item.severityMatch }, continue: false }));
-  return { global: { resolve_timeout: '5m' }, route: { receiver: fallback, group_by: ['alertname', 'severity', 'service'], group_wait: '30s', group_interval: '3m', repeat_interval: '5m', routes }, receivers: receivers.length ? receivers : [{ name: DEFAULT_RECEIVER, webhook_configs: [{ url: INTERNAL_WEBHOOK, send_resolved: true }] }] };
+  return { global: { resolve_timeout: '5m' }, route: { receiver: fallback, group_by: config.route.groupBy, group_wait: config.route.groupWait, group_interval: config.route.groupInterval, repeat_interval: config.route.repeatInterval, continue: config.route.continue, routes }, receivers: receivers.length ? receivers : [{ name: DEFAULT_RECEIVER, webhook_configs: [{ url: INTERNAL_WEBHOOK, send_resolved: true }] }] };
 }
 
 function toRule(row: any): AlertRule {
   return { id: Number(row.id), ruleName: row.rule_name, groupName: row.group_name, intervalSec: Number(row.interval_sec), expression: row.expression, forDuration: row.for_duration, severity: normalizeSeverity(row.severity), summary: row.summary, description: row.description, enabled: Boolean(row.enabled) };
 }
-function toReceiver(row: any): AlertReceiver {
-  return { id: Number(row.id), receiverName: row.receiver_name, receiverType: 'webhook', endpoint: row.endpoint, severityMatch: row.severity_match, sendResolved: Boolean(row.send_resolved), enabled: Boolean(row.enabled) };
+function toReceiver(row: any, includeSecret: boolean): AlertReceiver {
+  return { id: Number(row.id), receiverName: row.receiver_name, receiverType: 'webhook', endpoint: row.endpoint, basicAuthUsername: row.basic_auth_username || undefined, ...(includeSecret ? { basicAuthPassword: row.basic_auth_password || undefined } : { basicAuthPasswordSet: Boolean(row.basic_auth_password) }), severityMatch: row.severity_match, sendResolved: Boolean(row.send_resolved), enabled: Boolean(row.enabled) };
+}
+function toRoute(row: any): AlertConfig['route'] {
+  let groupBy: string[] = ['alertname', 'severity', 'service'];
+  try { groupBy = Array.isArray(row?.group_by_json) ? row.group_by_json : JSON.parse(row?.group_by_json || '[]'); } catch { /* use default */ }
+  return { receiver: row?.route_receiver || DEFAULT_RECEIVER, groupBy: groupBy.length ? groupBy : ['alertname'], groupWait: row?.group_wait || '30s', groupInterval: row?.group_interval || '3m', repeatInterval: row?.repeat_interval || '5m', continue: Boolean(row?.route_continue) };
 }
 function normalizeSeverity(value: unknown): AlertRule['severity'] {
   return value === 'critical' || value === 'info' ? value : 'warning';
@@ -244,5 +318,12 @@ function validateConfig(config: AlertConfig): void {
   for (const receiver of config.receivers) {
     if (!/^[A-Za-z0-9_-]+$/.test(receiver.receiverName) || receiverNames.has(receiver.receiverName) || !/^https?:\/\//.test(receiver.endpoint)) throw new Error('INVALID_RECEIVER');
     receiverNames.add(receiver.receiverName);
+  }
+  if (!config.route?.receiver || !config.route.groupBy.length || !/^\d+[smhd]$/.test(config.route.groupWait) || !/^\d+[smhd]$/.test(config.route.groupInterval) || !/^\d+[smhd]$/.test(config.route.repeatInterval)) throw new Error('INVALID_ROUTE');
+}
+
+async function addColumn(pool: ReturnType<typeof getPool>, table: string, column: string, definition: string): Promise<void> {
+  try { await pool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`); } catch (error: any) {
+    if (error?.code !== 'ER_DUP_FIELDNAME') throw error;
   }
 }
