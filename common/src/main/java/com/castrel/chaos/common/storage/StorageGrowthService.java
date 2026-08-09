@@ -35,13 +35,13 @@ public class StorageGrowthService {
     private static final String RUN_ID_PATTERN = "[A-Za-z0-9._-]{1,64}";
     private static final long DEFAULT_TARGET_BYTES = 16L * 1024 * 1024;
     private static final long DEFAULT_RATE_BYTES_PER_SEC = 1024L * 1024;
-    private static final int DEFAULT_DURATION_SEC = 60;
     private static final long DEFAULT_MIN_FREE_BYTES = 1024L * 1024 * 1024;
     private static final int DEFAULT_MIN_FREE_PERCENT = 10;
     private static final long MAX_TARGET_BYTES = 10L * 1024 * 1024 * 1024;
     private static final long MAX_RATE_BYTES_PER_SEC = 100L * 1024 * 1024;
     private static final int MAX_DURATION_SEC = 3600;
-    private static final int MAX_PAYLOAD_BYTES = 64 * 1024;
+    private static final int MAX_MYSQL_PAYLOAD_BYTES = 512 * 1024;
+    private static final int MAX_FILESYSTEM_PAYLOAD_BYTES = 4 * 1024 * 1024;
 
     private final DataSource dataSource;
     private final String sourceService;
@@ -122,7 +122,8 @@ public class StorageGrowthService {
             return;
         }
         try {
-            if (Instant.now().isAfter(state.autoStopAt)) {
+            Instant now = Instant.now();
+            if (now.isAfter(state.autoStopAt)) {
                 stop(state, "STOPPED", "DURATION_EXPIRED");
                 return;
             }
@@ -134,22 +135,31 @@ public class StorageGrowthService {
                 stop(state, "SPACE_GUARD", "MIN_FREE_SPACE");
                 return;
             }
-            long remaining = state.targetBytes - state.writtenBytes;
-            if (remaining <= 0) {
-                stop(state, "COMPLETED", "TARGET_REACHED");
+            long elapsedMillis = Math.max(0, now.toEpochMilli() - state.startedAt.toEpochMilli());
+            long scheduledBytes = Math.min(state.targetBytes,
+                    elapsedMillis * state.rateBytesPerSec / 1000);
+            if (state.writtenBytes >= scheduledBytes) {
+                if (state.writtenBytes >= state.targetBytes) {
+                    stop(state, "COMPLETED", "TARGET_REACHED");
+                }
                 return;
             }
-            int payloadSize = (int) Math.min(Math.min(remaining, MAX_PAYLOAD_BYTES),
-                    Math.max(1024, state.rateBytesPerSec / 10));
-            byte[] payload = new byte[payloadSize];
-            ByteBuffer.wrap(payload).putLong(System.nanoTime());
-            if (MYSQL.equals(state.storageType)) {
-                writeMysql(state, payload);
-            } else {
-                writeFile(state, payload);
+            while (state.writtenBytes < scheduledBytes && state.status.equals("RUNNING")) {
+                long remaining = Math.min(state.targetBytes - state.writtenBytes,
+                        scheduledBytes - state.writtenBytes);
+                int maxPayloadBytes = MYSQL.equals(state.storageType)
+                    ? MAX_MYSQL_PAYLOAD_BYTES : MAX_FILESYSTEM_PAYLOAD_BYTES;
+                int payloadSize = (int) Math.min(remaining, maxPayloadBytes);
+                byte[] payload = new byte[payloadSize];
+                ByteBuffer.wrap(payload).putLong(System.nanoTime());
+                if (MYSQL.equals(state.storageType)) {
+                    writeMysql(state, payload);
+                } else {
+                    writeFile(state, payload);
+                }
+                state.writtenBytes += payloadSize;
+                state.writtenRows++;
             }
-            state.writtenBytes += payloadSize;
-            state.writtenRows++;
             if (state.writtenBytes >= state.targetBytes) {
                 stop(state, "COMPLETED", "TARGET_REACHED");
             }
@@ -266,7 +276,9 @@ public class StorageGrowthService {
         validateRunId(runId);
         long targetBytes = request.targetBytes() > 0 ? request.targetBytes() : DEFAULT_TARGET_BYTES;
         long rateBytes = request.rateBytesPerSec() > 0 ? request.rateBytesPerSec() : DEFAULT_RATE_BYTES_PER_SEC;
-        int durationSec = request.durationSec() > 0 ? request.durationSec() : DEFAULT_DURATION_SEC;
+        long calculatedDurationSec = (targetBytes + rateBytes - 1) / rateBytes;
+        int durationSec = calculatedDurationSec > Integer.MAX_VALUE
+            ? Integer.MAX_VALUE : (int) calculatedDurationSec;
         long minFreeBytes = request.minFreeBytes() > 0 ? request.minFreeBytes() : DEFAULT_MIN_FREE_BYTES;
         int minFreePercent = request.minFreePercent() == null ? DEFAULT_MIN_FREE_PERCENT : request.minFreePercent();
         if (targetBytes > MAX_TARGET_BYTES || rateBytes > MAX_RATE_BYTES_PER_SEC || durationSec > MAX_DURATION_SEC

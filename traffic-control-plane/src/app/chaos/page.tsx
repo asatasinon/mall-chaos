@@ -727,9 +727,14 @@ function StorageGrowthPanel({ armed }: { armed?: boolean }) {
   const [runId, setRunId] = useState('storage-demo-001');
   const [targetMb, setTargetMb] = useState('16');
   const [rateMb, setRateMb] = useState('1');
-  const [duration, setDuration] = useState('60');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ApiResult | null>(null);
+
+  const targetBytes = Number(targetMb) * 1024 * 1024;
+  const rateBytesPerSec = Number(rateMb) * 1024 * 1024;
+  const duration = targetBytes > 0 && rateBytesPerSec > 0
+    ? Math.ceil(targetBytes / rateBytesPerSec)
+    : 0;
 
   const call = async (action: ApiAction, path: string, body?: unknown) => {
     setLoading(true);
@@ -743,9 +748,9 @@ function StorageGrowthPanel({ armed }: { armed?: boolean }) {
     targetService: service,
     storageType,
     runId,
-    targetBytes: Number(targetMb) * 1024 * 1024,
-    rateBytesPerSec: Number(rateMb) * 1024 * 1024,
-    durationSec: Number(duration),
+    targetBytes,
+    rateBytesPerSec,
+    durationSec: duration,
     minFreeBytes: 1024 * 1024 * 1024,
     minFreePercent: 10,
   });
@@ -779,9 +784,9 @@ function StorageGrowthPanel({ armed }: { armed?: boolean }) {
               className="w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-sm font-mono text-foreground outline-none focus:ring-1 focus:ring-ring" />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Duration (s)</label>
-            <input type="number" min="1" max="3600" value={duration} onChange={(e) => setDuration(e.target.value)}
-              className="w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-sm font-mono text-foreground outline-none focus:ring-1 focus:ring-ring" />
+            <label className="text-xs font-medium text-muted-foreground">Duration (s, calculated)</label>
+            <input type="number" value={duration} readOnly
+              className="w-full rounded-md border border-border bg-muted px-2.5 py-1.5 text-sm font-mono text-muted-foreground outline-none" />
           </div>
         </div>
       </Section>
