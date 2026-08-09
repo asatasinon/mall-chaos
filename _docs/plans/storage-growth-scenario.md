@@ -152,6 +152,16 @@ CREATE TABLE IF NOT EXISTS storage_growth_records (
 
 `runId` 只允许 ASCII 字母、数字、`.`、`_`、`-`，长度限制为 1 到 64 个字符。禁止 `..`、路径分隔符、绝对路径和符号链接逃逸。
 
+## 5.3 Prometheus 存储突增检测
+
+存储突增场景复用现有 `node-exporter` 和 `mysqld-exporter`，不新增 exporter 或业务指标：
+
+- `NodeDataFilesystemUsageHigh`：使用 `node_filesystem_avail_bytes{mountpoint="/data",fstype="ext4"}` 与 `node_filesystem_size_bytes{mountpoint="/data",fstype="ext4"}` 检测数据文件系统使用率超过 85%。
+- `NodeDataFilesystemGrowthRateHigh`：使用 `deriv(node_filesystem_avail_bytes{mountpoint="/data",fstype="ext4"}[15m])` 检测数据文件系统可用空间持续以超过 10 MiB/s 的速率下降。
+- `MySQLInnoDBDataWriteRateHigh`：使用已部署的 `mysql_global_status_innodb_data_written` 累计字节指标，通过 `rate(...[5m])` 检测 InnoDB 数据文件写入速率超过 1 MiB/s。
+
+其中节点规则用于观测实际 `/data` 物理磁盘水位，MySQL 规则用于确认数据库正在产生数据文件写入。当前部署未暴露 `mysql_info_schema_table_size_bytes`，因此不使用表级大小指标。MySQL 删除演练记录后，InnoDB 表空间不一定立即归还操作系统，因此清理后的物理水位应以 node-exporter 指标为准。
+
 ## 6. 统一状态模型
 
 两个增长器都返回以下状态：
