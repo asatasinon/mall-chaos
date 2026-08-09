@@ -25,10 +25,12 @@ export default function AlertsPage() {
   const [sourceYaml, setSourceYaml] = useState('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [receiverModalOpen, setReceiverModalOpen] = useState(false);
+  const [routeModalOpen, setRouteModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'rules' | 'routing'>('rules');
   const [createMode, setCreateMode] = useState<'rule' | 'prometheus-rules'>('rule');
   const [draftRule, setDraftRule] = useState<Rule>(blankRule());
   const [draftReceiver, setDraftReceiver] = useState<Receiver>(blankReceiver());
+  const [draftRoute, setDraftRoute] = useState<AlertRoute>(blankRoute());
 
   const load = async () => {
     setError('');
@@ -81,6 +83,14 @@ export default function AlertsPage() {
     setNotice('推送地址已加入待保存配置');
   };
 
+  const addRoute = () => {
+    if (!config) return;
+    setConfig({ ...config, route: { ...config.route, routes: [...config.route.routes, draftRoute] } });
+    setDraftRoute(blankRoute());
+    setRouteModalOpen(false);
+    setNotice('路由已加入待保存配置');
+  };
+
   if (!config) return <div className="space-y-4"><PageHeading onRefresh={() => void load()} /><p className="text-sm text-muted-foreground">正在加载配置…</p>{error && <ErrorBox text={error} />}</div>;
   return (
     <div className="space-y-5 max-w-7xl">
@@ -93,13 +103,14 @@ export default function AlertsPage() {
         <div className="space-y-3">{config.rules.map((rule, index) => <RuleEditor key={`${rule.id ?? 'new'}-${index}`} rule={rule} onChange={(next) => setConfig({ ...config, rules: config.rules.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, rules: config.rules.filter((_, i) => i !== index) })} />)}</div>
       </section>}
       {activeTab === 'routing' && <section className="space-y-3">
-        <AlertRoutingSection config={config} onChange={(route) => setConfig({ ...config, route })} />
+        <AlertRoutingSection config={config} onChange={(route) => setConfig({ ...config, route })} onAddRoute={() => { setDraftRoute(blankRoute()); setRouteModalOpen(true); }} />
         <div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">推送地址</h2><p className="text-xs text-muted-foreground">按严重级别将告警路由到 Webhook 接收器</p></div><Button variant="outline" size="sm" onClick={() => { setDraftReceiver(blankReceiver()); setReceiverModalOpen(true); }}><Plus />新增地址</Button></div>
         <div className="space-y-3">{config.receivers.map((receiver, index) => <ReceiverEditor key={`${receiver.id ?? 'new'}-${index}`} receiver={receiver} onChange={(next) => setConfig({ ...config, receivers: config.receivers.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, receivers: config.receivers.filter((_, i) => i !== index) })} />)}</div>
       </section>}
       <div className="sticky bottom-3 flex items-center justify-between border border-border bg-card/95 backdrop-blur px-4 py-3 rounded-md shadow-lg"><span className="text-xs text-muted-foreground">配置版本 v{config.version}{config.updatedAt ? ` · ${new Date(config.updatedAt).toLocaleString()}` : ''}</span><Button onClick={() => void save()} disabled={saving}><Save />{saving ? '保存中…' : '保存并应用'}</Button></div>
       {createModalOpen && <CreateAlertModal mode={createMode} onModeChange={setCreateMode} rule={draftRule} onRuleChange={setDraftRule} sourceYaml={sourceYaml} onSourceYamlChange={setSourceYaml} error={importError} saving={saving} onClose={() => { setImportError(''); setCreateModalOpen(false); }} onAddRule={addRule} onImportYaml={() => void importYaml('prometheus-rules')} />}
       {receiverModalOpen && <ReceiverModal receiver={draftReceiver} onChange={setDraftReceiver} sourceYaml={sourceYaml} onSourceYamlChange={setSourceYaml} error={importError} saving={saving} onClose={() => { setImportError(''); setReceiverModalOpen(false); }} onAdd={addReceiver} onImportYaml={() => void importYaml('alertmanager')} />}
+      {routeModalOpen && <RouteModal route={draftRoute} onChange={setDraftRoute} saving={saving} onClose={() => setRouteModalOpen(false)} onAdd={addRoute} />}
     </div>
   );
 }
@@ -131,10 +142,22 @@ function ReceiverModal({ receiver, onChange, sourceYaml, onSourceYamlChange, err
     </div>
   </div>;
 }
-function AlertRoutingSection({ config, onChange }: { config: Config; onChange: (route: Config['route']) => void }) {
+function AlertRoutingSection({ config, onChange, onAddRoute }: { config: Config; onChange: (route: Config['route']) => void; onAddRoute: () => void }) {
   const set = (patch: Partial<Config['route']>) => onChange({ ...config.route, ...patch });
   const updateChild = (index: number, child: AlertRoute) => set({ routes: config.route.routes.map((item, i) => i === index ? child : item) });
-  return <div className="space-y-3"><div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">路由与分组</h2><p className="text-xs text-muted-foreground">配置默认分组和多个子路由，并将它们指向推送地址</p></div><Button variant="outline" size="sm" onClick={() => set({ routes: [...config.route.routes, blankRoute()] })}><Plus />新增路由</Button></div><Card><CardHeader className="py-3"><CardTitle className="text-sm">默认路由与分组</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2 lg:grid-cols-5"><Field label="默认接收器"><input className={inputClass} value={config.route.receiver} onChange={(e) => set({ receiver: e.target.value })} /></Field><Field label="group_by（逗号分隔）" wide><input className={inputClass} value={config.route.groupBy.join(', ')} onChange={(e) => set({ groupBy: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} /></Field><Field label="group_wait"><input className={inputClass} value={config.route.groupWait} onChange={(e) => set({ groupWait: e.target.value })} /></Field><Field label="group_interval"><input className={inputClass} value={config.route.groupInterval} onChange={(e) => set({ groupInterval: e.target.value })} /></Field><Field label="repeat_interval"><input className={inputClass} value={config.route.repeatInterval} onChange={(e) => set({ repeatInterval: e.target.value })} /></Field></CardContent></Card>{config.route.routes.map((route, index) => <ChildRouteEditor key={index} route={route} onChange={(next) => updateChild(index, next)} onDelete={() => set({ routes: config.route.routes.filter((_, i) => i !== index) })} />)}</div>;
+  return <div className="space-y-3"><div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">路由与分组</h2><p className="text-xs text-muted-foreground">配置默认分组和多个子路由，并将它们指向推送地址</p></div><Button variant="outline" size="sm" onClick={onAddRoute}><Plus />新增路由</Button></div><Card><CardHeader className="py-3"><CardTitle className="text-sm">默认路由与分组</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2 lg:grid-cols-5"><Field label="默认接收器"><input className={inputClass} value={config.route.receiver} onChange={(e) => set({ receiver: e.target.value })} /></Field><Field label="group_by（逗号分隔）" wide><input className={inputClass} value={config.route.groupBy.join(', ')} onChange={(e) => set({ groupBy: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} /></Field><Field label="group_wait"><input className={inputClass} value={config.route.groupWait} onChange={(e) => set({ groupWait: e.target.value })} /></Field><Field label="group_interval"><input className={inputClass} value={config.route.groupInterval} onChange={(e) => set({ groupInterval: e.target.value })} /></Field><Field label="repeat_interval"><input className={inputClass} value={config.route.repeatInterval} onChange={(e) => set({ repeatInterval: e.target.value })} /></Field></CardContent></Card>{config.route.routes.map((route, index) => <ChildRouteEditor key={index} route={route} onChange={(next) => updateChild(index, next)} onDelete={() => set({ routes: config.route.routes.filter((_, i) => i !== index) })} />)}</div>;
+}
+
+function RouteModal({ route, onChange, saving, onClose, onAdd }: { route: AlertRoute; onChange: (route: AlertRoute) => void; saving: boolean; onClose: () => void; onAdd: () => void }) {
+  const set = (patch: Partial<AlertRoute>) => onChange({ ...route, ...patch });
+  const matchText = Object.entries(route.match).map(([key, value]) => `${key}=${value}`).join(', ');
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-labelledby="create-route-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="w-full max-w-2xl rounded-lg border border-border bg-card shadow-2xl">
+      <div className="flex items-start justify-between border-b border-border px-5 py-4"><div><h2 id="create-route-title" className="text-base font-semibold">新增路由</h2><p className="mt-0.5 text-xs text-muted-foreground">根据标签匹配告警并发送到指定接收器</p></div><Button variant="ghost" size="icon" title="关闭" onClick={onClose}>×</Button></div>
+      <div className="grid gap-3 p-5 md:grid-cols-2"><Field label="接收器"><input className={inputClass} value={route.receiver} onChange={(e) => set({ receiver: e.target.value })} /></Field><Field label="匹配标签" wide><input className={inputClass} value={matchText} placeholder="例如 severity=critical, service=order" onChange={(e) => set({ match: Object.fromEntries(e.target.value.split(',').map((item) => item.trim().split('=').map((part) => part.trim())).filter(([key, value]) => key && value)) })} /></Field><Field label="group_by（可选）"><input className={inputClass} value={route.groupBy?.join(', ') ?? ''} onChange={(e) => set({ groupBy: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) || undefined })} /></Field><Field label="group_wait（可选）"><input className={inputClass} value={route.groupWait ?? ''} onChange={(e) => set({ groupWait: e.target.value || undefined })} /></Field><Field label="group_interval（可选）"><input className={inputClass} value={route.groupInterval ?? ''} onChange={(e) => set({ groupInterval: e.target.value || undefined })} /></Field><Field label="repeat_interval（可选）"><input className={inputClass} value={route.repeatInterval ?? ''} onChange={(e) => set({ repeatInterval: e.target.value || undefined })} /></Field><label className="text-xs flex items-center gap-1.5 md:col-span-2"><input type="checkbox" checked={route.continue} onChange={(e) => set({ continue: e.target.checked })} />匹配后继续处理后续路由</label></div>
+      <div className="flex justify-end gap-2 border-t border-border px-5 py-3"><Button variant="outline" onClick={onClose}>取消</Button><Button onClick={onAdd} disabled={saving || !route.receiver.trim() || !Object.keys(route.match).length}><Plus />加入路由</Button></div>
+    </div>
+  </div>;
 }
 function ChildRouteEditor({ route, onChange, onDelete }: { route: AlertRoute; onChange: (route: AlertRoute) => void; onDelete: () => void }) {
   const set = (patch: Partial<AlertRoute>) => onChange({ ...route, ...patch });
