@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # build-all.sh — Build all service JARs and Docker images
-# Usage: ./scripts/build-all.sh [--image-source dockerhub|internal] [--push] [--tag <tag>]
+# Usage: PLATFORM=linux/amd64 ./scripts/build-all.sh [--image-source dockerhub|internal] [--push] [--tag <tag>]
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compose-common.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
+PLATFORM="${PLATFORM:-linux/amd64}"
 PUSH_IMAGE=false
 
 while [[ $# -gt 0 ]]; do
@@ -16,7 +17,7 @@ while [[ $# -gt 0 ]]; do
     --image-source|--hub)
       CASTREL_IMAGE_SOURCE="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: ./scripts/build-all.sh [--image-source dockerhub|internal] [--push] [--tag <tag>]"
+      echo "Usage: PLATFORM=linux/amd64 ./scripts/build-all.sh [--image-source dockerhub|internal] [--push] [--tag <tag>]"
       exit 0 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
@@ -50,6 +51,8 @@ cd "$REPO_ROOT"
 mvn clean install -pl common -am -DskipTests -q
 
 DOCKER_BUILD_ARGS=(--build-arg "BASE_IMAGE_REGISTRY=${BASE_IMAGE_REGISTRY}")
+DOCKER_PLATFORM_ARGS=(--platform "${PLATFORM}")
+echo "Docker platform: ${PLATFORM}"
 
 echo ""
 echo "=== Building & packaging services ==="
@@ -58,7 +61,7 @@ for svc in "${SERVICES[@]}"; do
   mvn package -pl "$svc" -DskipTests -q
 
   echo "--- [$svc] Docker build (tag: ${REGISTRY}/${svc}:${IMAGE_TAG}) ---"
-  docker build ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "$REPO_ROOT/$svc/Dockerfile" "$REPO_ROOT"
+  docker build ${DOCKER_PLATFORM_ARGS[@]+"${DOCKER_PLATFORM_ARGS[@]}"} ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "$REPO_ROOT/$svc/Dockerfile" "$REPO_ROOT"
 
   if [[ "$PUSH_IMAGE" == "true" ]]; then
     echo "--- [$svc] Docker push ---"
@@ -72,7 +75,7 @@ done
 echo ""
 echo "=== Building traffic-control-plane (Node.js) ==="
 echo "--- [traffic-control-plane] Docker build (tag: ${REGISTRY}/traffic-control-plane:${IMAGE_TAG}) ---"
-docker build ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/traffic-control-plane:${IMAGE_TAG}" "$REPO_ROOT/traffic-control-plane"
+docker build ${DOCKER_PLATFORM_ARGS[@]+"${DOCKER_PLATFORM_ARGS[@]}"} ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/traffic-control-plane:${IMAGE_TAG}" "$REPO_ROOT/traffic-control-plane"
 if [[ "$PUSH_IMAGE" == "true" ]]; then
   echo "--- [traffic-control-plane] Docker push ---"
   docker push "${REGISTRY}/traffic-control-plane:${IMAGE_TAG}"
