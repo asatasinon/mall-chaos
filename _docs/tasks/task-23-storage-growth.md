@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS storage_growth_records (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     run_id VARCHAR(64) NOT NULL,
   source_service VARCHAR(64) NOT NULL,
-    payload VARBINARY(65535) NOT NULL,
+    payload MEDIUMBLOB NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_storage_growth_run_id (run_id),
   INDEX idx_storage_growth_source_service (source_service)
