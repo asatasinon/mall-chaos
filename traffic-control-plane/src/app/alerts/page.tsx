@@ -25,6 +25,7 @@ export default function AlertsPage() {
   const [sourceYaml, setSourceYaml] = useState('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [receiverModalOpen, setReceiverModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'rules' | 'routing'>('rules');
   const [createMode, setCreateMode] = useState<'rule' | 'prometheus-rules'>('rule');
   const [draftRule, setDraftRule] = useState<Rule>(blankRule());
   const [draftReceiver, setDraftReceiver] = useState<Receiver>(blankReceiver());
@@ -86,15 +87,16 @@ export default function AlertsPage() {
       <PageHeading onRefresh={() => void load()} />
       {error && <ErrorBox text={error} />}
       {notice && <div className="border border-green-700/30 bg-green-700/10 text-green-800 dark:text-green-300 px-4 py-2.5 rounded-md text-sm">{notice}</div>}
-      <section className="space-y-3">
+      <div className="flex border-b border-border"><button type="button" className={`relative px-4 py-2.5 text-sm font-medium ${activeTab === 'rules' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`} onClick={() => setActiveTab('rules')}>告警规则{activeTab === 'rules' && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />}</button><button type="button" className={`relative px-4 py-2.5 text-sm font-medium ${activeTab === 'routing' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`} onClick={() => setActiveTab('routing')}>路由与推送地址{activeTab === 'routing' && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />}</button></div>
+      {activeTab === 'rules' && <section className="space-y-3">
         <div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">告警规则</h2><p className="text-xs text-muted-foreground">PromQL 规则会生成到 Prometheus rule groups</p></div><Button variant="outline" size="sm" onClick={() => { setDraftRule(blankRule()); setCreateMode('rule'); setCreateModalOpen(true); }}><Plus />新增规则</Button></div>
         <div className="space-y-3">{config.rules.map((rule, index) => <RuleEditor key={`${rule.id ?? 'new'}-${index}`} rule={rule} onChange={(next) => setConfig({ ...config, rules: config.rules.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, rules: config.rules.filter((_, i) => i !== index) })} />)}</div>
-      </section>
-      <section className="space-y-3">
+      </section>}
+      {activeTab === 'routing' && <section className="space-y-3">
         <AlertRoutingSection config={config} onChange={(route) => setConfig({ ...config, route })} />
         <div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">推送地址</h2><p className="text-xs text-muted-foreground">按严重级别将告警路由到 Webhook 接收器</p></div><Button variant="outline" size="sm" onClick={() => { setDraftReceiver(blankReceiver()); setReceiverModalOpen(true); }}><Plus />新增地址</Button></div>
         <div className="space-y-3">{config.receivers.map((receiver, index) => <ReceiverEditor key={`${receiver.id ?? 'new'}-${index}`} receiver={receiver} onChange={(next) => setConfig({ ...config, receivers: config.receivers.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, receivers: config.receivers.filter((_, i) => i !== index) })} />)}</div>
-      </section>
+      </section>}
       <div className="sticky bottom-3 flex items-center justify-between border border-border bg-card/95 backdrop-blur px-4 py-3 rounded-md shadow-lg"><span className="text-xs text-muted-foreground">配置版本 v{config.version}{config.updatedAt ? ` · ${new Date(config.updatedAt).toLocaleString()}` : ''}</span><Button onClick={() => void save()} disabled={saving}><Save />{saving ? '保存中…' : '保存并应用'}</Button></div>
       {createModalOpen && <CreateAlertModal mode={createMode} onModeChange={setCreateMode} rule={draftRule} onRuleChange={setDraftRule} sourceYaml={sourceYaml} onSourceYamlChange={setSourceYaml} error={importError} saving={saving} onClose={() => { setImportError(''); setCreateModalOpen(false); }} onAddRule={addRule} onImportYaml={() => void importYaml('prometheus-rules')} />}
       {receiverModalOpen && <ReceiverModal receiver={draftReceiver} onChange={setDraftReceiver} sourceYaml={sourceYaml} onSourceYamlChange={setSourceYaml} error={importError} saving={saving} onClose={() => { setImportError(''); setReceiverModalOpen(false); }} onAdd={addReceiver} onImportYaml={() => void importYaml('alertmanager')} />}
