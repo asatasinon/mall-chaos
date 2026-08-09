@@ -232,9 +232,19 @@ export function parseAlertmanagerYaml(source: string, current: AlertConfig): Ale
     })).filter((receiver: AlertReceiver) => receiver.endpoint),
   );
   if (!receivers.length) throw new Error('INVALID_ALERTMANAGER_RECEIVERS');
+  const receiverByName = new Map(current.receivers.map((receiver) => [receiver.receiverName, receiver]));
+  for (const receiver of receivers) {
+    const existing = receiverByName.get(receiver.receiverName);
+    receiverByName.set(receiver.receiverName, {
+      ...existing,
+      ...receiver,
+      id: existing?.id,
+    });
+  }
+
   return {
     ...current,
-    receivers,
+    receivers: [...receiverByName.values()],
     route: {
       receiver: String(route.receiver ?? receivers[0].receiverName),
       groupBy: Array.isArray(route.group_by) ? route.group_by.map(String) : ['alertname'],
@@ -242,6 +252,32 @@ export function parseAlertmanagerYaml(source: string, current: AlertConfig): Ale
       repeatInterval: String(route.repeat_interval ?? '5m'), continue: Boolean(route.continue),
     },
   };
+}
+
+export function parsePrometheusRulesYaml(source: string, current: AlertConfig): AlertConfig {
+  const document = yaml.load(source) as any;
+  if (!document || typeof document !== 'object' || !Array.isArray(document.groups)) throw new Error('INVALID_PROMETHEUS_RULES_YAML');
+  const importedRules: AlertRule[] = document.groups.flatMap((group: any) =>
+    (Array.isArray(group?.rules) ? group.rules : []).map((rule: any) => ({
+      ruleName: String(rule?.alert ?? ''),
+      groupName: String(group?.name ?? 'castrel-custom'),
+      intervalSec: parseInterval(String(group?.interval ?? '30s')),
+      expression: String(rule?.expr ?? ''),
+      forDuration: String(rule?.for ?? '0m'),
+      severity: normalizeSeverity(rule?.labels?.severity),
+      summary: String(rule?.annotations?.summary ?? rule?.alert ?? ''),
+      description: String(rule?.annotations?.description ?? ''),
+      enabled: true,
+    })).filter((rule: AlertRule) => rule.ruleName && rule.expression),
+  );
+  if (!importedRules.length) throw new Error('INVALID_PROMETHEUS_RULES');
+
+  const ruleByName = new Map(current.rules.map((rule) => [rule.ruleName, rule]));
+  for (const rule of importedRules) {
+    const existing = ruleByName.get(rule.ruleName);
+    ruleByName.set(rule.ruleName, { ...existing, ...rule, id: existing?.id });
+  }
+  return { ...current, rules: [...ruleByName.values()] };
 }
 
 async function renderAndReload(config: AlertConfig): Promise<void> {

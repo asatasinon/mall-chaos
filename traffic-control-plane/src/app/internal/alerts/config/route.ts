@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { jsonError, jsonOk } from '@/lib/api-response';
-import { loadAlertConfig, parseAlertmanagerYaml, saveAlertConfig } from '@/lib/alert-config';
+import { loadAlertConfig, parseAlertmanagerYaml, parsePrometheusRulesYaml, saveAlertConfig } from '@/lib/alert-config';
 
 export async function GET() {
   try {
@@ -25,7 +25,10 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const current = await loadAlertConfig();
-    const parsed = parseAlertmanagerYaml(String(body.yaml ?? ''), { ...current, version: Number(body.version ?? current.version) });
+    const currentWithVersion = { ...current, version: Number(body.version ?? current.version) };
+    const parsed = body.kind === 'prometheus-rules'
+      ? parsePrometheusRulesYaml(String(body.yaml ?? ''), currentWithVersion)
+      : parseAlertmanagerYaml(String(body.yaml ?? ''), currentWithVersion);
     return jsonOk(await saveAlertConfig(parsed));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'ALERTMANAGER_IMPORT_FAILED';
