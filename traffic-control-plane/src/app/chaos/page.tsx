@@ -430,6 +430,14 @@ function StatusResult({ data }: { data: unknown }) {
 
   const hasPerService = entries.length > 0 && entries.every(([k]) => k.includes('-') || k.includes('service'));
   const unwrappedEntries = entries.map(([k, v]) => [k, unwrap(v)] as [string, Record<string, unknown>]);
+  const hasStorageGrowthStatus = unwrappedEntries.some(([, v]) =>
+    'writtenBytes' in v || 'targetBytes' in v || 'writtenRows' in v,
+  );
+
+  if (hasStorageGrowthStatus) {
+    return <StorageGrowthStatusResult entries={unwrappedEntries} />;
+  }
+
   const hasActive = unwrappedEntries.some(([, v]) => 'active' in v || 'enabled' in v);
 
   if (hasActive || hasPerService) {
@@ -473,6 +481,64 @@ function StatusResult({ data }: { data: unknown }) {
           {JSON.stringify(Object.fromEntries(rest), null, 2)}
         </pre>
       )}
+    </div>
+  );
+}
+
+function StorageGrowthStatusResult({ entries }: { entries: [string, Record<string, unknown>][] }) {
+  const formatBytes = (value: unknown) => {
+    const bytes = Number(value);
+    if (!Number.isFinite(bytes)) return '-';
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KiB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
+  };
+
+  const formatTime = (value: unknown) => {
+    if (!value) return '-';
+    const date = new Date(String(value));
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  };
+
+  return (
+    <div className="space-y-2">
+      {entries.map(([svc, status]) => {
+        const state = String(status.status ?? 'UNKNOWN');
+        const writtenBytes = Number(status.writtenBytes ?? 0);
+        const targetBytes = Number(status.targetBytes ?? 0);
+        const progress = targetBytes > 0 ? Math.min(100, (writtenBytes / targetBytes) * 100) : 0;
+        const isRunning = state === 'RUNNING';
+        const isError = state === 'ERROR';
+        const variant = isRunning || isError ? 'destructive' : 'secondary';
+
+        return (
+          <div key={svc} className="rounded border border-border/60 bg-muted/20 px-2.5 py-2.5 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-mono text-muted-foreground">{svc.replace('-service', '')}</span>
+              <Badge variant={variant} className="text-[10px] py-0 px-1.5 gap-1">
+                {isRunning && <span className="status-dot status-dot-red" style={{ width: 5, height: 5 }} />}
+                {state}
+              </Badge>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-border/70">
+              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-muted-foreground sm:grid-cols-4">
+              <span>Written <strong className="font-mono text-foreground">{formatBytes(writtenBytes)}</strong></span>
+              <span>Target <strong className="font-mono text-foreground">{formatBytes(targetBytes)}</strong></span>
+              <span>Progress <strong className="font-mono text-foreground">{progress.toFixed(1)}%</strong></span>
+              <span>Rows <strong className="font-mono text-foreground">{String(status.writtenRows ?? 0)}</strong></span>
+              <span>Rate <strong className="font-mono text-foreground">{formatBytes(status.rateBytesPerSec)}/s</strong></span>
+              <span>Type <strong className="font-mono text-foreground">{String(status.target ?? status.storageType ?? '-')}</strong></span>
+              <span>Run <strong className="font-mono text-foreground">{String(status.runId ?? '-')}</strong></span>
+              <span>Stop <strong className="font-mono text-foreground">{String(status.stopReason || '-')}</strong></span>
+            </div>
+            <div className="text-[10px] text-muted-foreground/70">
+              Started {formatTime(status.startedAt)} · Stopped {formatTime(status.stoppedAt)}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
