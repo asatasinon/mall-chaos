@@ -6,10 +6,12 @@
 # Usage:
 #   ./scripts/push-infra-images.sh
 #   HARBOR_REGISTRY=harbor.example.com/myproject ./scripts/push-infra-images.sh
+#   PLATFORM=linux/amd64 HARBOR_REGISTRY=harbor.example.com/myproject ./scripts/push-infra-images.sh
 
 set -eu
 
 HARBOR_REGISTRY="${HARBOR_REGISTRY:-harbor.cloudwise.com/noname}"
+PLATFORM="${PLATFORM:-linux/amd64}"
 
 IMAGES=$(cat <<'EOF'
 mysql:8.0|mysql:8.0
@@ -24,10 +26,12 @@ grafana/promtail:3.6.10|promtail:3.6.10
 grafana/tempo:2.10.4|tempo:2.10.4
 grafana/grafana:12.4.3|grafana:12.4.3
 ghcr.io/shopify/toxiproxy:latest|toxiproxy:latest
+apache/skywalking-java-agent:9.4.0-java21|apache/skywalking-java-agent:9.4.0-java21
 EOF
 )
 
 echo "==> Target registry: ${HARBOR_REGISTRY}"
+echo "==> Platform: ${PLATFORM}"
 echo ""
 
 printf '%s\n' "$IMAGES" | while IFS='|' read -r SRC DST; do
@@ -35,7 +39,7 @@ printf '%s\n' "$IMAGES" | while IFS='|' read -r SRC DST; do
 
   echo "---- ${SRC}"
   echo "     pull  ..."
-  docker pull "${SRC}"
+  docker pull --platform "${PLATFORM}" "${SRC}"
 
   echo "     tag   -> ${FULL_DST}"
   docker tag "${SRC}" "${FULL_DST}"

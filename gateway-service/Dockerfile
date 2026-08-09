@@ -14,7 +14,7 @@ RUN apk add --no-cache unzip \
 FROM ${BASE_IMAGE_REGISTRY}alpine:3.20 AS sw-agent-disabled
 RUN mkdir -p /skywalking/agent
 
-FROM apache/skywalking-java-agent:9.4.0-java21 AS sw-agent-enabled
+FROM ${BASE_IMAGE_REGISTRY}apache/skywalking-java-agent:9.4.0-java21 AS sw-agent-enabled
 
 FROM sw-agent-${SKYWALKING_MODE} AS sw-agent
 
