@@ -1,14 +1,14 @@
 package com.castrel.chaos.common.storage;
 
 import com.castrel.chaos.common.ApiResponse;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
 @RestController
 @RequestMapping("/internal/chaos/storage-growth")
-@ConditionalOnBean(StorageGrowthService.class)
+@ConditionalOnProperty(name = "chaos.endpoints.enabled", havingValue = "true", matchIfMissing = true)
 public class StorageGrowthController {
 
     private final StorageGrowthService storageGrowthService;

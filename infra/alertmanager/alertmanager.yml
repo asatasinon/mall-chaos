@@ -1,8 +1,6 @@
 # Alertmanager 配置 — Castrel Chaos
 # 告警路由规则：根据严重级别和标签分发告警通知
 global:
-  # 告警重复间隔：同一条告警在 resolve 之前每隔多久重新发送
-  repeat_interval: 5m
   # 告警初始等待时间：告警触发后等待多久才发送通知
   resolve_timeout: 5m
 
@@ -15,6 +13,8 @@ route:
   group_wait: 30s
   # 同组告警发送间隔
   group_interval: 3m
+  # 告警重复间隔：同一条告警在 resolve 之前每隔多久重新发送
+  repeat_interval: 5m
   # 子路由：按严重级别分流
   routes:
     - receiver: 'critical-receiver'
