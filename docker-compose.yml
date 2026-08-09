@@ -123,6 +123,7 @@ services:
     image: ${ALERTMANAGER_IMAGE:-harbor.cloudwise.com/noname/alertmanager:v0.28.1}
     container_name: castrel-alertmanager
     <<: *service-defaults
+    user: "${ALERTMANAGER_UID:-0}:${ALERTMANAGER_GID:-0}"
     volumes:
       - ./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
       - ./data/alertmanager:/alertmanager
@@ -130,7 +131,6 @@ services:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
       - '--web.listen-address=:9093'
-      - '--web.enable-lifecycle'
       - '--log.level=info'
     depends_on:
       - prometheus

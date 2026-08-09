@@ -285,7 +285,7 @@ function toAlertmanagerConfig(config: AlertConfig) {
   const receivers = config.receivers.filter((item) => item.enabled).map((item) => ({ name: item.receiverName, webhook_configs: [{ url: item.endpoint, send_resolved: item.sendResolved, ...(item.basicAuthUsername && item.basicAuthPassword ? { http_config: { basic_auth: { username: item.basicAuthUsername, password: item.basicAuthPassword } } } : {}) }] }));
   const fallback = config.route.receiver || receivers[0]?.name || DEFAULT_RECEIVER;
   const routes = config.receivers.filter((item) => item.enabled && item.severityMatch !== 'all').map((item) => ({ receiver: item.receiverName, match: { severity: item.severityMatch }, continue: false }));
-  return { global: { resolve_timeout: '5m' }, route: { receiver: fallback, group_by: config.route.groupBy, group_wait: config.route.groupWait, group_interval: config.route.groupInterval, repeat_interval: config.route.repeatInterval, continue: config.route.continue, routes }, receivers: receivers.length ? receivers : [{ name: DEFAULT_RECEIVER, webhook_configs: [{ url: INTERNAL_WEBHOOK, send_resolved: true }] }] };
+  return { global: { resolve_timeout: '5m' }, route: { receiver: fallback, group_by: config.route.groupBy, group_wait: config.route.groupWait, group_interval: config.route.groupInterval, repeat_interval: config.route.repeatInterval, routes }, receivers: receivers.length ? receivers : [{ name: DEFAULT_RECEIVER, webhook_configs: [{ url: INTERNAL_WEBHOOK, send_resolved: true }] }] };
 }
 
 function toRule(row: any): AlertRule {
