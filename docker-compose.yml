@@ -123,8 +123,6 @@ services:
     image: ${ALERTMANAGER_IMAGE:-harbor.cloudwise.com/noname/alertmanager:v0.28.1}
     container_name: castrel-alertmanager
     <<: *service-defaults
-    ports:
-      - "19093:9093"   # Alertmanager HTTP API
     volumes:
       - ./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - ./data/alertmanager:/alertmanager
