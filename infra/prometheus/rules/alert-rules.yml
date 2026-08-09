@@ -2,9 +2,6 @@
 # 覆盖服务健康、HTTP 错误率、延迟、JVM 内存、连接池、业务指标异常等场景
 groups:
 
-  # ──────────────────────────────────────────────────────────────────────────────
-  # 1. 服务可用性
-  # ──────────────────────────────────────────────────────────────────────────────
   - name: castrel-service-health
     interval: 30s
     rules:
@@ -26,9 +23,6 @@ groups:
           summary: '基础设施 Exporter {{ $labels.service }} 已离线'
           description: 'Exporter {{ $labels.service }} (job={{ $labels.job }}) 已停止响应超过 2 分钟。'
 
-  # ──────────────────────────────────────────────────────────────────────────────
-  # 2. HTTP 请求错误率 & 延迟
-  # ──────────────────────────────────────────────────────────────────────────────
   - name: castrel-http-performance
     interval: 30s
     rules:
@@ -69,9 +63,6 @@ groups:
           summary: '{{ $labels.service }} P99 延迟严重超标'
           description: '服务 {{ $labels.service }} 的 URI {{ $labels.uri }} P99 延迟超过 10 秒（当前 {{ $value | humanizeDuration }}）。'
 
-  # ──────────────────────────────────────────────────────────────────────────────
-  # 3. JVM 内存 & GC
-  # ──────────────────────────────────────────────────────────────────────────────
   - name: castrel-jvm-health
     interval: 30s
     rules:
@@ -111,9 +102,6 @@ groups:
           summary: '{{ $labels.service }} Major GC 频繁'
           description: '服务 {{ $labels.service }} 在最近 5 分钟内 Major GC 次数超过 0.1 次/秒（当前 {{ $value | humanize }} 次/秒）。'
 
-  # ──────────────────────────────────────────────────────────────────────────────
-  # 4. 数据库连接池 (HikariCP)
-  # ──────────────────────────────────────────────────────────────────────────────
   - name: castrel-database
     interval: 30s
     rules:
@@ -152,9 +140,6 @@ groups:
           summary: '{{ $labels.service }} 数据库连接等待积压'
           description: '服务 {{ $labels.service }} 的 HikariCP 连接池有 {{ $value }} 个请求在等待连接。'
 
-  # ──────────────────────────────────────────────────────────────────────────────
-  # 5. 业务指标异常
-  # ──────────────────────────────────────────────────────────────────────────────
   - name: castrel-business-metrics
     interval: 30s
     rules:
@@ -185,8 +170,7 @@ groups:
           description: '支付扣款失败率 {{ $value | humanizePercentage }}，超过 10% 阈值。'
 
       - alert: PaymentTimeoutSpike
-        expr: |
-          rate(payment_charge_timeout_count_total[5m]) > 0.5
+        expr: rate(payment_charge_timeout_count_total[5m]) > 0.5
         for: 2m
         labels:
           severity: warning
@@ -233,9 +217,6 @@ groups:
           summary: '通知发送失败率过高'
           description: '通知发送失败率 {{ $value | humanizePercentage }}，超过 10% 阈值。'
 
-  # ──────────────────────────────────────────────────────────────────────────────
-  # 6. 基础设施 (Node / MySQL / Redis)
-  # ──────────────────────────────────────────────────────────────────────────────
   - name: castrel-infrastructure
     interval: 30s
     rules:
@@ -284,9 +265,6 @@ groups:
           summary: 'Redis 内存使用率过高'
           description: 'Redis 内存使用率 {{ $value | humanize }}%，超过 80% 阈值。'
 
-  # ──────────────────────────────────────────────────────────────────────────────
-  # 7. 混沌工程注入检测
-  # ──────────────────────────────────────────────────────────────────────────────
   - name: castrel-chaos-detection
     interval: 30s
     rules:

@@ -110,7 +110,7 @@ services:
     # Port 19090 is exposed via obs-auth-proxy (nginx) with basic auth
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./infra/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - ./infra/prometheus/rules:/etc/prometheus/rules:ro
       - ./data/prometheus:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
