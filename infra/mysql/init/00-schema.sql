@@ -304,6 +304,43 @@ INSERT INTO runner_inventory_reset_policy
   (enabled, cron_expr, timezone, allowed_window, reset_scope, baseline_version, version)
 VALUES (1, '0 */30 * * * *', 'Asia/Shanghai', '00:00-06:00', 'ALL', 1, 1);
 
+-- Alert configuration is managed by traffic-control-plane and rendered to
+-- Prometheus/Alertmanager files after each successful update.
+CREATE TABLE IF NOT EXISTS alert_config_meta (
+  id         BIGINT NOT NULL PRIMARY KEY,
+  version    INT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO alert_config_meta (id, version) VALUES (1, 1);
+
+CREATE TABLE IF NOT EXISTS alert_rule (
+  id            BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  rule_name     VARCHAR(128) NOT NULL,
+  group_name    VARCHAR(128) NOT NULL,
+  interval_sec  INT NOT NULL DEFAULT 30,
+  expression    TEXT NOT NULL,
+  for_duration  VARCHAR(32) NOT NULL DEFAULT '0m',
+  severity      VARCHAR(16) NOT NULL DEFAULT 'warning',
+  summary       VARCHAR(512) NOT NULL,
+  description   TEXT NOT NULL,
+  enabled       TINYINT(1) NOT NULL DEFAULT 1,
+  version       INT NOT NULL DEFAULT 1,
+  UNIQUE KEY uq_alert_rule_name (rule_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS alert_receiver (
+  id             BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  receiver_name  VARCHAR(128) NOT NULL,
+  receiver_type  VARCHAR(32) NOT NULL DEFAULT 'webhook',
+  endpoint       VARCHAR(1024) NOT NULL,
+  severity_match VARCHAR(16) NOT NULL DEFAULT 'all',
+  send_resolved  TINYINT(1) NOT NULL DEFAULT 1,
+  enabled        TINYINT(1) NOT NULL DEFAULT 1,
+  version        INT NOT NULL DEFAULT 1,
+  UNIQUE KEY uq_alert_receiver_name (receiver_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- =============================================================================
 -- Chaos infrastructure tables (shared)
 -- =============================================================================

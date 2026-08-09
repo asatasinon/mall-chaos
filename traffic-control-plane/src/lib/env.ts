@@ -19,6 +19,12 @@ export const env = {
   GRAFANA_BASE_URL: process.env.GRAFANA_BASE_URL || '',
   TEMPO_BASE_URL: process.env.TEMPO_BASE_URL || '',
 
+  ALERT_CONFIG_DIR: process.env.ALERT_CONFIG_DIR || '../data/alert-config',
+  ALERT_SOURCE_RULES_PATH: process.env.ALERT_SOURCE_RULES_PATH || '../infra/prometheus/rules/alert-rules.yml',
+  ALERT_SOURCE_MANAGER_PATH: process.env.ALERT_SOURCE_MANAGER_PATH || '../infra/alertmanager/alertmanager.yml',
+  PROMETHEUS_RELOAD_URL: process.env.PROMETHEUS_RELOAD_URL || 'http://localhost:9090/-/reload',
+  ALERTMANAGER_RELOAD_URL: process.env.ALERTMANAGER_RELOAD_URL || 'http://localhost:9093/-/reload',
+
   // Worker settings
   WORKER_ENABLED: process.env.WORKER_ENABLED !== 'false',
   DATA_WARMUP_ENABLED: process.env.DATA_WARMUP_ENABLED !== 'false',

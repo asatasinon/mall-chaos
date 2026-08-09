@@ -7,6 +7,7 @@ const LINKS = [
   { href: '/',       label: 'Overview'   },
   { href: '/runner', label: 'Runner'     },
   { href: '/chaos',  label: 'Chaos Ctl'  },
+  { href: '/alerts', label: 'Alerts'     },
 ];
 
 export default function NavBar() {
