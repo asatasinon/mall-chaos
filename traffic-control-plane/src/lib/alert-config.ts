@@ -210,19 +210,19 @@ export async function saveAlertConfig(input: AlertConfig): Promise<AlertConfig> 
     const [result] = await connection.query('UPDATE alert_config_meta SET version = version + 1 WHERE id = 1 AND version = ?', [input.version]);
     if ((result as any).affectedRows !== 1) throw new Error('VERSION_CONFLICT');
     await connection.query('DELETE FROM alert_rule');
-    for (const rule of input.rules.filter((item) => item.enabled)) {
+    for (const rule of input.rules) {
       await connection.query(
         `INSERT INTO alert_rule (rule_name, group_name, interval_sec, expression, for_duration, severity, summary, description, enabled, version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-        [rule.ruleName, rule.groupName, rule.intervalSec, rule.expression, rule.forDuration, rule.severity, rule.summary, rule.description, nextVersion],
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [rule.ruleName, rule.groupName, rule.intervalSec, rule.expression, rule.forDuration, rule.severity, rule.summary, rule.description, rule.enabled, nextVersion],
       );
     }
     await connection.query('DELETE FROM alert_receiver');
-    for (const receiver of input.receivers.filter((item) => item.enabled)) {
+    for (const receiver of input.receivers) {
       await connection.query(
         `INSERT INTO alert_receiver (receiver_name, receiver_type, endpoint, basic_auth_username, basic_auth_password, severity_match, send_resolved, enabled, version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-        [receiver.receiverName, receiver.receiverType, receiver.endpoint, receiver.basicAuthUsername || null, receiver.basicAuthPassword || currentWithSecrets.receivers.find((item) => item.receiverName === receiver.receiverName)?.basicAuthPassword || null, receiver.severityMatch, receiver.sendResolved, nextVersion],
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [receiver.receiverName, receiver.receiverType, receiver.endpoint, receiver.basicAuthUsername || null, receiver.basicAuthPassword || currentWithSecrets.receivers.find((item) => item.receiverName === receiver.receiverName)?.basicAuthPassword || null, receiver.severityMatch, receiver.sendResolved, receiver.enabled, nextVersion],
       );
     }
     await connection.query(
