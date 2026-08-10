@@ -1,20 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, Save, Trash2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 type Severity = 'critical' | 'warning' | 'info';
 type Match = 'all' | Severity;
-interface Rule { id?: number; ruleName: string; groupName: string; intervalSec: number; expression: string; forDuration: string; severity: Severity; summary: string; description: string; enabled: boolean }
-interface Receiver { id?: number; receiverName: string; receiverType: 'webhook'; endpoint: string; basicAuthUsername?: string; basicAuthPassword?: string; basicAuthPasswordSet?: boolean; severityMatch: Match; sendResolved: boolean; enabled: boolean }
-interface AlertRoute { receiver: string; match: Record<string, string>; groupBy?: string[]; groupWait?: string; groupInterval?: string; repeatInterval?: string; continue: boolean }
+interface Rule { id?: number; isDraft?: boolean; ruleName: string; groupName: string; intervalSec: number; expression: string; forDuration: string; severity: Severity; summary: string; description: string; enabled: boolean }
+interface Receiver { id?: number; isDraft?: boolean; receiverName: string; receiverType: 'webhook'; endpoint: string; basicAuthUsername?: string; basicAuthPassword?: string; basicAuthPasswordSet?: boolean; severityMatch: Match; sendResolved: boolean; enabled: boolean }
+interface AlertRoute { isDraft?: boolean; receiver: string; match: Record<string, string>; groupBy?: string[]; groupWait?: string; groupInterval?: string; repeatInterval?: string; continue: boolean }
 interface Config { version: number; rules: Rule[]; receivers: Receiver[]; updatedAt: string | null; route: { receiver: string; groupBy: string[]; groupWait: string; groupInterval: string; repeatInterval: string; continue: boolean; routes: AlertRoute[] } }
 
 const blankRule = (): Rule => ({ ruleName: 'NewAlert', groupName: 'castrel-custom', intervalSec: 30, expression: 'up == 0', forDuration: '1m', severity: 'warning', summary: '服务异常', description: '服务不可用。', enabled: true });
 const blankReceiver = (): Receiver => ({ receiverName: 'custom-receiver', receiverType: 'webhook', endpoint: 'https://example.com/webhook', basicAuthUsername: '', basicAuthPassword: '', severityMatch: 'all', sendResolved: true, enabled: true });
 const blankRoute = (): AlertRoute => ({ receiver: 'custom-receiver', match: { severity: 'warning' }, continue: false });
+const draftWrapperClass = 'rounded-xl bg-amber-500/10 p-1 ring-2 ring-amber-500/60 scroll-mt-24 focus:outline-none';
 
 export default function AlertsPage() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -31,6 +32,8 @@ export default function AlertsPage() {
   const [draftRule, setDraftRule] = useState<Rule>(blankRule());
   const [draftReceiver, setDraftReceiver] = useState<Receiver>(blankReceiver());
   const [draftRoute, setDraftRoute] = useState<AlertRoute>(blankRoute());
+  const [scrollTarget, setScrollTarget] = useState('');
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const load = async () => {
     setError('');
@@ -42,12 +45,20 @@ export default function AlertsPage() {
     } catch (cause) { setError(cause instanceof TypeError && cause.message.toLowerCase().includes('fetch') ? '控制台接口不可达，请先启动 traffic-control-plane（localhost:18086）' : cause instanceof Error ? cause.message : '加载失败'); }
   };
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    if (!scrollTarget) return;
+    const target = itemRefs.current[scrollTarget];
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target?.focus({ preventScroll: true });
+    setScrollTarget('');
+  }, [config, scrollTarget]);
 
   const save = async () => {
     if (!config) return;
     setSaving(true); setError(''); setNotice('');
     try {
-      const response = await fetch('/internal/alerts/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
+      const persistableConfig = { ...config, rules: config.rules.map(({ isDraft, ...rule }) => rule), receivers: config.receivers.map(({ isDraft, ...receiver }) => receiver), route: { ...config.route, routes: config.route.routes.map(({ isDraft, ...route }) => route) } };
+      const response = await fetch('/internal/alerts/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(persistableConfig) });
       const result = await response.json();
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       setConfig(result.data); setNotice('配置已保存，Prometheus 与 Alertmanager 已 reload');
@@ -69,45 +80,53 @@ export default function AlertsPage() {
 
   const addRule = () => {
     if (!config) return;
-    setConfig({ ...config, rules: [...config.rules, draftRule] });
+    const nextIndex = config.rules.length;
+    setConfig({ ...config, rules: [...config.rules, { ...draftRule, isDraft: true }] });
     setDraftRule(blankRule());
     setCreateModalOpen(false);
+    setActiveTab('rules');
+    setScrollTarget(`rule-${nextIndex}`);
     setNotice('规则已加入待保存配置');
   };
 
   const addReceiver = () => {
     if (!config) return;
-    setConfig({ ...config, receivers: [...config.receivers, draftReceiver] });
+    const nextIndex = config.receivers.length;
+    setConfig({ ...config, receivers: [...config.receivers, { ...draftReceiver, isDraft: true }] });
     setDraftReceiver(blankReceiver());
     setReceiverModalOpen(false);
+    setActiveTab('routing');
+    setScrollTarget(`receiver-${nextIndex}`);
     setNotice('推送地址已加入待保存配置');
   };
 
   const addRoute = () => {
     if (!config) return;
-    setConfig({ ...config, route: { ...config.route, routes: [...config.route.routes, draftRoute] } });
+    const nextIndex = config.route.routes.length;
+    setConfig({ ...config, route: { ...config.route, routes: [...config.route.routes, { ...draftRoute, isDraft: true }] } });
     setDraftRoute(blankRoute());
     setRouteModalOpen(false);
+    setActiveTab('routing');
+    setScrollTarget(`route-${nextIndex}`);
     setNotice('路由已加入待保存配置');
   };
 
   if (!config) return <div className="space-y-4"><PageHeading onRefresh={() => void load()} /><p className="text-sm text-muted-foreground">正在加载配置…</p>{error && <ErrorBox text={error} />}</div>;
   return (
     <div className="space-y-5 max-w-7xl">
-      <PageHeading onRefresh={() => void load()} />
+      <PageHeading onRefresh={() => void load()} onSave={() => void save()} saving={saving} version={config.version} updatedAt={config.updatedAt} />
       {error && <ErrorBox text={error} />}
       {notice && <div className="border border-green-700/30 bg-green-700/10 text-green-800 dark:text-green-300 px-4 py-2.5 rounded-md text-sm">{notice}</div>}
       <div className="flex border-b border-border"><button type="button" className={`relative px-4 py-2.5 text-sm font-medium ${activeTab === 'rules' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`} onClick={() => setActiveTab('rules')}>告警规则{activeTab === 'rules' && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />}</button><button type="button" className={`relative px-4 py-2.5 text-sm font-medium ${activeTab === 'routing' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`} onClick={() => setActiveTab('routing')}>路由与推送地址{activeTab === 'routing' && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />}</button></div>
       {activeTab === 'rules' && <section className="space-y-3">
         <div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">告警规则</h2><p className="text-xs text-muted-foreground">PromQL 规则会生成到 Prometheus rule groups</p></div><Button variant="outline" size="sm" onClick={() => { setDraftRule(blankRule()); setCreateMode('rule'); setCreateModalOpen(true); }}><Plus />新增规则</Button></div>
-        <div className="space-y-3">{config.rules.map((rule, index) => <RuleEditor key={`${rule.id ?? 'new'}-${index}`} rule={rule} onChange={(next) => setConfig({ ...config, rules: config.rules.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, rules: config.rules.filter((_, i) => i !== index) })} />)}</div>
+        <div className="space-y-3">{config.rules.map((rule, index) => <div key={`${rule.id ?? 'new'}-${index}`} ref={(element) => { itemRefs.current[`rule-${index}`] = element; }} tabIndex={-1} className={rule.isDraft ? draftWrapperClass : ''}><RuleEditor rule={rule} onChange={(next) => setConfig({ ...config, rules: config.rules.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, rules: config.rules.filter((_, i) => i !== index) })} /></div>)}</div>
       </section>}
       {activeTab === 'routing' && <section className="space-y-3">
-        <AlertRoutingSection config={config} onChange={(route) => setConfig({ ...config, route })} onAddRoute={() => { setDraftRoute(blankRoute()); setRouteModalOpen(true); }} />
+        <AlertRoutingSection config={config} cardRef={(index, element) => { itemRefs.current[`route-${index}`] = element; }} onChange={(route) => setConfig({ ...config, route })} onAddRoute={() => { setDraftRoute(blankRoute()); setRouteModalOpen(true); }} />
         <div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">推送地址</h2><p className="text-xs text-muted-foreground">按严重级别将告警路由到 Webhook 接收器</p></div><Button variant="outline" size="sm" onClick={() => { setDraftReceiver(blankReceiver()); setReceiverModalOpen(true); }}><Plus />新增地址</Button></div>
-        <div className="space-y-3">{config.receivers.map((receiver, index) => <ReceiverEditor key={`${receiver.id ?? 'new'}-${index}`} receiver={receiver} onChange={(next) => setConfig({ ...config, receivers: config.receivers.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, receivers: config.receivers.filter((_, i) => i !== index) })} />)}</div>
+        <div className="space-y-3">{config.receivers.map((receiver, index) => <div key={`${receiver.id ?? 'new'}-${index}`} ref={(element) => { itemRefs.current[`receiver-${index}`] = element; }} tabIndex={-1} className={receiver.isDraft ? draftWrapperClass : ''}><ReceiverEditor receiver={receiver} onChange={(next) => setConfig({ ...config, receivers: config.receivers.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, receivers: config.receivers.filter((_, i) => i !== index) })} /></div>)}</div>
       </section>}
-      <div className="sticky bottom-3 flex items-center justify-between border border-border bg-card/95 backdrop-blur px-4 py-3 rounded-md shadow-lg"><span className="text-xs text-muted-foreground">配置版本 v{config.version}{config.updatedAt ? ` · ${new Date(config.updatedAt).toLocaleString()}` : ''}</span><Button onClick={() => void save()} disabled={saving}><Save />{saving ? '保存中…' : '保存并应用'}</Button></div>
       {createModalOpen && <CreateAlertModal mode={createMode} onModeChange={setCreateMode} rule={draftRule} onRuleChange={setDraftRule} sourceYaml={sourceYaml} onSourceYamlChange={setSourceYaml} error={importError} saving={saving} onClose={() => { setImportError(''); setCreateModalOpen(false); }} onAddRule={addRule} onImportYaml={() => void importYaml('prometheus-rules')} />}
       {receiverModalOpen && <ReceiverModal receiver={draftReceiver} onChange={setDraftReceiver} sourceYaml={sourceYaml} onSourceYamlChange={setSourceYaml} error={importError} saving={saving} onClose={() => { setImportError(''); setReceiverModalOpen(false); }} onAdd={addReceiver} onImportYaml={() => void importYaml('alertmanager')} />}
       {routeModalOpen && <RouteModal route={draftRoute} onChange={setDraftRoute} saving={saving} onClose={() => setRouteModalOpen(false)} onAdd={addRoute} />}
@@ -115,7 +134,7 @@ export default function AlertsPage() {
   );
 }
 
-function PageHeading({ onRefresh }: { onRefresh: () => void }) { return <div className="flex items-start justify-between"><div><h1 className="text-2xl font-semibold tracking-tight">Alerts</h1><p className="text-sm text-muted-foreground mt-0.5">告警规则与通知路由配置</p></div><Button variant="ghost" size="icon" title="刷新配置" onClick={onRefresh}><RefreshCw /></Button></div>; }
+function PageHeading({ onRefresh, onSave, saving, version, updatedAt }: { onRefresh: () => void; onSave?: () => void; saving?: boolean; version?: number; updatedAt?: string | null }) { return <div className="flex items-start justify-between gap-4"><div><h1 className="text-2xl font-semibold tracking-tight">Alerts</h1><p className="text-sm text-muted-foreground mt-0.5">告警规则与通知路由配置</p>{version !== undefined && <p className="mt-1 text-xs text-muted-foreground">配置版本 v{version}{updatedAt ? ` · ${new Date(updatedAt).toLocaleString()}` : ''}</p>}</div><div className="flex shrink-0 items-center gap-2"><Button variant="ghost" size="icon" title="刷新配置" onClick={onRefresh}><RefreshCw /></Button>{onSave && <Button onClick={onSave} disabled={saving}><Save />{saving ? '保存中…' : '保存并应用'}</Button>}</div></div>; }
 function ErrorBox({ text }: { text: string }) { return <div className="flex gap-2 items-start rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"><AlertTriangle className="size-4 mt-0.5" />{text}</div>; }
 function CreateAlertModal({ mode, onModeChange, rule, onRuleChange, sourceYaml, onSourceYamlChange, error, saving, onClose, onAddRule, onImportYaml }: { mode: 'rule' | 'prometheus-rules'; onModeChange: (mode: 'rule' | 'prometheus-rules') => void; rule: Rule; onRuleChange: (rule: Rule) => void; sourceYaml: string; onSourceYamlChange: (yaml: string) => void; error: string; saving: boolean; onClose: () => void; onAddRule: () => void; onImportYaml: () => void }) {
   const setRule = (patch: Partial<Rule>) => onRuleChange({ ...rule, ...patch });
@@ -142,10 +161,10 @@ function ReceiverModal({ receiver, onChange, sourceYaml, onSourceYamlChange, err
     </div>
   </div>;
 }
-function AlertRoutingSection({ config, onChange, onAddRoute }: { config: Config; onChange: (route: Config['route']) => void; onAddRoute: () => void }) {
+function AlertRoutingSection({ config, cardRef, onChange, onAddRoute }: { config: Config; cardRef: (index: number, element: HTMLDivElement | null) => void; onChange: (route: Config['route']) => void; onAddRoute: () => void }) {
   const set = (patch: Partial<Config['route']>) => onChange({ ...config.route, ...patch });
   const updateChild = (index: number, child: AlertRoute) => set({ routes: config.route.routes.map((item, i) => i === index ? child : item) });
-  return <div className="space-y-3"><div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">路由与分组</h2><p className="text-xs text-muted-foreground">配置默认分组和多个子路由，并将它们指向推送地址</p></div><Button variant="outline" size="sm" onClick={onAddRoute}><Plus />新增路由</Button></div><Card><CardHeader className="py-3"><CardTitle className="text-sm">默认路由与分组</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2 lg:grid-cols-5"><Field label="默认接收器"><input className={inputClass} value={config.route.receiver} onChange={(e) => set({ receiver: e.target.value })} /></Field><Field label="group_by（逗号分隔）" wide><input className={inputClass} value={config.route.groupBy.join(', ')} onChange={(e) => set({ groupBy: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} /></Field><Field label="group_wait"><input className={inputClass} value={config.route.groupWait} onChange={(e) => set({ groupWait: e.target.value })} /></Field><Field label="group_interval"><input className={inputClass} value={config.route.groupInterval} onChange={(e) => set({ groupInterval: e.target.value })} /></Field><Field label="repeat_interval"><input className={inputClass} value={config.route.repeatInterval} onChange={(e) => set({ repeatInterval: e.target.value })} /></Field></CardContent></Card>{config.route.routes.map((route, index) => <ChildRouteEditor key={index} route={route} onChange={(next) => updateChild(index, next)} onDelete={() => set({ routes: config.route.routes.filter((_, i) => i !== index) })} />)}</div>;
+  return <div className="space-y-3"><div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">路由与分组</h2><p className="text-xs text-muted-foreground">配置默认分组和多个子路由，并将它们指向推送地址</p></div><Button variant="outline" size="sm" onClick={onAddRoute}><Plus />新增路由</Button></div><Card><CardHeader className="py-3"><CardTitle className="text-sm">默认路由与分组</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2 lg:grid-cols-5"><Field label="默认接收器"><input className={inputClass} value={config.route.receiver} onChange={(e) => set({ receiver: e.target.value })} /></Field><Field label="group_by（逗号分隔）" wide><input className={inputClass} value={config.route.groupBy.join(', ')} onChange={(e) => set({ groupBy: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} /></Field><Field label="group_wait"><input className={inputClass} value={config.route.groupWait} onChange={(e) => set({ groupWait: e.target.value })} /></Field><Field label="group_interval"><input className={inputClass} value={config.route.groupInterval} onChange={(e) => set({ groupInterval: e.target.value })} /></Field><Field label="repeat_interval"><input className={inputClass} value={config.route.repeatInterval} onChange={(e) => set({ repeatInterval: e.target.value })} /></Field></CardContent></Card>{config.route.routes.map((route, index) => <div key={index} ref={(element) => cardRef(index, element)} tabIndex={-1} className={route.isDraft ? draftWrapperClass : ''}><ChildRouteEditor route={route} onChange={(next) => updateChild(index, next)} onDelete={() => set({ routes: config.route.routes.filter((_, i) => i !== index) })} /></div>)}</div>;
 }
 
 function RouteModal({ route, onChange, saving, onClose, onAdd }: { route: AlertRoute; onChange: (route: AlertRoute) => void; saving: boolean; onClose: () => void; onAdd: () => void }) {
