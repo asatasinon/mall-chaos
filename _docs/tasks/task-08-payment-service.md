@@ -61,14 +61,14 @@ CREATE TABLE payments (
   }
   ```
 - [ ] 结果控制策略（模拟，可由配置控制比例）：
-  - 默认 **90% 成功**
-  - 5% `INSUFFICIENT_BALANCE`（余额不足）
-  - 5% `TIMEOUT`（Thread.sleep 5s 后返回失败，模拟超时）
+  - 默认 **100% 成功**
+  - 0% `INSUFFICIENT_BALANCE`（余额不足）
+  - 0% `TIMEOUT`（Thread.sleep 5s 后返回失败，模拟超时）
 - [ ] 结果比例由 `application.yml` 配置，可热更新：
   ```yaml
   payment:
-    success-rate: 0.90
-    timeout-rate: 0.05
+    success-rate: 1.0
+    timeout-rate: 0.0
   ```
 - [ ] 幂等：相同 `orderNo` 重复调用返回已有结果
 
@@ -96,7 +96,7 @@ CREATE TABLE payments (
 - [ ] `chaos.deadlock.count` counter（payment 维度）
 
 ### 8.8 验证
-- [ ] 连续调用 100 次，成功率在 85-95% 区间
+- [ ] 连续调用 100 次，成功率为 100%
 - [ ] 超时场景 order-service 可感知并记录 FAILED
 - [ ] 内存泄漏行为同 order-service
 - [ ] 死锁注入后 `chaos_event_log` 有 payment 相关记录

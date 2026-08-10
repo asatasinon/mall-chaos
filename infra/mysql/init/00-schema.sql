@@ -271,15 +271,14 @@ VALUES (1, 5, 2.0, 10, 0.1, 1);
 
 CREATE TABLE IF NOT EXISTS runner_mix_rule (
     id           BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    action_type  VARCHAR(32) NOT NULL COMMENT 'ORDER_SUCCESS/ORDER_FAIL/CANCEL',
+    action_type  VARCHAR(32) NOT NULL COMMENT 'ORDER_SUCCESS/CANCEL_ORDER',
     ratio        FLOAT       NOT NULL,
     version      INT         NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO runner_mix_rule (action_type, ratio, version) VALUES
   ('ORDER_SUCCESS', 0.90, 1),
-  ('ORDER_FAIL',    0.05, 1),
-  ('CANCEL',        0.05, 1);
+  ('CANCEL_ORDER',  0.10, 1);
 
 CREATE TABLE IF NOT EXISTS runner_time_window (
     id          BIGINT  NOT NULL AUTO_INCREMENT PRIMARY KEY,

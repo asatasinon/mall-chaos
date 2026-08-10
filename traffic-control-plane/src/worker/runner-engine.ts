@@ -33,7 +33,10 @@ export class RunnerEngine {
       peakMultiplier: 2.0,
       cycleMinutes: 10,
       jitterPct: 0.1,
-      mixRules: [{ actionType: 'ORDER_SUCCESS', ratio: 1.0 }],
+      mixRules: [
+        { actionType: 'ORDER_SUCCESS', ratio: 0.9 },
+        { actionType: 'CANCEL_ORDER', ratio: 0.1 },
+      ],
     };
   }
 

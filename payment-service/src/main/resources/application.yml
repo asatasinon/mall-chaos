@@ -19,8 +19,8 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:16379}
 
 payment:
-  success-rate: 0.90
-  timeout-rate: 0.05
+  success-rate: 1.0
+  timeout-rate: 0.0
 
 management:
   endpoints:

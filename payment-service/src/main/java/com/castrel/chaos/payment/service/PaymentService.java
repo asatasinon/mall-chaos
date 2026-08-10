@@ -39,10 +39,10 @@ public class PaymentService {
     @Autowired
     private MeterRegistry meterRegistry;
 
-    @Value("${payment.success-rate:0.90}")
+    @Value("${payment.success-rate:1.0}")
     private double successRate;
 
-    @Value("${payment.timeout-rate:0.05}")
+    @Value("${payment.timeout-rate:0.0}")
     private double timeoutRate;
 
     private Counter successCounter;

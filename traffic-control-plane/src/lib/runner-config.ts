@@ -31,7 +31,10 @@ export async function loadRunnerConfigFromDb(): Promise<RunnerConfig> {
     peakMultiplier: Number(profile?.peak_multiplier ?? 2.0),
     cycleMinutes: Number(profile?.cycle_minutes ?? 10),
     jitterPct: Number(profile?.jitter_pct ?? 0.1),
-    mixRules: mixRules.length > 0 ? mixRules : [{ actionType: 'ORDER_SUCCESS', ratio: 1.0 }],
+    mixRules: mixRules.length > 0 ? mixRules : [
+      { actionType: 'ORDER_SUCCESS', ratio: 0.9 },
+      { actionType: 'CANCEL_ORDER', ratio: 0.1 },
+    ],
   };
 }
 
