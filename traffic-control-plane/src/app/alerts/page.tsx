@@ -113,11 +113,12 @@ export default function AlertsPage() {
 
   if (!config) return <div className="space-y-4"><PageHeading onRefresh={() => void load()} /><p className="text-sm text-muted-foreground">正在加载配置…</p>{error && <ErrorBox text={error} />}</div>;
   return (
-    <div className="space-y-5 max-w-7xl">
+    <div className="flex h-full min-h-0 max-w-7xl flex-col gap-5">
       <PageHeading onRefresh={() => void load()} onSave={() => void save()} saving={saving} version={config.version} updatedAt={config.updatedAt} />
       {error && <ErrorBox text={error} />}
       {notice && <div className="border border-green-700/30 bg-green-700/10 text-green-800 dark:text-green-300 px-4 py-2.5 rounded-md text-sm">{notice}</div>}
       <div className="flex border-b border-border"><button type="button" className={`relative px-4 py-2.5 text-sm font-medium ${activeTab === 'rules' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`} onClick={() => setActiveTab('rules')}>告警规则{activeTab === 'rules' && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />}</button><button type="button" className={`relative px-4 py-2.5 text-sm font-medium ${activeTab === 'routing' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`} onClick={() => setActiveTab('routing')}>路由与推送地址{activeTab === 'routing' && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />}</button></div>
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
       {activeTab === 'rules' && <section className="space-y-3">
         <div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">告警规则</h2><p className="text-xs text-muted-foreground">PromQL 规则会生成到 Prometheus rule groups</p></div><Button variant="outline" size="sm" onClick={() => { setDraftRule(blankRule()); setCreateMode('rule'); setCreateModalOpen(true); }}><Plus />新增规则</Button></div>
         <div className="space-y-3">{config.rules.map((rule, index) => <div key={`${rule.id ?? 'new'}-${index}`} ref={(element) => { itemRefs.current[`rule-${index}`] = element; }} tabIndex={-1} className={rule.isDraft ? draftWrapperClass : ''}><RuleEditor rule={rule} onChange={(next) => setConfig({ ...config, rules: config.rules.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, rules: config.rules.filter((_, i) => i !== index) })} /></div>)}</div>
@@ -127,6 +128,7 @@ export default function AlertsPage() {
         <div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">推送地址</h2><p className="text-xs text-muted-foreground">按严重级别将告警路由到 Webhook 接收器</p></div><Button variant="outline" size="sm" onClick={() => { setDraftReceiver(blankReceiver()); setReceiverModalOpen(true); }}><Plus />新增地址</Button></div>
         <div className="space-y-3">{config.receivers.map((receiver, index) => <div key={`${receiver.id ?? 'new'}-${index}`} ref={(element) => { itemRefs.current[`receiver-${index}`] = element; }} tabIndex={-1} className={receiver.isDraft ? draftWrapperClass : ''}><ReceiverEditor receiver={receiver} onChange={(next) => setConfig({ ...config, receivers: config.receivers.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, receivers: config.receivers.filter((_, i) => i !== index) })} /></div>)}</div>
       </section>}
+      </div>
       {createModalOpen && <CreateAlertModal mode={createMode} onModeChange={setCreateMode} rule={draftRule} onRuleChange={setDraftRule} sourceYaml={sourceYaml} onSourceYamlChange={setSourceYaml} error={importError} saving={saving} onClose={() => { setImportError(''); setCreateModalOpen(false); }} onAddRule={addRule} onImportYaml={() => void importYaml('prometheus-rules')} />}
       {receiverModalOpen && <ReceiverModal receiver={draftReceiver} onChange={setDraftReceiver} sourceYaml={sourceYaml} onSourceYamlChange={setSourceYaml} error={importError} saving={saving} onClose={() => { setImportError(''); setReceiverModalOpen(false); }} onAdd={addReceiver} onImportYaml={() => void importYaml('alertmanager')} />}
       {routeModalOpen && <RouteModal route={draftRoute} onChange={setDraftRoute} saving={saving} onClose={() => setRouteModalOpen(false)} onAdd={addRoute} />}

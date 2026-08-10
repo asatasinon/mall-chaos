@@ -725,8 +725,8 @@ function StorageGrowthPanel({ armed }: { armed?: boolean }) {
   const [service, setService] = useState(STORAGE_GROWTH_TARGETS[0]);
   const [storageType, setStorageType] = useState('mysql');
   const [runId, setRunId] = useState('storage-demo-001');
-  const [targetMb, setTargetMb] = useState('16');
-  const [rateMb, setRateMb] = useState('1');
+  const [targetMb, setTargetMb] = useState('3072');
+  const [rateMb, setRateMb] = useState('10');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ApiResult | null>(null);
 

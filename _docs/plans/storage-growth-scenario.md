@@ -181,13 +181,13 @@ CREATE TABLE IF NOT EXISTS storage_growth_records (
 {
   "runId": "storage-demo-001",
   "status": "RUNNING",
-  "targetBytes": 16777216,
+  "targetBytes": 3221225472,
   "writtenBytes": 5242880,
   "writtenRows": 80,
-  "rateBytesPerSec": 1048576,
+  "rateBytesPerSec": 10485760,
   "startedAt": "2026-08-08T10:00:00Z",
   "stoppedAt": null,
-  "autoStopAt": "2026-08-08T10:01:00Z",
+  "autoStopAt": "2026-08-08T10:05:08Z",
   "stopReason": null,
   "freeSpaceBytes": 4294967296,
   "target": "mysql",
@@ -220,9 +220,9 @@ GET  /internal/traffic/storage-growth/mysql/status
 {
   "targetService": "catalog-service",
   "storageType": "mysql",
-  "targetBytes": 16777216,
-  "rateBytesPerSec": 1048576,
-  "durationSec": 60,
+  "targetBytes": 3221225472,
+  "rateBytesPerSec": 10485760,
+  "durationSec": 308,
   "minFreeBytes": 1073741824,
   "runId": "storage-demo-001"
 }
@@ -245,9 +245,9 @@ GET  /internal/chaos/storage-growth/status
 {
   "runId": "storage-demo-001",
   "storageType": "filesystem",
-  "targetBytes": 16777216,
-  "rateBytesPerSec": 1048576,
-  "durationSec": 60,
+  "targetBytes": 3221225472,
+  "rateBytesPerSec": 10485760,
+  "durationSec": 308,
   "minFreeBytes": 1073741824,
   "minFreePercent": 10
 }
@@ -257,8 +257,8 @@ GET  /internal/chaos/storage-growth/status
 
 ### 7.3 Gateway 接口
 
-gateway 暴露与现有故障分发一致的控制入口：
-
+  "targetBytes": 3221225472,
+  "rateBytesPerSec": 10485760,
 ```text
 POST /internal/gateway/chaos/storage-growth/enable
 POST /internal/gateway/chaos/storage-growth/disable
@@ -276,8 +276,8 @@ gateway 必须通过已有服务 URL 映射和固定的 `storage-growth` 白名�
 
 | 参数 | 默认值 | 建议最大值 |
 | --- | ---: | ---: |
-| `targetBytes` | 16 MiB | 10 GiB |
-| `rateBytesPerSec` | 1 MiB/s | 100 MiB/s |
+| `targetBytes` | 3 GiB | 10 GiB |
+| `rateBytesPerSec` | 10 MiB/s | 100 MiB/s |
 | `durationSec` | 60 s | 3600 s |
 | `minFreeBytes` | 1 GiB | 必须大于 0 |
 | `minFreePercent` | 10% | 99% |

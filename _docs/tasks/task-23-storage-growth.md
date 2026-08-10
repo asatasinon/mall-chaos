@@ -145,8 +145,8 @@ GET  /internal/traffic/storage-growth/mysql/status
 {
   "targetService": "catalog-service",
   "storageType": "mysql",
-  "targetBytes": 16777216,
-  "rateBytesPerSec": 1048576,
+  "targetBytes": 3221225472,
+  "rateBytesPerSec": 10485760,
   "durationSec": 60,
   "minFreeBytes": 1073741824,
   "runId": "optional-client-run-id"
@@ -184,8 +184,8 @@ GET  /internal/chaos/storage-growth/status
 {
   "runId": "storage-demo-001",
   "storageType": "filesystem",
-  "targetBytes": 16777216,
-  "rateBytesPerSec": 1048576,
+  "targetBytes": 3221225472,
+  "rateBytesPerSec": 10485760,
   "durationSec": 60,
   "minFreeBytes": 1073741824,
   "minFreePercent": 10
@@ -217,10 +217,10 @@ GET  /internal/chaos/storage-growth/status
 {
   "runId": "storage-demo-001",
   "status": "RUNNING",
-  "targetBytes": 16777216,
+  "targetBytes": 3221225472,
   "writtenBytes": 5242880,
   "writtenRows": 80,
-  "rateBytesPerSec": 1048576,
+  "rateBytesPerSec": 10485760,
   "startedAt": "2026-08-08T10:00:00Z",
   "stoppedAt": "",
   "autoStopAt": "2026-08-08T10:01:00Z",
