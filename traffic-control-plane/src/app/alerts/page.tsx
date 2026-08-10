@@ -113,7 +113,7 @@ export default function AlertsPage() {
 
   if (!config) return <div className="space-y-4"><PageHeading onRefresh={() => void load()} /><p className="text-sm text-muted-foreground">正在加载配置…</p>{error && <ErrorBox text={error} />}</div>;
   return (
-    <div className="flex h-full min-h-0 max-w-7xl flex-col gap-5">
+    <div className="flex h-full min-h-0 w-full flex-col gap-5">
       <PageHeading onRefresh={() => void load()} onSave={() => void save()} saving={saving} version={config.version} updatedAt={config.updatedAt} />
       {error && <ErrorBox text={error} />}
       {notice && <div className="border border-green-700/30 bg-green-700/10 text-green-800 dark:text-green-300 px-4 py-2.5 rounded-md text-sm">{notice}</div>}
