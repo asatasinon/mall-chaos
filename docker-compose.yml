@@ -110,14 +110,13 @@ services:
     # Port 19090 is exposed via obs-auth-proxy (nginx) with basic auth
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./infra/prometheus/rules:/etc/prometheus/rules
+      - ./data/prometheus-rules:/etc/prometheus/rules
+      - ./infra/prometheus/rules:/etc/prometheus/source-rules:ro
       - ./data/prometheus:/prometheus
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.enable-lifecycle'
-      - '--web.enable-remote-write-receiver'
-      - '--storage.tsdb.retention.time=7d'
+      - '/bin/sh'
+      - '-c'
+      - 'mkdir -p /etc/prometheus/rules && if [ ! -f /etc/prometheus/rules/alert-rules.yml ]; then cp /etc/prometheus/source-rules/alert-rules.yml /etc/prometheus/rules/alert-rules.yml; fi && exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --web.enable-lifecycle --web.enable-remote-write-receiver --storage.tsdb.retention.time=7d'
 
   alertmanager:
     image: ${ALERTMANAGER_IMAGE:-harbor.cloudwise.com/noname/alertmanager:v0.28.1}
@@ -125,13 +124,13 @@ services:
     <<: *service-defaults
     user: "${ALERTMANAGER_UID:-0}:${ALERTMANAGER_GID:-0}"
     volumes:
-      - ./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - ./data/alertmanager-config:/etc/alertmanager
+      - ./infra/alertmanager:/etc/alertmanager-source:ro
       - ./data/alertmanager:/alertmanager
     command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
-      - '--web.listen-address=:9093'
-      - '--log.level=info'
+      - '/bin/sh'
+      - '-c'
+      - 'mkdir -p /etc/alertmanager && if [ ! -f /etc/alertmanager/alertmanager.yml ]; then cp /etc/alertmanager-source/alertmanager.yml /etc/alertmanager/alertmanager.yml; fi && exec /bin/alertmanager --config.file=/etc/alertmanager/alertmanager.yml --storage.path=/alertmanager --web.listen-address=:9093 --log.level=info'
     depends_on:
       - prometheus
 
@@ -465,8 +464,10 @@ services:
       - "18086:3086"
     volumes:
       - ./data/traffic-control-plane:/app/data
-      - ./infra/prometheus/rules:/app/alert-config/prometheus-rules
-      - ./infra/alertmanager:/app/alert-config/alertmanager
+      - ./data/prometheus-rules:/app/alert-data/prometheus-rules
+      - ./data/alertmanager-config:/app/alert-data/alertmanager
+      - ./infra/prometheus/rules:/app/infra-source/prometheus-rules:ro
+      - ./infra/alertmanager:/app/infra-source/alertmanager:ro
     environment:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
@@ -478,9 +479,9 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-castrel}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      ALERT_CONFIG_DIR: /app/alert-config
-      ALERT_SOURCE_RULES_PATH: /app/alert-config/prometheus-rules/alert-rules.yml
-      ALERT_SOURCE_MANAGER_PATH: /app/alert-config/alertmanager/alertmanager.yml
+      ALERT_CONFIG_DIR: /app/alert-data
+      ALERT_SOURCE_RULES_PATH: /app/infra-source/prometheus-rules/alert-rules.yml
+      ALERT_SOURCE_MANAGER_PATH: /app/infra-source/alertmanager/alertmanager.yml
       PROMETHEUS_RELOAD_URL: http://prometheus:9090/-/reload
       ALERTMANAGER_RELOAD_URL: http://alertmanager:9093/-/reload
       GRAFANA_BASE_URL: ${CHAOS_CONSOLE_GRAFANA_BASE_URL:-http://localhost:13000}
