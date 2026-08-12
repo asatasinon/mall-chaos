@@ -1,5 +1,5 @@
-# Prometheus 告警规则 — Castrel Chaos
-# 覆盖服务健康、HTTP 错误率、延迟、JVM 内存、连接池、业务指标异常等场景
+# Prometheus alerting rules — Castrel Chaos
+# Covers service health, HTTP error rates, latency, JVM memory, connection pools, and business metric anomalies
 groups:
 
   - name: castrel-service-health
@@ -11,8 +11,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '服务 {{ $labels.service }} 已离线'
-          description: '服务 {{ $labels.service }} (job={{ $labels.job }}) 已停止响应超过 1 分钟。'
+          summary: 'Service {{ $labels.service }} is down'
+          description: 'Service {{ $labels.service }} (job={{ $labels.job }}) has stopped responding for more than 1 minute.'
 
       - alert: InfraExporterDown
         expr: up{service=~"node|mysql|redis"} == 0
@@ -20,8 +20,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '基础设施 Exporter {{ $labels.service }} 已离线'
-          description: 'Exporter {{ $labels.service }} (job={{ $labels.job }}) 已停止响应超过 2 分钟。'
+          summary: 'Infrastructure exporter {{ $labels.service }} is down'
+          description: 'Exporter {{ $labels.service }} (job={{ $labels.job }}) has stopped responding for more than 2 minutes.'
 
   - name: castrel-http-performance
     interval: 30s
@@ -36,8 +36,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '{{ $labels.service }} 错误率过高'
-          description: '服务 {{ $labels.service }} 的 URI {{ $labels.uri }} 在最近 5 分钟内错误率超过 5%（当前 {{ $value | humanizePercentage }}）。'
+          summary: '{{ $labels.service }} has a high error rate'
+          description: 'The error rate for URI {{ $labels.uri }} on service {{ $labels.service }} has exceeded 5% over the last 5 minutes (current: {{ $value | humanizePercentage }}).'
 
       - alert: HighLatencyP99
         expr: |
@@ -48,8 +48,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '{{ $labels.service }} P99 延迟过高'
-          description: '服务 {{ $labels.service }} 的 URI {{ $labels.uri }} P99 延迟超过 5 秒（当前 {{ $value | humanizeDuration }}）。'
+          summary: '{{ $labels.service }} has high P99 latency'
+          description: 'P99 latency for URI {{ $labels.uri }} on service {{ $labels.service }} has exceeded 5 seconds (current: {{ $value | humanizeDuration }}).'
 
       - alert: CriticalLatencyP99
         expr: |
@@ -60,8 +60,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '{{ $labels.service }} P99 延迟严重超标'
-          description: '服务 {{ $labels.service }} 的 URI {{ $labels.uri }} P99 延迟超过 10 秒（当前 {{ $value | humanizeDuration }}）。'
+          summary: '{{ $labels.service }} has critically high P99 latency'
+          description: 'P99 latency for URI {{ $labels.uri }} on service {{ $labels.service }} has exceeded 10 seconds (current: {{ $value | humanizeDuration }}).'
 
   - name: castrel-jvm-health
     interval: 30s
@@ -76,8 +76,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '{{ $labels.service }} 堆内存使用率过高'
-          description: '服务 {{ $labels.service }} 的堆内存使用率已达 {{ $value | humanizePercentage }}，超过 85% 阈值。'
+          summary: '{{ $labels.service }} has high heap usage'
+          description: 'Heap usage for service {{ $labels.service }} has reached {{ $value | humanizePercentage }}, exceeding the 85% threshold.'
 
       - alert: CriticalHeapUsage
         expr: |
@@ -89,8 +89,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '{{ $labels.service }} 堆内存即将耗尽'
-          description: '服务 {{ $labels.service }} 的堆内存使用率已达 {{ $value | humanizePercentage }}，超过 95% 阈值，可能触发 OOM。'
+          summary: '{{ $labels.service }} is running out of heap memory'
+          description: 'Heap usage for service {{ $labels.service }} has reached {{ $value | humanizePercentage }}, exceeding the 95% threshold and potentially triggering an OOM.'
 
       - alert: FrequentGCPause
         expr: |
@@ -99,8 +99,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '{{ $labels.service }} Major GC 频繁'
-          description: '服务 {{ $labels.service }} 在最近 5 分钟内 Major GC 次数超过 0.1 次/秒（当前 {{ $value | humanize }} 次/秒）。'
+          summary: '{{ $labels.service }} has frequent major GCs'
+          description: 'Service {{ $labels.service }} has had more than 0.1 major GCs per second over the last 5 minutes (current: {{ $value | humanize }} per second).'
 
   - name: castrel-database
     interval: 30s
@@ -115,8 +115,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '{{ $labels.service }} 数据库连接池使用率过高'
-          description: '服务 {{ $labels.service }} 的 HikariCP 连接池使用率已达 {{ $value | humanizePercentage }}。'
+          summary: '{{ $labels.service }} has high database pool usage'
+          description: 'The HikariCP connection pool for service {{ $labels.service }} has reached {{ $value | humanizePercentage }} utilization.'
 
       - alert: HikariPoolFull
         expr: |
@@ -128,8 +128,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '{{ $labels.service }} 数据库连接池即将耗尽'
-          description: '服务 {{ $labels.service }} 的 HikariCP 连接池使用率已达 {{ $value | humanizePercentage }}，连接可能被阻塞。'
+          summary: '{{ $labels.service }} is running out of database connections'
+          description: 'The HikariCP connection pool for service {{ $labels.service }} has reached {{ $value | humanizePercentage }} utilization; connections may be blocked.'
 
       - alert: HikariPoolPending
         expr: hikaricp_connections_pending > 10
@@ -137,8 +137,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '{{ $labels.service }} 数据库连接等待积压'
-          description: '服务 {{ $labels.service }} 的 HikariCP 连接池有 {{ $value }} 个请求在等待连接。'
+          summary: '{{ $labels.service }} has pending database connection requests'
+          description: 'The HikariCP connection pool for service {{ $labels.service }} has {{ $value }} requests waiting for a connection.'
 
   - name: castrel-business-metrics
     interval: 30s
@@ -153,8 +153,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '订单创建失败率过高'
-          description: '订单创建失败率 {{ $value | humanizePercentage }}，超过 10% 阈值。'
+          summary: 'Order creation failure rate is high'
+          description: 'The order creation failure rate is {{ $value | humanizePercentage }}, exceeding the 10% threshold.'
 
       - alert: PaymentFailureRateHigh
         expr: |
@@ -166,8 +166,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '支付失败率过高'
-          description: '支付扣款失败率 {{ $value | humanizePercentage }}，超过 10% 阈值。'
+          summary: 'Payment failure rate is high'
+          description: 'The payment charge failure rate is {{ $value | humanizePercentage }}, exceeding the 10% threshold.'
 
       - alert: PaymentTimeoutSpike
         expr: rate(payment_charge_timeout_count_total[5m]) > 0.5
@@ -175,8 +175,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '支付超时激增'
-          description: '支付扣款超时速率 {{ $value | humanize }} 次/秒，可能上游服务异常。'
+          summary: 'Payment timeouts are spiking'
+          description: 'The payment charge timeout rate is {{ $value | humanize }} per second; an upstream service may be unhealthy.'
 
       - alert: InventoryReserveFailRateHigh
         expr: |
@@ -188,8 +188,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '库存预扣失败率过高'
-          description: '库存预扣失败率 {{ $value | humanizePercentage }}，超过 20% 阈值。'
+          summary: 'Inventory reservation failure rate is high'
+          description: 'The inventory reservation failure rate is {{ $value | humanizePercentage }}, exceeding the 20% threshold.'
 
       - alert: RiskRejectRateHigh
         expr: |
@@ -201,8 +201,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '风控拒绝率过高'
-          description: '风控预检查拒绝率 {{ $value | humanizePercentage }}，超过 50% 阈值。'
+          summary: 'Risk rejection rate is high'
+          description: 'The risk pre-check rejection rate is {{ $value | humanizePercentage }}, exceeding the 50% threshold.'
 
       - alert: NotificationFailRateHigh
         expr: |
@@ -214,8 +214,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '通知发送失败率过高'
-          description: '通知发送失败率 {{ $value | humanizePercentage }}，超过 10% 阈值。'
+          summary: 'Notification failure rate is high'
+          description: 'The notification failure rate is {{ $value | humanizePercentage }}, exceeding the 10% threshold.'
 
   - name: castrel-infrastructure
     interval: 30s
@@ -226,8 +226,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '节点 CPU 使用率过高'
-          description: '节点 {{ $labels.instance }} CPU 使用率超过 80%（当前 {{ $value | humanize }}%）。'
+          summary: 'Node CPU usage is high'
+          description: 'CPU usage on node {{ $labels.instance }} has exceeded 80% (current: {{ $value | humanize }}%).'
 
       - alert: NodeHighMemory
         expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
@@ -235,8 +235,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '节点内存使用率过高'
-          description: '节点 {{ $labels.instance }} 内存使用率超过 85%（当前 {{ $value | humanize }}%）。'
+          summary: 'Node memory usage is high'
+          description: 'Memory usage on node {{ $labels.instance }} has exceeded 85% (current: {{ $value | humanize }}%).'
 
       - alert: NodeDataFilesystemUsageHigh
         expr: |
@@ -249,8 +249,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '节点数据文件系统使用率过高'
-          description: '节点 {{ $labels.instance }} 的 /data 文件系统使用率超过 85%（当前 {{ $value | humanize }}%）。'
+          summary: 'Node data filesystem usage is high'
+          description: 'The /data filesystem on node {{ $labels.instance }} has exceeded 85% utilization (current: {{ $value | humanize }}%).'
 
       - alert: NodeDataFilesystemGrowthRateHigh
         expr: |
@@ -260,8 +260,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '节点存储空间持续增长'
-          description: '节点 {{ $labels.instance }} 的 /data 可用空间正在以 {{ $value | humanize }} bytes/s 的速率下降，可能存在存储突增。'
+          summary: 'Node storage usage is continuously increasing'
+          description: 'Available space on /data for node {{ $labels.instance }} is decreasing at {{ $value | humanize }} bytes/s; a sudden increase in storage usage may be occurring.'
 
       - alert: MySQLHighThreads
         expr: mysql_global_status_threads_connected > 100
@@ -269,8 +269,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: 'MySQL 连接数过高'
-          description: 'MySQL 当前连接数 {{ $value }}，超过 100 阈值。'
+          summary: 'MySQL connection count is high'
+          description: 'MySQL currently has {{ $value }} connections, exceeding the threshold of 100.'
 
       - alert: MySQLSlowQueries
         expr: rate(mysql_global_status_slow_queries[5m]) > 0.5
@@ -278,8 +278,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: 'MySQL 慢查询增多'
-          description: 'MySQL 慢查询速率 {{ $value | humanize }} 次/秒，可能存在 SQL 性能问题。'
+          summary: 'MySQL slow queries are increasing'
+          description: 'The MySQL slow query rate is {{ $value | humanize }} per second; there may be a SQL performance issue.'
 
       - alert: MySQLInnoDBDataWriteRateHigh
         expr: |
@@ -289,8 +289,8 @@ groups:
         labels:
           severity: info
         annotations:
-          summary: 'MySQL InnoDB 数据文件写入速率过高'
-          description: 'MySQL InnoDB 数据文件写入速率为 {{ $value | humanize }} bytes/s，超过 1 MiB/s，可能存在存储突增。'
+          summary: 'MySQL InnoDB data write rate is high'
+          description: 'MySQL InnoDB data is being written at {{ $value | humanize }} bytes/s, exceeding 1 MiB/s; a sudden increase in storage usage may be occurring.'
 
       - alert: RedisHighMemory
         expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 80
@@ -298,8 +298,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: 'Redis 内存使用率过高'
-          description: 'Redis 内存使用率 {{ $value | humanize }}%，超过 80% 阈值。'
+          summary: 'Redis memory usage is high'
+          description: 'Redis memory usage is {{ $value | humanize }}%, exceeding the 80% threshold.'
 
   - name: castrel-chaos-detection
     interval: 30s
@@ -315,5 +315,5 @@ groups:
         labels:
           severity: info
         annotations:
-          summary: '可能正在进行混沌工程注入'
-          description: '检测到多个服务同时出现错误/超时，可能处于混沌工程演练中。'
+          summary: 'Chaos engineering injection may be in progress'
+          description: 'Multiple services are reporting errors or timeouts simultaneously; a chaos engineering exercise may be in progress.'
