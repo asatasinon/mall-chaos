@@ -205,9 +205,9 @@ export async function saveAlertConfig(input: AlertConfig): Promise<AlertConfig> 
   if (input.version !== current.version) throw new Error('VERSION_CONFLICT');
   const pool = getPool();
   const connection = await pool.getConnection();
+  const nextVersion = current.version + 1;
   try {
     await connection.beginTransaction();
-    const nextVersion = current.version + 1;
     const [result] = await connection.query('UPDATE alert_config_meta SET version = version + 1 WHERE id = 1 AND version = ?', [input.version]);
     if ((result as any).affectedRows !== 1) throw new Error('VERSION_CONFLICT');
     await connection.query('DELETE FROM alert_rule');
@@ -239,9 +239,22 @@ export async function saveAlertConfig(input: AlertConfig): Promise<AlertConfig> 
     connection.release();
   }
 
-  const savedWithSecrets = await loadAlertConfig(true);
+  const savedWithSecrets = {
+    ...input,
+    version: nextVersion,
+    receivers: input.receivers.map((receiver) => ({
+      ...receiver,
+      basicAuthPassword: receiver.basicAuthPassword || currentWithSecrets.receivers.find((item) => item.receiverName === receiver.receiverName)?.basicAuthPassword,
+    })),
+  };
   await renderAndReload(savedWithSecrets);
-  return loadAlertConfig();
+  return {
+    ...savedWithSecrets,
+    receivers: savedWithSecrets.receivers.map(({ basicAuthPassword, ...receiver }) => ({
+      ...receiver,
+      basicAuthPasswordSet: Boolean(basicAuthPassword),
+    })),
+  };
 }
 
 export function parseAlertmanagerYaml(source: string, current: AlertConfig): AlertConfig {
@@ -327,10 +340,9 @@ export async function saveAlertSource(kind: AlertSourceKind, version: number, so
   const parsed = kind === 'prometheus-rules'
     ? parsePrometheusRulesYaml(source, { ...current, version, rules: [] })
     : parseAlertmanagerYaml(source, { ...current, version, receivers: [] });
-  await saveAlertConfig(parsed);
+  const saved = await saveAlertConfig(parsed);
   await atomicWrite(getRenderedSourcePath(kind), source.endsWith('\n') ? source : `${source}\n`);
   await reload(kind === 'prometheus-rules' ? env.PROMETHEUS_RELOAD_URL : env.ALERTMANAGER_RELOAD_URL, kind === 'prometheus-rules' ? 'Prometheus' : 'Alertmanager');
-  const saved = await loadAlertConfig();
   return { kind, yaml: source.endsWith('\n') ? source : `${source}\n`, version: saved.version };
 }
 

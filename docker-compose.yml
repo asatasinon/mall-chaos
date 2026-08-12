@@ -113,9 +113,8 @@ services:
       - ./data/prometheus-rules:/etc/prometheus/rules
       - ./infra/prometheus/rules:/etc/prometheus/source-rules:ro
       - ./data/prometheus:/prometheus
+    entrypoint: ["/bin/sh", "-c"]
     command:
-      - '/bin/sh'
-      - '-c'
       - 'mkdir -p /etc/prometheus/rules && if [ ! -f /etc/prometheus/rules/alert-rules.yml ]; then cp /etc/prometheus/source-rules/alert-rules.yml /etc/prometheus/rules/alert-rules.yml; fi && exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --web.enable-lifecycle --web.enable-remote-write-receiver --storage.tsdb.retention.time=7d'
 
   alertmanager:
@@ -127,9 +126,8 @@ services:
       - ./data/alertmanager-config:/etc/alertmanager
       - ./infra/alertmanager:/etc/alertmanager-source:ro
       - ./data/alertmanager:/alertmanager
+    entrypoint: ["/bin/sh", "-c"]
     command:
-      - '/bin/sh'
-      - '-c'
       - 'mkdir -p /etc/alertmanager && if [ ! -f /etc/alertmanager/alertmanager.yml ]; then cp /etc/alertmanager-source/alertmanager.yml /etc/alertmanager/alertmanager.yml; fi && exec /bin/alertmanager --config.file=/etc/alertmanager/alertmanager.yml --storage.path=/alertmanager --web.listen-address=:9093 --log.level=info'
     depends_on:
       - prometheus
