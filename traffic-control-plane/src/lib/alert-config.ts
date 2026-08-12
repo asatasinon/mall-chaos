@@ -59,6 +59,7 @@ export interface AlertRoute {
 
 const DEFAULT_RECEIVER = 'default-receiver';
 const INTERNAL_WEBHOOK = 'http://traffic-control-plane:3086/internal/alertmanager/webhook';
+export type AlertSourceKind = 'prometheus-rules' | 'alertmanager';
 
 async function ensureTables(): Promise<void> {
   const pool = getPool();
@@ -303,6 +304,38 @@ export function parsePrometheusRulesYaml(source: string, current: AlertConfig): 
     ruleByName.set(rule.ruleName, { ...existing, ...rule, id: existing?.id });
   }
   return { ...current, rules: [...ruleByName.values()] };
+}
+
+export async function loadAlertSource(kind: AlertSourceKind): Promise<{ kind: AlertSourceKind; yaml: string; version: number }> {
+  const config = await loadAlertConfig();
+  const sourcePath = getRenderedSourcePath(kind);
+  const fallbackPath = kind === 'prometheus-rules' ? env.ALERT_SOURCE_RULES_PATH : env.ALERT_SOURCE_MANAGER_PATH;
+  let source: string;
+  try {
+    source = await fs.readFile(sourcePath, 'utf8');
+  } catch {
+    source = await fs.readFile(fallbackPath, 'utf8');
+  }
+  return { kind, yaml: source, version: config.version };
+}
+
+export async function saveAlertSource(kind: AlertSourceKind, version: number, source: string): Promise<{ kind: AlertSourceKind; yaml: string; version: number }> {
+  if (!source.trim()) throw new Error('EMPTY_ALERT_SOURCE');
+  if (!Number.isInteger(version) || version < 1) throw new Error('INVALID_CONFIG_VERSION');
+  const current = await loadAlertConfig();
+  if (version !== current.version) throw new Error('VERSION_CONFLICT');
+  const parsed = kind === 'prometheus-rules'
+    ? parsePrometheusRulesYaml(source, { ...current, version, rules: [] })
+    : parseAlertmanagerYaml(source, { ...current, version, receivers: [] });
+  await saveAlertConfig(parsed);
+  await atomicWrite(getRenderedSourcePath(kind), source.endsWith('\n') ? source : `${source}\n`);
+  await reload(kind === 'prometheus-rules' ? env.PROMETHEUS_RELOAD_URL : env.ALERTMANAGER_RELOAD_URL, kind === 'prometheus-rules' ? 'Prometheus' : 'Alertmanager');
+  const saved = await loadAlertConfig();
+  return { kind, yaml: source.endsWith('\n') ? source : `${source}\n`, version: saved.version };
+}
+
+function getRenderedSourcePath(kind: AlertSourceKind): string {
+  return path.join(path.resolve(env.ALERT_CONFIG_DIR), kind === 'prometheus-rules' ? 'prometheus-rules/alert-rules.yml' : 'alertmanager/alertmanager.yml');
 }
 
 async function renderAndReload(config: AlertConfig): Promise<void> {

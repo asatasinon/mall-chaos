@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 type Severity = 'critical' | 'warning' | 'info';
 type Match = 'all' | Severity;
+type SourceKind = 'prometheus-rules' | 'alertmanager';
 interface Rule { id?: number; isDraft?: boolean; ruleName: string; groupName: string; intervalSec: number; expression: string; forDuration: string; severity: Severity; summary: string; description: string; enabled: boolean }
 interface Receiver { id?: number; isDraft?: boolean; receiverName: string; receiverType: 'webhook'; endpoint: string; basicAuthUsername?: string; basicAuthPassword?: string; basicAuthPasswordSet?: boolean; severityMatch: Match; sendResolved: boolean; enabled: boolean }
 interface AlertRoute { isDraft?: boolean; receiver: string; match: Record<string, string>; groupBy?: string[]; groupWait?: string; groupInterval?: string; repeatInterval?: string; continue: boolean }
@@ -24,10 +25,15 @@ export default function AlertsPage() {
   const [saving, setSaving] = useState(false);
   const [importError, setImportError] = useState('');
   const [sourceYaml, setSourceYaml] = useState('');
+  const [sourceKind, setSourceKind] = useState<SourceKind>('prometheus-rules');
+  const [sourceVersion, setSourceVersion] = useState<number | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [sourceDirty, setSourceDirty] = useState(false);
+  const [editorYaml, setEditorYaml] = useState('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [receiverModalOpen, setReceiverModalOpen] = useState(false);
   const [routeModalOpen, setRouteModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'rules' | 'routing'>('rules');
+  const [activeTab, setActiveTab] = useState<'rules' | 'routing' | 'yaml'>('rules');
   const [createMode, setCreateMode] = useState<'rule' | 'prometheus-rules'>('rule');
   const [draftRule, setDraftRule] = useState<Rule>(blankRule());
   const [draftReceiver, setDraftReceiver] = useState<Receiver>(blankReceiver());
@@ -44,7 +50,32 @@ export default function AlertsPage() {
       setConfig(result.data);
     } catch (cause) { setError(cause instanceof TypeError && cause.message.toLowerCase().includes('fetch') ? '控制台接口不可达，请先启动 traffic-control-plane（localhost:18086）' : cause instanceof Error ? cause.message : '加载失败'); }
   };
+  const loadSource = async (kind: SourceKind) => {
+    setSourceLoading(true); setError('');
+    try {
+      const response = await fetch(`/internal/alerts/source?kind=${kind}`, { cache: 'no-store' });
+      const result = await response.json();
+      if (!response.ok || result.code !== 0) throw new Error(result.message);
+      setEditorYaml(result.data.yaml); setSourceVersion(result.data.version); setSourceDirty(false);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '加载 YAML 失败'); }
+    finally { setSourceLoading(false); }
+  };
+  const saveSource = async () => {
+    if (!config || sourceVersion === null || !editorYaml.trim()) return;
+    setSaving(true); setError(''); setNotice('');
+    try {
+      const response = await fetch('/internal/alerts/source', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: sourceKind, version: sourceVersion, yaml: editorYaml }) });
+      const result = await response.json();
+      if (!response.ok || result.code !== 0) throw new Error(result.message);
+      const configResponse = await fetch('/internal/alerts/config', { cache: 'no-store' });
+      const configResult = await configResponse.json();
+      setConfig(configResult.data); setEditorYaml(result.data.yaml); setSourceVersion(result.data.version); setSourceDirty(false);
+      setNotice(`${sourceKind === 'prometheus-rules' ? 'Prometheus rules' : 'Alertmanager'} YAML saved and reloaded`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '保存 YAML 失败'); }
+    finally { setSaving(false); }
+  };
   useEffect(() => { void load(); }, []);
+  useEffect(() => { if (activeTab === 'yaml') void loadSource(sourceKind); }, [activeTab, sourceKind]);
   useEffect(() => {
     if (!scrollTarget) return;
     const target = itemRefs.current[scrollTarget];
@@ -117,8 +148,9 @@ export default function AlertsPage() {
       <PageHeading onRefresh={() => void load()} onSave={() => void save()} saving={saving} version={config.version} updatedAt={config.updatedAt} />
       {error && <ErrorBox text={error} />}
       {notice && <div className="border border-green-700/30 bg-green-700/10 text-green-800 dark:text-green-300 px-4 py-2.5 rounded-md text-sm">{notice}</div>}
-      <div className="flex border-b border-border"><button type="button" className={`relative px-4 py-2.5 text-sm font-medium ${activeTab === 'rules' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`} onClick={() => setActiveTab('rules')}>告警规则{activeTab === 'rules' && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />}</button><button type="button" className={`relative px-4 py-2.5 text-sm font-medium ${activeTab === 'routing' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`} onClick={() => setActiveTab('routing')}>路由与推送地址{activeTab === 'routing' && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />}</button></div>
+      <div className="flex flex-wrap border-b border-border"><TabButton active={activeTab === 'rules'} onClick={() => setActiveTab('rules')}>告警规则</TabButton><TabButton active={activeTab === 'routing'} onClick={() => setActiveTab('routing')}>路由与推送地址</TabButton><TabButton active={activeTab === 'yaml'} onClick={() => setActiveTab('yaml')}>整文件 YAML</TabButton></div>
       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+      {activeTab === 'yaml' && <YamlSourceEditor kind={sourceKind} onKindChange={setSourceKind} yaml={editorYaml} loading={sourceLoading} saving={saving} dirty={sourceDirty} version={sourceVersion} onChange={(value) => { setEditorYaml(value); setSourceDirty(true); }} onReload={() => void loadSource(sourceKind)} onSave={() => void saveSource()} />}
       {activeTab === 'rules' && <section className="space-y-3">
         <div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">告警规则</h2><p className="text-xs text-muted-foreground">PromQL 规则会生成到 Prometheus rule groups</p></div><Button variant="outline" size="sm" onClick={() => { setDraftRule(blankRule()); setCreateMode('rule'); setCreateModalOpen(true); }}><Plus />新增规则</Button></div>
         <div className="space-y-3">{config.rules.map((rule, index) => <div key={`${rule.id ?? 'new'}-${index}`} ref={(element) => { itemRefs.current[`rule-${index}`] = element; }} tabIndex={-1} className={rule.isDraft ? draftWrapperClass : ''}><RuleEditor rule={rule} onChange={(next) => setConfig({ ...config, rules: config.rules.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, rules: config.rules.filter((_, i) => i !== index) })} /></div>)}</div>
@@ -136,6 +168,10 @@ export default function AlertsPage() {
   );
 }
 
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" className={`relative px-4 py-2.5 text-sm font-medium ${active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`} onClick={onClick}>{children}{active && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />}</button>; }
+function YamlSourceEditor({ kind, onKindChange, yaml, loading, saving, dirty, version, onChange, onReload, onSave }: { kind: SourceKind; onKindChange: (kind: SourceKind) => void; yaml: string; loading: boolean; saving: boolean; dirty: boolean; version: number | null; onChange: (value: string) => void; onReload: () => void; onSave: () => void }) {
+  return <section className="space-y-3"><div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-base font-semibold">整文件 YAML 编辑器</h2><p className="text-xs text-muted-foreground">直接编辑实际生效的配置文件，保存后会校验、写入并 reload 对应组件。</p></div><div className="flex items-center gap-2"><select className={inputClass} value={kind} onChange={(event) => onKindChange(event.target.value as SourceKind)}><option value="prometheus-rules">Prometheus alert-rules.yml</option><option value="alertmanager">Alertmanager alertmanager.yml</option></select><Button variant="ghost" size="icon" title="重新加载 YAML" onClick={onReload} disabled={loading || saving}><RefreshCw /></Button><Button onClick={onSave} disabled={loading || saving || !dirty || !yaml.trim()}><Save />{saving ? '保存中…' : '保存并应用'}</Button></div></div><div className="flex items-center justify-between text-xs text-muted-foreground"><span>{loading ? '正在读取文件…' : dirty ? '有未保存修改' : '已与服务端同步'}</span>{version !== null && <span>配置版本 v{version}</span>}</div><textarea aria-label={`${kind} YAML source`} className="min-h-[calc(100vh-16rem)] w-full resize-y rounded-md border border-input bg-background px-3 py-3 font-mono text-xs leading-5 outline-none focus:ring-2 focus:ring-ring/40" value={yaml} onChange={(event) => onChange(event.target.value)} disabled={loading || saving} spellCheck={false} /></section>;
+}
 function PageHeading({ onRefresh, onSave, saving, version, updatedAt }: { onRefresh: () => void; onSave?: () => void; saving?: boolean; version?: number; updatedAt?: string | null }) { return <div className="flex items-start justify-between gap-4"><div><h1 className="text-2xl font-semibold tracking-tight">Alerts</h1><p className="text-sm text-muted-foreground mt-0.5">告警规则与通知路由配置</p>{version !== undefined && <p className="mt-1 text-xs text-muted-foreground">配置版本 v{version}{updatedAt ? ` · ${new Date(updatedAt).toLocaleString()}` : ''}</p>}</div><div className="flex shrink-0 items-center gap-2"><Button variant="ghost" size="icon" title="刷新配置" onClick={onRefresh}><RefreshCw /></Button>{onSave && <Button onClick={onSave} disabled={saving}><Save />{saving ? '保存中…' : '保存并应用'}</Button>}</div></div>; }
 function ErrorBox({ text }: { text: string }) { return <div className="flex gap-2 items-start rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"><AlertTriangle className="size-4 mt-0.5" />{text}</div>; }
 function CreateAlertModal({ mode, onModeChange, rule, onRuleChange, sourceYaml, onSourceYamlChange, error, saving, onClose, onAddRule, onImportYaml }: { mode: 'rule' | 'prometheus-rules'; onModeChange: (mode: 'rule' | 'prometheus-rules') => void; rule: Rule; onRuleChange: (rule: Rule) => void; sourceYaml: string; onSourceYamlChange: (yaml: string) => void; error: string; saving: boolean; onClose: () => void; onAddRule: () => void; onImportYaml: () => void }) {
