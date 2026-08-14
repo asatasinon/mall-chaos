@@ -56,13 +56,6 @@ scrape_configs:
         labels:
           service: 'payment'
 
-  - job_name: 'traffic-control-plane'
-    metrics_path: '/actuator/prometheus'
-    static_configs:
-      - targets: ['traffic-control-plane:3086']
-        labels:
-          service: 'traffic-control-plane'
-
   - job_name: 'promotion'
     metrics_path: '/actuator/prometheus'
     static_configs:
