@@ -75,11 +75,11 @@ flowchart LR
 | `/api/fulfillments/**`、`/api/notifications/**` | `CUSTOMER` | 归属物流和通知 |
 | `/internal/**` | `OPERATOR` 且私有入口 | `shopfront` 永不可达 |
 
-runner 必须使用非客户的专用服务凭据；它不能将浏览器传入的用户标识变成授权绕过，也不能绕过网关直接访问业务服务。`traffic-control-plane` 从白名单演示客户池选择主体，生成短期受限 runner 主体声明；网关验证该声明、清洗请求头并向下游传递可信客户上下文。
+身份签发链唯一且不可互换：`user-service` 签发 `CUSTOMER` / `OPERATOR` 用户访问令牌；`traffic-control-plane` 仅持有注册的 `TRAFFIC_RUNNER` 服务凭据，不能签发或伪造客户主体令牌。控制面从演示客户白名单选择客户 ID 后，以服务凭据和受控客户 ID 调用网关；网关校验服务凭据、客户白名单版本、`aud=gateway-service`、动作 scope 和短期有效期，再由网关签发仅下游可验的主体声明 `{actor=RUNNER, customerId, trafficRunId, allowedActions, exp}`。该声明不授予 `/internal/**` 或运营权限。
 
 ### 3.1 runner 内部编排
 
-`RunnerEngine` 与 `TrafficActionOrchestrator` 同属 `traffic-control-plane` 进程，二者直接进行内部方法调用，不通过 HTTP 调用 `/internal/traffic/**` action 地址。`TrafficActionOrchestrator` 负责从服务端演示客户白名单选择客户、生成 `trafficRunId`、动作 ID、结算幂等键和支付结果策略，并用受限 runner 主体声明调用 `GatewayClient`。
+`RunnerEngine` 与 `TrafficActionOrchestrator` 同属 `traffic-control-plane` 进程，二者直接进行内部方法调用，不通过 HTTP 调用 `/internal/traffic/**` action 地址。`TrafficActionOrchestrator` 负责从服务端演示客户白名单选择客户、生成 `trafficRunId`、动作 ID、结算幂等键和支付结果策略，并使用 `TRAFFIC_RUNNER` 服务凭据及受控客户 ID 调用 `GatewayClient`；短期下游主体声明仅由网关生成。
 
 编排器的动作输入仅包含 `action`、商品数量、支付结果策略等受控参数，禁止包含 `userId`、客户令牌、订单状态或权威金额。它调用消费者同一套购物车、`CheckoutCommand`、支付确认和查询 API；每次动作记录 `trafficRunId`、`actionId`、演示客户 ID、购物车版本、订单 ID、支付 ID、状态、错误码、耗时和 `traceId`。
 
@@ -101,7 +101,9 @@ runner 必须使用非客户的专用服务凭据；它不能将浏览器传入�
 }
 ```
 
-服务端从认证主体推导 `userId`，并按 `cartId + cartVersion` 读取不可变购物车快照。客户端总额、商品明细、商品名称、价格、优惠金额及支付金额均不是权威输入。购物车写操作使用版本号或 ETag；订单创建后只消费与已冻结快照一致的购物车行。若后续提供“立即购买”，必须是独立命令，且不作为 runner 主链路。
+服务端从认证主体推导 `userId`，并按 `cartId + cartVersion` 读取购物车。客户端总额、商品明细、商品名称、价格、优惠金额及支付金额均不是权威输入。购物车写操作使用版本号或 ETag；若后续提供“立即购买”，必须是独立命令，且不作为 runner 主链路。
+
+`cart-service` 在 Redis 使用 `cart:checkout-freeze:{checkoutId}` 保存冻结快照、`cartId`、`customerId`、`cartVersion` 和有效期，并以 `SET NX`/Lua 脚本原子校验客户归属与版本、取得冻结令牌。`checkoutId` 与结算幂等键唯一绑定。`order-service` 仅使用返回的冻结明细，在本地事务中持久化 `order_items` 和地址快照；Redis 快照只用于结算期间的并发控制和失败补偿，过期或淘汰不能影响已经提交的订单事实。订单成功后 `cart-service` 以冻结令牌条件消费匹配版本的购物车行；失败、取消或超时则幂等释放该 Redis 冻结键。
 
 ### 4.2 runner 完整交易流程
 
@@ -148,26 +150,29 @@ sequenceDiagram
 
 | 表 | 所有者 | 用途 |
 | --- | --- | --- |
-| `user_credentials` / 会话令牌表、`user_roles` | user-service | BCrypt 凭据、令牌撤销元数据和演示角色 |
 | `carts`、`cart_items` | cart-service | 每客户一个活动购物车及 SKU/数量明细 |
 | `order_items`、`order_address_snapshots` | order-service | 不可变商品金额明细与收货地址快照 |
 | `inventory_reservations` | inventory-service | 按订单、SKU 的预占生命周期和到期时间 |
 | `payment_attempts` | payment-service | 每订单多次幂等模拟支付尝试 |
 | `coupon_reservations` | promotion-service | 优惠券预留、确认、释放记录 |
-| `outbox_events` | order-service | 事务性可靠事件发布 |
-| `inbox_events` | 各事件消费者 | 已处理 `eventId` 去重与事件版本记录 |
+| `order_outbox_events`、`order_inbox_events` | order-service | 订单发布与消费去重 |
+| `payment_outbox_events`、`payment_inbox_events` | payment-service | 支付发布与消费去重 |
+| `risk_outbox_events`、`risk_inbox_events` | risk-service | 风控发布与消费去重 |
+| `fulfillment_outbox_events`、`fulfillment_inbox_events` | fulfillment-service | 履约发布与消费去重 |
+| `notification_outbox_events`、`notification_inbox_events` | notification-service | 通知发布与消费去重 |
 | `traffic_runs`、`traffic_actions` | traffic-control-plane | 流量运行、动作、演示客户、订单/支付关联及结果 |
 | `operator_audit_logs` | traffic-control-plane | 运营变更审计 |
 | `shipments`、`shipment_timeline_events` | fulfillment-service | 演示发货状态和物流追踪 |
+| `users`、`user_addresses`、`user_credentials`、`user_roles`、会话令牌表 | user-service | 客户资料、地址、凭据、角色与令牌撤销元数据 |
 | `notification_preferences`、`customer_notifications` | notification-service | 客户通知偏好和已读状态 |
 
 初始化 Schema 必须是确定性的，并完整创建演示所需的表、索引、约束与种子数据。`orders` 以多商品模型为准，`order_items` 为订单明细的唯一事实来源；若保留 `orders.sku`、`orders.qty`、`orders.amount` 仅用于短期 API 兼容，必须由单商品适配器写入，不能作为新结算流程的数据依赖。所有客户数据表需要归属索引、时间戳和幂等唯一约束；金额使用 `DECIMAL`，禁止 `FLOAT`、`DOUBLE`。服务启动时校验预期 schema version，不匹配即拒绝处理流量。
 
-### 5.1 原子环境重置
+### 5.1 运维环境重置
 
-重置不是单独删除 MySQL 表。执行顺序固定为：停止 runner、Gateway 入口流量和业务服务；清除 MySQL 数据目录；清除 Redis 全量数据或全部业务 namespace（幂等键、runner 队列、控制状态、锁和缓存）；启动 MySQL/Redis 并执行初始化；校验 schema version、演示客户、角色、地址、商品、库存、优惠券和 runner 配置；等待全部服务健康；清空 runner 内存状态后恢复 Gateway 流量和 runner。
+环境重置不是业务服务能力，也不由 `traffic-control-plane` 创建 reset job。运维人员手工执行：先停止全部业务服务、Gateway、`traffic-control-plane` worker 和外部业务流量；确认没有服务进程仍连接 MySQL/Redis 后，清除 MySQL 与 Redis 数据目录；再启动基础设施和全部服务，由初始化 SQL 创建 Schema 与种子数据，完成健康检查后最后恢复 runner。
 
-重置与结算、库存重置、Outbox 投递和混沌场景互斥。重置脚本必须在任一服务仍在处理业务时失败退出，而不是并发删除数据。
+环境重置与 `inventory reset` 是不同操作：前者删除整个演示环境数据，后者只恢复业务库存基线。运维重置与结算、库存重置、Outbox 投递和混沌场景互斥；禁止任何业务服务 HTTP API 删除数据卷。
 
 ## 6. 结算和支付处理
 
@@ -202,17 +207,19 @@ sequenceDiagram
 
 ## 7. 事务性 Outbox
 
-支付、订单和所有产生跨服务副作用的服务均在本地状态变更事务中保存 Outbox 事件。定时发布器认领待处理事件、调用下游并记录尝试/结果，支持至少一次投递；消费者在本地事务中先写入 `inbox_events` 的 `eventId` 唯一记录，再执行业务状态更新与后续 Outbox 写入。
+支付、订单和所有产生跨服务副作用的服务均在本地状态变更事务中保存自身 Outbox 事件。每个服务只读写自己的 `*_outbox_events` 和 `*_inbox_events`；定时发布器认领本服务待处理事件、调用下游并记录尝试/结果，支持至少一次投递。消费者在本地事务中先写入自身 Inbox 的 `eventId` 唯一记录，再执行业务状态更新与后续 Outbox 写入。
 
 | 事件 | 消费端动作 |
 | --- | --- |
-| `ORDER_CREATED` | 发送客户通知 |
-| `PAYMENT_SUCCEEDED` | 支付后风控、创建履约单、发送通知 |
-| `PAYMENT_FAILED` | 通知与库存补偿审计 |
-| `ORDER_CANCELLED` | 通知；必要时取消履约 |
-| `SHIPMENT_UPDATED` | 发送客户通知 |
+| `PAYMENT_RESULT` | payment-service 发布；order-service 裁决订单终态、库存和优惠券 |
+| `ORDER_PAID` | order-service 发布；risk-service 执行支付后风控，notification-service 发送支付通知 |
+| `ORDER_PAYMENT_FAILED` | order-service 发布；notification-service 发送失败通知与补偿审计 |
+| `POST_PAYMENT_RISK_PASSED` | risk-service 发布；fulfillment-service 创建履约单 |
+| `POST_PAYMENT_RISK_REJECTED` | risk-service 发布；order-service 执行规定补偿，notification-service 发送结果通知 |
+| `ORDER_CANCELLED` | order-service 发布；notification-service 发送通知；必要时 fulfillment-service 取消履约 |
+| `SHIPMENT_UPDATED` | fulfillment-service 发布；notification-service 发送客户通知 |
 
-支付服务提交支付终态时写入 `PAYMENT_RESULT` Outbox；订单服务通过 Inbox 去重后更新订单并发出库存、优惠券、履约和通知事件。事件统一包含 `eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId` 和 `trafficRunId`。发布器恢复原始链路上下文并向消费者传播。失败事件以有界指数退避重试，最终进入 `DEAD_LETTER`；人工重放复用原 `eventId`，不能生成新事件。
+支付服务提交支付终态时写入 `PAYMENT_RESULT` Outbox；订单服务通过 Inbox 去重后裁决订单、库存和优惠券，并发布 `ORDER_PAID` 或 `ORDER_PAYMENT_FAILED`。风险服务只消费 `ORDER_PAID`，并发布 `POST_PAYMENT_RISK_PASSED` 或 `POST_PAYMENT_RISK_REJECTED`；履约服务只消费 `POST_PAYMENT_RISK_PASSED`，不得直接消费支付成功事件。事件统一包含 `eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId` 和 `trafficRunId`。发布器恢复原始链路上下文并向消费者传播。失败事件以有界指数退避重试，最终进入 `DEAD_LETTER`；人工重放复用原 `eventId`，不能生成新事件。
 
 ## 8. 客户 API
 
@@ -236,7 +243,21 @@ sequenceDiagram
 | `GET` | `/api/payments/{id}`、`/api/orders/{id}/shipment` | 查询支付与物流 |
 | `GET/PATCH` | `/api/notifications` | 查询/已读个人通知 |
 
-具体 REST 路径可微调，但用户身份、资源归属、幂等和只经网关访问不可变。私有流量入口必须由服务凭据保护，且它创建的订单、支付和事件必须能通过 `trafficRunId` 或等价关联标识与普通客户交易区分。
+具体 REST 路径可微调，但用户身份、资源归属、幂等和只经网关访问不可变。不提供私有 runner action HTTP API；runner 仅在 `traffic-control-plane` 进程内编排，并以受限服务凭据调用下列公开客户路由。其订单、支付和事件必须通过 `trafficRunId` 与普通客户交易区分。
+
+### 8.1 网关公开路由矩阵
+
+| 网关路径 | 目标服务 | 访问主体 |
+| --- | --- | --- |
+| `/api/auth/**`、`/api/me/**` | user-service | 公开或 `CUSTOMER`，按具体操作校验 |
+| `/api/products/**` | catalog-service | 公开 |
+| `/api/cart/**` | cart-service | `CUSTOMER` 或受限 `TRAFFIC_RUNNER` 主体 |
+| `/api/checkout`、`/api/orders/**` | order-service | `CUSTOMER` 或受限 `TRAFFIC_RUNNER` 主体 |
+| `/api/payments/**` | payment-service | `CUSTOMER` 或受限 `TRAFFIC_RUNNER` 主体 |
+| `/api/fulfillments/**` | fulfillment-service | `CUSTOMER` 或受限 `TRAFFIC_RUNNER` 主体 |
+| `/api/notifications/**` | notification-service | `CUSTOMER` 或受限 `TRAFFIC_RUNNER` 主体 |
+
+网关是这些公开路径的唯一入口。业务服务之间只能通过受认证的 `/internal/**` 调用；`TRAFFIC_RUNNER` 仅能使用矩阵中列出的客户路径和动作 scope，不能访问任意内部或运营路径。
 
 ## 9. 可观测性、前端与验证
 
