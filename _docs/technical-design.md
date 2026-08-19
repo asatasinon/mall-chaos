@@ -1,0 +1,244 @@
+# Castrel Shopfront 技术设计
+
+## 文档信息
+
+| 项目 | 内容 |
+| --- | --- |
+| 状态 | 已批准基线 |
+| 版本 | 1.0 |
+| 更新日期 | 2026-08-20 |
+| 范围 | 演示电商平台实现 |
+| 配套文档 | [product.md](product.md) |
+
+## 1. 架构目标与边界
+
+本设计将 Castrel Chaos 演进为面向客户的演示商城，不削弱原有混沌工程训练能力。系统保留 runner 行为，所有浏览器面向服务的访问均经过网关，并隔离消费者商城与流量/混沌运营控制台。
+
+设计优先保证资源归属、幂等、补偿和可观测恢复能力，而非生产级市场平台的完整性。
+
+```mermaid
+flowchart LR
+    Customer[客户浏览器] --> Shopfront[shopfront\nNext.js + BFF]
+    Operator[培训运营人员] --> ControlPlane[traffic-control-plane\nNext.js + worker]
+    Shopfront --> Gateway[gateway-service]
+    ControlPlane --> Gateway
+    Gateway --> Services[业务服务]
+    Services --> MySQL[(MySQL)]
+    Services --> Redis[(Redis)]
+    Services --> Observability[Prometheus / Loki / Tempo]
+```
+
+### 1.1 消费者和运营边界
+
+- `shopfront` 是新建、独立部署的 Next.js/pnpm 应用。浏览器请求在此终止；其 BFF Route Handler 以仅服务端可见的配置调用 `gateway-service`。
+- `gateway-service` 是业务 API 的唯一公开入口。生产式 Ingress 不暴露业务服务端口。
+- 消费者应用不得暴露、代理、链接或加载 `/internal/**`。
+- `traffic-control-plane` 独立部署，继续承载 runner、混沌、告警和总览；运营入口与消费者入口独立，要求 `OPERATOR` 权限。
+- runner 不调用业务服务地址；它使用专用流量服务凭据，经 `gateway-service` 触发与消费者一致的完整交易链路。
+- 运营身份、会话策略和审计日志是运营应用可被公网访问前必须完成的加固项。
+
+## 2. 服务职责
+
+| 组件 | 职责 |
+| --- | --- |
+| `shopfront` | 客户 UI、服务端会话处理、消费者 BFF、客户安全的错误状态 |
+| `gateway-service` | API 路由、令牌校验、角色控制、可信身份传递、请求头清洗 |
+| `user-service` | 注册/登录/刷新/登出、客户资料、地址归属和 CRUD |
+| `catalog-service` | 商品搜索/详情，以及内部批量校验/价格查询 |
+| `cart-service` | 客户持久化购物车、商品变更和重校验 |
+| `inventory-service` | 原子 SKU 预占/释放和可售库存投影 |
+| `order-service` | 结算命令、订单/明细快照、状态机、取消和 Outbox 发布 |
+| `promotion-service` | 优惠券资格、报价、预留、确认/释放 |
+| `risk-service` | 结算前检查和订单事件驱动的支付后检查 |
+| `payment-service` | 模拟支付意图、确认、状态、重试和退款生命周期 |
+| `fulfillment-service` | 演示发货单创建和客户归属物流时间线 |
+| `notification-service` | 幂等订单事件通知与客户通知已读状态 |
+| `traffic-control-plane` | 仅合成流量、混沌分发和运营监控 |
+
+新增 `cart-service` Maven/Spring Boot 模块，使购物车持久化和客户变更独立于前台，避免只有 UI 本地状态的购物车。
+
+## 3. 身份认证和授权
+
+- `user-service` 使用 BCrypt 哈希保存凭据，API 不得返回明文密码或密码哈希。
+- 登录产生短期签名访问令牌及刷新/会话令牌；后者由 `shopfront` 保存为 `HttpOnly`、`Secure`、`SameSite=Lax` Cookie。
+- 令牌声明包含不可变主体 ID、角色、令牌 ID、签发时间和过期时间。Version 1 角色为 `CUSTOMER` 和 `OPERATOR`。
+- 网关校验令牌，移除传入的 `X-User-Id`、`X-User-Role` 及等价身份头，再向下游写入可信身份头。
+- 客户公开 DTO 不得接受 `userId`；服务从可信网关上下文获取身份。
+
+| 路由组 | 所需角色 | 说明 |
+| --- | --- | --- |
+| `/api/auth/**`、`/api/products/**` | 公开 | 身份和商品读取 |
+| `/api/cart/**`、`/api/checkout` | `CUSTOMER` | 购物车和多商品结算 |
+| `/api/orders/**`、`/api/payments/**` | `CUSTOMER` | 归属订单和支付 |
+| `/api/fulfillments/**`、`/api/notifications/**` | `CUSTOMER` | 归属物流和通知 |
+| `/internal/**` | `OPERATOR` 且私有入口 | `shopfront` 永不可达 |
+| `/internal/traffic/**` | 流量服务凭据且私有入口 | 仅 runner 可使用的受控流量入口 |
+
+runner 必须使用非客户的专用服务凭据；它不能将浏览器传入的用户标识变成授权绕过，也不能绕过网关直接访问业务服务。
+
+## 4. 订单模型与完整流量链路
+
+现有订单 API 接受单个 `sku` 和 `qty`。数据库将清空并重建，新 Schema 直接采用多商品订单模型；runner 不依赖旧接口，而是覆盖与消费者相同的多商品结算和支付流程。
+
+### 4.1 新结算契约
+
+```json
+{
+  "idempotencyKey": "checkout-uuid",
+  "addressId": 101,
+  "couponId": 42,
+  "items": [
+    { "sku": "SKU-001", "quantity": 2 },
+    { "sku": "SKU-010", "quantity": 1 }
+  ]
+}
+```
+
+服务端从认证主体推导 `userId`。客户端总额、商品名称、价格、优惠金额及支付金额均不是权威输入。
+
+### 4.2 runner 完整交易流程
+
+runner 以服务凭据通过网关调用私有的受控流量 API；每一步仍复用消费者同一领域服务、同一结算命令、同一支付状态机和同一 Outbox 消费者。流量入口只负责选择预置演示客户、生成幂等键和编排动作，不能实现第二套下单逻辑。
+
+```mermaid
+sequenceDiagram
+  participant Runner as Traffic Runner
+  participant G as Gateway
+  participant O as Order Service
+  participant Pay as Payment Service
+  participant F as Fulfillment/Notification
+
+  Runner->>G: 浏览或搜索商品
+  Runner->>G: 变更演示客户购物车
+  Runner->>G: 多商品结算
+  G->>O: 执行标准 CheckoutCommand
+  O-->>Runner: PENDING_PAYMENT 订单
+  Runner->>G: 创建并确认模拟支付
+  G->>Pay: 执行标准支付生命周期
+  Pay->>O: 支付终态事件
+  O->>F: Outbox 异步履约和通知
+```
+
+流量规则至少支持以下动作：`BROWSE_PRODUCT`、`SEARCH_CATALOG`、`ADD_CART_ITEM`、`UPDATE_CART_ITEM`、`CHECKOUT`、`PAYMENT_CONFIRM`、`CANCEL_PENDING_ORDER`、`QUERY_ORDER` 和 `QUERY_SHIPMENT`。每个动作记录独立结果和延迟；支付确认可按配置产生成功、失败或超时。
+
+`POST /api/orders` 可作为旧调用方的 API 兼容接口，并转换为只有一条明细的统一结算命令，但不再是 runner 的主流量入口。由于数据库会清空重建，不提供历史订单数据回填或旧 Schema 升级支持；仅在明确回归测试中验证接口行为。
+
+| 聚合 | 状态 |
+| --- | --- |
+| 订单 | `PENDING_PAYMENT`、`PAID`、`PAYMENT_FAILED`、`CANCELLED`、`FULFILLING`、`SHIPPED`、`COMPLETED` |
+| 支付尝试 | `CREATED`、`PROCESSING`、`SUCCESS`、`FAILED`、`TIMEOUT`、`REFUNDED` |
+| 库存预占 | `RESERVED`、`RELEASED`、`CONFIRMED`、`EXPIRED` |
+| 优惠券使用 | `AVAILABLE`、`RESERVED`、`USED`、`RELEASED` |
+| Outbox 事件 | `PENDING`、`PROCESSING`、`PUBLISHED`、`FAILED`、`DEAD_LETTER` |
+
+状态转换在服务代码中校验且必须幂等。新代码不得复用 `PENDING` 表达多种业务语义。
+
+## 5. 持久化与全新数据库初始化
+
+数据库按全新环境初始化：清空数据卷后，由 `infra/mysql/init/00-schema.sql` 创建全部 Version 1 表、索引、约束、种子商品和演示客户。Version 1 不提供对历史数据库的版本化升级、数据回填或迁移 runner；后续需要保留真实业务数据时，再单独设计迁移策略。
+
+| 表 | 所有者 | 用途 |
+| --- | --- | --- |
+| `user_credentials` / 会话令牌表、`user_roles` | user-service | BCrypt 凭据、令牌撤销元数据和演示角色 |
+| `carts`、`cart_items` | cart-service | 每客户一个活动购物车及 SKU/数量明细 |
+| `order_items`、`order_address_snapshots` | order-service | 不可变商品金额明细与收货地址快照 |
+| `inventory_reservations` | inventory-service | 按订单、SKU 的预占生命周期和到期时间 |
+| `payment_attempts` | payment-service | 每订单多次幂等模拟支付尝试 |
+| `coupon_reservations` | promotion-service | 优惠券预留、确认、释放记录 |
+| `outbox_events` | order-service | 事务性可靠事件发布 |
+| `shipments`、`shipment_timeline_events` | fulfillment-service | 演示发货状态和物流追踪 |
+| `notification_preferences`、`customer_notifications` | notification-service | 客户通知偏好和已读状态 |
+
+初始化 Schema 必须是确定性的，并完整创建演示所需的表、索引、约束与种子数据。`orders` 以多商品模型为准，`order_items` 为订单明细的唯一事实来源；若保留 `orders.sku`、`orders.qty`、`orders.amount` 仅用于短期 API 兼容，必须由单商品适配器写入，不能作为新结算流程的数据依赖。所有客户数据表需要归属索引、时间戳和幂等唯一约束；金额使用 `DECIMAL`，禁止 `FLOAT`、`DOUBLE`。
+
+## 6. 结算和支付处理
+
+```mermaid
+sequenceDiagram
+    participant S as Shopfront BFF
+    participant G as 网关
+    participant O as 订单服务
+    participant C as 商品服务
+    participant I as 库存服务
+    participant P as 促销服务
+    participant R as 风控服务
+    participant Pay as 支付服务
+    S->>G: POST /api/checkout + 幂等键
+    G->>O: 可信客户身份 + 请求
+    O->>C: 校验商品和权威价格
+    O->>P: 报价并预留优惠券
+    O->>R: 支付前风控检查
+    O->>I: 预占每个 SKU
+    O->>O: 原子保存订单、明细、地址和 Outbox
+    O-->>S: 返回 PENDING_PAYMENT
+    S->>G: 确认模拟支付
+    G->>Pay: 客户归属支付操作
+    Pay->>O: 支付终态事件
+    O->>O: 更新订单并保存 Outbox
+    O->>I: 确认或释放库存预占
+```
+
+事务规则：先声明结算幂等权；按 SKU 获取权威商品数据；用服务端数据计算金额；按订单关联标识预留优惠券与库存；在单个本地事务中保存订单、快照和 Outbox；持久化前失败时补偿已获得预留；支付成功时恰好一次确认预占；终态失败、取消或到期时恰好一次释放预占。
+
+初版可在结算阶段使用同步服务调用，但支付成功事务不得依赖履约或通知完成。
+
+## 7. 事务性 Outbox
+
+`order-service` 与订单状态变更同时保存事件记录。定时发布器认领待处理事件、调用下游并记录尝试/结果，支持至少一次投递。
+
+| 事件 | 消费端动作 |
+| --- | --- |
+| `ORDER_CREATED` | 发送客户通知 |
+| `PAYMENT_SUCCEEDED` | 支付后风控、创建履约单、发送通知 |
+| `PAYMENT_FAILED` | 通知与库存补偿审计 |
+| `ORDER_CANCELLED` | 通知；必要时取消履约 |
+| `SHIPMENT_UPDATED` | 发送客户通知 |
+
+消费者接收事件 ID/幂等键并以唯一约束记录，重复投递安全。失败事件以有界指数退避重试，最终进入 `DEAD_LETTER` 供运营恢复。
+
+## 8. 客户 API
+
+所有服务响应沿用共享 `ApiResponse<T>` 信封。公开 API 使用校验 DTO 并返回稳定资源 DTO，不能直接返回持久化实体。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/auth/register`、`/api/auth/login`、`/api/auth/refresh`、`/api/auth/logout` | 注册、建立/刷新/撤销会话 |
+| `GET/PATCH` | `/api/me` | 查询/更新个人资料 |
+| `GET/POST` | `/api/me/addresses` | 查询/新增个人地址 |
+| `PATCH/DELETE` | `/api/me/addresses/{id}` | 更新/删除个人地址 |
+| `GET` | `/api/products`、`/api/products/{sku}` | 商品列表搜索及详情 |
+| `GET` | `/api/cart` | 查询购物车 |
+| `POST` | `/api/cart/items` | 添加商品 |
+| `PATCH/DELETE` | `/api/cart/items/{sku}` | 修改/删除商品 |
+| `POST` | `/api/checkout` | 创建多商品待支付订单 |
+| `GET` | `/api/orders`、`/api/orders/{id}` | 查询个人订单 |
+| `POST` | `/api/orders/{id}/cancel` | 取消符合条件订单 |
+| `POST` | `/api/orders/{id}/payment-intents` | 创建/获取支付意图 |
+| `POST` | `/api/payments/{id}/confirm` | 确认模拟支付 |
+| `GET` | `/api/payments/{id}`、`/api/orders/{id}/shipment` | 查询支付与物流 |
+| `GET/PATCH` | `/api/notifications` | 查询/已读个人通知 |
+
+具体 REST 路径可微调，但用户身份、资源归属、幂等和只经网关访问不可变。私有流量入口必须由服务凭据保护，且它创建的订单、支付和事件必须能通过 `trafficRunId` 或等价关联标识与普通客户交易区分。
+
+## 9. 可观测性、前端与验证
+
+复用 `TraceContext` 和现有网关/客户端链路传递。`shopfront` 创建或转发关联 ID；该 ID 出现在结构化日志和可安全给客户的错误响应中。禁止在指标、链路和日志中记录原始邮箱、电话、完整地址、访问/刷新令牌、密码或支付模拟密钥。
+
+必需指标包括：`checkout_total{outcome}` 与结算耗时、`cart_item_mutation_total{action,outcome}`、`inventory_reservation_total{outcome}`、`payment_attempt_total{outcome}`、`order_outbox_pending`、`fulfillment_transition_total{status}`、`customer_api_error_total{route,error_code}`。
+
+使用稳定错误码：`UNAUTHENTICATED`、`FORBIDDEN`、`CART_ITEM_UNAVAILABLE`、`INSUFFICIENT_STOCK`、`PRICE_CHANGED`、`COUPON_INELIGIBLE`、`CHECKOUT_PROCESSING`、`PAYMENT_FAILED`、`ORDER_NOT_CANCELLABLE`。非预期下游错误仅返回可重试通用提示和关联 ID，详细原因保留在日志/链路中。
+
+`shopfront` 路由为 `/`、`/products`、`/products/[sku]`、`/cart`、`/checkout`、`/payment/[id]`、`/account/addresses`、`/orders`、`/orders/[id]`、`/orders/[id]/shipment`。BFF 使用强类型网关客户端并规范化商品分页响应；电商组件层独立于运营控制台，包含商品网格、筛选、数量控件、购物车汇总、地址选择、结算金额、支付状态、订单状态和物流时间线。
+
+runner 的 `RunnerEngine` 相应改造为状态化流程编排器：维护演示客户的活动购物车、待支付订单和已支付订单队列；只有待支付订单进入取消队列，只有已支付订单进入物流查询队列。Runner 状态和活动流需记录 `trafficRunId`、客户、订单、支付、动作、结果和耗时，避免使用旧逻辑中“同步下单后立刻取消已支付订单”的无效流量。
+
+| 领域 | 验证内容 |
+| --- | --- |
+| 数据库初始化 | 清空数据卷后，初始化 SQL 可创建完整 Schema、索引、演示客户和商品种子数据 |
+| 安全 | 清除伪造身份头；客户不能跨用户读取资源；消费者入口阻止 `/internal/**` |
+| 购物车/结算 | 持久化、并发更新、非法 SKU/库存、多商品金额、价格冻结、优惠券、幂等、补偿 |
+| 支付/异步 | 成功、失败、超时、重试、重复确认、Outbox 重试/重复投递/死信 |
+| 前端/流量/回归 | Playwright 注册至物流流程；runner 覆盖完整交易链路并验证各动作；`scripts/chaos/chaos-verify.sh` 可用；旧单 SKU 接口仅做 API 行为回归验证 |
+| 可观测性 | 可查询结算、支付、Outbox、发货链路、指标和结构化日志 |
+
+主要实现锚点：`order-service` 的 `OrderService.java`、`DownstreamClients.java`；`gateway-service/src/main/resources/application.yml`；各业务服务源码；`common`；`infra/mysql/init/00-schema.sql`；`docker-compose.yml`；`k8s/` 和 `scripts/build-all.sh`。
