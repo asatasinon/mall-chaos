@@ -35,14 +35,14 @@ flowchart LR
 - 消费者应用不得暴露、代理、链接或加载 `/internal/**`。
 - `traffic-control-plane` 独立部署，继续承载 runner、混沌、告警和总览；运营入口与消费者入口独立，要求 `OPERATOR` 权限。
 - runner 不调用业务服务地址；它使用专用流量服务凭据，经 `gateway-service` 触发与消费者一致的完整交易链路。
-- 运营身份、会话策略和审计日志是运营应用可被公网访问前必须完成的加固项。
+- 运营身份、会话策略、审计日志、Gateway 安全过滤器和 Ingress 网络限制是第一阶段前置条件，不是后续加固项；任何消费者或运营 API 上线前必须完成。
 
 ## 2. 服务职责
 
 | 组件 | 职责 |
 | --- | --- |
 | `shopfront` | 客户 UI、服务端会话处理、消费者 BFF、客户安全的错误状态 |
-| `gateway-service` | API 路由、令牌校验、角色控制、可信身份传递、请求头清洗 |
+| `gateway-service` | API 路由、令牌/服务凭据校验、角色控制、可信身份传递、请求头清洗 |
 | `user-service` | 注册/登录/刷新/登出、客户资料、地址归属和 CRUD |
 | `catalog-service` | 商品搜索/详情，以及内部批量校验/价格查询 |
 | `cart-service` | 客户持久化购物车、商品变更和重校验 |
@@ -64,6 +64,8 @@ flowchart LR
 - 令牌声明包含不可变主体 ID、角色、令牌 ID、签发时间和过期时间。Version 1 角色为 `CUSTOMER` 和 `OPERATOR`。
 - 网关校验令牌，移除传入的 `X-User-Id`、`X-User-Role` 及等价身份头，再向下游写入可信身份头。
 - 客户公开 DTO 不得接受 `userId`；服务从可信网关上下文获取身份。
+- 网关到业务服务使用受认证的内部通道；下游只接受该通道传递的短期、网关签名主体声明，并拒绝直连调用或伪造身份头。Compose 开发环境可用共享服务密钥实现，Kubernetes 生产演练使用工作负载身份或 mTLS。
+- `traffic-control-plane` 的全部变更型 `/internal/**` Route Handler 必须校验 `OPERATOR` 会话；每次操作写入审计记录：操作者、目标、参数摘要、结果、关联 ID 与时间。
 
 | 路由组 | 所需角色 | 说明 |
 | --- | --- | --- |
@@ -76,6 +78,18 @@ flowchart LR
 
 runner 必须使用非客户的专用服务凭据；它不能将浏览器传入的用户标识变成授权绕过，也不能绕过网关直接访问业务服务。
 
+### 3.1 runner 受控入口
+
+runner 只能调用以下私有入口：
+
+```text
+POST /internal/traffic/runs/{trafficRunId}/actions
+```
+
+请求仅包含 `action`、商品数量、支付结果策略等受控参数，禁止包含 `userId`、客户令牌、订单状态或权威金额。网关验证 `TRAFFIC_RUNNER` 服务凭据后，按服务端演示客户白名单选择客户主体，在可信上下文中调用相同的购物车、`CheckoutCommand`、支付确认和查询命令。响应返回 `trafficRunId`、`actionId`、演示客户 ID、购物车版本、订单 ID、支付 ID、状态、错误码、耗时和 `traceId`。
+
+该入口不能读取或操作白名单外客户资源，不能访问混沌/运营端点。`RunnerEngine` 以响应结果维护待支付订单、已支付订单和物流查询队列，不能依据本地猜测状态执行取消。
+
 ## 4. 订单模型与完整流量链路
 
 现有订单 API 接受单个 `sku` 和 `qty`。数据库将清空并重建，新 Schema 直接采用多商品订单模型；runner 不依赖旧接口，而是覆盖与消费者相同的多商品结算和支付流程。
@@ -85,16 +99,14 @@ runner 必须使用非客户的专用服务凭据；它不能将浏览器传入�
 ```json
 {
   "idempotencyKey": "checkout-uuid",
+  "cartId": "cart-001",
+  "cartVersion": 7,
   "addressId": 101,
-  "couponId": 42,
-  "items": [
-    { "sku": "SKU-001", "quantity": 2 },
-    { "sku": "SKU-010", "quantity": 1 }
-  ]
+  "couponId": 42
 }
 ```
 
-服务端从认证主体推导 `userId`。客户端总额、商品名称、价格、优惠金额及支付金额均不是权威输入。
+服务端从认证主体推导 `userId`，并按 `cartId + cartVersion` 读取不可变购物车快照。客户端总额、商品明细、商品名称、价格、优惠金额及支付金额均不是权威输入。购物车写操作使用版本号或 ETag；订单创建后只消费与已冻结快照一致的购物车行。若后续提供“立即购买”，必须是独立命令，且不作为 runner 主链路。
 
 ### 4.2 runner 完整交易流程
 
@@ -126,12 +138,14 @@ sequenceDiagram
 | 聚合 | 状态 |
 | --- | --- |
 | 订单 | `PENDING_PAYMENT`、`PAID`、`PAYMENT_FAILED`、`CANCELLED`、`FULFILLING`、`SHIPPED`、`COMPLETED` |
-| 支付尝试 | `CREATED`、`PROCESSING`、`SUCCESS`、`FAILED`、`TIMEOUT`、`REFUNDED` |
+| 支付尝试 | `CREATED`、`PROCESSING`、`SUCCESS`、`FAILED`、`UNKNOWN`、`REFUNDED` |
 | 库存预占 | `RESERVED`、`RELEASED`、`CONFIRMED`、`EXPIRED` |
 | 优惠券使用 | `AVAILABLE`、`RESERVED`、`USED`、`RELEASED` |
 | Outbox 事件 | `PENDING`、`PROCESSING`、`PUBLISHED`、`FAILED`、`DEAD_LETTER` |
 
-状态转换在服务代码中校验且必须幂等。新代码不得复用 `PENDING` 表达多种业务语义。
+状态转换在服务代码中校验且必须幂等。新代码不得复用 `PENDING` 表达多种业务语义。`FAILED` 为明确不可重试的失败并释放预占；`UNKNOWN` 表示超时/未知结果，必须先对账，不立即释放。可重试支付只能复用仍有效的预占；预占到期后必须在支付前重新原子预占全部 SKU 和优惠券。
+
+订单包含 `version`。支付成功、客户取消和预占到期使用条件更新作为唯一终态闸门，例如 `WHERE status = 'PENDING_PAYMENT' AND version = ?`，三者只允许一个成功。输家读取最终状态并按规则停止或补偿。库存与优惠券以稳定的 `reservationId`、`operationId` 及唯一约束实现 `reserve`、`confirm`、`release` 的幂等和互斥，禁止按 `SKU + quantity` 盲目释放。
 
 ## 5. 持久化与全新数据库初始化
 
@@ -146,10 +160,19 @@ sequenceDiagram
 | `payment_attempts` | payment-service | 每订单多次幂等模拟支付尝试 |
 | `coupon_reservations` | promotion-service | 优惠券预留、确认、释放记录 |
 | `outbox_events` | order-service | 事务性可靠事件发布 |
+| `inbox_events` | 各事件消费者 | 已处理 `eventId` 去重与事件版本记录 |
+| `traffic_runs`、`traffic_actions` | traffic-control-plane | 流量运行、动作、演示客户、订单/支付关联及结果 |
+| `operator_audit_logs` | traffic-control-plane | 运营变更审计 |
 | `shipments`、`shipment_timeline_events` | fulfillment-service | 演示发货状态和物流追踪 |
 | `notification_preferences`、`customer_notifications` | notification-service | 客户通知偏好和已读状态 |
 
-初始化 Schema 必须是确定性的，并完整创建演示所需的表、索引、约束与种子数据。`orders` 以多商品模型为准，`order_items` 为订单明细的唯一事实来源；若保留 `orders.sku`、`orders.qty`、`orders.amount` 仅用于短期 API 兼容，必须由单商品适配器写入，不能作为新结算流程的数据依赖。所有客户数据表需要归属索引、时间戳和幂等唯一约束；金额使用 `DECIMAL`，禁止 `FLOAT`、`DOUBLE`。
+初始化 Schema 必须是确定性的，并完整创建演示所需的表、索引、约束与种子数据。`orders` 以多商品模型为准，`order_items` 为订单明细的唯一事实来源；若保留 `orders.sku`、`orders.qty`、`orders.amount` 仅用于短期 API 兼容，必须由单商品适配器写入，不能作为新结算流程的数据依赖。所有客户数据表需要归属索引、时间戳和幂等唯一约束；金额使用 `DECIMAL`，禁止 `FLOAT`、`DOUBLE`。服务启动时校验预期 schema version，不匹配即拒绝处理流量。
+
+### 5.1 原子环境重置
+
+重置不是单独删除 MySQL 表。执行顺序固定为：停止 runner、Gateway 入口流量和业务服务；清除 MySQL 数据目录；清除 Redis 全量数据或全部业务 namespace（幂等键、runner 队列、控制状态、锁和缓存）；启动 MySQL/Redis 并执行初始化；校验 schema version、演示客户、角色、地址、商品、库存、优惠券和 runner 配置；等待全部服务健康；清空 runner 内存状态后恢复 Gateway 流量和 runner。
+
+重置与结算、库存重置、Outbox 投递和混沌场景互斥。重置脚本必须在任一服务仍在处理业务时失败退出，而不是并发删除数据。
 
 ## 6. 结算和支付处理
 
@@ -178,13 +201,13 @@ sequenceDiagram
     O->>I: 确认或释放库存预占
 ```
 
-事务规则：先声明结算幂等权；按 SKU 获取权威商品数据；用服务端数据计算金额；按订单关联标识预留优惠券与库存；在单个本地事务中保存订单、快照和 Outbox；持久化前失败时补偿已获得预留；支付成功时恰好一次确认预占；终态失败、取消或到期时恰好一次释放预占。
+事务规则：先声明结算幂等权；冻结指定版本购物车；按 SKU 获取权威商品数据；用服务端数据计算金额；按订单关联标识预留优惠券与库存；在单个本地事务中保存订单、快照和 Outbox；持久化前失败时补偿已获得预留；支付成功时经订单条件更新恰好一次确认预占；明确不可重试失败、取消或到期时经同一条件更新恰好一次释放预占；未知支付结果先对账。
 
 初版可在结算阶段使用同步服务调用，但支付成功事务不得依赖履约或通知完成。
 
 ## 7. 事务性 Outbox
 
-`order-service` 与订单状态变更同时保存事件记录。定时发布器认领待处理事件、调用下游并记录尝试/结果，支持至少一次投递。
+支付、订单和所有产生跨服务副作用的服务均在本地状态变更事务中保存 Outbox 事件。定时发布器认领待处理事件、调用下游并记录尝试/结果，支持至少一次投递；消费者在本地事务中先写入 `inbox_events` 的 `eventId` 唯一记录，再执行业务状态更新与后续 Outbox 写入。
 
 | 事件 | 消费端动作 |
 | --- | --- |
@@ -194,7 +217,7 @@ sequenceDiagram
 | `ORDER_CANCELLED` | 通知；必要时取消履约 |
 | `SHIPMENT_UPDATED` | 发送客户通知 |
 
-消费者接收事件 ID/幂等键并以唯一约束记录，重复投递安全。失败事件以有界指数退避重试，最终进入 `DEAD_LETTER` 供运营恢复。
+支付服务提交支付终态时写入 `PAYMENT_RESULT` Outbox；订单服务通过 Inbox 去重后更新订单并发出库存、优惠券、履约和通知事件。事件统一包含 `eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId` 和 `trafficRunId`。发布器恢复原始链路上下文并向消费者传播。失败事件以有界指数退避重试，最终进入 `DEAD_LETTER`；人工重放复用原 `eventId`，不能生成新事件。
 
 ## 8. 客户 API
 
@@ -234,10 +257,10 @@ runner 的 `RunnerEngine` 相应改造为状态化流程编排器：维护演示
 
 | 领域 | 验证内容 |
 | --- | --- |
-| 数据库初始化 | 清空数据卷后，初始化 SQL 可创建完整 Schema、索引、演示客户和商品种子数据 |
-| 安全 | 清除伪造身份头；客户不能跨用户读取资源；消费者入口阻止 `/internal/**` |
-| 购物车/结算 | 持久化、并发更新、非法 SKU/库存、多商品金额、价格冻结、优惠券、幂等、补偿 |
-| 支付/异步 | 成功、失败、超时、重试、重复确认、Outbox 重试/重复投递/死信 |
+| 数据库初始化 | 停流并清除 MySQL/Redis 后，初始化 SQL 可创建完整 Schema、索引、演示客户和商品种子数据；服务校验 schema version 后恢复 runner |
+| 安全 | 清除伪造身份头；拒绝直连业务服务；客户不能跨用户读取资源；消费者入口阻止 `/internal/**`；未认证运营/runner 服务调用被拒绝并记录审计 |
+| 购物车/结算 | 持久化、版本并发更新、非法 SKU/库存、多商品金额、价格冻结、优惠券、幂等、补偿；结算只消费冻结快照行 |
+| 支付/异步 | 成功、明确失败、未知结果对账、重试、重复确认；支付成功/取消/到期竞争裁决；跨服务 Outbox/Inbox 重试、重复投递、死信和链路恢复 |
 | 前端/流量/回归 | Playwright 注册至物流流程；runner 覆盖完整交易链路并验证各动作；`scripts/chaos/chaos-verify.sh` 可用；旧单 SKU 接口仅做 API 行为回归验证 |
 | 可观测性 | 可查询结算、支付、Outbox、发货链路、指标和结构化日志 |
 
