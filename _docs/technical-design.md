@@ -34,7 +34,7 @@ flowchart LR
 - `gateway-service` 是业务 API 的唯一公开入口。生产式 Ingress 不暴露业务服务端口。
 - 消费者应用不得暴露、代理、链接或加载 `/internal/**`。
 - `traffic-control-plane` 独立部署，继续承载 runner、混沌、告警和总览；运营入口与消费者入口独立，要求 `OPERATOR` 权限。
-- runner 不调用业务服务地址；它使用专用流量服务凭据，经 `gateway-service` 触发与消费者一致的完整交易链路。
+- runner 不调用业务服务地址；它在 `traffic-control-plane` 内由 `TrafficActionOrchestrator` 编排，并经 `gateway-service` 触发与消费者一致的完整交易链路。
 - 运营身份、会话策略、审计日志、Gateway 安全过滤器和 Ingress 网络限制是第一阶段前置条件，不是后续加固项；任何消费者或运营 API 上线前必须完成。
 
 ## 2. 服务职责
@@ -53,7 +53,7 @@ flowchart LR
 | `payment-service` | 模拟支付意图、确认、状态、重试和退款生命周期 |
 | `fulfillment-service` | 演示发货单创建和客户归属物流时间线 |
 | `notification-service` | 幂等订单事件通知与客户通知已读状态 |
-| `traffic-control-plane` | 仅合成流量、混沌分发和运营监控 |
+| `traffic-control-plane` | `RunnerEngine`、`TrafficActionOrchestrator`、合成流量、混沌分发和运营监控 |
 
 新增 `cart-service` Maven/Spring Boot 模块，使购物车持久化和客户变更独立于前台，避免只有 UI 本地状态的购物车。
 
@@ -74,21 +74,16 @@ flowchart LR
 | `/api/orders/**`、`/api/payments/**` | `CUSTOMER` | 归属订单和支付 |
 | `/api/fulfillments/**`、`/api/notifications/**` | `CUSTOMER` | 归属物流和通知 |
 | `/internal/**` | `OPERATOR` 且私有入口 | `shopfront` 永不可达 |
-| `/internal/traffic/**` | 流量服务凭据且私有入口 | 仅 runner 可使用的受控流量入口 |
 
-runner 必须使用非客户的专用服务凭据；它不能将浏览器传入的用户标识变成授权绕过，也不能绕过网关直接访问业务服务。
+runner 必须使用非客户的专用服务凭据；它不能将浏览器传入的用户标识变成授权绕过，也不能绕过网关直接访问业务服务。`traffic-control-plane` 从白名单演示客户池选择主体，生成短期受限 runner 主体声明；网关验证该声明、清洗请求头并向下游传递可信客户上下文。
 
-### 3.1 runner 受控入口
+### 3.1 runner 内部编排
 
-runner 只能调用以下私有入口：
+`RunnerEngine` 与 `TrafficActionOrchestrator` 同属 `traffic-control-plane` 进程，二者直接进行内部方法调用，不通过 HTTP 调用 `/internal/traffic/**` action 地址。`TrafficActionOrchestrator` 负责从服务端演示客户白名单选择客户、生成 `trafficRunId`、动作 ID、结算幂等键和支付结果策略，并用受限 runner 主体声明调用 `GatewayClient`。
 
-```text
-POST /internal/traffic/runs/{trafficRunId}/actions
-```
+编排器的动作输入仅包含 `action`、商品数量、支付结果策略等受控参数，禁止包含 `userId`、客户令牌、订单状态或权威金额。它调用消费者同一套购物车、`CheckoutCommand`、支付确认和查询 API；每次动作记录 `trafficRunId`、`actionId`、演示客户 ID、购物车版本、订单 ID、支付 ID、状态、错误码、耗时和 `traceId`。
 
-请求仅包含 `action`、商品数量、支付结果策略等受控参数，禁止包含 `userId`、客户令牌、订单状态或权威金额。网关验证 `TRAFFIC_RUNNER` 服务凭据后，按服务端演示客户白名单选择客户主体，在可信上下文中调用相同的购物车、`CheckoutCommand`、支付确认和查询命令。响应返回 `trafficRunId`、`actionId`、演示客户 ID、购物车版本、订单 ID、支付 ID、状态、错误码、耗时和 `traceId`。
-
-该入口不能读取或操作白名单外客户资源，不能访问混沌/运营端点。`RunnerEngine` 以响应结果维护待支付订单、已支付订单和物流查询队列，不能依据本地猜测状态执行取消。
+受限 runner 主体不能读取或操作白名单外客户资源，也不能访问混沌/运营端点。`RunnerEngine` 以网关响应维护待支付订单、已支付订单和物流查询队列，不能依据本地猜测状态执行取消。
 
 ## 4. 订单模型与完整流量链路
 
@@ -110,7 +105,7 @@ POST /internal/traffic/runs/{trafficRunId}/actions
 
 ### 4.2 runner 完整交易流程
 
-runner 以服务凭据通过网关调用私有的受控流量 API；每一步仍复用消费者同一领域服务、同一结算命令、同一支付状态机和同一 Outbox 消费者。流量入口只负责选择预置演示客户、生成幂等键和编排动作，不能实现第二套下单逻辑。
+runner 在 `traffic-control-plane` 内通过 `TrafficActionOrchestrator` 编排动作；每一步经网关复用消费者同一领域服务、同一结算命令、同一支付状态机和同一 Outbox 消费者。编排器只负责选择预置演示客户、生成幂等键和安排动作，不能实现第二套下单逻辑。
 
 ```mermaid
 sequenceDiagram
