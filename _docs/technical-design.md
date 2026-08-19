@@ -105,9 +105,103 @@ flowchart LR
 
 `cart-service` 在 Redis 使用 `cart:checkout-freeze:{checkoutId}` 保存冻结快照、`cartId`、`customerId`、`cartVersion` 和有效期，并以 `SET NX`/Lua 脚本原子校验客户归属与版本、取得冻结令牌。`checkoutId` 与结算幂等键唯一绑定。`order-service` 仅使用返回的冻结明细，在本地事务中持久化 `order_items` 和地址快照；Redis 快照只用于结算期间的并发控制和失败补偿，过期或淘汰不能影响已经提交的订单事实。订单成功后 `cart-service` 以冻结令牌条件消费匹配版本的购物车行；失败、取消或超时则幂等释放该 Redis 冻结键。
 
+### 4.1.1 Checkout 同步服务拓扑
+
+`CHECKOUT` 只创建 `PENDING_PAYMENT` 订单，不执行支付确认、支付后风控、履约或通知。后续阶段见“事务性 Outbox”。
+
+```mermaid
+flowchart LR
+  Client[Shopfront 或 TrafficActionOrchestrator]
+  Gateway[gateway-service]
+  Order[order-service\nCheckoutCommand]
+  Cart[cart-service]
+  Redis[(Redis\n购物车冻结和幂等键)]
+  Catalog[catalog-service]
+  Promotion[promotion-service]
+  Risk[risk-service]
+  Inventory[inventory-service]
+  MySQL[(MySQL)]
+
+  Client -->|POST /api/checkout\ncartId, cartVersion, addressId, couponId, idempotencyKey| Gateway
+  Gateway -->|可信客户主体| Order
+
+  Order -->|冻结 cartId + cartVersion| Cart
+  Cart -->|SET NX / Lua\n冻结快照 + 令牌| Redis
+  Cart -->|不可变商品明细| Order
+
+  Order -->|批量校验 SKU、状态、权威价格| Catalog
+  Order -->|校验并预留优惠券| Promotion
+  Order -->|支付前检查| Risk
+  Order -->|按订单预占每个 SKU| Inventory
+
+  Order -->|本地事务：orders、order_items、地址快照、order_outbox_events| MySQL
+  Order -->|成功后消费匹配版本购物车行| Cart
+  Order -->|返回 PENDING_PAYMENT 订单| Gateway
+  Gateway --> Client
+
+  Promotion -.失败补偿.-> Promotion
+  Inventory -.失败补偿.-> Inventory
+  Cart -.失败或超时释放冻结.-> Redis
+```
+
+同步顺序与失败规则：
+
+1. 网关认证客户或受限 runner 主体，并将可信客户上下文传给 `order-service`。
+2. `cart-service` 使用 Redis 原子冻结指定版本的购物车；版本或归属不匹配时直接拒绝结算。
+3. `order-service` 基于冻结明细调用 `catalog-service`、`promotion-service`、`risk-service` 和 `inventory-service`；客户端不提供权威价格或商品明细。
+4. 商品校验、优惠券预留、风控或库存预占任一步失败，按已获取资源的逆序执行幂等补偿，并释放 Redis 冻结。
+5. 所有同步校验和预占成功后，`order-service` 在本地 MySQL 事务中创建 `PENDING_PAYMENT` 订单、`order_items`、地址快照和 `order_outbox_events`。
+6. 订单提交成功后才消费冻结版本对应的购物车行；无法消费时记录可重试任务，不回滚已成功创建的订单。
+
 ### 4.2 runner 完整交易流程
 
 runner 在 `traffic-control-plane` 内通过 `TrafficActionOrchestrator` 编排动作；每一步经网关复用消费者同一领域服务、同一结算命令、同一支付状态机和同一 Outbox 消费者。编排器只负责选择预置演示客户、生成幂等键和安排动作，不能实现第二套下单逻辑。
+
+#### 完整流量生成流程
+
+```mermaid
+flowchart TD
+  Tick[RunnerEngine 定时 tick] --> Config[读取运行配置和动作比例]
+  Config --> Pick[选择动作]
+  Pick --> Orchestrator[TrafficActionOrchestrator]
+  Orchestrator --> DemoUser[从演示客户白名单选择客户]
+  DemoUser --> Context[生成 trafficRunId、actionId、幂等键和受控支付策略]
+  Context --> Credentials[使用 TRAFFIC_RUNNER 服务凭据调用 GatewayClient]
+  Credentials --> Gateway[Gateway 校验服务凭据、客户白名单、scope 和有效期]
+  Gateway --> Principal[Gateway 构造可信下游主体声明]
+
+  Principal --> Browse{动作类型}
+  Browse -->|BROWSE_PRODUCT / SEARCH_CATALOG| Catalog[Catalog Service]
+  Browse -->|ADD_CART_ITEM / UPDATE_CART_ITEM| Cart[Cart Service]
+  Browse -->|CHECKOUT| Freeze[Cart Service 在 Redis 冻结购物车快照]
+  Freeze --> Order[Order Service 创建 PENDING_PAYMENT 订单、订单明细和 Outbox]
+  Browse -->|PAYMENT_CONFIRM| Payment[Payment Service 确认模拟支付]
+  Payment --> PaymentOutbox[Payment Service 写 PAYMENT_RESULT Outbox]
+  PaymentOutbox --> OrderInbox[Order Service Inbox 去重并裁决订单终态]
+  OrderInbox -->|已支付| OrderPaid[Order Service 写 ORDER_PAID Outbox]
+  OrderInbox -->|失败/取消/到期| Compensate[确认或释放库存和优惠券预占]
+  OrderPaid --> Risk[Risk Service 支付后风控]
+  Risk -->|通过| RiskPassed[Risk Service 写 POST_PAYMENT_RISK_PASSED]
+  Risk -->|拒绝| RiskRejected[Risk Service 写 POST_PAYMENT_RISK_REJECTED]
+  RiskPassed --> Fulfillment[Fulfillment Service 创建发货单]
+  Fulfillment --> Shipment[发布 SHIPMENT_UPDATED]
+  RiskRejected --> Compensate
+  OrderPaid --> Notify[Notification Service]
+  OrderInbox --> Notify
+  Risk --> Notify
+  Shipment --> Notify
+
+  Catalog --> Result[Gateway 返回动作结果]
+  Cart --> Result
+  Order --> Result
+  Payment --> Result
+  Fulfillment --> Result
+  Notify --> Result
+  Result --> State[RunnerEngine 记录动作、延迟、traceId 和订单/支付队列]
+  State --> Next[调度下一次 tick]
+```
+
+图中的同步箭头代表 runner 当前动作的网关调用；Outbox、Inbox、风控、履约与通知为异步可靠投递链路。`CANCEL_PENDING_ORDER`、`QUERY_ORDER` 和 `QUERY_SHIPMENT` 同样经 GatewayClient 调用对应客户 API：取消只从 runner 已记录且仍为 `PENDING_PAYMENT` 的订单队列取值，物流查询只从已支付订单队列取值。
 
 ```mermaid
 sequenceDiagram
