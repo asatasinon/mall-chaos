@@ -4,6 +4,8 @@ set -euo pipefail
 # Keep the default test run free of chaos injection and run each available layer.
 mvn test -Dspring.profiles.active=test -Dchaos.endpoints.enabled=false
 
+./scripts/integration-test.sh
+
 pushd traffic-control-plane >/dev/null
 pnpm typecheck
 pnpm lint

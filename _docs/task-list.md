@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-20 19:17 CST |
+| 更新时间 | 2026-08-20 19:31 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -97,7 +97,8 @@
 
 | 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| P0-001 | 2026-08-20 | Java verifier、MySQL/Redis 集成、控制面 typecheck 和 lint 均已通过；lint 保留 64 条既有 warning，Shopfront 尚未创建，暂无 Playwright 场景。 | T0.2 | 已新增 `scripts/test-baseline.sh`、`scripts/integration-test.sh`、控制面 `typecheck` 脚本、ESLint 9 flat config 和 Schema verifier 单元测试；下一步在 Shopfront 创建后接入 Playwright，并逐步清理 lint warning。 | 进行中 |
+| P0-001 | 2026-08-20 | Java verifier、MySQL/Redis 集成、控制面 typecheck 和 lint 均已通过；lint 保留 64 条既有 warning，Shopfront 尚未创建，暂无 Playwright 场景。 | T0.2 | `scripts/test-baseline.sh` 现已串联 Java、MySQL/Redis 集成、控制面 typecheck/lint；Shopfront 创建后接入 Playwright，并逐步清理 lint warning。 | 进行中 |
+| P0-003 | 2026-08-20 | Apple Silicon 上 Compose 使用 amd64 Java 镜像，完整业务栈启动非常慢；Cloudwise/OTel agents 默认开启时服务卡在 agent 初始化，关闭 agents 后仍有服务超过 150 秒才完成 Spring 启动，控制面尚未进入运行状态。 | T0.4 | 已用 `ENABLE_CLOUDWISE_AGENT=false ENABLE_OTEL_AGENT=false` 建立本地验证方式；待完整服务栈健康后再执行停机、重建数据和 runner 恢复，当前不将 T0.4 标记完成。 | 未关闭 |
 | P0-002 | 2026-08-20 | 初始验证时 MySQL 未运行，且旧 Runbook 的通配符清理可能遗漏隐藏数据文件。 | T0.3、T0.4 | 已启动 MySQL/Redis 完成全新初始化验证；将 Runbook 改为删除并重建整个数据目录。真实版本故障测试已完成，Runbook 全流程演练仍待完成。 | 部分关闭 |
 
 ---
