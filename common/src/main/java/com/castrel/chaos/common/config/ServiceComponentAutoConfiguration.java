@@ -6,7 +6,7 @@ import org.springframework.context.annotation.ComponentScan;
 
 /**
  * Auto-configuration for shared service components including query enrichment,
- * data audit, and local cache management.
+ * data audit, local cache management, and schema readiness verification.
  */
 @AutoConfiguration
 @ConditionalOnClass(name = "org.springframework.data.redis.core.StringRedisTemplate")

@@ -23,6 +23,11 @@ payment:
   timeout-rate: 0.0
 
 management:
+  endpoint:
+    health:
+      group:
+        readiness:
+          include: readinessState,schemaVersion
   endpoints:
     web:
       exposure:

@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-20 17:07 CST |
+| 更新时间 | 2026-08-20 18:44 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -23,7 +23,7 @@
 
 | 阶段 | 目标 | 状态 | 进度 | 依赖 |
 | --- | --- | --- | --- | --- |
-| Phase 0 | 执行基线与环境准备 | 未开始 | 0 / 5 | 无 |
+| Phase 0 | 执行基线与环境准备 | 进行中 | 1 / 5 | 无 |
 | Phase 1 | 安全、身份与网关边界 | 未开始 | 0 / 6 | Phase 0 |
 | Phase 2 | Schema、购物车与商品读模型 | 未开始 | 0 / 5 | Phase 0、Phase 1 |
 | Phase 3 | Checkout、库存、促销与支付 | 未开始 | 0 / 7 | Phase 1、Phase 2 |
@@ -33,19 +33,35 @@
 
 ---
 
-## Phase 0：执行基线与环境准备 - 未开始
+## Phase 0：执行基线与环境准备 - 进行中
 
-**阶段进度**：0 / 5
+**阶段进度**：1 / 5
 
 **目标**：确定实现边界、测试基线和全新演示环境的运行方式，避免在旧数据或未定义契约上开始开发。
 
+### T0.1 实现 backlog
+
+复核产品规格、技术设计和当前实现后，确认以下差异需要按任务依赖顺序处理：
+
+1. **Schema 与数据初始化**：当前 `infra/mysql/init/00-schema.sql` 仍是旧单商品模型，缺少 `schema_version`、多商品订单明细、购物车、会话/角色、支付尝试、Outbox/Inbox、履约时间线、客户通知、runner 活动和运营审计等 Version 1 契约；需要由 T0.3 统一重写。
+2. **测试基线**：当前仓库未发现 Java、Next.js 或 Playwright 测试文件，也没有统一测试 Profile/命令；需要由 T0.2 建立并确保普通测试不启用故障注入。
+3. **Schema 版本校验**：当前服务没有启动期 Schema 版本验证；需要由 T0.5 在就绪和业务流量入口前拒绝缺失或不匹配版本。
+4. **身份与访问边界**：`user-service` 目前只有按路径读取用户/地址的旧接口，未实现注册登录、令牌撤销、角色和地址 CRUD；Gateway 目前仅配置旧订单/商品路由，未实现认证、身份头清洗、客户归属和内部服务认证。按 T1.1-T1.6 完成。
+5. **购物车与商品读模型**：仓库没有 `cart-service` 模块；catalog 仍需扩展搜索、分页、媒体元数据和可售库存投影。按 T2.2-T2.5 完成。
+6. **Checkout 与订单状态机**：订单服务仍接受客户端 `userId`、单个 `sku/qty`，并在同步请求中直接扣款；需要改为服务端归属的多商品 `CheckoutCommand`、购物车冻结、预占补偿、`PENDING_PAYMENT` 和版本条件状态转换。按 T3.1-T3.6 完成。
+7. **支付后可靠事件链**：当前订单/支付模型没有按服务隔离的 Outbox/Inbox 和统一事件信封；需要按 T4.1-T4.7 实现支付结果、支付后风控、履约和通知链路。
+8. **Runner 与消费者链路**：当前 runner 仅执行 `ORDER_SUCCESS`/`CANCEL_ORDER`，直接调用旧 `/api/orders` 并维护松散订单队列；需要按 T5.1-T5.4 改为经 Gateway 的客户白名单、服务凭据和完整购物流程编排。
+9. **独立 Shopfront 与部署验收**：当前没有 `shopfront` 应用；需要按 T6.1-T6.4 新建消费者 BFF/UI，隔离入口和端口，并补齐端到端、安全、恢复和可观测性验收。
+
+本 backlog 只记录现状与目标契约的差异，不在 T0.1 修改业务行为。
+
 ### 子任务
 
-- [ ] T0.1 复核 [product.md](product.md) 和 [technical-design.md](technical-design.md)，将所有现有实现与目标契约的差异记录为实现 backlog；不在本阶段修改业务行为。
-- [ ] T0.2 建立测试分层与命令：Java 单元测试、MySQL/Redis 集成测试、Next.js 类型检查/lint、Playwright 端到端测试；测试 Profile 默认禁用故障注入。
-- [ ] T0.3 重写 `infra/mysql/init/00-schema.sql` 为 Version 1 全新 Schema 的唯一来源，并新增 `schema_version` 与启动期版本校验约定。
-- [ ] T0.4 编写运维重置 Runbook：运维手工停止全部业务服务、Gateway、worker 和外部流量，清除 MySQL/Redis 数据目录，重新启动、初始化、健康检查，最后恢复 runner；明确它与 inventory reset 的区别。
-- [ ] T0.5 在 `common` 实现 schema version verifier，各服务在健康就绪和流量处理前校验期望版本；补充版本正确、缺失和不匹配三组集成测试，版本错误时拒绝就绪和流量。
+- [x] T0.1 复核 [product.md](product.md) 和 [technical-design.md](technical-design.md)，将所有现有实现与目标契约的差异记录为实现 backlog；不在本阶段修改业务行为。
+- [-] T0.2 建立测试分层与命令：Java 单元测试、MySQL/Redis 集成测试、Next.js 类型检查/lint、Playwright 端到端测试；测试 Profile 默认禁用故障注入。
+- [-] T0.3 重写 `infra/mysql/init/00-schema.sql` 为 Version 1 全新 Schema 的唯一来源，并新增 `schema_version` 与启动期版本校验约定。
+- [-] T0.4 编写运维重置 Runbook：运维手工停止全部业务服务、Gateway、worker 和外部流量，清除 MySQL/Redis 数据目录，重新启动、初始化、健康检查，最后恢复 runner；明确它与 inventory reset 的区别。
+- [-] T0.5 在 `common` 实现 schema version verifier，各服务在健康就绪和流量处理前校验期望版本；补充版本正确、缺失和不匹配三组集成测试，版本错误时拒绝就绪和流量。
 
 **涉及文件**：
 
@@ -58,6 +74,20 @@
 - `*/src/main/resources/application.yml`
 - `*_service/src/test/`、`traffic-control-plane/src/**/*.test.ts`、`shopfront/tests/`（计划新增测试目录）
 
+### T0.3 当前进展
+
+已在唯一初始化入口加入 `schema_version` Version 1 记录，并补齐购物车、多商品订单明细/地址快照、身份会话、支付尝试、库存/优惠券预留、按服务 Outbox/Inbox、履约、通知、runner 活动和运营审计表。静态表清单、事件信封字段、重复声明和 Compose 配置检查均通过。
+
+尚未完成：替换旧单商品 `orders` 事实模型、补齐 Version 1 演示账号/角色/购物车/runner 种子，并完成真实 MySQL 初始化验证；因此 T0.3 保持进行中。
+
+### T0.4 当前进展
+
+已新增 [environment-reset.md](../docs/runbooks/environment-reset.md)，覆盖停流、停止业务服务/Gateway/worker、清空 MySQL/Redis 数据目录、重新初始化、Schema/Redis 校验、健康检查和最后恢复 runner，并明确与 inventory reset 的边界。尚未完成真实环境人工演练，因此 T0.4 保持进行中。
+
+### T0.5 当前进展
+
+`common` 已新增 `SchemaVersionHealthIndicator`：查询失败、`schema_version` 行缺失或版本不匹配时返回 DOWN；九个持久化业务服务的 readiness group 已包含 `schemaVersion` 和 `readinessState`。版本正确、缺失、不匹配三组单元测试均通过。尚未完成真实 MySQL 三组集成测试及业务流量入口拒绝验证，因此 T0.5 保持进行中。
+
 ### 阶段验收条件
 
 - 全新数据目录可初始化，且 Schema 版本、演示客户、角色、地址、商品、库存、优惠券与 runner 配置齐全。
@@ -69,7 +99,8 @@
 
 | 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| - | - | 暂无 | - | - | - |
+| P0-001 | 2026-08-20 | 当前没有 Java、MySQL/Redis 集成、Next.js lint/typecheck 或 Playwright 测试；新增基线命令后，Java verifier 单元测试通过，控制面 typecheck 通过，lint 报告 52 个错误和 13 个警告。 | T0.2 | 已新增 `scripts/test-baseline.sh`、控制面 `typecheck` 脚本、ESLint 9 flat config 和 Schema verifier 单元测试；后续补齐测试分层、修复 lint 门禁并加入 MySQL/Redis 与 Playwright 执行环境。 | 进行中 |
+| P0-002 | 2026-08-20 | 本机 Docker Compose 未运行 MySQL，无法执行全新数据目录初始化和三组真实 Schema 版本集成测试。 | T0.3、T0.4、T0.5 | 已完成静态 Schema/Compose/Runbook 检查；待启动可用 Docker 环境后执行初始化、版本正确/缺失/不匹配验证和 Runbook 人工演练。 | 未关闭 |
 
 ---
 

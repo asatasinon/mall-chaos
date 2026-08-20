@@ -7,6 +7,19 @@
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';
 
+-- Version 1 is a clean-install contract. Services must verify this row before
+-- accepting readiness or business traffic; migrations are intentionally out of scope.
+CREATE TABLE IF NOT EXISTS schema_version (
+  id           TINYINT      NOT NULL PRIMARY KEY,
+  version      INT          NOT NULL,
+  installed_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CHECK (id = 1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO schema_version (id, version)
+VALUES (1, 1)
+ON DUPLICATE KEY UPDATE version = VALUES(version);
+
 -- =============================================================================
 -- user-service  (Task 04)
 -- =============================================================================
@@ -534,3 +547,379 @@ CREATE TABLE IF NOT EXISTS storage_growth_records (
     INDEX idx_storage_growth_source_service (source_service)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   COMMENT='存储增长演练记录';
+
+-- =============================================================================
+-- Castrel Shopfront Version 1 contract tables
+-- =============================================================================
+
+ALTER TABLE user_addresses
+  ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  ADD COLUMN default_user_id BIGINT GENERATED ALWAYS AS (
+    CASE WHEN is_default = 1 THEN user_id ELSE NULL END
+  ) STORED,
+  ADD UNIQUE KEY uq_user_default_address (default_user_id);
+
+ALTER TABLE orders
+  ADD COLUMN version INT NOT NULL DEFAULT 0,
+  ADD COLUMN idempotency_key VARCHAR(128),
+  ADD COLUMN subtotal DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  ADD COLUMN discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  ADD COLUMN total_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  ADD COLUMN address_id BIGINT,
+  ADD COLUMN traffic_run_id VARCHAR(64),
+  ADD UNIQUE KEY uq_order_idempotency (user_id, idempotency_key);
+
+CREATE TABLE IF NOT EXISTS user_credentials (
+  user_id       BIGINT       NOT NULL PRIMARY KEY,
+  password_hash VARCHAR(255) NOT NULL,
+  revoked_at    DATETIME,
+  created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS user_roles (
+  user_id    BIGINT      NOT NULL,
+  role       VARCHAR(32) NOT NULL,
+  created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, role)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS session_tokens (
+  id         BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id    BIGINT       NOT NULL,
+  token_id   CHAR(36)     NOT NULL,
+  token_hash VARCHAR(255) NOT NULL,
+  expires_at DATETIME     NOT NULL,
+  revoked_at DATETIME,
+  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_session_token_id (token_id),
+  INDEX idx_session_user (user_id, expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS carts (
+  id         BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  customer_id BIGINT      NOT NULL,
+  version    INT          NOT NULL DEFAULT 0,
+  status     VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE',
+  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_active_cart_customer (customer_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS cart_items (
+  id         BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  cart_id    BIGINT       NOT NULL,
+  sku        VARCHAR(32)  NOT NULL,
+  quantity   INT          NOT NULL,
+  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_cart_sku (cart_id, sku),
+  INDEX idx_cart_items_cart (cart_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS order_items (
+  id             BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  order_id       BIGINT        NOT NULL,
+  sku            VARCHAR(32)   NOT NULL,
+  product_name   VARCHAR(128)  NOT NULL,
+  quantity       INT           NOT NULL,
+  unit_price     DECIMAL(10,2) NOT NULL,
+  line_amount    DECIMAL(10,2) NOT NULL,
+  created_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_order_item_sku (order_id, sku),
+  INDEX idx_order_items_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS order_address_snapshots (
+  id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  order_id    BIGINT       NOT NULL,
+  receiver    VARCHAR(64)  NOT NULL,
+  phone       VARCHAR(16)  NOT NULL,
+  province    VARCHAR(32)  NOT NULL,
+  city        VARCHAR(32)  NOT NULL,
+  district    VARCHAR(32),
+  detail      VARCHAR(256) NOT NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_order_address_snapshot (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS payment_attempts (
+  id                BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  payment_no        VARCHAR(64)   NOT NULL,
+  order_id          BIGINT        NOT NULL,
+  customer_id       BIGINT        NOT NULL,
+  amount            DECIMAL(10,2) NOT NULL,
+  status            VARCHAR(16)   NOT NULL DEFAULT 'CREATED',
+  result_code       VARCHAR(32),
+  idempotency_key   VARCHAR(128)  NOT NULL,
+  trace_id          VARCHAR(64),
+  created_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_payment_attempt_no (payment_no),
+  UNIQUE KEY uq_payment_attempt_idempotency (order_id, idempotency_key),
+  INDEX idx_payment_attempt_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS coupon_reservations (
+  id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  coupon_id      BIGINT       NOT NULL,
+  order_id       BIGINT       NOT NULL,
+  customer_id    BIGINT       NOT NULL,
+  status         VARCHAR(16)  NOT NULL DEFAULT 'RESERVED',
+  operation_id   VARCHAR(128) NOT NULL,
+  expires_at     DATETIME,
+  created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_coupon_operation (coupon_id, operation_id),
+  UNIQUE KEY uq_coupon_order (coupon_id, order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS inventory_reservations (
+  id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  reservation_id VARCHAR(128) NOT NULL,
+  operation_id   VARCHAR(128) NOT NULL,
+  order_id       BIGINT       NOT NULL,
+  sku            VARCHAR(32)  NOT NULL,
+  quantity       INT          NOT NULL,
+  status         VARCHAR(16)  NOT NULL DEFAULT 'RESERVED',
+  expires_at     DATETIME,
+  created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_inventory_reservation (reservation_id, sku),
+  UNIQUE KEY uq_inventory_operation (operation_id, sku),
+  INDEX idx_inventory_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS order_outbox_events (
+  id                 BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  event_id           CHAR(36)     NOT NULL,
+  event_type         VARCHAR(64)  NOT NULL,
+  aggregate_id       VARCHAR(128) NOT NULL,
+  aggregate_version  INT          NOT NULL,
+  payload            JSON         NOT NULL,
+  occurred_at        DATETIME     NOT NULL,
+  schema_version     INT          NOT NULL,
+  traceparent        VARCHAR(255),
+  trace_id           VARCHAR(64),
+  traffic_run_id     VARCHAR(64),
+  status             VARCHAR(16)  NOT NULL DEFAULT 'PENDING',
+  attempts           INT          NOT NULL DEFAULT 0,
+  next_attempt_at    DATETIME,
+  published_at       DATETIME,
+  created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_order_outbox_event (event_id),
+  INDEX idx_order_outbox_delivery (status, next_attempt_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS order_inbox_events (
+  event_id       CHAR(36)    NOT NULL PRIMARY KEY,
+  event_type     VARCHAR(64) NOT NULL,
+  received_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  processed_at   DATETIME,
+  status         VARCHAR(16) NOT NULL DEFAULT 'RECEIVED',
+  failure_reason VARCHAR(512)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS payment_outbox_events (
+  id                 BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  event_id           CHAR(36)     NOT NULL,
+  event_type         VARCHAR(64)  NOT NULL,
+  aggregate_id       VARCHAR(128) NOT NULL,
+  aggregate_version  INT          NOT NULL,
+  payload            JSON         NOT NULL,
+  occurred_at        DATETIME     NOT NULL,
+  schema_version     INT          NOT NULL,
+  traceparent        VARCHAR(255),
+  trace_id           VARCHAR(64),
+  traffic_run_id     VARCHAR(64),
+  status             VARCHAR(16)  NOT NULL DEFAULT 'PENDING',
+  attempts           INT          NOT NULL DEFAULT 0,
+  next_attempt_at    DATETIME,
+  published_at       DATETIME,
+  created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_payment_outbox_event (event_id),
+  INDEX idx_payment_outbox_delivery (status, next_attempt_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS payment_inbox_events (
+  event_id       CHAR(36)    NOT NULL PRIMARY KEY,
+  event_type     VARCHAR(64) NOT NULL,
+  received_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  processed_at   DATETIME,
+  status         VARCHAR(16) NOT NULL DEFAULT 'RECEIVED',
+  failure_reason VARCHAR(512)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS risk_outbox_events (
+  id                 BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  event_id           CHAR(36)     NOT NULL,
+  event_type         VARCHAR(64)  NOT NULL,
+  aggregate_id       VARCHAR(128) NOT NULL,
+  aggregate_version  INT          NOT NULL,
+  payload            JSON         NOT NULL,
+  occurred_at        DATETIME     NOT NULL,
+  schema_version     INT          NOT NULL,
+  traceparent        VARCHAR(255),
+  trace_id           VARCHAR(64),
+  traffic_run_id     VARCHAR(64),
+  status             VARCHAR(16)  NOT NULL DEFAULT 'PENDING',
+  attempts           INT          NOT NULL DEFAULT 0,
+  next_attempt_at    DATETIME,
+  published_at       DATETIME,
+  created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_risk_outbox_event (event_id),
+  INDEX idx_risk_outbox_delivery (status, next_attempt_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS risk_inbox_events (
+  event_id       CHAR(36)    NOT NULL PRIMARY KEY,
+  event_type     VARCHAR(64) NOT NULL,
+  received_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  processed_at   DATETIME,
+  status         VARCHAR(16) NOT NULL DEFAULT 'RECEIVED',
+  failure_reason VARCHAR(512)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS fulfillment_outbox_events (
+  id                 BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  event_id           CHAR(36)     NOT NULL,
+  event_type         VARCHAR(64)  NOT NULL,
+  aggregate_id       VARCHAR(128) NOT NULL,
+  aggregate_version  INT          NOT NULL,
+  payload            JSON         NOT NULL,
+  occurred_at        DATETIME     NOT NULL,
+  schema_version     INT          NOT NULL,
+  traceparent        VARCHAR(255),
+  trace_id           VARCHAR(64),
+  traffic_run_id     VARCHAR(64),
+  status             VARCHAR(16)  NOT NULL DEFAULT 'PENDING',
+  attempts           INT          NOT NULL DEFAULT 0,
+  next_attempt_at    DATETIME,
+  published_at       DATETIME,
+  created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_fulfillment_outbox_event (event_id),
+  INDEX idx_fulfillment_outbox_delivery (status, next_attempt_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS fulfillment_inbox_events (
+  event_id       CHAR(36)    NOT NULL PRIMARY KEY,
+  event_type     VARCHAR(64) NOT NULL,
+  received_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  processed_at   DATETIME,
+  status         VARCHAR(16) NOT NULL DEFAULT 'RECEIVED',
+  failure_reason VARCHAR(512)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS notification_outbox_events (
+  id                 BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  event_id           CHAR(36)     NOT NULL,
+  event_type         VARCHAR(64)  NOT NULL,
+  aggregate_id       VARCHAR(128) NOT NULL,
+  aggregate_version  INT          NOT NULL,
+  payload            JSON         NOT NULL,
+  occurred_at        DATETIME     NOT NULL,
+  schema_version     INT          NOT NULL,
+  traceparent        VARCHAR(255),
+  trace_id           VARCHAR(64),
+  traffic_run_id     VARCHAR(64),
+  status             VARCHAR(16)  NOT NULL DEFAULT 'PENDING',
+  attempts           INT          NOT NULL DEFAULT 0,
+  next_attempt_at    DATETIME,
+  published_at       DATETIME,
+  created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_notification_outbox_event (event_id),
+  INDEX idx_notification_outbox_delivery (status, next_attempt_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS notification_inbox_events (
+  event_id       CHAR(36)    NOT NULL PRIMARY KEY,
+  event_type     VARCHAR(64) NOT NULL,
+  received_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  processed_at   DATETIME,
+  status         VARCHAR(16) NOT NULL DEFAULT 'RECEIVED',
+  failure_reason VARCHAR(512)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shipments (
+  id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  order_id    BIGINT       NOT NULL,
+  customer_id BIGINT       NOT NULL,
+  status      VARCHAR(16)  NOT NULL DEFAULT 'FULFILLING',
+  tracking_no VARCHAR(64),
+  carrier     VARCHAR(32)  NOT NULL DEFAULT 'MockExpress',
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_shipment_order (order_id),
+  INDEX idx_shipment_customer (customer_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shipment_timeline_events (
+  id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  shipment_id BIGINT       NOT NULL,
+  status      VARCHAR(16)  NOT NULL,
+  message     VARCHAR(256) NOT NULL,
+  occurred_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_shipment_timeline_status (shipment_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  customer_id BIGINT      NOT NULL PRIMARY KEY,
+  email       TINYINT(1)  NOT NULL DEFAULT 1,
+  in_app      TINYINT(1)  NOT NULL DEFAULT 1,
+  updated_at  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS customer_notifications (
+  id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  customer_id BIGINT       NOT NULL,
+  event_id    CHAR(36),
+  event_type  VARCHAR(64)  NOT NULL,
+  title       VARCHAR(128) NOT NULL,
+  body        VARCHAR(512) NOT NULL,
+  is_read     TINYINT(1)   NOT NULL DEFAULT 0,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  read_at     DATETIME,
+  UNIQUE KEY uq_customer_notification_event (customer_id, event_id),
+  INDEX idx_customer_notifications (customer_id, is_read, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS traffic_runs (
+  id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  traffic_run_id VARCHAR(64)  NOT NULL,
+  status         VARCHAR(16)  NOT NULL DEFAULT 'RUNNING',
+  started_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ended_at       DATETIME,
+  created_by     BIGINT,
+  UNIQUE KEY uq_traffic_run_id (traffic_run_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS traffic_actions (
+  id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  traffic_run_id VARCHAR(64)  NOT NULL,
+  action_id      VARCHAR(64)  NOT NULL,
+  customer_id    BIGINT,
+  action_type    VARCHAR(64)  NOT NULL,
+  status         VARCHAR(16)  NOT NULL,
+  order_id       BIGINT,
+  payment_id     BIGINT,
+  cart_version   INT,
+  error_code     VARCHAR(64),
+  trace_id       VARCHAR(64),
+  latency_ms     BIGINT,
+  created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_traffic_action_id (action_id),
+  INDEX idx_traffic_actions_run (traffic_run_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS operator_audit_logs (
+  id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  operator_id    BIGINT,
+  action         VARCHAR(128) NOT NULL,
+  target         VARCHAR(256),
+  parameter_hash VARCHAR(128),
+  result         VARCHAR(16)  NOT NULL,
+  correlation_id VARCHAR(128),
+  created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_operator_audit_time (created_at),
+  INDEX idx_operator_audit_operator (operator_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

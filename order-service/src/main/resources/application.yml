@@ -25,6 +25,11 @@ services:
   payment-url: ${PAYMENT_SERVICE_URL:http://localhost:18085}
 
 management:
+  endpoint:
+    health:
+      group:
+        readiness:
+          include: readinessState,schemaVersion
   endpoints:
     web:
       exposure:
