@@ -1,0 +1,310 @@
+# Castrel Shopfront 实施任务清单
+
+## 文档信息
+
+| 项目 | 内容 |
+| --- | --- |
+| 状态 | 执行基线 |
+| 版本 | 1.0 |
+| 更新时间 | 2026-08-20 09:44 CST |
+| 关联产品文档 | [product.md](product.md) |
+| 关联技术设计 | [technical-design.md](technical-design.md) |
+
+## 任务更新规则
+
+1. 开始子任务时，将 `- [ ]` 更新为 `- [-]`；完成后更新为 `- [x]`。
+2. 子任务完成后，立即更新所在阶段的“阶段进度”为“已完成子任务数 / 子任务总数”。
+3. 只有所有子任务完成且阶段验收条件通过，才能将阶段状态更新为“已完成”。
+4. 遇到问题时，先在对应阶段的“问题与解决方案”表追加记录；问题未关闭前，受影响子任务不得标记为完成。
+5. 子任务描述中的 API、状态机、事件与数据表以 [technical-design.md](technical-design.md) 为准；实现过程中发现设计冲突时，先更新设计文档和本清单，再改代码。
+6. 每次更新 [task-list.md](task-list.md)、[product.md](product.md) 或 [technical-design.md](technical-design.md) 时，必须同步更新该文档“文档信息”中的“更新时间”为实际修改时间，格式为 `YYYY-MM-DD HH:mm TZ`；任务状态变更也属于文档更新。
+
+## 阶段总览
+
+| 阶段 | 目标 | 状态 | 进度 | 依赖 |
+| --- | --- | --- | --- | --- |
+| Phase 0 | 执行基线与环境准备 | 未开始 | 0 / 4 | 无 |
+| Phase 1 | 安全、身份与网关边界 | 未开始 | 0 / 5 | Phase 0 |
+| Phase 2 | Schema、购物车与商品读模型 | 未开始 | 0 / 5 | Phase 0、Phase 1 |
+| Phase 3 | Checkout、库存、促销与支付 | 未开始 | 0 / 6 | Phase 1、Phase 2 |
+| Phase 4 | 可靠事件、风控、履约与通知 | 未开始 | 0 / 5 | Phase 3 |
+| Phase 5 | 控制面、完整 runner 与运维流程 | 未开始 | 0 / 4 | Phase 1、Phase 3、Phase 4 |
+| Phase 6 | Shopfront、部署与端到端验收 | 未开始 | 0 / 4 | Phase 1 至 Phase 5 |
+
+---
+
+## Phase 0：执行基线与环境准备 - 未开始
+
+**阶段进度**：0 / 4
+
+**目标**：确定实现边界、测试基线和全新演示环境的运行方式，避免在旧数据或未定义契约上开始开发。
+
+### 子任务
+
+- [ ] T0.1 复核 [product.md](product.md) 和 [technical-design.md](technical-design.md)，将所有现有实现与目标契约的差异记录为实现 backlog；不在本阶段修改业务行为。
+- [ ] T0.2 建立测试分层与命令：Java 单元测试、MySQL/Redis 集成测试、Next.js 类型检查/lint、Playwright 端到端测试；测试 Profile 默认禁用故障注入。
+- [ ] T0.3 重写 `infra/mysql/init/00-schema.sql` 为 Version 1 全新 Schema 的唯一来源，并新增 `schema_version` 与启动期版本校验约定。
+- [ ] T0.4 编写运维重置 Runbook：运维手工停止全部业务服务、Gateway、worker 和外部流量，清除 MySQL/Redis 数据目录，重新启动、初始化、健康检查，最后恢复 runner；明确它与 inventory reset 的区别。
+
+**涉及文件**：
+
+- `infra/mysql/init/00-schema.sql`
+- `docker-compose.yml`
+- `scripts/compose-down.sh`
+- `scripts/compose-up.sh`
+- `README.md`
+- `*_service/src/test/`、`traffic-control-plane/src/**/*.test.ts`、`shopfront/tests/`（计划新增测试目录）
+
+### 阶段验收条件
+
+- 全新数据目录可初始化，且 Schema 版本、演示客户、角色、地址、商品、库存、优惠券与 runner 配置齐全。
+- 测试命令和测试 Profile 可在本地环境执行；故障注入不会在普通测试中自行启动。
+- 运维重置 Runbook 经一次人工演练验证，重置后不存在旧 Redis 幂等键或 runner 队列。
+
+### 问题与解决方案
+
+| 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| - | - | 暂无 | - | - | - |
+
+---
+
+## Phase 1：安全、身份与网关边界 - 未开始
+
+**阶段进度**：0 / 5
+
+**目标**：在公开消费者功能之前建立客户、运营人员、runner 与服务间调用的可信身份链和网络边界。
+
+### 子任务
+
+- [ ] T1.1 在 `user-service` 实现客户注册、登录、刷新、登出、个人资料及地址 CRUD；使用 BCrypt，新增 `CUSTOMER`、`OPERATOR` 角色和会话/令牌撤销能力。
+- [ ] T1.2 定义并实现客户/运营令牌契约：`iss`、`aud`、`sub`、角色、签发时间、过期时间和令牌 ID；`shopfront` 仅以 `HttpOnly`、`Secure`、`SameSite=Lax` Cookie 持有刷新/会话令牌。
+- [ ] T1.3 在 `gateway-service` 实现认证过滤器、角色授权、身份头清洗与可信下游主体声明；拒绝直连业务服务和伪造 `X-User-Id` / `X-User-Role`。
+- [ ] T1.4 定义并实现 `TRAFFIC_RUNNER` 服务凭据校验：网关检查客户白名单版本、`aud=gateway-service`、动作 scope 与有效期，并由网关生成短期下游主体声明；控制面不得签发客户令牌。
+- [ ] T1.5 为 `traffic-control-plane` 的全部变更型 `/internal/**` Route Handler 添加统一 `OPERATOR` 鉴权和 `operator_audit_logs` 审计；限制 Ingress 和 Compose 端口，禁止消费者入口访问内部路径。
+
+**涉及文件**：
+
+- `common/src/main/java/com/castrel/chaos/common/`（计划新增安全主体与声明组件）
+- `user-service/src/main/java/com/castrel/chaos/user/`
+- `gateway-service/src/main/java/com/castrel/chaos/gateway/`
+- `gateway-service/src/main/resources/application.yml`
+- `traffic-control-plane/src/app/internal/`
+- `traffic-control-plane/src/lib/gateway-client.ts`
+- `traffic-control-plane/src/lib/`（计划新增运营会话、鉴权与审计组件）
+- `docker-compose.yml`
+- `k8s/ingress/`、`k8s/services/`
+
+### 阶段验收条件
+
+- 未认证客户、运营人员、runner 和伪造身份头均被拒绝。
+- 客户只能访问自己的资源；业务服务不再作为公开入口。
+- `TRAFFIC_RUNNER` 仅能代表演示客户白名单执行允许的客户动作，不能访问 `/internal/**`、运营能力或任意客户数据。
+- 所有控制面变更操作都有可查询审计记录。
+
+### 问题与解决方案
+
+| 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| - | - | 暂无 | - | - | - |
+
+---
+
+## Phase 2：Schema、购物车与商品读模型 - 未开始
+
+**阶段进度**：0 / 5
+
+**目标**：建立多商品订单所需数据模型、持久化购物车和可供消费者/runner 共用的商品读模型。
+
+### 子任务
+
+- [ ] T2.1 在全新初始化 Schema 中创建并规范化 `users`、`user_addresses`、`user_credentials`、`user_roles`、会话令牌、`orders`、`order_items`、`order_address_snapshots` 和相关索引/唯一约束；`order_items` 是订单明细唯一事实来源。
+- [ ] T2.2 新增 `cart-service` Maven/Spring Boot 模块，接入父 POM、Docker Compose、Kubernetes、Prometheus 与 Gateway；实现客户归属的 `carts`、`cart_items` 及版本字段。
+- [ ] T2.3 实现购物车公开 API：查询、加购、改数量、删除、清空；使用版本号或 ETag 处理并发修改，并校验商品可售状态和数量。
+- [ ] T2.4 实现 Redis Checkout 冻结协议：`cart:checkout-freeze:{checkoutId}`、`SET NX`/Lua 原子版本校验、冻结令牌、TTL、幂等释放和成功后按令牌消费匹配版本购物车行。
+- [ ] T2.5 扩展 `catalog-service`：关键字/分类/排序/分页、稳定商品 DTO、商品媒体元数据与可售库存投影；统一 BFF 对分页响应的规范化。
+
+**涉及文件**：
+
+- `pom.xml`
+- `cart-service/`（计划新增 Maven 模块）
+- `catalog-service/src/main/java/com/castrel/chaos/catalog/`
+- `inventory-service/src/main/java/com/castrel/chaos/inventory/`
+- `infra/mysql/init/00-schema.sql`
+- `gateway-service/src/main/resources/application.yml`
+- `docker-compose.yml`
+- `k8s/services/`、`k8s/kustomization.yaml`
+- `traffic-control-plane/src/lib/gateway-client.ts`
+
+### 阶段验收条件
+
+- 全新初始化环境拥有所有用户、购物车和多商品订单基础表及种子数据。
+- 同一客户可持久化管理购物车；不同客户无法读取或修改彼此购物车。
+- 并发购物车修改和相同版本的并发冻结不会造成重复结算；冻结过期不会影响已落库订单。
+- 商品读取 API 对客户和 runner 返回一致、稳定的分页与可售状态。
+
+### 问题与解决方案
+
+| 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| - | - | 暂无 | - | - | - |
+
+---
+
+## Phase 3：Checkout、库存、促销与支付 - 未开始
+
+**阶段进度**：0 / 6
+
+**目标**：实现从冻结购物车到创建待支付订单、模拟支付及库存/优惠券一致性处理的完整交易核心。
+
+### 子任务
+
+- [ ] T3.1 实现 `POST /api/checkout` 与 `CheckoutCommand`：接收 `cartId`、`cartVersion`、`addressId`、`couponId`、`idempotencyKey`，从可信主体推导客户，拒绝客户端金额和商品明细。
+- [ ] T3.2 实现 checkout 同步链路：购物车冻结、商品权威价格校验、优惠券校验/预留、支付前风控、按订单预占库存、失败逆序幂等补偿、成功后创建 `PENDING_PAYMENT` 订单和地址/订单明细快照。
+- [ ] T3.3 实现库存预占状态机和 `reservationId` / `operationId` 幂等约束：`reserve`、`confirm`、`release` 互斥且可重放；禁止以 `SKU + quantity` 直接释放。
+- [ ] T3.4 实现支付意图创建、模拟支付确认、查询和重试；支付尝试区分 `SUCCESS`、不可重试 `FAILED` 与须对账的 `UNKNOWN`，并确保预占到期后的重试先重新原子预占。
+- [ ] T3.5 为订单增加 `version` 条件更新，完成支付成功、客户取消、预占到期三方竞争裁决；每次仅允许一个终态转换成功，其余流程读取终态后停止或补偿。
+- [ ] T3.6 实现客户订单 API：个人订单分页、详情、待支付订单取消、支付意图/确认/查询；保留旧 `POST /api/orders` 仅作单商品 API 回归兼容，不作为 runner 主路径。
+
+**涉及文件**：
+
+- `order-service/src/main/java/com/castrel/chaos/order/`
+- `payment-service/src/main/java/com/castrel/chaos/payment/`
+- `inventory-service/src/main/java/com/castrel/chaos/inventory/`
+- `promotion-service/src/main/java/com/castrel/chaos/promotion/`
+- `risk-service/src/main/java/com/castrel/chaos/risk/`
+- `catalog-service/src/main/java/com/castrel/chaos/catalog/`
+- `cart-service/`（计划新增模块）
+- `infra/mysql/init/00-schema.sql`
+- `gateway-service/src/main/resources/application.yml`
+
+### 阶段验收条件
+
+- checkout 只创建 `PENDING_PAYMENT` 多商品订单，且订单快照不受后续商品、价格、地址或购物车变化影响。
+- 重复 checkout、重复确认、支付失败、未知支付对账、库存不足、优惠券不符合条件和取消场景均无重复扣减或库存泄漏。
+- 支付成功、取消和预占到期并发时，订单、库存、优惠券最终状态一致。
+- checkout 服务拓扑与 [technical-design.md](technical-design.md) 的“Checkout 同步服务拓扑”一致。
+
+### 问题与解决方案
+
+| 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| - | - | 暂无 | - | - | - |
+
+---
+
+## Phase 4：可靠事件、风控、履约与通知 - 未开始
+
+**阶段进度**：0 / 5
+
+**目标**：以服务私有 Outbox/Inbox 完成支付后的可靠事件链，确保风控通过后才履约。
+
+### 子任务
+
+- [ ] T4.1 为 order、payment、risk、fulfillment、notification 服务创建各自 `*_outbox_events` 与 `*_inbox_events` 表、发布器、Inbox 去重和租约/重试机制；任何服务不得读写其他服务的事件表。
+- [ ] T4.2 实现 `payment-service -> PAYMENT_RESULT -> order-service`：支付状态与 `payment_outbox_events` 同事务写入；订单 Inbox 去重后裁决订单、库存和优惠券，并发布 `ORDER_PAID` 或 `ORDER_PAYMENT_FAILED`。
+- [ ] T4.3 实现支付后风控事件链：`risk-service` 只消费 `ORDER_PAID`，发布 `POST_PAYMENT_RISK_PASSED` 或 `POST_PAYMENT_RISK_REJECTED`；拒绝结果触发订单规定补偿和客户通知。
+- [ ] T4.4 实现履约和物流：`fulfillment-service` 只消费 `POST_PAYMENT_RISK_PASSED` 创建发货单和时间线，发布 `SHIPMENT_UPDATED`；不得直接消费支付成功事件。
+- [ ] T4.5 实现通知偏好、客户通知记录和事件订阅；所有事件带 `eventId`、聚合版本、`traceparent` / `traceId`、`trafficRunId`，支持有界退避、死信和以原 `eventId` 重放。
+
+**涉及文件**：
+
+- `order-service/src/main/java/com/castrel/chaos/order/`
+- `payment-service/src/main/java/com/castrel/chaos/payment/`
+- `risk-service/src/main/java/com/castrel/chaos/risk/`
+- `fulfillment-service/src/main/java/com/castrel/chaos/fulfillment/`
+- `notification-service/src/main/java/com/castrel/chaos/notification/`
+- `inventory-service/src/main/java/com/castrel/chaos/inventory/`
+- `promotion-service/src/main/java/com/castrel/chaos/promotion/`
+- `common/src/main/java/com/castrel/chaos/common/`
+- `infra/mysql/init/00-schema.sql`
+
+### 阶段验收条件
+
+- 每项跨服务副作用有唯一发布者、唯一的本地 Outbox 所有者与幂等消费者。
+- 支付成功不能绕过支付后风控创建履约；重复投递不会创建重复履约或通知。
+- 在 payment/order/risk/fulfillment 任一服务短暂不可用后，事件可恢复投递并在 Tempo 中关联原交易链路。
+- 死信重放使用原 `eventId`，不会产生重复业务副作用。
+
+### 问题与解决方案
+
+| 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| - | - | 暂无 | - | - | - |
+
+---
+
+## Phase 5：控制面、完整 runner 与运维流程 - 未开始
+
+**阶段进度**：0 / 4
+
+**目标**：使 `traffic-control-plane` 通过完整消费者流程生成可观测流量，并保留安全的运营能力。
+
+### 子任务
+
+- [ ] T5.1 新增 `TrafficActionOrchestrator`，由 `RunnerEngine` 进程内调用；从演示客户白名单选择客户，生成 `trafficRunId`、动作 ID、结算幂等键和受控支付策略，并经 `GatewayClient` 调用客户 API。
+- [ ] T5.2 重构 `RunnerEngine` 动作与状态队列：实现 `BROWSE_PRODUCT`、`SEARCH_CATALOG`、`ADD_CART_ITEM`、`UPDATE_CART_ITEM`、`CHECKOUT`、`PAYMENT_CONFIRM`、`CANCEL_PENDING_ORDER`、`QUERY_ORDER`、`QUERY_SHIPMENT`；只取消已记录的待支付订单，只查询已支付订单物流。
+- [ ] T5.3 实现 `traffic_runs`、`traffic_actions` 持久化与活动记录，关联演示客户、购物车版本、订单、支付、动作、结果、耗时、错误码和 `traceId`；移除 runner 向旧 `/api/orders` 直接提交 `userId` 及已支付订单取消队列的旧行为。
+- [ ] T5.4 更新控制台的 runner 配置、状态、活动和错误展示，支持动作比例、商品数量、支付成功/失败/未知比例和取消比例；确保内部控制面变更动作经过 Phase 1 的 `OPERATOR` 鉴权和审计。
+
+**涉及文件**：
+
+- `traffic-control-plane/src/worker/runner-engine.ts`
+- `traffic-control-plane/src/worker/`（计划新增 `traffic-action-orchestrator.ts`）
+- `traffic-control-plane/src/lib/runtime-state.ts`
+- `traffic-control-plane/src/lib/runner-config.ts`
+- `traffic-control-plane/src/lib/gateway-client.ts`
+- `traffic-control-plane/src/app/runner/`
+- `traffic-control-plane/src/app/internal/traffic/`
+- `traffic-control-plane/src/components/`
+- `infra/mysql/init/00-schema.sql`
+
+### 阶段验收条件
+
+- runner 经网关产生浏览、购物车、checkout、支付、风控、履约、通知和查询流量，不再走旧单 SKU 直下单路径。
+- 每次 runner 动作都能关联 `trafficRunId`、客户、订单/支付、结果、耗时和完整 trace。
+- runner 不会取消已支付订单，不会读取演示客户池外数据，也不会在 Redis/MySQL 重置后保留无效队列。
+
+### 问题与解决方案
+
+| 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| - | - | 暂无 | - | - | - |
+
+---
+
+## Phase 6：Shopfront、部署与端到端验收 - 未开始
+
+**阶段进度**：0 / 4
+
+**目标**：交付独立消费者前台、部署隔离和完整业务/混沌验收。
+
+### 子任务
+
+- [ ] T6.1 新建独立 `shopfront` Next.js 应用及 BFF：实现会话处理、强类型网关客户端、商品列表/详情、购物车、结算、支付结果、地址、订单、物流和通知路由。
+- [ ] T6.2 实现消费者界面状态：商品不可售、购物车版本冲突、库存不足、价格/优惠券变化、支付失败/未知、风控拒绝、履约进度和可恢复故障提示；不得暴露内部服务地址或敏感错误细节。
+- [ ] T6.3 更新 Docker Compose、镜像构建、Kubernetes、Ingress 和 README：独立部署 `shopfront` 与 `traffic-control-plane`，只公开 Gateway/前台入口，业务服务端口保持私有。
+- [ ] T6.4 编写并执行自动化验收：后端集成测试、Playwright 注册至物流流程、身份/归属越权测试、支付/取消/到期竞争测试、Outbox/Inbox 恢复测试、runner 全链路测试与 `scripts/chaos/chaos-verify.sh` 回归。
+
+**涉及文件**：
+
+- `shopfront/`（计划新增独立 Next.js 应用）
+- `traffic-control-plane/`
+- `docker-compose.yml`
+- `scripts/build-all.sh`
+- `scripts/chaos/chaos-verify.sh`
+- `k8s/ingress/`、`k8s/services/`、`k8s/kustomization.yaml`
+- `README.md`
+- `*/src/test/`、`shopfront/tests/`、`traffic-control-plane/src/**/*.test.ts`
+
+### 阶段验收条件
+
+- 消费者可完成注册/登录、浏览、购物车、多商品 checkout、模拟支付、订单查看和物流追踪。
+- 消费者前台、Gateway、控制台和业务服务按设计隔离部署；消费者无法访问运营/内部端点。
+- 自动化验收覆盖关键一致性、安全和故障恢复场景；runner 与现有混沌验证均可运行。
+
+### 问题与解决方案
+
+| 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+*** End Patch
