@@ -49,7 +49,8 @@
 
    ```bash
    test "$(basename "$PWD")" = "castrel-chaos"
-   rm -rf data/mysql/* data/redis/*
+   rm -rf data/mysql data/redis
+   mkdir -p data/mysql data/redis
    ```
 
 6. 启动基础设施并等待健康状态。

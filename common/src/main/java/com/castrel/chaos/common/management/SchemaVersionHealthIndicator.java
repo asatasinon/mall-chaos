@@ -5,7 +5,7 @@ import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.stereotype.Component;
 
 import java.sql.Connection;
@@ -13,7 +13,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 
 @Component("schemaVersion")
-@ConditionalOnBean(DataSource.class)
+@ConditionalOnClass(DataSource.class)
 public class SchemaVersionHealthIndicator implements HealthIndicator {
 
     private static final String VERSION_QUERY =

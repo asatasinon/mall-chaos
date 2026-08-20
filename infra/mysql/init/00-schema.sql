@@ -541,7 +541,7 @@ CREATE TABLE IF NOT EXISTS storage_growth_records (
     id                   BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
     run_id               VARCHAR(64)   NOT NULL,
     source_service       VARCHAR(64)   NOT NULL,
-    payload              VARBINARY(65535) NOT NULL,
+    payload              BLOB          NOT NULL,
     created_at           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_storage_growth_run_id (run_id),
     INDEX idx_storage_growth_source_service (source_service)
@@ -923,3 +923,33 @@ CREATE TABLE IF NOT EXISTS operator_audit_logs (
   INDEX idx_operator_audit_time (created_at),
   INDEX idx_operator_audit_operator (operator_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Version 1 seed identities. Password hashes are BCrypt values for the two
+-- documented demo accounts and are never returned by a service API.
+INSERT INTO user_credentials (user_id, password_hash)
+SELECT id, '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'
+FROM users
+WHERE email IN ('alice@example.com', 'bob@example.com')
+ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash);
+
+INSERT INTO user_roles (user_id, role)
+SELECT id, 'CUSTOMER'
+FROM users
+WHERE email IN ('alice@example.com', 'bob@example.com')
+ON DUPLICATE KEY UPDATE role = VALUES(role);
+
+INSERT INTO carts (customer_id, version, status)
+SELECT id, 0, 'ACTIVE'
+FROM users
+WHERE email IN ('alice@example.com', 'bob@example.com')
+ON DUPLICATE KEY UPDATE version = carts.version;
+
+INSERT INTO notification_preferences (customer_id)
+SELECT id
+FROM users
+WHERE email IN ('alice@example.com', 'bob@example.com')
+ON DUPLICATE KEY UPDATE customer_id = VALUES(customer_id);
+
+INSERT INTO traffic_runs (traffic_run_id, status)
+VALUES ('seed-run-v1', 'COMPLETED')
+ON DUPLICATE KEY UPDATE status = VALUES(status);
