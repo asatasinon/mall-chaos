@@ -95,7 +95,9 @@ public class OrderService {
                 item.setProductName(String.valueOf(product.get("name")));
                 item.setUnitPrice(new BigDecimal(String.valueOf(product.get("price"))));
                 subtotal = subtotal.add(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
-                clients.reserveInventory(orderId, item.getSku(), item.getQuantity());
+                String reservationId = command.getIdempotencyKey() + ":" + item.getSku();
+                clients.reserveInventory(orderId, item.getSku(), item.getQuantity(),
+                    reservationId, reservationId);
             }
             Order order = new Order();
             order.setOrderNo(command.getIdempotencyKey());
@@ -268,7 +270,7 @@ public class OrderService {
     public OrderDTO cancelOrder(Long id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + id));
-        if (!"PENDING".equals(order.getStatus())) {
+        if (!"PENDING".equals(order.getStatus()) && !"PENDING_PAYMENT".equals(order.getStatus())) {
             throw new BizException("INVALID_STATUS", "Can only cancel PENDING orders");
         }
         try {
@@ -276,9 +278,12 @@ public class OrderService {
         } catch (Exception e) {
             log.warn("Failed to release inventory during cancel: {}", e.getMessage());
         }
+        if (orderRepository.cancelPending(order.getId(), order.getVersion()) == 0) {
+            throw new BizException("ORDER_STATE_CONFLICT", "Order state changed before cancellation");
+        }
         order.setStatus("CANCELLED");
-        order.setUpdatedAt(LocalDateTime.now());
-        return toDTO(orderRepository.save(order));
+        order.setVersion(order.getVersion() + 1);
+        return toDTO(order);
     }
 
     private void enrichQueryIfNeeded(Long userId) {

@@ -9,6 +9,8 @@ import com.castrel.chaos.inventory.entity.Inventory;
 import com.castrel.chaos.inventory.entity.InventoryBaselineSnapshot;
 import com.castrel.chaos.inventory.repository.InventoryBaselineRepository;
 import com.castrel.chaos.inventory.repository.InventoryRepository;
+import com.castrel.chaos.inventory.repository.InventoryReservationRepository;
+import com.castrel.chaos.inventory.entity.InventoryReservation;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -19,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -30,6 +33,9 @@ public class InventoryService {
 
     @Autowired
     private InventoryRepository inventoryRepository;
+
+    @Autowired
+    private InventoryReservationRepository reservationRepository;
 
     @Autowired
     private InventoryBaselineRepository baselineRepository;
@@ -62,6 +68,31 @@ public class InventoryService {
 
     @Transactional
     public Map<String, Object> reserve(String orderId, String sku, int qty) {
+        String operationId = orderId + ":" + sku;
+        String reservationId = operationId;
+        return reserve(orderId, sku, qty, reservationId, operationId);
+    }
+
+    @Transactional
+    public Map<String, Object> reserve(String orderId, String sku, int qty,
+                                       String reservationId, String operationId) {
+        if (qty <= 0 || reservationId == null || reservationId.isBlank()
+                || operationId == null || operationId.isBlank()) {
+            throw new BizException("INVALID_RESERVATION", "reservationId, operationId and positive qty are required");
+        }
+        InventoryReservation existing = reservationRepository.findByOperationIdAndSku(operationId, sku).orElse(null);
+        if (existing != null) {
+            if (!existing.getReservationId().equals(reservationId) || !existing.getOrderId().equals(orderId)) {
+                throw new BizException("RESERVATION_CONFLICT", "Reservation operation already belongs to another order");
+            }
+            if ("RESERVED".equals(existing.getStatus()) || "CONFIRMED".equals(existing.getStatus())) {
+                return Map.of("reservationId", existing.getReservationId(), "operationId", existing.getOperationId(),
+                        "sku", sku, "qty", existing.getQuantity(), "status", existing.getStatus());
+            }
+            if ("RELEASED".equals(existing.getStatus()) || "EXPIRED".equals(existing.getStatus())) {
+                throw new BizException("RESERVATION_NOT_RETRYABLE", "Reservation has already been released");
+            }
+        }
         enrichQueryIfNeeded(sku);
         Inventory inv = inventoryRepository.findBySku(sku)
                 .orElseThrow(() -> new BizException("SKU_NOT_FOUND", "SKU not found: " + sku));
@@ -71,16 +102,55 @@ public class InventoryService {
             throw new BizException("INVENTORY_NOT_ENOUGH", "Insufficient inventory for SKU: " + sku);
         }
         reserveSuccess.increment();
-        String lockId = UUID.randomUUID().toString();
-        Map<String, Object> result = Map.of("lockId", lockId, "sku", sku, "qty", qty);
+        InventoryReservation reservation = new InventoryReservation();
+        reservation.setReservationId(reservationId);
+        reservation.setOperationId(operationId);
+        reservation.setOrderId(orderId);
+        reservation.setSku(sku);
+        reservation.setQuantity(qty);
+        reservation.setStatus("RESERVED");
+        reservation.setExpiresAt(LocalDateTime.now().plusMinutes(15));
+        reservation.setCreatedAt(LocalDateTime.now());
+        reservation.setUpdatedAt(LocalDateTime.now());
+        reservationRepository.save(reservation);
+        Map<String, Object> result = Map.of("reservationId", reservationId, "operationId", operationId,
+            "sku", sku, "qty", qty, "status", "RESERVED");
         localQueryCacheManager.cacheIfNeeded("inventory:" + sku, result);
         return result;
     }
 
     @Transactional
     public void release(String orderId, String sku, int qty) {
+        release(orderId, sku, qty, orderId + ":" + sku);
+    }
+
+    @Transactional
+    public void release(String orderId, String sku, int qty, String reservationId) {
+        InventoryReservation reservation = reservationRepository.findByReservationIdAndSku(reservationId, sku)
+                .orElseThrow(() -> new BizException("RESERVATION_NOT_FOUND", "Reservation not found"));
+        if (!reservation.getOrderId().equals(orderId)) {
+            throw new BizException("RESERVATION_NOT_FOUND", "Reservation not found");
+        }
+        if (!"RESERVED".equals(reservation.getStatus())) return;
         enrichQueryIfNeeded(sku);
-        inventoryRepository.release(sku, qty);
+        inventoryRepository.release(sku, reservation.getQuantity());
+        reservation.setStatus("RELEASED");
+        reservation.setUpdatedAt(LocalDateTime.now());
+        reservationRepository.save(reservation);
+    }
+
+    @Transactional
+    public void confirm(String orderId, String sku, String reservationId) {
+        InventoryReservation reservation = reservationRepository.findByReservationIdAndSku(reservationId, sku)
+                .orElseThrow(() -> new BizException("RESERVATION_NOT_FOUND", "Reservation not found"));
+        if (!reservation.getOrderId().equals(orderId)) {
+            throw new BizException("RESERVATION_NOT_FOUND", "Reservation not found");
+        }
+        if ("RESERVED".equals(reservation.getStatus())) {
+            reservation.setStatus("CONFIRMED");
+            reservation.setUpdatedAt(LocalDateTime.now());
+            reservationRepository.save(reservation);
+        }
     }
 
     public Map<String, Object> query(String sku) {

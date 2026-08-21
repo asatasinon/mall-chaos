@@ -145,4 +145,13 @@ public class DownstreamClients {
                 inventoryUrl + "/internal/inventory/reserve", HttpMethod.POST,
                 new HttpEntity<>(reqBody, headers), Map.class).getBody()).get("data");
     }
+
+        public Map<String, Object> reserveInventory(String orderId, String sku, int qty,
+                            String reservationId, String operationId) {
+        Map<String, Object> reqBody = Map.of("orderId", orderId, "sku", sku, "qty", qty,
+            "reservationId", reservationId, "operationId", operationId);
+        Map<String, Object> resp = exchange(inventoryUrl + "/internal/inventory/reserve",
+            HttpMethod.POST, reqBody, Map.class);
+        return (Map<String, Object>) ((Map<?, ?>) resp).get("data");
+        }
 }

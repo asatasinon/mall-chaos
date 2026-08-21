@@ -664,7 +664,7 @@ CREATE TABLE IF NOT EXISTS payment_attempts (
 CREATE TABLE IF NOT EXISTS coupon_reservations (
   id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
   coupon_id      BIGINT       NOT NULL,
-  order_id       BIGINT       NOT NULL,
+  order_id       VARCHAR(128) NOT NULL,
   customer_id    BIGINT       NOT NULL,
   status         VARCHAR(16)  NOT NULL DEFAULT 'RESERVED',
   operation_id   VARCHAR(128) NOT NULL,

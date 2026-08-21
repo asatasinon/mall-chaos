@@ -23,7 +23,14 @@ public class InventoryController {
 
     @PostMapping("/internal/inventory/release")
     public ApiResponse<Void> release(@RequestBody ReserveRequest req) {
-        inventoryService.release(req.getOrderId(), req.getSku(), req.getQty());
+        inventoryService.release(req.getOrderId(), req.getSku(), req.getQty(),
+                req.getReservationId() == null ? req.getOrderId() + ":" + req.getSku() : req.getReservationId());
+        return ApiResponse.ok();
+    }
+
+    @PostMapping("/internal/inventory/confirm")
+    public ApiResponse<Void> confirm(@RequestBody ReserveRequest req) {
+        inventoryService.confirm(req.getOrderId(), req.getSku(), req.getReservationId());
         return ApiResponse.ok();
     }
 

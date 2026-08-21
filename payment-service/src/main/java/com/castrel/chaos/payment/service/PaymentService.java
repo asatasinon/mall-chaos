@@ -6,6 +6,7 @@ import com.castrel.chaos.common.cache.LocalQueryCacheManager;
 import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.payment.dto.ChargeRequest;
 import com.castrel.chaos.payment.dto.PaymentDTO;
+import com.castrel.chaos.payment.dto.PaymentIntentRequest;
 import com.castrel.chaos.payment.entity.Payment;
 import com.castrel.chaos.payment.repository.PaymentRepository;
 import io.micrometer.core.instrument.Counter;
@@ -63,6 +64,54 @@ public class PaymentService {
         return paymentRepository.findByOrderNo(req.getOrderNo())
                 .map(this::toDTO)
                 .orElseGet(() -> executeCharge(req));
+    }
+
+    @Transactional
+    public PaymentDTO createIntent(PaymentIntentRequest req) {
+        return paymentRepository.findByOrderNo(req.getOrderNo())
+                .map(this::toDTO)
+                .orElseGet(() -> {
+                    Payment payment = new Payment();
+                    payment.setPaymentNo("PAY-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase());
+                    payment.setOrderNo(req.getOrderNo());
+                    payment.setUserId(req.getUserId());
+                    payment.setAmount(req.getAmount());
+                    payment.setStatus("PROCESSING");
+                    payment.setResultCode("CREATED");
+                    payment.setTraceId(TraceContext.getTraceId());
+                    payment.setCreatedAt(LocalDateTime.now());
+                    payment.setUpdatedAt(LocalDateTime.now());
+                    return toDTO(paymentRepository.save(payment));
+                });
+    }
+
+    @Transactional
+    public PaymentDTO confirmIntent(Long id) {
+        Payment payment = paymentRepository.findById(id)
+                .orElseThrow(() -> new BizException("PAYMENT_NOT_FOUND", "Payment not found: " + id));
+        if (!"PROCESSING".equals(payment.getStatus())) return toDTO(payment);
+        return executePayment(payment);
+    }
+
+    private PaymentDTO executePayment(Payment payment) {
+        double roll = random.nextDouble();
+        if (roll < successRate) {
+            payment.setStatus("SUCCESS");
+            payment.setResultCode("SUCCESS");
+            successCounter.increment();
+        } else if (roll < successRate + timeoutRate) {
+            payment.setStatus("UNKNOWN");
+            payment.setResultCode("UNKNOWN");
+            payment.setFailReason("Payment gateway result unknown");
+            timeoutCounter.increment();
+        } else {
+            payment.setStatus("FAILED");
+            payment.setResultCode("INSUFFICIENT_BALANCE");
+            payment.setFailReason("Insufficient balance");
+            failCounter.increment();
+        }
+        payment.setUpdatedAt(LocalDateTime.now());
+        return toDTO(paymentRepository.save(payment));
     }
 
     private PaymentDTO executeCharge(ChargeRequest req) {
