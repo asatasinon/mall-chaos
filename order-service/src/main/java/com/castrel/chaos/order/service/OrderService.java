@@ -6,8 +6,13 @@ import com.castrel.chaos.common.cache.LocalQueryCacheManager;
 import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.order.client.DownstreamClients;
 import com.castrel.chaos.order.dto.CreateOrderRequest;
+import com.castrel.chaos.order.dto.CheckoutCommand;
+import com.castrel.chaos.order.dto.CheckoutFreeze;
+import com.castrel.chaos.order.dto.CheckoutItem;
 import com.castrel.chaos.order.dto.OrderDTO;
 import com.castrel.chaos.order.entity.Order;
+import com.castrel.chaos.order.entity.OrderItem;
+import com.castrel.chaos.order.repository.OrderItemRepository;
 import com.castrel.chaos.order.repository.OrderRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -37,6 +42,9 @@ public class OrderService {
     private OrderRepository orderRepository;
 
     @Autowired
+    private OrderItemRepository orderItemRepository;
+
+    @Autowired
     private DownstreamClients clients;
 
     @Autowired
@@ -56,6 +64,74 @@ public class OrderService {
 
     private Counter successCounter;
     private Counter failCounter;
+
+    @Transactional
+    public OrderDTO checkout(Long customerId, CheckoutCommand command) {
+        if (customerId == null || command == null || command.getIdempotencyKey() == null
+                || command.getIdempotencyKey().isBlank() || command.getCartId() == null
+                || command.getCartVersion() == null || command.getAddressId() == null) {
+            throw new BizException("INVALID_CHECKOUT", "cart, version, address and idempotencyKey are required");
+        }
+        return orderRepository.findByUserIdAndIdempotencyKey(customerId, command.getIdempotencyKey())
+                .map(this::toDTO)
+                .orElseGet(() -> createPendingCheckout(customerId, command));
+    }
+
+    private OrderDTO createPendingCheckout(Long customerId, CheckoutCommand command) {
+        CheckoutFreeze freeze = clients.freezeCart(customerId, command);
+        List<String> skus = freeze.getItems().stream().map(CheckoutItem::getSku).toList();
+        List<Map<String, Object>> products = clients.batchCatalog(skus);
+        Map<String, Map<String, Object>> bySku = products.stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        product -> String.valueOf(product.get("sku")), product -> product));
+        BigDecimal subtotal = BigDecimal.ZERO;
+        String orderId = UUID.randomUUID().toString();
+        try {
+            for (CheckoutItem item : freeze.getItems()) {
+                Map<String, Object> product = bySku.get(item.getSku());
+                if (product == null || ((Number) product.getOrDefault("status", 0)).intValue() != 1) {
+                    throw new BizException("PRODUCT_UNAVAILABLE", "Product not available: " + item.getSku());
+                }
+                item.setProductName(String.valueOf(product.get("name")));
+                item.setUnitPrice(new BigDecimal(String.valueOf(product.get("price"))));
+                subtotal = subtotal.add(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+                clients.reserveInventory(orderId, item.getSku(), item.getQuantity());
+            }
+            Order order = new Order();
+            order.setOrderNo(command.getIdempotencyKey());
+            order.setIdempotencyKey(command.getIdempotencyKey());
+            order.setUserId(customerId);
+            order.setStatus("PENDING_PAYMENT");
+            order.setSubtotal(subtotal);
+            order.setDiscountAmount(BigDecimal.ZERO);
+            order.setTotalAmount(subtotal);
+            order.setAmount(subtotal);
+            order.setAddressId(command.getAddressId());
+            order.setTraceId(TraceContext.getTraceId());
+            order.setCreatedAt(LocalDateTime.now());
+            order.setUpdatedAt(LocalDateTime.now());
+            order = orderRepository.save(order);
+            for (CheckoutItem item : freeze.getItems()) {
+                OrderItem orderItem = new OrderItem();
+                orderItem.setOrderId(order.getId());
+                orderItem.setSku(item.getSku());
+                orderItem.setProductName(item.getProductName());
+                orderItem.setQuantity(item.getQuantity());
+                orderItem.setUnitPrice(item.getUnitPrice());
+                orderItem.setLineAmount(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+                orderItemRepository.save(orderItem);
+            }
+            clients.consumeCartFreeze(command.getIdempotencyKey(), freeze.getFreezeToken());
+            return toDTO(order);
+        } catch (RuntimeException exception) {
+            try {
+                clients.releaseCartFreeze(command.getIdempotencyKey(), freeze.getFreezeToken());
+            } catch (Exception ignored) {
+                log.warn("Failed to release cart freeze {}", command.getIdempotencyKey());
+            }
+            throw exception;
+        }
+    }
 
     @PostConstruct
     void initMetrics() {

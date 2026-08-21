@@ -29,6 +29,23 @@ public class Order {
 
     private String status; // PENDING / PAID / FAILED / CANCELLED / COMPLETED
 
+    @Version
+    private Integer version;
+
+    @Column(name = "idempotency_key")
+    private String idempotencyKey;
+
+    private BigDecimal subtotal;
+
+    @Column(name = "discount_amount")
+    private BigDecimal discountAmount;
+
+    @Column(name = "total_amount")
+    private BigDecimal totalAmount;
+
+    @Column(name = "address_id")
+    private Long addressId;
+
     @Column(name = "payment_id")
     private String paymentId;
 

@@ -18,6 +18,8 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import com.castrel.chaos.order.dto.CheckoutFreeze;
+import com.castrel.chaos.order.dto.CheckoutCommand;
 
 @Component
 public class DownstreamClients {
@@ -37,6 +39,9 @@ public class DownstreamClients {
     @Value("${services.payment-url:http://localhost:8085}")
     private String paymentUrl;
 
+    @Value("${services.cart-url:http://cart-service:8091}")
+    private String cartUrl;
+
     public DownstreamClients(RestTemplateBuilder builder) {
         this.client = builder.build();
     }
@@ -54,6 +59,10 @@ public class DownstreamClients {
             String principal = attributes.getRequest().getHeader("X-Downstream-Principal");
             if (principal != null && !principal.isBlank()) {
                 headers.set("X-Downstream-Principal", principal);
+            }
+            String userId = attributes.getRequest().getHeader("X-User-Id");
+            if (userId != null && !userId.isBlank()) {
+                headers.set("X-User-Id", userId);
             }
         }
         return headers;
@@ -96,5 +105,44 @@ public class DownstreamClients {
                 "orderId", orderId, "orderNo", orderNo, "userId", userId, "amount", amount);
     Map<String, Object> resp = exchange(paymentUrl + "/internal/payments/charge", HttpMethod.POST, reqBody, Map.class);
         return (Map<String, Object>) ((Map<?, ?>) resp).get("data");
+    }
+
+    public CheckoutFreeze freezeCart(Long userId, CheckoutCommand command) {
+        Map<String, Object> body = Map.of(
+                "checkoutId", command.getIdempotencyKey(),
+                "cartId", command.getCartId(),
+                "cartVersion", command.getCartVersion());
+        Map<String, Object> response = exchange(
+                cartUrl + "/internal/freeze", HttpMethod.POST, body, Map.class);
+        return mapper.convertValue(((Map<?, ?>) response).get("data"), CheckoutFreeze.class);
+    }
+
+    public void releaseCartFreeze(String checkoutId, String token) {
+        HttpHeaders headers = headersWithTrace();
+        headers.set("X-Checkout-Freeze-Token", token);
+        ServletRequestAttributes attributes =
+            (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes != null) {
+            String userId = attributes.getRequest().getHeader("X-User-Id");
+            if (userId != null) headers.set("X-User-Id", userId);
+        }
+        client.exchange(cartUrl + "/internal/freeze/" + checkoutId + "/release",
+                HttpMethod.POST, new HttpEntity<>(headers), Map.class);
+    }
+
+    public void consumeCartFreeze(String checkoutId, String token) {
+        HttpHeaders headers = headersWithTrace();
+        headers.set("X-Checkout-Freeze-Token", token);
+        client.exchange(cartUrl + "/internal/freeze/" + checkoutId + "/consume",
+                HttpMethod.POST, new HttpEntity<>(headers), Map.class);
+    }
+
+    public Map<String, Object> reserveInventory(String orderId, String sku, int qty, String principal) {
+        Map<String, Object> reqBody = Map.of("orderId", orderId, "sku", sku, "qty", qty);
+        HttpHeaders headers = headersWithTrace();
+        headers.set("X-Downstream-Principal", principal);
+        return (Map<String, Object>) ((Map<?, ?>) client.exchange(
+                inventoryUrl + "/internal/inventory/reserve", HttpMethod.POST,
+                new HttpEntity<>(reqBody, headers), Map.class).getBody()).get("data");
     }
 }

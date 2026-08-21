@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-21 11:46 CST |
+| 更新时间 | 2026-08-21 12:50 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -26,7 +26,7 @@
 | Phase 0 | 执行基线与环境准备 | 进行中 | 4 / 6 | 无 |
 | Phase 1 | 安全、身份与网关边界 | 进行中 | 6 / 8 | Phase 0 |
 | Phase 2 | Schema、购物车与商品读模型 | 进行中 | 5 / 6 | Phase 0、Phase 1 |
-| Phase 3 | Checkout、库存、促销与支付 | 未开始 | 0 / 8 | Phase 1、Phase 2 |
+| Phase 3 | Checkout、库存、促销与支付 | 进行中 | 1 / 8 | Phase 1、Phase 2 |
 | Phase 4 | 可靠事件、风控、履约与通知 | 未开始 | 0 / 8 | Phase 3 |
 | Phase 5 | 控制面、完整 runner 与运维流程 | 未开始 | 0 / 5 | Phase 1、Phase 3、Phase 4 |
 | Phase 6 | Shopfront、部署与端到端验收 | 未开始 | 0 / 5 | Phase 1 至 Phase 5 |
@@ -225,16 +225,16 @@
 
 ---
 
-## Phase 3：Checkout、库存、促销与支付 - 未开始
+## Phase 3：Checkout、库存、促销与支付 - 进行中
 
-**阶段进度**：0 / 8
+**阶段进度**：1 / 8
 
 **目标**：实现从冻结购物车到创建待支付订单、模拟支付及库存/优惠券一致性处理的完整交易核心。
 
 ### 子任务
 
-- [ ] T3.1 实现 `POST /api/checkout` 与 `CheckoutCommand`：接收 `cartId`、`cartVersion`、`addressId`、`couponId`、`idempotencyKey`，从可信主体推导客户，拒绝客户端金额和商品明细。
-- [ ] T3.2 实现 checkout 同步链路：购物车冻结、商品权威价格校验、优惠券校验/预留、支付前风控、按订单预占库存、失败逆序幂等补偿、成功后创建 `PENDING_PAYMENT` 订单和地址/订单明细快照。
+- [x] T3.1 实现 `POST /api/checkout` 与 `CheckoutCommand`：接收 `cartId`、`cartVersion`、`addressId`、`couponId`、`idempotencyKey`，从可信主体推导客户，拒绝客户端金额和商品明细。
+- [-] T3.2 实现 checkout 同步链路：购物车冻结、商品权威价格校验、优惠券校验/预留、支付前风控、按订单预占库存、失败逆序幂等补偿、成功后创建 `PENDING_PAYMENT` 订单和地址/订单明细快照。
 - [ ] T3.3 实现库存预占状态机和 `reservationId` / `operationId` 幂等约束：`reserve`、`confirm`、`release` 互斥且可重放；禁止以 `SKU + quantity` 直接释放。
 - [ ] T3.4 实现支付意图创建、模拟支付确认、查询和重试；支付尝试区分 `SUCCESS`、不可重试 `FAILED` 与须对账的 `UNKNOWN`，并确保预占到期后的重试先重新原子预占。
 - [ ] T3.5 为订单增加 `version` 条件更新，完成支付成功、客户取消、预占到期三方竞争裁决；每次仅允许一个终态转换成功，其余流程读取终态后停止或补偿。
