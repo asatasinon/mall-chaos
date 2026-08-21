@@ -455,6 +455,7 @@ services:
       OTEL_SERVICE_NAME: payment-service
       SW_AGENT_NAME: payment-service
       CW_APP_NAME: ${PAYMENT_CW_APP_NAME:-payment-service}
+      ORDER_SERVICE_URL: http://order-service:8084
     depends_on:
       mysql:
         condition: service_healthy

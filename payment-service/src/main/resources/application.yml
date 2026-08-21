@@ -22,6 +22,9 @@ payment:
   success-rate: 1.0
   timeout-rate: 0.0
 
+services:
+  order-url: ${ORDER_SERVICE_URL:http://localhost:18084}
+
 management:
   endpoint:
     health:

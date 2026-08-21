@@ -10,6 +10,7 @@ import com.castrel.chaos.order.dto.CheckoutCommand;
 import com.castrel.chaos.order.dto.CheckoutFreeze;
 import com.castrel.chaos.order.dto.CheckoutItem;
 import com.castrel.chaos.order.dto.PaymentResultRequest;
+import com.castrel.chaos.order.dto.OrderItemDTO;
 import com.castrel.chaos.order.dto.OrderDTO;
 import com.castrel.chaos.order.entity.Order;
 import com.castrel.chaos.order.entity.OrderItem;
@@ -457,6 +458,16 @@ public class OrderService {
         dto.setStatus(o.getStatus());
         dto.setPaymentId(o.getPaymentId());
         dto.setFailReason(o.getFailReason());
+        dto.setSubtotal(o.getSubtotal());
+        dto.setDiscountAmount(o.getDiscountAmount());
+        dto.setTotalAmount(o.getTotalAmount());
+        dto.setAddressId(o.getAddressId());
+        dto.setCouponId(o.getCouponId());
+        dto.setVersion(o.getVersion());
+        dto.setItems(orderItemRepository.findByOrderIdOrderByIdAsc(o.getId()).stream()
+            .map(item -> new OrderItemDTO(item.getSku(), item.getProductName(), item.getQuantity(),
+                item.getUnitPrice(), item.getLineAmount()))
+            .toList());
         return dto;
     }
 }
