@@ -1,3 +1,8 @@
+castrel:
+  security:
+    runner:
+      whitelist-version: ${CASTREL_RUNNER_WHITELIST_VERSION:1}
+
 server:
   port: 8080
 

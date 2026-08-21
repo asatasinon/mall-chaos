@@ -74,6 +74,9 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
         try {
             JwtTokenService.JwtPrincipal principal = jwtTokenService.verifyAccessToken(
                     authorization.substring("Bearer ".length()).trim());
+            if (!principal.roles().contains("CUSTOMER")) {
+                return forbidden(exchange);
+            }
             String roles = principal.roles().stream().collect(Collectors.joining(","));
             ServerWebExchange authenticated = sanitized.mutate()
                     .request(request -> request.headers(headers -> {
@@ -93,6 +96,11 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
 
     private Mono<Void> unauthorized(ServerWebExchange exchange) {
         exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+        return exchange.getResponse().setComplete();
+    }
+
+    private Mono<Void> forbidden(ServerWebExchange exchange) {
+        exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
         return exchange.getResponse().setComplete();
     }
 

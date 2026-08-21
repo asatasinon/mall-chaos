@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-21 11:11 CST |
+| 更新时间 | 2026-08-21 11:17 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -150,11 +150,11 @@
 
 ### T1.3 当前进展
 
-`gateway-service` 已新增客户认证 GlobalFilter：受保护客户路径要求 Bearer JWT，清洗传入的 `X-User-Id`、`X-User-Role`、`X-Auth-Actor` 和 `X-Downstream-Principal`，依据验签主体向下游注入可信身份头及短期 `actor=GATEWAY` 下游主体声明；认证、用户资料和地址路由已接入 Gateway，用户资料路径还会校验可信主体与路径 ID 一致。共享下游主体声明的合法验签和客户 token 误用拒绝测试已通过。业务服务强制验签、直连拒绝和角色授权测试仍待完成，因此 T1.3 保持进行中。
+`gateway-service` 已新增客户认证 GlobalFilter：受保护客户路径要求 Bearer JWT，清洗传入的 `X-User-Id`、`X-User-Role`、`X-Auth-Actor` 和 `X-Downstream-Principal`，依据验签主体向下游注入可信身份头及短期 `actor=GATEWAY` 下游主体声明；认证、用户资料和地址路由已接入 Gateway，用户资料路径还会校验可信主体与路径 ID 一致。有效但不含 `CUSTOMER` 角色的 token 现在返回 HTTP 403；共享下游主体声明的合法验签和客户 token 误用拒绝测试已通过。业务服务强制验签和直连拒绝集成测试仍待完成，因此 T1.3 保持进行中。
 
 ### T1.4 当前进展
 
-`common` 已增加 `TRAFFIC_RUNNER` 凭据验签：要求 `aud=castrel-gateway-service`、`actor=TRAFFIC_RUNNER`、有效 `exp`、`customerId` 和 `customer_api` scope。Gateway 将合法 runner 凭据转换为短期下游主体声明，控制面 `GatewayClient` 只从服务端环境变量发送 `X-Traffic-Runner-Credential`，不签发客户 token。白名单版本校验、密钥轮换和完整 runner scope 测试仍待完成，因此 T1.4 保持进行中。
+`common` 已增加 `TRAFFIC_RUNNER` 凭据验签：要求 `aud=castrel-gateway-service`、`actor=TRAFFIC_RUNNER`、有效 `exp`、`customerId`、`whitelistVersion` 和 `customer_api` scope；Gateway 从 `CASTREL_RUNNER_WHITELIST_VERSION` 读取期望版本并拒绝旧凭据。Gateway 将合法 runner 凭据转换为短期下游主体声明，控制面 `GatewayClient` 只从服务端环境变量发送 `X-Traffic-Runner-Credential`，不签发客户 token。密钥轮换和完整 runner scope 集成测试仍待完成，因此 T1.4 保持进行中。
 
 ### T1.5 当前进展
 

@@ -26,12 +26,14 @@ public class JwtTokenService {
     private final String audience;
     private final byte[] secret;
     private final Duration accessTokenTtl;
+    private final long expectedRunnerWhitelistVersion;
 
     public JwtTokenService(
             @Value("${castrel.security.jwt.issuer:castrel-user-service}") String issuer,
             @Value("${castrel.security.jwt.audience:castrel-gateway}") String audience,
             @Value("${CASTREL_JWT_SECRET:change-me-in-development-only-32-bytes}") String secret,
-            @Value("${castrel.security.jwt.access-ttl:PT15M}") Duration accessTokenTtl) {
+            @Value("${castrel.security.jwt.access-ttl:PT15M}") Duration accessTokenTtl,
+            @Value("${castrel.security.runner.whitelist-version:1}") long expectedRunnerWhitelistVersion) {
         if (secret.getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalArgumentException("CASTREL_JWT_SECRET must be at least 32 bytes");
         }
@@ -39,6 +41,7 @@ public class JwtTokenService {
         this.audience = audience;
         this.secret = secret.getBytes(StandardCharsets.UTF_8);
         this.accessTokenTtl = accessTokenTtl;
+        this.expectedRunnerWhitelistVersion = expectedRunnerWhitelistVersion;
     }
 
     public String issueAccessToken(Long userId, List<String> roles) {
@@ -152,7 +155,9 @@ public class JwtTokenService {
                     || claims.getJWTID() == null
                     || claims.getExpirationTime() == null
                     || !claims.getExpirationTime().toInstant().isAfter(now)
-                    || claims.getLongClaim("customerId") == null) {
+                    || claims.getLongClaim("customerId") == null
+                    || claims.getLongClaim("whitelistVersion") == null
+                    || claims.getLongClaim("whitelistVersion") != expectedRunnerWhitelistVersion) {
                 throw new IllegalArgumentException("Invalid runner claims");
             }
             Object scopesClaim = claims.getClaim("scope");

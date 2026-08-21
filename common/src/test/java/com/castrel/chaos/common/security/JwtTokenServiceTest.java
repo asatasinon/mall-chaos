@@ -12,7 +12,7 @@ class JwtTokenServiceTest {
 
     private final JwtTokenService service = new JwtTokenService(
             "castrel-user-service", "castrel-gateway",
-            "01234567890123456789012345678901", Duration.ofMinutes(15));
+            "01234567890123456789012345678901", Duration.ofMinutes(15), 1);
 
     @Test
     void issuesTokenWithTrustedPrincipalClaims() {
