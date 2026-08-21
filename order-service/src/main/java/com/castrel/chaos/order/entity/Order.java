@@ -46,6 +46,9 @@ public class Order {
     @Column(name = "address_id")
     private Long addressId;
 
+    @Column(name = "coupon_id")
+    private Long couponId;
+
     @Column(name = "payment_id")
     private String paymentId;
 

@@ -567,6 +567,7 @@ ALTER TABLE orders
   ADD COLUMN discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   ADD COLUMN total_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   ADD COLUMN address_id BIGINT,
+  ADD COLUMN coupon_id BIGINT,
   ADD COLUMN traffic_run_id VARCHAR(64),
   ADD UNIQUE KEY uq_order_idempotency (user_id, idempotency_key);
 

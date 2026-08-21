@@ -88,7 +88,7 @@ public class OrderService {
                 .collect(java.util.stream.Collectors.toMap(
                         product -> String.valueOf(product.get("sku")), product -> product));
         BigDecimal subtotal = BigDecimal.ZERO;
-        String orderId = UUID.randomUUID().toString();
+        String orderId = command.getIdempotencyKey();
         List<String> reservedSkus = new java.util.ArrayList<>();
         Long reservedCouponId = null;
         try {
@@ -132,6 +132,7 @@ public class OrderService {
             order.setTotalAmount(total);
             order.setAmount(total);
             order.setAddressId(command.getAddressId());
+            order.setCouponId(reservedCouponId);
             order.setTraceId(TraceContext.getTraceId());
             order.setCreatedAt(LocalDateTime.now());
             order.setUpdatedAt(LocalDateTime.now());
@@ -373,6 +374,15 @@ public class OrderService {
         order.setPaymentId(request.getPaymentNo());
         order.setFailReason(reason);
         order.setVersion(order.getVersion() + 1);
+        if ("PAID".equals(status)) {
+            for (OrderItem item : orderItemRepository.findByOrderIdOrderByIdAsc(order.getId())) {
+                String reservationId = order.getOrderNo() + ":" + item.getSku();
+                clients.confirmInventory(order.getOrderNo(), item.getSku(), reservationId);
+            }
+            if (order.getCouponId() != null) {
+                clients.confirmCoupon(order.getOrderNo(), order.getCouponId());
+            }
+        }
         return toDTO(order);
     }
 
@@ -380,10 +390,19 @@ public class OrderService {
         if (!"PENDING".equals(order.getStatus()) && !"PENDING_PAYMENT".equals(order.getStatus())) {
             throw new BizException("INVALID_STATUS", "Can only cancel PENDING orders");
         }
-        try {
-            clients.releaseInventory(order.getId().toString(), order.getSku(), order.getQty());
-        } catch (Exception e) {
-            log.warn("Failed to release inventory during cancel: {}", e.getMessage());
+        for (OrderItem item : orderItemRepository.findByOrderIdOrderByIdAsc(order.getId())) {
+            try {
+                clients.releaseInventory(order.getOrderNo(), item.getSku(), order.getOrderNo() + ":" + item.getSku());
+            } catch (Exception e) {
+                log.warn("Failed to release inventory during cancel: {}", e.getMessage());
+            }
+        }
+        if (order.getCouponId() != null) {
+            try {
+                clients.releaseCoupon(order.getOrderNo(), order.getCouponId());
+            } catch (Exception e) {
+                log.warn("Failed to release coupon during cancel: {}", e.getMessage());
+            }
         }
         if (orderRepository.cancelPending(order.getId(), order.getVersion()) == 0) {
             throw new BizException("ORDER_STATE_CONFLICT", "Order state changed before cancellation");

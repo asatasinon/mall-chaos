@@ -116,6 +116,16 @@ public class DownstreamClients {
                 HttpMethod.POST, Map.of(), Map.class);
     }
 
+    public void confirmCoupon(String orderId, Long couponId) {
+        exchange(promotionUrl + "/internal/promotions/" + orderId + "/coupon/" + couponId + "/confirm",
+                HttpMethod.POST, Map.of(), Map.class);
+    }
+
+    public void confirmInventory(String orderId, String sku, String reservationId) {
+        exchange(inventoryUrl + "/internal/inventory/confirm", HttpMethod.POST,
+                Map.of("orderId", orderId, "sku", sku, "reservationId", reservationId), Map.class);
+    }
+
     public Map<String, Object> charge(String orderId, String orderNo, Long userId, BigDecimal amount) {
         Map<String, Object> reqBody = Map.of(
                 "orderId", orderId, "orderNo", orderNo, "userId", userId, "amount", amount);
@@ -149,6 +159,12 @@ public class DownstreamClients {
     public void consumeCartFreeze(String checkoutId, String token) {
         HttpHeaders headers = headersWithTrace();
         headers.set("X-Checkout-Freeze-Token", token);
+        ServletRequestAttributes attributes =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes != null) {
+            String userId = attributes.getRequest().getHeader("X-User-Id");
+            if (userId != null) headers.set("X-User-Id", userId);
+        }
         client.exchange(cartUrl + "/internal/freeze/" + checkoutId + "/consume",
                 HttpMethod.POST, new HttpEntity<>(headers), Map.class);
     }
