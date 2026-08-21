@@ -12,6 +12,7 @@ x-service-defaults: &service-defaults
 x-service-env: &service-env
   SPRING_PROFILES_ACTIVE: docker,chaos
   CASTREL_JWT_SECRET: ${CASTREL_JWT_SECRET:?CASTREL_JWT_SECRET must be set}
+  CASTREL_INTERNAL_SERVICE_KEY: ${CASTREL_INTERNAL_SERVICE_KEY:?CASTREL_INTERNAL_SERVICE_KEY must be set}
   SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-castrel}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
   SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-castrel}
   SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-castrel}
