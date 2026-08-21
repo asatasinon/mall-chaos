@@ -7,6 +7,7 @@ import com.castrel.chaos.user.dto.AuthResponse;
 import com.castrel.chaos.user.dto.LoginRequest;
 import com.castrel.chaos.user.dto.RegisterRequest;
 import com.castrel.chaos.user.dto.UserAddressRequest;
+import com.castrel.chaos.user.dto.UserProfileRequest;
 import com.castrel.chaos.user.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -47,6 +48,17 @@ public class UserController {
             throw new com.castrel.chaos.common.BizException("USER_NOT_FOUND", "User not found: " + id);
         }
         return ApiResponse.ok(userService.getUser(id));
+    }
+
+    @PatchMapping("/api/users/{id}")
+    public ApiResponse<UserDTO> updateProfile(
+            @RequestHeader("X-User-Id") Long authenticatedUserId,
+            @PathVariable Long id,
+            @RequestBody UserProfileRequest request) {
+        if (!authenticatedUserId.equals(id)) {
+            throw new com.castrel.chaos.common.BizException("USER_NOT_FOUND", "User not found: " + id);
+        }
+        return ApiResponse.ok(userService.updateProfile(id, request));
     }
 
     @GetMapping("/internal/users/{id}")

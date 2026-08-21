@@ -8,6 +8,7 @@ import com.castrel.chaos.user.dto.AuthResponse;
 import com.castrel.chaos.user.dto.LoginRequest;
 import com.castrel.chaos.user.dto.RegisterRequest;
 import com.castrel.chaos.user.dto.UserAddressRequest;
+import com.castrel.chaos.user.dto.UserProfileRequest;
 import com.castrel.chaos.user.entity.User;
 import com.castrel.chaos.user.entity.UserAddress;
 import com.castrel.chaos.user.entity.UserCredential;
@@ -200,6 +201,17 @@ public class UserService {
                 .orElseThrow(() -> new BizException("ADDRESS_NOT_FOUND",
                         "No default address for user: " + userId));
         return toDTO(addr);
+    }
+
+    @Transactional
+    public UserDTO updateProfile(Long userId, UserProfileRequest request) {
+        User user = requireUser(userId);
+        if (request == null || request.getNickname() == null || request.getNickname().isBlank()) {
+            throw new BizException("INVALID_PROFILE", "Nickname is required");
+        }
+        user.setNickname(request.getNickname().trim());
+        user.setUpdatedAt(LocalDateTime.now());
+        return toDTO(userRepository.save(user));
     }
 
     @Transactional

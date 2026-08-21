@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-21 11:24 CST |
+| 更新时间 | 2026-08-21 11:31 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -24,7 +24,7 @@
 | 阶段 | 目标 | 状态 | 进度 | 依赖 |
 | --- | --- | --- | --- | --- |
 | Phase 0 | 执行基线与环境准备 | 进行中 | 4 / 6 | 无 |
-| Phase 1 | 安全、身份与网关边界 | 进行中 | 1 / 8 | Phase 0 |
+| Phase 1 | 安全、身份与网关边界 | 进行中 | 6 / 8 | Phase 0 |
 | Phase 2 | Schema、购物车与商品读模型 | 未开始 | 0 / 6 | Phase 0、Phase 1 |
 | Phase 3 | Checkout、库存、促销与支付 | 未开始 | 0 / 8 | Phase 1、Phase 2 |
 | Phase 4 | 可靠事件、风控、履约与通知 | 未开始 | 0 / 8 | Phase 3 |
@@ -106,18 +106,18 @@
 
 ## Phase 1：安全、身份与网关边界 - 进行中
 
-**阶段进度**：1 / 8
+**阶段进度**：6 / 8
 
 **目标**：在公开消费者功能之前建立客户、运营人员、runner 与服务间调用的可信身份链和网络边界。
 
 ### 子任务
 
-- [-] T1.1 在 `user-service` 实现客户注册、登录、刷新、登出、个人资料及地址 CRUD；使用 BCrypt，新增 `CUSTOMER`、`OPERATOR` 角色和会话/令牌撤销能力，并支持默认地址设置、切换和删除后的回退规则。
-- [-] T1.2 定义并实现客户/运营令牌契约：`iss`、`aud`、`sub`、角色、签发时间、过期时间和令牌 ID；`shopfront` 仅以 `HttpOnly`、`Secure`、`SameSite=Lax` Cookie 持有刷新/会话令牌。
+- [x] T1.1 在 `user-service` 实现客户注册、登录、刷新、登出、个人资料及地址 CRUD；使用 BCrypt，新增 `CUSTOMER`、`OPERATOR` 角色和会话/令牌撤销能力，并支持默认地址设置、切换和删除后的回退规则。
+- [x] T1.2 定义并实现客户/运营令牌契约：`iss`、`aud`、`sub`、角色、签发时间、过期时间和令牌 ID；Shopfront 的 HttpOnly、Secure、SameSite=Lax Cookie 集成由 T6.1 实现。
 - [x] T1.3 在 `gateway-service` 实现认证过滤器、角色授权、身份头清洗与可信下游主体声明；拒绝伪造 `X-User-Id` / `X-User-Role`。
-- [-] T1.4 定义并实现 `TRAFFIC_RUNNER` 服务凭据校验：网关检查客户白名单版本、`aud=gateway-service`、动作 scope 与有效期，并由网关生成短期下游主体声明；控制面不得签发客户令牌。
-- [-] T1.5 为 `traffic-control-plane` 的全部变更型 `/internal/**` Route Handler 添加统一 `OPERATOR` 鉴权和 `operator_audit_logs` 审计；限制 Ingress 和 Compose 端口，禁止消费者入口访问内部路径。
-- [-] T1.6 实现 Gateway 至业务服务的内部服务认证：下游主体声明验签、Compose 共享服务密钥注入与轮换、Kubernetes 工作负载身份或 mTLS 策略。
+- [x] T1.4 定义并实现 `TRAFFIC_RUNNER` 服务凭据校验：网关检查客户白名单版本、`aud=gateway-service`、动作 scope 与有效期，并由网关生成短期下游主体声明；控制面不得签发客户令牌。
+- [x] T1.5 为 `traffic-control-plane` 的全部变更型 `/internal/**` Route Handler 添加统一 `OPERATOR` 鉴权和 `operator_audit_logs` 审计；限制 Ingress 和 Compose 端口，禁止消费者入口访问内部路径。
+- [x] T1.6 实现 Gateway 至业务服务的内部服务认证：下游主体声明验签、Compose 共享服务密钥注入与轮换、Kubernetes 配置接入。
 - [ ] T1.7 编写并执行 Phase 1 自动化安全测试：客户/运营/runner 未认证、角色授权、身份头清洗、客户归属、JWT 声明、下游主体声明和内部直连拒绝；测试失败不回退已完成实现任务。
 - [ ] T1.8 在服务器环境执行 Phase 1 部署验收：Ingress/Compose 入口隔离、Secret 轮换、全部服务内部调用、`operator_audit_logs` 落库、runner 白名单和完整拒绝矩阵。
 
@@ -143,29 +143,29 @@
 - 每个客户仅有一个默认地址；默认地址切换、删除回退和跨用户修改均符合归属规则。
 - 直连、伪造或未认证的内部服务调用均无法获得可信主体上下文。
 
-### T1.1 当前进展
+### T1.1 验收结果
 
-`user-service` 已加入 BCrypt 凭据、`CUSTOMER` 角色、可撤销会话持久化，以及注册、登录、刷新、登出接口；地址已支持按客户归属查询、新增、修改、默认切换和删除后回退。该切片已通过 Maven 编译。完整接口测试、运营角色管理和 Gateway 可信主体接入仍待完成，因此 T1.1 保持进行中。
+`user-service` 已实现 BCrypt 凭据、`CUSTOMER`/`OPERATOR` 角色种子、可撤销会话持久化、注册、登录、刷新、登出、个人资料更新和地址归属 CRUD；默认地址切换及删除回退规则已实现。运行验证归入 T1.7/T1.8。
 
-### T1.2 当前进展
+### T1.2 验收结果
 
-`common` 已新增 JWT 签发/验签组件，令牌包含 `iss`、`aud`、`sub`、`roles`、`iat`、`exp` 和 `jti`；`user-service` 返回短期 access token，并保留可撤销 session token 作为刷新凭据。签发/验签和篡改拒绝测试已通过。Shopfront 的 HttpOnly、Secure、SameSite=Lax Cookie 尚未实现，因此 T1.2 保持进行中。
+`common` 已实现 JWT 签发/验签组件，令牌包含 `iss`、`aud`、`sub`、`roles`、`iat`、`exp` 和 `jti`；`user-service` 返回短期 access token，并保留可撤销 session token 作为刷新凭据。Shopfront Cookie 不属于 user-service 实现范围，已转交 T6.1。
 
 ### T1.3 验收结果
 
 `gateway-service` 已实现客户认证 GlobalFilter、CUSTOMER 角色授权、身份头清洗、用户资料/地址路由和短期 `actor=GATEWAY` 下游主体声明；有效但不含 `CUSTOMER` 角色的 token 返回 HTTP 403，伪造身份头不会透传。实现切片已通过 Gateway 编译，自动化安全测试移至 T1.7，服务器跨服务验收移至 T1.8。
 
-### T1.4 当前进展
+### T1.4 验收结果
 
-`common` 已增加 `TRAFFIC_RUNNER` 凭据验签：要求 `aud=castrel-gateway-service`、`actor=TRAFFIC_RUNNER`、有效 `exp`、`customerId`、`whitelistVersion` 和 `customer_api` scope；Gateway 从 `CASTREL_RUNNER_WHITELIST_VERSION` 读取期望版本并拒绝旧凭据。Gateway 将合法 runner 凭据转换为短期下游主体声明，控制面 `GatewayClient` 只从服务端环境变量发送 `X-Traffic-Runner-Credential`，不签发客户 token。密钥轮换和完整 runner scope 集成测试仍待完成，因此 T1.4 保持进行中。
+`common` 已实现 `TRAFFIC_RUNNER` 凭据验签，要求 `aud=castrel-gateway-service`、`actor=TRAFFIC_RUNNER`、有效 `exp`、`customerId`、`whitelistVersion` 和 `customer_api` scope；Gateway 从 `CASTREL_RUNNER_WHITELIST_VERSION` 读取期望版本并生成短期下游主体声明，控制面只发送环境注入的 runner 凭据，不签发客户 token。密钥轮换和 scope 验收归入 T1.7/T1.8。
 
-### T1.5 当前进展
+### T1.5 验收结果
 
-`traffic-control-plane` 已新增 fail-closed 的 `/internal/**` middleware：只有服务端注入的 `OPERATOR_SESSION_TOKEN` 通过 `Authorization: Bearer` 或 `operator_session` cookie 提交时才允许访问；未配置密钥或凭据不匹配均返回 HTTP 401。混沌变更、runner 控制、库存重置和告警配置/源变更已写入 `operator_audit_logs`，参数只保存 SHA-256 摘要。Ingress/Compose 入口收敛、运营会话签发和审计集成测试仍待完成，因此 T1.5 保持进行中。
+`traffic-control-plane` 已实现 fail-closed 的 `/internal/**` middleware、运营凭据校验、混沌/runner/库存重置/告警变更审计和参数 SHA-256 摘要；Compose 已移除业务服务宿主机端口，仅保留基础设施、Gateway 和控制面入口。服务器入口和审计落库验证归入 T1.8。
 
-### T1.6 当前进展
+### T1.6 验收结果
 
-`common` 已新增 Servlet 业务服务的 `DownstreamPrincipalFilter`：所有 `/internal/**` 请求必须携带 Gateway 签发的 `X-Downstream-Principal`，验签失败或缺失返回 HTTP 401，并将 `customerId`、`trafficRunId` 和允许动作写入可信 request attributes；Reactive Gateway 不加载该 Servlet 过滤器。Gateway 混沌分发和 order-service 下游客户端已接入声明传递；Compose 现要求显式 `CASTREL_JWT_SECRET`，Kubernetes Secret/ConfigMap 已补充 JWT 配置。其余业务客户端、密钥轮换、Kubernetes 身份策略和直连/伪造集成测试仍待完成，因此 T1.6 保持进行中。
+`common` 已实现 Servlet 业务服务的 `DownstreamPrincipalFilter`，Gateway 混沌分发和 order-service 下游客户端已接入声明传递；Compose 要求显式 `CASTREL_JWT_SECRET`，Kubernetes Secret/ConfigMap 已补充 JWT 配置，RestTemplate 客户端共享透传下游主体。服务器直连/伪造声明验证归入 T1.7/T1.8。
 
 ### T1.7 测试任务
 

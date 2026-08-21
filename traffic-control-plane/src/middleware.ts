@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isOperatorRequest } from '@/lib/operator-auth';
+import { isOperatorRequest, operatorId } from '@/lib/operator-auth';
 
 export function middleware(request: NextRequest) {
   if (!request.nextUrl.pathname.startsWith('/internal/')) {
@@ -13,7 +13,10 @@ export function middleware(request: NextRequest) {
     );
   }
 
-  return NextResponse.next();
+  const requestHeaders = new Headers(request.headers);
+  const id = operatorId();
+  if (id !== null) requestHeaders.set('x-operator-id', String(id));
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {

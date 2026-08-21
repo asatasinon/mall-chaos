@@ -314,8 +314,6 @@ services:
       dockerfile: user-service/Dockerfile
     container_name: castrel-user
     <<: *service-defaults
-    ports:
-      - "18081:8081"
     volumes:
       - ./data/user-service:/service-data
     environment:
@@ -339,8 +337,6 @@ services:
       dockerfile: catalog-service/Dockerfile
     container_name: castrel-catalog
     <<: *service-defaults
-    ports:
-      - "18082:8082"
     volumes:
       - ./data/catalog-service:/service-data
     environment:
@@ -364,8 +360,6 @@ services:
       dockerfile: inventory-service/Dockerfile
     container_name: castrel-inventory
     <<: *service-defaults
-    ports:
-      - "18083:8083"
     volumes:
       - ./data/inventory-service:/service-data
     environment:
@@ -389,8 +383,6 @@ services:
       dockerfile: order-service/Dockerfile
     container_name: castrel-order
     <<: *service-defaults
-    ports:
-      - "18084:8084"
     volumes:
       - ./data/order-service:/service-data
     environment:
@@ -429,8 +421,6 @@ services:
       dockerfile: payment-service/Dockerfile
     container_name: castrel-payment
     <<: *service-defaults
-    ports:
-      - "18085:8085"
     volumes:
       - ./data/payment-service:/service-data
     environment:
@@ -473,6 +463,7 @@ services:
       GATEWAY_BASE_URL: http://gateway-service:8080
       TRAFFIC_RUNNER_CREDENTIAL: ${TRAFFIC_RUNNER_CREDENTIAL:-}
       OPERATOR_SESSION_TOKEN: ${OPERATOR_SESSION_TOKEN:-}
+      OPERATOR_ID: ${OPERATOR_ID:-3}
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: ${MYSQL_USER:-castrel}
@@ -512,6 +503,7 @@ services:
       GATEWAY_BASE_URL: http://gateway-service:8080
       TRAFFIC_RUNNER_CREDENTIAL: ${TRAFFIC_RUNNER_CREDENTIAL:-}
       OPERATOR_SESSION_TOKEN: ${OPERATOR_SESSION_TOKEN:-}
+      OPERATOR_ID: ${OPERATOR_ID:-3}
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: ${MYSQL_USER:-castrel}
@@ -535,8 +527,6 @@ services:
       dockerfile: promotion-service/Dockerfile
     container_name: castrel-promotion
     <<: *service-defaults
-    ports:
-      - "18087:8087"
     volumes:
       - ./data/promotion-service:/service-data
     environment:
@@ -560,8 +550,6 @@ services:
       dockerfile: risk-service/Dockerfile
     container_name: castrel-risk
     <<: *service-defaults
-    ports:
-      - "18088:8088"
     volumes:
       - ./data/risk-service:/service-data
     environment:
@@ -585,8 +573,6 @@ services:
       dockerfile: fulfillment-service/Dockerfile
     container_name: castrel-fulfillment
     <<: *service-defaults
-    ports:
-      - "18089:8089"
     volumes:
       - ./data/fulfillment-service:/service-data
     environment:
@@ -610,8 +596,6 @@ services:
       dockerfile: notification-service/Dockerfile
     container_name: castrel-notification
     <<: *service-defaults
-    ports:
-      - "18090:8090"
     volumes:
       - ./data/notification-service:/service-data
     environment:

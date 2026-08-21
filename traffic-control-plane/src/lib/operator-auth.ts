@@ -14,6 +14,11 @@ export function isOperatorRequest(request: NextRequest): boolean {
   return Boolean(supplied && supplied === expected);
 }
 
+export function operatorId(): number | null {
+  const value = process.env.OPERATOR_ID;
+  return value && /^\d+$/.test(value) ? Number(value) : null;
+}
+
 export function operatorUnauthorizedResponse(): Response {
   return Response.json(
     { code: 401, message: 'Operator authentication required', data: null },

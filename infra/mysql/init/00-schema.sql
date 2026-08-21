@@ -950,6 +950,12 @@ FROM users
 WHERE email IN ('alice@example.com', 'bob@example.com')
 ON DUPLICATE KEY UPDATE customer_id = VALUES(customer_id);
 
+INSERT INTO user_roles (user_id, role)
+SELECT id, 'OPERATOR'
+FROM users
+WHERE email = 'carol@example.com'
+ON DUPLICATE KEY UPDATE role = VALUES(role);
+
 INSERT INTO traffic_runs (traffic_run_id, status)
 VALUES ('seed-run-v1', 'COMPLETED')
 ON DUPLICATE KEY UPDATE status = VALUES(status);
