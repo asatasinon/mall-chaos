@@ -39,6 +39,9 @@ public class DownstreamClients {
     @Value("${services.payment-url:http://localhost:8085}")
     private String paymentUrl;
 
+    @Value("${services.risk-url:http://localhost:18088}")
+    private String riskUrl;
+
     @Value("${services.cart-url:http://cart-service:8091}")
     private String cartUrl;
 
@@ -154,4 +157,13 @@ public class DownstreamClients {
             HttpMethod.POST, reqBody, Map.class);
         return (Map<String, Object>) ((Map<?, ?>) resp).get("data");
         }
+
+            public Map<String, Object> preCheckRisk(Long userId, String orderNo, BigDecimal amount,
+                                String sku, int qty) {
+            Map<String, Object> body = Map.of("userId", userId, "orderNo", orderNo,
+                "amount", amount, "sku", sku, "qty", qty);
+            Map<String, Object> response = exchange(riskUrl + "/internal/risk/pre-check",
+                HttpMethod.POST, body, Map.class);
+            return (Map<String, Object>) ((Map<?, ?>) response).get("data");
+            }
 }

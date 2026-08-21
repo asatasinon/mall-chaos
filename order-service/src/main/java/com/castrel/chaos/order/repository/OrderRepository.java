@@ -7,12 +7,16 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Optional<Order> findByOrderNo(String orderNo);
 
     Optional<Order> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey);
+
+    Page<Order> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
     @Modifying
     @Query("update Order o set o.status = 'CANCELLED', o.updatedAt = CURRENT_TIMESTAMP, o.version = o.version + 1 "

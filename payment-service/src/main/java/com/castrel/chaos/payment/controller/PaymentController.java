@@ -15,7 +15,10 @@ public class PaymentController {
     private PaymentService paymentService;
 
     @PostMapping("/api/payments/intents")
-    public ApiResponse<PaymentDTO> createIntent(@RequestBody PaymentIntentRequest request) {
+    public ApiResponse<PaymentDTO> createIntent(
+            @RequestHeader("X-User-Id") Long customerId,
+            @RequestBody PaymentIntentRequest request) {
+        request.setUserId(customerId);
         return ApiResponse.ok(paymentService.createIntent(request));
     }
 

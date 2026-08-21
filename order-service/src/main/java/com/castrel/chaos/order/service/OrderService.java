@@ -21,6 +21,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -95,9 +97,16 @@ public class OrderService {
                 item.setProductName(String.valueOf(product.get("name")));
                 item.setUnitPrice(new BigDecimal(String.valueOf(product.get("price"))));
                 subtotal = subtotal.add(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+            }
+            CheckoutItem riskItem = freeze.getItems().get(0);
+            Map<String, Object> risk = clients.preCheckRisk(customerId, command.getIdempotencyKey(),
+                    subtotal, riskItem.getSku(), riskItem.getQuantity());
+            if (risk != null && Boolean.FALSE.equals(risk.get("passed"))) {
+                throw new BizException("RISK_REJECTED", String.valueOf(risk.getOrDefault("reason", "Risk rejected")));
+            }
+            for (CheckoutItem item : freeze.getItems()) {
                 String reservationId = command.getIdempotencyKey() + ":" + item.getSku();
-                clients.reserveInventory(orderId, item.getSku(), item.getQuantity(),
-                    reservationId, reservationId);
+                clients.reserveInventory(orderId, item.getSku(), item.getQuantity(), reservationId, reservationId);
             }
             Order order = new Order();
             order.setOrderNo(command.getIdempotencyKey());
@@ -266,10 +275,46 @@ public class OrderService {
         return result;
     }
 
+    public OrderDTO getCustomerOrder(Long customerId, Long id) {
+        Order order = orderRepository.findById(id)
+                .filter(candidate -> customerId.equals(candidate.getUserId()))
+                .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + id));
+        return toDTO(order);
+    }
+
+    public Page<OrderDTO> listCustomerOrders(Long customerId, Pageable pageable) {
+        return orderRepository.findByUserIdOrderByCreatedAtDesc(customerId, pageable).map(this::toDTO);
+    }
+
     @Transactional
     public OrderDTO cancelOrder(Long id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + id));
+        if (!"PENDING".equals(order.getStatus()) && !"PENDING_PAYMENT".equals(order.getStatus())) {
+            throw new BizException("INVALID_STATUS", "Can only cancel PENDING orders");
+        }
+        try {
+            clients.releaseInventory(order.getId().toString(), order.getSku(), order.getQty());
+        } catch (Exception e) {
+            log.warn("Failed to release inventory during cancel: {}", e.getMessage());
+        }
+        if (orderRepository.cancelPending(order.getId(), order.getVersion()) == 0) {
+            throw new BizException("ORDER_STATE_CONFLICT", "Order state changed before cancellation");
+        }
+        order.setStatus("CANCELLED");
+        order.setVersion(order.getVersion() + 1);
+        return toDTO(order);
+    }
+
+    @Transactional
+    public OrderDTO cancelCustomerOrder(Long customerId, Long id) {
+        Order order = orderRepository.findById(id)
+                .filter(candidate -> customerId.equals(candidate.getUserId()))
+                .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + id));
+        return cancelOrder(order);
+    }
+
+    private OrderDTO cancelOrder(Order order) {
         if (!"PENDING".equals(order.getStatus()) && !"PENDING_PAYMENT".equals(order.getStatus())) {
             throw new BizException("INVALID_STATUS", "Can only cancel PENDING orders");
         }

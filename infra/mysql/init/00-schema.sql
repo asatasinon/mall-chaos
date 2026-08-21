@@ -679,7 +679,7 @@ CREATE TABLE IF NOT EXISTS inventory_reservations (
   id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
   reservation_id VARCHAR(128) NOT NULL,
   operation_id   VARCHAR(128) NOT NULL,
-  order_id       BIGINT       NOT NULL,
+  order_id       VARCHAR(128) NOT NULL,
   sku            VARCHAR(32)  NOT NULL,
   quantity       INT          NOT NULL,
   status         VARCHAR(16)  NOT NULL DEFAULT 'RESERVED',
