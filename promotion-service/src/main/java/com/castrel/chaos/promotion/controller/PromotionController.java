@@ -22,4 +22,16 @@ public class PromotionController {
     public ApiResponse<PromotionResultDTO> calculate(@RequestBody PromotionRequest req) {
         return ApiResponse.ok(promotionService.calculate(req));
     }
+
+    @PostMapping("/internal/promotions/{orderId}/coupon/{couponId}/release")
+    public ApiResponse<Void> release(@PathVariable String orderId, @PathVariable Long couponId) {
+        promotionService.releaseReservation(orderId, couponId);
+        return ApiResponse.ok();
+    }
+
+    @PostMapping("/internal/promotions/{orderId}/coupon/{couponId}/confirm")
+    public ApiResponse<Void> confirm(@PathVariable String orderId, @PathVariable Long couponId) {
+        promotionService.confirmReservation(orderId, couponId);
+        return ApiResponse.ok();
+    }
 }

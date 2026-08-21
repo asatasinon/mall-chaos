@@ -106,6 +106,16 @@ public class DownstreamClients {
     exchange(inventoryUrl + "/internal/inventory/release", HttpMethod.POST, reqBody, Map.class);
     }
 
+    public void releaseInventory(String orderId, String sku, String reservationId) {
+        Map<String, Object> body = Map.of("orderId", orderId, "sku", sku, "reservationId", reservationId, "qty", 0);
+        exchange(inventoryUrl + "/internal/inventory/release", HttpMethod.POST, body, Map.class);
+    }
+
+    public void releaseCoupon(String orderId, Long couponId) {
+        exchange(promotionUrl + "/internal/promotions/" + orderId + "/coupon/" + couponId + "/release",
+                HttpMethod.POST, Map.of(), Map.class);
+    }
+
     public Map<String, Object> charge(String orderId, String orderNo, Long userId, BigDecimal amount) {
         Map<String, Object> reqBody = Map.of(
                 "orderId", orderId, "orderNo", orderNo, "userId", userId, "amount", amount);

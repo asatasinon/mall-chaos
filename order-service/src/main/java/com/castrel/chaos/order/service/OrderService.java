@@ -89,6 +89,8 @@ public class OrderService {
                         product -> String.valueOf(product.get("sku")), product -> product));
         BigDecimal subtotal = BigDecimal.ZERO;
         String orderId = UUID.randomUUID().toString();
+        List<String> reservedSkus = new java.util.ArrayList<>();
+        Long reservedCouponId = null;
         try {
             for (CheckoutItem item : freeze.getItems()) {
                 Map<String, Object> product = bySku.get(item.getSku());
@@ -106,6 +108,9 @@ public class OrderService {
                     ? BigDecimal.ZERO : new BigDecimal(String.valueOf(promotion.get("discountAmount")));
                 BigDecimal total = promotion == null || promotion.get("finalAmount") == null
                     ? subtotal : new BigDecimal(String.valueOf(promotion.get("finalAmount")));
+                if (promotion != null && promotion.get("usedCouponId") != null) {
+                    reservedCouponId = Long.valueOf(String.valueOf(promotion.get("usedCouponId")));
+                }
             CheckoutItem riskItem = freeze.getItems().get(0);
             Map<String, Object> risk = clients.preCheckRisk(customerId, command.getIdempotencyKey(),
                     total, riskItem.getSku(), riskItem.getQuantity());
@@ -115,6 +120,7 @@ public class OrderService {
             for (CheckoutItem item : freeze.getItems()) {
                 String reservationId = command.getIdempotencyKey() + ":" + item.getSku();
                 clients.reserveInventory(orderId, item.getSku(), item.getQuantity(), reservationId, reservationId);
+                reservedSkus.add(item.getSku());
             }
             Order order = new Order();
             order.setOrderNo(command.getIdempotencyKey());
@@ -143,6 +149,20 @@ public class OrderService {
             clients.consumeCartFreeze(command.getIdempotencyKey(), freeze.getFreezeToken());
             return toDTO(order);
         } catch (RuntimeException exception) {
+            for (String sku : reservedSkus) {
+                try {
+                    clients.releaseInventory(orderId, sku, command.getIdempotencyKey() + ":" + sku);
+                } catch (Exception ignored) {
+                    log.warn("Failed to release inventory reservation for {}", sku);
+                }
+            }
+            if (reservedCouponId != null) {
+                try {
+                    clients.releaseCoupon(command.getIdempotencyKey(), reservedCouponId);
+                } catch (Exception ignored) {
+                    log.warn("Failed to release coupon reservation {}", reservedCouponId);
+                }
+            }
             try {
                 clients.releaseCartFreeze(command.getIdempotencyKey(), freeze.getFreezeToken());
             } catch (Exception ignored) {

@@ -7,6 +7,6 @@ import java.util.List;
 @Data
 public class PromotionRequest {
     private Long userId;
-    private Long orderId; // required for calculate, optional for preview
+    private String orderId; // business correlation ID; required for calculate
     private List<SkuItem> skus;
 }

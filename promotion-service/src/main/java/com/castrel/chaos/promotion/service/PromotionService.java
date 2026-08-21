@@ -9,6 +9,8 @@ import com.castrel.chaos.promotion.dto.SkuItem;
 import com.castrel.chaos.promotion.entity.Coupon;
 import com.castrel.chaos.promotion.entity.Promotion;
 import com.castrel.chaos.promotion.repository.CouponRepository;
+import com.castrel.chaos.promotion.repository.CouponReservationRepository;
+import com.castrel.chaos.promotion.entity.CouponReservation;
 import com.castrel.chaos.promotion.repository.PromotionRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -37,6 +39,9 @@ public class PromotionService {
 
     @Autowired
     private CouponRepository couponRepository;
+
+    @Autowired
+    private CouponReservationRepository reservationRepository;
 
     @Autowired
     private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
@@ -68,12 +73,12 @@ public class PromotionService {
     public PromotionResultDTO preview(PromotionRequest req) {
         enrichQueryIfNeeded();
         BigDecimal original = calcOriginal(req.getSkus());
-        return applyPromotions(req.getUserId(), original, false, null);
+        return applyPromotions(req.getUserId(), original, false, null, req.getOrderId());
     }
 
     @Transactional
     public PromotionResultDTO calculate(PromotionRequest req) {
-        if (req.getOrderId() == null) {
+        if (req.getOrderId() == null || req.getOrderId().isBlank()) {
             throw new BizException("MISSING_ORDER_ID", "orderId is required for calculate");
         }
         // Idempotency check
@@ -83,12 +88,12 @@ public class PromotionService {
             // Already calculated — return a consistent preview result (idempotent response)
             enrichQueryIfNeeded();
             BigDecimal original = calcOriginal(req.getSkus());
-            return applyPromotions(req.getUserId(), original, false, null);
+            return applyPromotions(req.getUserId(), original, false, null, req.getOrderId());
         }
 
         enrichQueryIfNeeded();
         BigDecimal original = calcOriginal(req.getSkus());
-        PromotionResultDTO result = applyPromotions(req.getUserId(), original, true, req.getUserId());
+        PromotionResultDTO result = applyPromotions(req.getUserId(), original, true, req.getUserId(), req.getOrderId());
 
         calculateCounter.increment();
         discountTotalCounter.increment(result.getDiscountAmount().doubleValue());
@@ -137,7 +142,7 @@ public class PromotionService {
     }
 
     private PromotionResultDTO applyPromotions(Long userId, BigDecimal original,
-                                                boolean lockCoupon, Long lockUserId) {
+                                                boolean lockCoupon, Long lockUserId, String orderId) {
         List<Promotion> active = promotionRepository
                 .findByEnabledAndEndAtAfterOrEndAtIsNull(1, LocalDateTime.now());
 
@@ -180,6 +185,16 @@ public class PromotionService {
                         coupon.setStatus(1);
                         coupon.setUsedAt(LocalDateTime.now());
                         couponRepository.save(coupon);
+                        CouponReservation reservation = new CouponReservation();
+                        reservation.setCouponId(coupon.getId());
+                        reservation.setOrderId(orderId);
+                        reservation.setCustomerId(lockUserId);
+                        reservation.setStatus("RESERVED");
+                        reservation.setOperationId("coupon:" + orderId + ":" + coupon.getId());
+                        reservation.setExpiresAt(LocalDateTime.now().plusMinutes(15));
+                        reservation.setCreatedAt(LocalDateTime.now());
+                        reservation.setUpdatedAt(LocalDateTime.now());
+                        reservationRepository.save(reservation);
                         usedCouponId = coupon.getId();
                     }
 
@@ -208,5 +223,31 @@ public class PromotionService {
         dto.setAppliedPromotions(applied);
         dto.setUsedCouponId(usedCouponId);
         return dto;
+    }
+
+    @Transactional
+    public void releaseReservation(String orderId, Long couponId) {
+        CouponReservation reservation = reservationRepository.findByOrderIdAndCouponId(orderId, couponId)
+                .orElseThrow(() -> new BizException("COUPON_RESERVATION_NOT_FOUND", "Coupon reservation not found"));
+        if (!"RESERVED".equals(reservation.getStatus())) return;
+        couponRepository.findById(couponId).ifPresent(coupon -> {
+            coupon.setStatus(0);
+            coupon.setUsedAt(null);
+            couponRepository.save(coupon);
+        });
+        reservation.setStatus("RELEASED");
+        reservation.setUpdatedAt(LocalDateTime.now());
+        reservationRepository.save(reservation);
+    }
+
+    @Transactional
+    public void confirmReservation(String orderId, Long couponId) {
+        CouponReservation reservation = reservationRepository.findByOrderIdAndCouponId(orderId, couponId)
+                .orElseThrow(() -> new BizException("COUPON_RESERVATION_NOT_FOUND", "Coupon reservation not found"));
+        if ("RESERVED".equals(reservation.getStatus())) {
+            reservation.setStatus("USED");
+            reservation.setUpdatedAt(LocalDateTime.now());
+            reservationRepository.save(reservation);
+        }
     }
 }
