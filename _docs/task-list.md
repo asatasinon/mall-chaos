@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-21 11:17 CST |
+| 更新时间 | 2026-08-21 11:24 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -15,7 +15,7 @@
 1. 开始子任务时，将 `- [ ]` 更新为 `- [-]`；完成后更新为 `- [x]`。
 2. 子任务完成后，立即更新所在阶段的“阶段进度”为“已完成子任务数 / 子任务总数”。
 3. 只有所有子任务完成且阶段验收条件通过，才能将阶段状态更新为“已完成”。
-4. 遇到问题时，先在对应阶段的“问题与解决方案”表追加记录；问题未关闭前，受影响子任务不得标记为完成。
+4. 遇到实现问题时，先在对应阶段的“问题与解决方案”表追加记录；问题未关闭前，受影响实现子任务不得标记为完成。测试环境、服务器资源或部署窗口不足时，新增独立测试/验收子任务，不阻塞已经完成的实现子任务。
 5. 子任务描述中的 API、状态机、事件与数据表以 [technical-design.md](technical-design.md) 为准；实现过程中发现设计冲突时，先更新设计文档和本清单，再改代码。
 6. 每次更新 [task-list.md](task-list.md)、[product.md](product.md) 或 [technical-design.md](technical-design.md) 时，必须同步更新该文档“文档信息”中的“更新时间”为实际修改时间，格式为 `YYYY-MM-DD HH:mm TZ`；任务状态变更也属于文档更新。
 
@@ -23,19 +23,19 @@
 
 | 阶段 | 目标 | 状态 | 进度 | 依赖 |
 | --- | --- | --- | --- | --- |
-| Phase 0 | 执行基线与环境准备 | 进行中 | 3 / 5 | 无 |
-| Phase 1 | 安全、身份与网关边界 | 未开始 | 0 / 6 | Phase 0 |
-| Phase 2 | Schema、购物车与商品读模型 | 未开始 | 0 / 5 | Phase 0、Phase 1 |
-| Phase 3 | Checkout、库存、促销与支付 | 未开始 | 0 / 7 | Phase 1、Phase 2 |
-| Phase 4 | 可靠事件、风控、履约与通知 | 未开始 | 0 / 7 | Phase 3 |
-| Phase 5 | 控制面、完整 runner 与运维流程 | 未开始 | 0 / 4 | Phase 1、Phase 3、Phase 4 |
-| Phase 6 | Shopfront、部署与端到端验收 | 未开始 | 0 / 4 | Phase 1 至 Phase 5 |
+| Phase 0 | 执行基线与环境准备 | 进行中 | 4 / 6 | 无 |
+| Phase 1 | 安全、身份与网关边界 | 进行中 | 1 / 8 | Phase 0 |
+| Phase 2 | Schema、购物车与商品读模型 | 未开始 | 0 / 6 | Phase 0、Phase 1 |
+| Phase 3 | Checkout、库存、促销与支付 | 未开始 | 0 / 8 | Phase 1、Phase 2 |
+| Phase 4 | 可靠事件、风控、履约与通知 | 未开始 | 0 / 8 | Phase 3 |
+| Phase 5 | 控制面、完整 runner 与运维流程 | 未开始 | 0 / 5 | Phase 1、Phase 3、Phase 4 |
+| Phase 6 | Shopfront、部署与端到端验收 | 未开始 | 0 / 5 | Phase 1 至 Phase 5 |
 
 ---
 
 ## Phase 0：执行基线与环境准备 - 进行中
 
-**阶段进度**：3 / 5
+**阶段进度**：4 / 6
 
 **目标**：确定实现边界、测试基线和全新演示环境的运行方式，避免在旧数据或未定义契约上开始开发。
 
@@ -58,10 +58,11 @@
 ### 子任务
 
 - [x] T0.1 复核 [product.md](product.md) 和 [technical-design.md](technical-design.md)，将所有现有实现与目标契约的差异记录为实现 backlog；不在本阶段修改业务行为。
-- [-] T0.2 建立测试分层与命令：Java 单元测试、MySQL/Redis 集成测试、Next.js 类型检查/lint、Playwright 端到端测试；测试 Profile 默认禁用故障注入。
+- [x] T0.2 建立本地测试分层与命令：Java 单元测试、MySQL/Redis 集成测试、Next.js 类型检查/lint；测试 Profile 默认禁用故障注入。Playwright 和服务器验收另列为 T0.6。
 - [x] T0.3 重写 `infra/mysql/init/00-schema.sql` 为 Version 1 全新 Schema 的唯一来源，并新增 `schema_version` 与启动期版本校验约定。
 - [-] T0.4 编写运维重置 Runbook：运维手工停止全部业务服务、Gateway、worker 和外部流量，清除 MySQL/Redis 数据目录，重新启动、初始化、健康检查，最后恢复 runner；明确它与 inventory reset 的区别。
 - [x] T0.5 在 `common` 实现 schema version verifier，各服务在健康就绪和流量处理前校验期望版本；补充版本正确、缺失和不匹配三组集成测试，版本错误时拒绝就绪和流量。
+- [ ] T0.6 执行 Phase 0 测试与环境验收：Playwright 基线、完整重置演练、全栈健康检查、Redis/runner 队列清理和服务器部署验证。
 
 **涉及文件**：
 
@@ -97,15 +98,15 @@
 
 | 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| P0-001 | 2026-08-20 | Java verifier、MySQL/Redis 集成、控制面 typecheck 和 lint 均已通过；lint 保留 64 条既有 warning，Shopfront 尚未创建，暂无 Playwright 场景。 | T0.2 | `scripts/test-baseline.sh` 现已串联 Java、MySQL/Redis 集成、控制面 typecheck/lint；Shopfront 创建后接入 Playwright，并逐步清理 lint warning。 | 进行中 |
+| P0-001 | 2026-08-20 | Java verifier、MySQL/Redis 集成、控制面 typecheck 和 lint 均已通过；lint 保留 64 条既有 warning，Shopfront 尚未创建，暂无 Playwright 场景。 | T0.6 | 本地测试命令已由 T0.2 收口；Shopfront 创建后在 T0.6 接入 Playwright，并逐步清理 lint warning。 | 进行中 |
 | P0-003 | 2026-08-20 | Apple Silicon 上 Compose 使用 amd64 Java 镜像，完整业务栈启动非常慢；Cloudwise/OTel agents 默认开启时服务卡在 agent 初始化，关闭 agents 后仍有服务超过 150 秒才完成 Spring 启动，控制面尚未进入运行状态。 | T0.4 | 已用 `ENABLE_CLOUDWISE_AGENT=false ENABLE_OTEL_AGENT=false` 建立本地验证方式；待完整服务栈健康后再执行停机、重建数据和 runner 恢复，当前不将 T0.4 标记完成。 | 未关闭 |
 | P0-002 | 2026-08-20 | 初始验证时 MySQL 未运行，且旧 Runbook 的通配符清理可能遗漏隐藏数据文件。 | T0.3、T0.4 | 已启动 MySQL/Redis 完成全新初始化验证；将 Runbook 改为删除并重建整个数据目录。真实版本故障测试已完成，Runbook 全流程演练仍待完成。 | 部分关闭 |
 
 ---
 
-## Phase 1：安全、身份与网关边界 - 未开始
+## Phase 1：安全、身份与网关边界 - 进行中
 
-**阶段进度**：0 / 6
+**阶段进度**：1 / 8
 
 **目标**：在公开消费者功能之前建立客户、运营人员、runner 与服务间调用的可信身份链和网络边界。
 
@@ -113,10 +114,12 @@
 
 - [-] T1.1 在 `user-service` 实现客户注册、登录、刷新、登出、个人资料及地址 CRUD；使用 BCrypt，新增 `CUSTOMER`、`OPERATOR` 角色和会话/令牌撤销能力，并支持默认地址设置、切换和删除后的回退规则。
 - [-] T1.2 定义并实现客户/运营令牌契约：`iss`、`aud`、`sub`、角色、签发时间、过期时间和令牌 ID；`shopfront` 仅以 `HttpOnly`、`Secure`、`SameSite=Lax` Cookie 持有刷新/会话令牌。
-- [-] T1.3 在 `gateway-service` 实现认证过滤器、角色授权、身份头清洗与可信下游主体声明；拒绝直连业务服务和伪造 `X-User-Id` / `X-User-Role`。
+- [x] T1.3 在 `gateway-service` 实现认证过滤器、角色授权、身份头清洗与可信下游主体声明；拒绝伪造 `X-User-Id` / `X-User-Role`。
 - [-] T1.4 定义并实现 `TRAFFIC_RUNNER` 服务凭据校验：网关检查客户白名单版本、`aud=gateway-service`、动作 scope 与有效期，并由网关生成短期下游主体声明；控制面不得签发客户令牌。
 - [-] T1.5 为 `traffic-control-plane` 的全部变更型 `/internal/**` Route Handler 添加统一 `OPERATOR` 鉴权和 `operator_audit_logs` 审计；限制 Ingress 和 Compose 端口，禁止消费者入口访问内部路径。
-- [-] T1.6 实现 Gateway 至业务服务的内部服务认证：下游主体声明验签、Compose 共享服务密钥注入与轮换、Kubernetes 工作负载身份或 mTLS 策略；覆盖直连、伪造声明和未认证内部调用拒绝测试。
+- [-] T1.6 实现 Gateway 至业务服务的内部服务认证：下游主体声明验签、Compose 共享服务密钥注入与轮换、Kubernetes 工作负载身份或 mTLS 策略。
+- [ ] T1.7 编写并执行 Phase 1 自动化安全测试：客户/运营/runner 未认证、角色授权、身份头清洗、客户归属、JWT 声明、下游主体声明和内部直连拒绝；测试失败不回退已完成实现任务。
+- [ ] T1.8 在服务器环境执行 Phase 1 部署验收：Ingress/Compose 入口隔离、Secret 轮换、全部服务内部调用、`operator_audit_logs` 落库、runner 白名单和完整拒绝矩阵。
 
 **涉及文件**：
 
@@ -148,9 +151,9 @@
 
 `common` 已新增 JWT 签发/验签组件，令牌包含 `iss`、`aud`、`sub`、`roles`、`iat`、`exp` 和 `jti`；`user-service` 返回短期 access token，并保留可撤销 session token 作为刷新凭据。签发/验签和篡改拒绝测试已通过。Shopfront 的 HttpOnly、Secure、SameSite=Lax Cookie 尚未实现，因此 T1.2 保持进行中。
 
-### T1.3 当前进展
+### T1.3 验收结果
 
-`gateway-service` 已新增客户认证 GlobalFilter：受保护客户路径要求 Bearer JWT，清洗传入的 `X-User-Id`、`X-User-Role`、`X-Auth-Actor` 和 `X-Downstream-Principal`，依据验签主体向下游注入可信身份头及短期 `actor=GATEWAY` 下游主体声明；认证、用户资料和地址路由已接入 Gateway，用户资料路径还会校验可信主体与路径 ID 一致。有效但不含 `CUSTOMER` 角色的 token 现在返回 HTTP 403；共享下游主体声明的合法验签和客户 token 误用拒绝测试已通过。业务服务强制验签和直连拒绝集成测试仍待完成，因此 T1.3 保持进行中。
+`gateway-service` 已实现客户认证 GlobalFilter、CUSTOMER 角色授权、身份头清洗、用户资料/地址路由和短期 `actor=GATEWAY` 下游主体声明；有效但不含 `CUSTOMER` 角色的 token 返回 HTTP 403，伪造身份头不会透传。实现切片已通过 Gateway 编译，自动化安全测试移至 T1.7，服务器跨服务验收移至 T1.8。
 
 ### T1.4 当前进展
 
@@ -164,6 +167,14 @@
 
 `common` 已新增 Servlet 业务服务的 `DownstreamPrincipalFilter`：所有 `/internal/**` 请求必须携带 Gateway 签发的 `X-Downstream-Principal`，验签失败或缺失返回 HTTP 401，并将 `customerId`、`trafficRunId` 和允许动作写入可信 request attributes；Reactive Gateway 不加载该 Servlet 过滤器。Gateway 混沌分发和 order-service 下游客户端已接入声明传递；Compose 现要求显式 `CASTREL_JWT_SECRET`，Kubernetes Secret/ConfigMap 已补充 JWT 配置。其余业务客户端、密钥轮换、Kubernetes 身份策略和直连/伪造集成测试仍待完成，因此 T1.6 保持进行中。
 
+### T1.7 测试任务
+
+待独立完成，不反向阻塞已完成的实现任务。测试范围包括：客户 JWT 401/403、伪造身份头清洗、客户资源归属、runner audience/scope/whitelistVersion、运营 middleware fail-closed、审计落库、下游声明缺失/过期/篡改和业务服务内部直连拒绝。
+
+### T1.8 服务器验收任务
+
+待服务器部署后执行，不在本地资源不足时阻塞代码实现。验收范围包括：Ingress 和 Compose 端口隔离、JWT secret/runner credential/operator token 轮换、全部业务服务启动、所有内部客户端声明传递、runner 白名单限制和 `operator_audit_logs` 查询。
+
 ### 问题与解决方案
 
 | 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
@@ -174,7 +185,7 @@
 
 ## Phase 2：Schema、购物车与商品读模型 - 未开始
 
-**阶段进度**：0 / 5
+**阶段进度**：0 / 6
 
 **目标**：建立多商品订单所需数据模型、持久化购物车和可供消费者/runner 共用的商品读模型。
 
@@ -185,6 +196,7 @@
 - [ ] T2.3 实现购物车公开 API：查询、加购、改数量、删除、清空；使用版本号或 ETag 处理并发修改，并校验商品可售状态和数量。
 - [ ] T2.4 实现 Redis Checkout 冻结协议：`cart:checkout-freeze:{checkoutId}`、`SET NX`/Lua 原子版本校验、冻结令牌、TTL、幂等释放和成功后按令牌消费匹配版本购物车行。
 - [ ] T2.5 扩展 `catalog-service`：关键字/分类/排序/分页、稳定商品 DTO、商品媒体元数据与可售库存投影；统一 BFF 对分页响应的规范化。
+- [ ] T2.6 编写并执行 Phase 2 测试：购物车客户归属、版本冲突、并发冻结、冻结 TTL/幂等释放、商品分页稳定性和不可售商品拒绝。
 
 **涉及文件**：
 
@@ -215,7 +227,7 @@
 
 ## Phase 3：Checkout、库存、促销与支付 - 未开始
 
-**阶段进度**：0 / 7
+**阶段进度**：0 / 8
 
 **目标**：实现从冻结购物车到创建待支付订单、模拟支付及库存/优惠券一致性处理的完整交易核心。
 
@@ -228,6 +240,7 @@
 - [ ] T3.5 为订单增加 `version` 条件更新，完成支付成功、客户取消、预占到期三方竞争裁决；每次仅允许一个终态转换成功，其余流程读取终态后停止或补偿。
 - [ ] T3.6 实现客户订单 API：个人订单分页、详情、待支付订单取消、支付意图/确认/查询；保留旧 `POST /api/orders` 仅作单商品 API 回归兼容，不作为 runner 主路径。
 - [ ] T3.7 实现仅限 `OPERATOR` / 测试身份的模拟退款：幂等将支付尝试转为 `REFUNDED`，写入审计和关联 ID，并定义退款后订单、库存、优惠券、履约和通知的补偿边界；客户公开 API 不得触发退款。
+- [ ] T3.8 编写并执行 Phase 3 交易测试：checkout 幂等、库存/优惠券补偿、支付成功/失败/未知、支付重试、取消/到期竞争、退款越权和重复退款。
 
 **涉及文件**：
 
@@ -260,7 +273,7 @@
 
 ## Phase 4：可靠事件、风控、履约与通知 - 未开始
 
-**阶段进度**：0 / 7
+**阶段进度**：0 / 8
 
 **目标**：以服务私有 Outbox/Inbox 完成支付后的可靠事件链，确保风控通过后才履约。
 
@@ -270,9 +283,10 @@
 - [ ] T4.2 实现 `payment-service -> PAYMENT_RESULT -> order-service`：支付状态与 `payment_outbox_events` 同事务写入；订单 Inbox 去重后裁决订单、库存和优惠券，并发布 `ORDER_PAID` 或 `ORDER_PAYMENT_FAILED`。
 - [ ] T4.3 实现支付后风控事件链：`risk-service` 只消费 `ORDER_PAID`，发布 `POST_PAYMENT_RISK_PASSED` 或 `POST_PAYMENT_RISK_REJECTED`；拒绝结果触发订单规定补偿和客户通知。
 - [ ] T4.4 实现履约和物流：`fulfillment-service` 只消费 `POST_PAYMENT_RISK_PASSED` 创建发货单和时间线，发布 `SHIPMENT_UPDATED`；实现演示发货、客户确认签收以及 `FULFILLING -> SHIPPED -> COMPLETED` 的幂等状态转换，不得直接消费支付成功事件。
-- [ ] T4.5 定义并实现统一版本化事件信封：`eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId`、`trafficRunId`；缺字段拒绝消费，重放保留原始信封，并覆盖跨版本兼容测试。
-- [ ] T4.6 实现通知偏好、客户通知记录、`GET/PATCH /api/notifications` 分页/已读 API 和事件订阅；通过 Gateway 强制客户归属，覆盖跨用户查询和已读修改拒绝。
+- [ ] T4.5 定义并实现统一版本化事件信封：`eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId`、`trafficRunId`；缺字段拒绝消费，重放保留原始信封。
+- [ ] T4.6 实现通知偏好、客户通知记录、`GET/PATCH /api/notifications` 分页/已读 API 和事件订阅；通过 Gateway 强制客户归属。
 - [ ] T4.7 实现业务可观测性和隐私安全：`checkout_total`、结算耗时、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、Outbox 延迟/失败、`fulfillment_transition_total`、`customer_api_error_total`；统一关联 ID、稳定错误码和日志/指标/链路中的 PII、令牌、密码及模拟支付密钥脱敏。
+- [ ] T4.8 编写并执行 Phase 4 可靠性与隐私测试：Outbox/Inbox 重复投递、租约恢复、死信重放、事件版本兼容、风控门禁、通知归属、指标/链路关联和敏感信息脱敏。
 
 **涉及文件**：
 
@@ -308,7 +322,7 @@
 
 ## Phase 5：控制面、完整 runner 与运维流程 - 未开始
 
-**阶段进度**：0 / 4
+**阶段进度**：0 / 5
 
 **目标**：使 `traffic-control-plane` 通过完整消费者流程生成可观测流量，并保留安全的运营能力。
 
@@ -318,6 +332,7 @@
 - [ ] T5.2 重构 `RunnerEngine` 动作与状态队列：实现 `BROWSE_PRODUCT`、`SEARCH_CATALOG`、`ADD_CART_ITEM`、`UPDATE_CART_ITEM`、`CHECKOUT`、`PAYMENT_CONFIRM`、`CANCEL_PENDING_ORDER`、`QUERY_ORDER`、`QUERY_SHIPMENT`；只取消已记录的待支付订单，只查询已支付订单物流。
 - [ ] T5.3 实现 `traffic_runs`、`traffic_actions` 持久化与活动记录，关联演示客户、购物车版本、订单、支付、动作、结果、耗时、错误码和 `traceId`；移除 runner 向旧 `/api/orders` 直接提交 `userId` 及已支付订单取消队列的旧行为。
 - [ ] T5.4 更新控制台的 runner 配置、状态、活动和错误展示，支持动作比例、商品数量、支付成功/失败/未知比例和取消比例；确保内部控制面变更动作经过 Phase 1 的 `OPERATOR` 鉴权和审计。
+- [ ] T5.5 编写并执行 Phase 5 runner/运维测试：客户白名单、动作状态队列、只取消待支付订单、重置后队列清理、配置乐观锁、控制面审计和完整 Gateway 流量链路。
 
 **涉及文件**：
 
@@ -347,7 +362,7 @@
 
 ## Phase 6：Shopfront、部署与端到端验收 - 未开始
 
-**阶段进度**：0 / 4
+**阶段进度**：0 / 5
 
 **目标**：交付独立消费者前台、部署隔离和完整业务/混沌验收。
 
@@ -356,7 +371,8 @@
 - [ ] T6.1 新建独立 `shopfront` Next.js 应用及 BFF：实现会话处理、强类型网关客户端、商品列表/详情、购物车、结算、支付结果、账户资料、地址、订单、物流和通知路由。
 - [ ] T6.2 实现消费者界面状态：商品不可售、购物车版本冲突、库存不足、价格/优惠券变化、支付失败/未知、风控拒绝、履约进度和可恢复故障提示；不得暴露内部服务地址或敏感错误细节。
 - [ ] T6.3 更新 Docker Compose、镜像构建、Kubernetes、Ingress 和 README：独立部署 `shopfront` 与 `traffic-control-plane`，只公开 Gateway/前台入口，业务服务端口保持私有。
-- [ ] T6.4 编写并执行自动化验收：后端集成测试、Playwright 注册至订单签收完成流程、资料/默认地址更新、通知已读、身份/归属越权、模拟退款越权/幂等、支付/取消/到期竞争、Outbox/Inbox 恢复、runner 全链路、指标/链路/脱敏验证与 `scripts/chaos/chaos-verify.sh` 回归。
+- [ ] T6.4 建立跨模块自动化验收套件：后端集成测试、Playwright 场景、身份/归属越权、支付竞争、Outbox/Inbox 恢复、runner 全链路和 `scripts/chaos/chaos-verify.sh` 执行编排。
+- [ ] T6.5 执行 Phase 6 发布验收：注册至订单签收完成、资料/默认地址、通知已读、退款越权/幂等、指标/链路/脱敏、部署隔离和恢复流程。
 
 **涉及文件**：
 
