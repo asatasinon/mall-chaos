@@ -203,6 +203,11 @@ public class UserService {
         return toDTO(addr);
     }
 
+    public UserAddressDTO getAddress(Long userId, Long addressId) {
+        requireUser(userId);
+        return toDTO(ownedAddress(userId, addressId));
+    }
+
     @Transactional
     public UserDTO updateProfile(Long userId, UserProfileRequest request) {
         User user = requireUser(userId);

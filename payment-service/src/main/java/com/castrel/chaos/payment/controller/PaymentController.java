@@ -33,6 +33,11 @@ public class PaymentController {
         return ApiResponse.ok(paymentService.retryIntent(id));
     }
 
+    @PostMapping("/internal/payments/{id}/retry")
+    public ApiResponse<PaymentDTO> internalRetry(@PathVariable Long id) {
+        return ApiResponse.ok(paymentService.retryIntent(id));
+    }
+
     @PostMapping("/internal/payments/{id}/refund")
     public ApiResponse<PaymentDTO> refund(
             @PathVariable Long id,

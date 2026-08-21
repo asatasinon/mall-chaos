@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
+import java.util.Map;
+
 @RestController
 public class OrderController {
 
@@ -53,6 +55,17 @@ public class OrderController {
     public ApiResponse<OrderDTO> cancelOrderPublic(
             @RequestHeader("X-User-Id") Long customerId, @PathVariable Long id) {
         return ApiResponse.ok(orderService.cancelCustomerOrder(customerId, id));
+    }
+
+    @PostMapping("/api/orders/{id}/payment-retry")
+    public ApiResponse<Map<String, Object>> retryPayment(
+            @RequestHeader("X-User-Id") Long customerId, @PathVariable Long id) {
+        return ApiResponse.ok(orderService.retryCustomerPayment(customerId, id));
+    }
+
+    @PostMapping("/internal/orders/{id}/expire")
+    public ApiResponse<OrderDTO> expire(@PathVariable Long id) {
+        return ApiResponse.ok(orderService.expireOrder(id));
     }
 
     @PostMapping("/internal/orders/{id}/cancel")

@@ -35,4 +35,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             int applyPaymentResult(@Param("orderNo") String orderNo, @Param("version") Integer version,
                        @Param("status") String status, @Param("paymentId") String paymentId,
                        @Param("failReason") String failReason);
+
+            @Modifying
+            @Query("update Order o set o.status = 'PAYMENT_FAILED', o.failReason = 'RESERVATION_EXPIRED', "
+                + "o.updatedAt = CURRENT_TIMESTAMP, o.version = o.version + 1 "
+                + "where o.id = :id and o.version = :version and o.status = 'PENDING_PAYMENT'")
+            int expirePending(@Param("id") Long id, @Param("version") Integer version);
 }

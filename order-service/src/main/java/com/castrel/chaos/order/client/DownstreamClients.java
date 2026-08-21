@@ -85,6 +85,15 @@ public class DownstreamClients {
         return exchange(userUrl + "/internal/users/" + userId, HttpMethod.GET, null, Map.class);
     }
 
+    public Map<String, Object> getDefaultAddress(Long userId) {
+        return exchange(userUrl + "/internal/users/" + userId + "/address", HttpMethod.GET, null, Map.class);
+    }
+
+    public Map<String, Object> getAddress(Long userId, Long addressId) {
+        return exchange(userUrl + "/internal/users/" + userId + "/address/" + addressId,
+                HttpMethod.GET, null, Map.class);
+    }
+
     public List<Map<String, Object>> batchCatalog(List<String> skus) {
         Map<String, Object> reqBody = Map.of("skus", skus);
         Map<String, Object> resp = exchange(catalogUrl + "/internal/catalog/batch", HttpMethod.POST, reqBody, Map.class);
@@ -124,6 +133,17 @@ public class DownstreamClients {
     public void confirmInventory(String orderId, String sku, String reservationId) {
         exchange(inventoryUrl + "/internal/inventory/confirm", HttpMethod.POST,
                 Map.of("orderId", orderId, "sku", sku, "reservationId", reservationId), Map.class);
+    }
+
+    public void expireInventory(String reservationId, String sku) {
+        exchange(inventoryUrl + "/internal/inventory/expire", HttpMethod.POST,
+                Map.of("reservationId", reservationId, "sku", sku), Map.class);
+    }
+
+    public Map<String, Object> retryPayment(Long paymentId) {
+        Map<String, Object> response = exchange(paymentUrl + "/internal/payments/" + paymentId + "/retry",
+                HttpMethod.POST, Map.of(), Map.class);
+        return (Map<String, Object>) ((Map<?, ?>) response).get("data");
     }
 
     public Map<String, Object> charge(String orderId, String orderNo, Long userId, BigDecimal amount) {

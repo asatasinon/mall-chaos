@@ -14,7 +14,9 @@ import com.castrel.chaos.order.dto.OrderItemDTO;
 import com.castrel.chaos.order.dto.OrderDTO;
 import com.castrel.chaos.order.entity.Order;
 import com.castrel.chaos.order.entity.OrderItem;
+import com.castrel.chaos.order.entity.OrderAddressSnapshot;
 import com.castrel.chaos.order.repository.OrderItemRepository;
+import com.castrel.chaos.order.repository.OrderAddressSnapshotRepository;
 import com.castrel.chaos.order.repository.OrderRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -47,6 +49,9 @@ public class OrderService {
 
     @Autowired
     private OrderItemRepository orderItemRepository;
+
+    @Autowired
+    private OrderAddressSnapshotRepository addressSnapshotRepository;
 
     @Autowired
     private DownstreamClients clients;
@@ -138,6 +143,20 @@ public class OrderService {
             order.setCreatedAt(LocalDateTime.now());
             order.setUpdatedAt(LocalDateTime.now());
             order = orderRepository.save(order);
+            Map<String, Object> addressResponse = clients.getAddress(customerId, command.getAddressId());
+            Map<String, Object> address = addressResponse == null ? Map.of() : (Map<String, Object>) addressResponse.get("data");
+            if (address == null || address.isEmpty()) {
+                throw new BizException("ADDRESS_NOT_FOUND", "Address not found for customer");
+            }
+            OrderAddressSnapshot snapshot = new OrderAddressSnapshot();
+            snapshot.setOrderId(order.getId());
+            snapshot.setReceiver(String.valueOf(address.get("receiver")));
+            snapshot.setPhone(String.valueOf(address.get("phone")));
+            snapshot.setProvince(String.valueOf(address.get("province")));
+            snapshot.setCity(String.valueOf(address.get("city")));
+            snapshot.setDistrict(String.valueOf(address.get("district")));
+            snapshot.setDetail(String.valueOf(address.get("detail")));
+            addressSnapshotRepository.save(snapshot);
             for (CheckoutItem item : freeze.getItems()) {
                 OrderItem orderItem = new OrderItem();
                 orderItem.setOrderId(order.getId());
@@ -365,8 +384,10 @@ public class OrderService {
         if ("PAID".equals(order.getStatus()) || "PAYMENT_FAILED".equals(order.getStatus())) {
             return toDTO(order);
         }
-        String status = "SUCCESS".equals(request.getStatus()) ? "PAID" : "PAYMENT_FAILED";
-        String reason = "SUCCESS".equals(request.getStatus()) ? null : request.getResultCode();
+        boolean success = "SUCCESS".equals(request.getStatus());
+        boolean unknown = "UNKNOWN".equals(request.getStatus());
+        String status = success ? "PAID" : unknown ? "PENDING_PAYMENT" : "PAYMENT_FAILED";
+        String reason = success || unknown ? null : request.getResultCode();
         if (orderRepository.applyPaymentResult(order.getOrderNo(), order.getVersion(), status,
                 request.getPaymentNo(), reason) == 0) {
             throw new BizException("ORDER_STATE_CONFLICT", "Payment result lost order state race");
@@ -375,7 +396,7 @@ public class OrderService {
         order.setPaymentId(request.getPaymentNo());
         order.setFailReason(reason);
         order.setVersion(order.getVersion() + 1);
-        if ("PAID".equals(status)) {
+        if (success) {
             for (OrderItem item : orderItemRepository.findByOrderIdOrderByIdAsc(order.getId())) {
                 String reservationId = order.getOrderNo() + ":" + item.getSku();
                 clients.confirmInventory(order.getOrderNo(), item.getSku(), reservationId);
@@ -384,6 +405,45 @@ public class OrderService {
                 clients.confirmCoupon(order.getOrderNo(), order.getCouponId());
             }
         }
+        return toDTO(order);
+    }
+
+    @Transactional
+    public Map<String, Object> retryCustomerPayment(Long customerId, Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .filter(candidate -> customerId.equals(candidate.getUserId()))
+                .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + orderId));
+        if (!"PENDING_PAYMENT".equals(order.getStatus()) || order.getPaymentId() == null) {
+            throw new BizException("PAYMENT_NOT_RETRYABLE", "Order has no retryable payment");
+        }
+        for (OrderItem item : orderItemRepository.findByOrderIdOrderByIdAsc(order.getId())) {
+            String retryReservation = order.getOrderNo() + ":retry:" + item.getSku() + ":" + order.getVersion();
+            clients.reserveInventory(order.getOrderNo(), item.getSku(), item.getQuantity(), retryReservation, retryReservation);
+        }
+        return clients.retryPayment(Long.valueOf(order.getPaymentId()));
+    }
+
+    @Transactional
+    public OrderDTO expireOrder(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + orderId));
+        if (!"PENDING_PAYMENT".equals(order.getStatus())) return toDTO(order);
+        if (orderRepository.expirePending(order.getId(), order.getVersion()) == 0) {
+            throw new BizException("ORDER_STATE_CONFLICT", "Order state changed before expiration");
+        }
+        for (OrderItem item : orderItemRepository.findByOrderIdOrderByIdAsc(order.getId())) {
+            try {
+                clients.expireInventory(order.getOrderNo() + ":" + item.getSku(), item.getSku());
+            } catch (Exception exception) {
+                log.warn("Failed to expire inventory reservation for {}", item.getSku());
+            }
+        }
+        if (order.getCouponId() != null) {
+            clients.releaseCoupon(order.getOrderNo(), order.getCouponId());
+        }
+        order.setStatus("PAYMENT_FAILED");
+        order.setFailReason("RESERVATION_EXPIRED");
+        order.setVersion(order.getVersion() + 1);
         return toDTO(order);
     }
 

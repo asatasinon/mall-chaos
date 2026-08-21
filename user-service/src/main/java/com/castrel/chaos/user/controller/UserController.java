@@ -71,6 +71,17 @@ public class UserController {
         return ApiResponse.ok(userService.getDefaultAddress(id));
     }
 
+    @GetMapping("/internal/users/{id}/address/{addressId}")
+    public ApiResponse<UserAddressDTO> getAddress(
+            @RequestHeader("X-User-Id") Long customerId,
+            @PathVariable Long id,
+            @PathVariable Long addressId) {
+        if (!customerId.equals(id)) {
+            throw new com.castrel.chaos.common.BizException("ADDRESS_NOT_FOUND", "Address not found");
+        }
+        return ApiResponse.ok(userService.getAddress(id, addressId));
+    }
+
     @GetMapping("/api/addresses")
     public ApiResponse<List<UserAddressDTO>> listAddresses(@RequestHeader("X-User-Id") Long userId) {
         return ApiResponse.ok(userService.listAddresses(userId));
