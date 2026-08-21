@@ -17,6 +17,9 @@ public class Fulfillment {
     @Column(name = "order_id", nullable = false, unique = true)
     private Long orderId;
 
+    @Column(name = "customer_id")
+    private Long customerId;
+
     @Column(name = "order_no", length = 32, nullable = false)
     private String orderNo;
 

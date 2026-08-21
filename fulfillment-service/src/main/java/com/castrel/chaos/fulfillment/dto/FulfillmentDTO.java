@@ -3,6 +3,7 @@ package com.castrel.chaos.fulfillment.dto;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class FulfillmentDTO {
@@ -15,4 +16,8 @@ public class FulfillmentDTO {
     private LocalDateTime shippedAt;
     private LocalDateTime deliveredAt;
     private LocalDateTime createdAt;
+    private List<TimelineDTO> timeline;
+
+    public record TimelineDTO(String status, String message, LocalDateTime occurredAt) {
+    }
 }

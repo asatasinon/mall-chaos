@@ -9,6 +9,8 @@ import com.castrel.chaos.fulfillment.dto.CreateFulfillmentRequest;
 import com.castrel.chaos.fulfillment.dto.FulfillmentDTO;
 import com.castrel.chaos.fulfillment.entity.Fulfillment;
 import com.castrel.chaos.fulfillment.repository.FulfillmentRepository;
+import com.castrel.chaos.fulfillment.repository.ShipmentTimelineRepository;
+import com.castrel.chaos.fulfillment.entity.ShipmentTimelineEvent;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -26,6 +28,9 @@ public class FulfillmentService {
 
     @Autowired
     private FulfillmentRepository fulfillmentRepository;
+
+    @Autowired
+    private ShipmentTimelineRepository timelineRepository;
 
     @Autowired
     private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
@@ -57,12 +62,14 @@ public class FulfillmentService {
                 .orElseGet(() -> {
                     Fulfillment f = new Fulfillment();
                     f.setOrderId(req.getOrderId());
+                    f.setCustomerId(req.getUserId());
                     f.setOrderNo(req.getOrderNo());
                     f.setStatus("CREATED");
                     f.setTrackingNo("TRACK-" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase());
                     f.setCarrier("MockExpress");
                     f.setTraceId(TraceContext.getTraceId());
                     fulfillmentRepository.save(f);
+                    appendTimeline(f.getId(), "CREATED", "Shipment created");
                     createCounter.increment();
                     advanceStatusAsync(f.getOrderId());
                     FulfillmentDTO result = toDTO(f);
@@ -91,7 +98,38 @@ public class FulfillmentService {
             if (shippedAt != null) f.setShippedAt(shippedAt);
             if (deliveredAt != null) f.setDeliveredAt(deliveredAt);
             fulfillmentRepository.save(f);
+            appendTimeline(f.getId(), status, "Shipment status: " + status);
         });
+    }
+
+    @Transactional
+    public FulfillmentDTO confirmDelivery(Long customerId, Long orderId) {
+        Fulfillment fulfillment = fulfillmentRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new BizException("FULFILLMENT_NOT_FOUND", "Fulfillment not found"));
+        if (!customerId.equals(fulfillment.getCustomerId())) {
+            throw new BizException("FULFILLMENT_NOT_FOUND", "Fulfillment not found");
+        }
+        if ("DELIVERED".equals(fulfillment.getStatus()) || "COMPLETED".equals(fulfillment.getStatus())) {
+            return toDTO(fulfillment);
+        }
+        if (!"SHIPPED".equals(fulfillment.getStatus())) {
+            throw new BizException("FULFILLMENT_INVALID_STATUS", "Only shipped fulfillment can be confirmed");
+        }
+        fulfillment.setStatus("COMPLETED");
+        fulfillment.setDeliveredAt(LocalDateTime.now());
+        fulfillmentRepository.save(fulfillment);
+        appendTimeline(fulfillment.getId(), "COMPLETED", "Customer confirmed delivery");
+        return toDTO(fulfillment);
+    }
+
+    private void appendTimeline(Long shipmentId, String status, String message) {
+        if (timelineRepository.existsByShipmentIdAndStatus(shipmentId, status)) return;
+        ShipmentTimelineEvent event = new ShipmentTimelineEvent();
+        event.setShipmentId(shipmentId);
+        event.setStatus(status);
+        event.setMessage(message);
+        event.setOccurredAt(LocalDateTime.now());
+        timelineRepository.save(event);
     }
 
     @Transactional
@@ -164,6 +202,9 @@ public class FulfillmentService {
         dto.setShippedAt(f.getShippedAt());
         dto.setDeliveredAt(f.getDeliveredAt());
         dto.setCreatedAt(f.getCreatedAt());
+        dto.setTimeline(timelineRepository.findByShipmentIdOrderByOccurredAtAsc(f.getId()).stream()
+            .map(event -> new FulfillmentDTO.TimelineDTO(event.getStatus(), event.getMessage(), event.getOccurredAt()))
+            .toList());
         return dto;
     }
 

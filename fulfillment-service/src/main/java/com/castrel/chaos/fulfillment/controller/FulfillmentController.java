@@ -20,6 +20,12 @@ public class FulfillmentController {
         return ApiResponse.ok(fulfillmentService.getByOrderId(orderId));
     }
 
+    @PostMapping("/api/fulfillments/{orderId}/confirm-delivery")
+    public ApiResponse<FulfillmentDTO> confirmDelivery(
+            @RequestHeader("X-User-Id") Long customerId, @PathVariable Long orderId) {
+        return ApiResponse.ok(fulfillmentService.confirmDelivery(customerId, orderId));
+    }
+
     @PostMapping("/internal/fulfillments/create")
     public ApiResponse<FulfillmentDTO> create(@RequestBody CreateFulfillmentRequest req) {
         return ApiResponse.ok(fulfillmentService.create(req));

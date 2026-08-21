@@ -855,6 +855,8 @@ CREATE TABLE IF NOT EXISTS shipments (
   INDEX idx_shipment_customer (customer_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+ALTER TABLE fulfillments ADD COLUMN customer_id BIGINT;
+
 CREATE TABLE IF NOT EXISTS shipment_timeline_events (
   id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
   shipment_id BIGINT       NOT NULL,
