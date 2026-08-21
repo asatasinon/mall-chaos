@@ -23,5 +23,9 @@ public class NotificationOutboxEvent {
     private String traceId;
     private String status;
     private Integer attempts;
+    @Column(name = "next_attempt_at")
+    private LocalDateTime nextAttemptAt;
+    @Column(name = "published_at")
+    private LocalDateTime publishedAt;
     private LocalDateTime createdAt;
 }

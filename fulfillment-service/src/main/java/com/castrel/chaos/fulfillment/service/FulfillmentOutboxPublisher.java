@@ -37,7 +37,10 @@ public class FulfillmentOutboxPublisher {
     @Scheduled(fixedDelayString = "${outbox.publisher.delay-ms:1000}")
     public void publishPending() {
         for (FulfillmentOutboxEvent event : repository.findAll().stream()
-                .filter(item -> "PENDING".equals(item.getStatus())).limit(50).toList()) {
+                .filter(item -> ("PENDING".equals(item.getStatus()) || "FAILED".equals(item.getStatus()))
+                    && item.getAttempts() < 10
+                    && (item.getNextAttemptAt() == null || !item.getNextAttemptAt().isAfter(java.time.LocalDateTime.now())))
+                .limit(50).toList()) {
             event.setStatus("PROCESSING");
             event.setAttempts(event.getAttempts() + 1);
             try {
@@ -54,8 +57,10 @@ public class FulfillmentOutboxPublisher {
                 client.postForEntity(notificationUrl + "/internal/notifications/shipping-created",
                         new HttpEntity<>(body, headers), Void.class);
                 event.setStatus("PUBLISHED");
+                event.setPublishedAt(java.time.LocalDateTime.now());
             } catch (Exception exception) {
                 event.setStatus(event.getAttempts() >= 10 ? "DEAD_LETTER" : "FAILED");
+                event.setNextAttemptAt(java.time.LocalDateTime.now().plusSeconds(Math.min(event.getAttempts(), 30)));
             }
             repository.save(event);
         }

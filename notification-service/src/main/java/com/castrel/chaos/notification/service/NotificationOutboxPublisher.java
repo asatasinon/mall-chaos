@@ -18,13 +18,18 @@ public class NotificationOutboxPublisher {
     @Scheduled(fixedDelayString = "${outbox.publisher.delay-ms:1000}")
     public void publishPending() {
         for (NotificationOutboxEvent event : repository.findAll().stream()
-                .filter(item -> "PENDING".equals(item.getStatus())).limit(50).toList()) {
+                .filter(item -> ("PENDING".equals(item.getStatus()) || "FAILED".equals(item.getStatus()))
+                    && item.getAttempts() < 10
+                    && (item.getNextAttemptAt() == null || !item.getNextAttemptAt().isAfter(LocalDateTime.now())))
+                .limit(50).toList()) {
             event.setStatus("PROCESSING");
             event.setAttempts(event.getAttempts() + 1);
             try {
                 event.setStatus("PUBLISHED");
+                event.setPublishedAt(LocalDateTime.now());
             } catch (Exception exception) {
                 event.setStatus(event.getAttempts() >= 10 ? "DEAD_LETTER" : "FAILED");
+                event.setNextAttemptAt(LocalDateTime.now().plusSeconds(Math.min(event.getAttempts(), 30)));
             }
             event.setCreatedAt(event.getCreatedAt() == null ? LocalDateTime.now() : event.getCreatedAt());
             repository.save(event);
