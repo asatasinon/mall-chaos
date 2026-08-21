@@ -34,6 +34,12 @@ public class InventoryController {
         return ApiResponse.ok();
     }
 
+    @PostMapping("/internal/inventory/expire")
+    public ApiResponse<Void> expire(@RequestBody ReserveRequest req) {
+        inventoryService.expire(req.getReservationId(), req.getSku());
+        return ApiResponse.ok();
+    }
+
     @GetMapping("/internal/inventory/{sku}")
     public ApiResponse<Map<String, Object>> query(@PathVariable String sku) {
         return ApiResponse.ok(inventoryService.query(sku));

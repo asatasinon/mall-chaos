@@ -24,6 +24,7 @@ services:
   inventory-url: ${INVENTORY_SERVICE_URL:http://localhost:18083}
   payment-url: ${PAYMENT_SERVICE_URL:http://localhost:18085}
   risk-url: ${RISK_SERVICE_URL:http://localhost:18088}
+  promotion-url: ${PROMOTION_SERVICE_URL:http://localhost:18087}
 
 management:
   endpoint:

@@ -42,6 +42,9 @@ public class DownstreamClients {
     @Value("${services.risk-url:http://localhost:18088}")
     private String riskUrl;
 
+    @Value("${services.promotion-url:http://localhost:18087}")
+    private String promotionUrl;
+
     @Value("${services.cart-url:http://cart-service:8091}")
     private String cartUrl;
 
@@ -165,5 +168,12 @@ public class DownstreamClients {
             Map<String, Object> response = exchange(riskUrl + "/internal/risk/pre-check",
                 HttpMethod.POST, body, Map.class);
             return (Map<String, Object>) ((Map<?, ?>) response).get("data");
+            }
+
+            public Map<String, Object> calculatePromotion(Long userId, String orderNo,
+                                                          List<Map<String, Object>> items) {
+                Map<String, Object> response = exchange(promotionUrl + "/internal/promotions/calculate",
+                        HttpMethod.POST, Map.of("userId", userId, "orderId", orderNo, "skus", items), Map.class);
+                return (Map<String, Object>) ((Map<?, ?>) response).get("data");
             }
 }

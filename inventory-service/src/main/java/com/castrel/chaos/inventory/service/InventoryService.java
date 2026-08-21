@@ -153,6 +153,20 @@ public class InventoryService {
         }
     }
 
+    @Transactional
+    public void expire(String reservationId, String sku) {
+        InventoryReservation reservation = reservationRepository.findByReservationIdAndSku(reservationId, sku)
+                .orElseThrow(() -> new BizException("RESERVATION_NOT_FOUND", "Reservation not found"));
+        if (!"RESERVED".equals(reservation.getStatus())) return;
+        if (reservation.getExpiresAt() != null && reservation.getExpiresAt().isAfter(LocalDateTime.now())) {
+            throw new BizException("RESERVATION_NOT_EXPIRED", "Reservation has not expired");
+        }
+        inventoryRepository.release(sku, reservation.getQuantity());
+        reservation.setStatus("EXPIRED");
+        reservation.setUpdatedAt(LocalDateTime.now());
+        reservationRepository.save(reservation);
+    }
+
     public Map<String, Object> query(String sku) {
         enrichQueryIfNeeded(sku);
         Inventory inv = inventoryRepository.findBySku(sku)

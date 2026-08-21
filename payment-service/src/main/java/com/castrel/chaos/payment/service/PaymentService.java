@@ -101,6 +101,24 @@ public class PaymentService {
     }
 
     @Transactional
+    public PaymentDTO retryIntent(Long id) {
+        Payment payment = paymentRepository.findById(id)
+                .orElseThrow(() -> new BizException("PAYMENT_NOT_FOUND", "Payment not found: " + id));
+        if ("SUCCESS".equals(payment.getStatus()) || "FAILED".equals(payment.getStatus())
+                || "REFUNDED".equals(payment.getStatus())) return toDTO(payment);
+        if (!"UNKNOWN".equals(payment.getStatus())) {
+            throw new BizException("PAYMENT_NOT_RETRYABLE", "Only UNKNOWN payments can be retried");
+        }
+        payment.setStatus("PROCESSING");
+        payment.setResultCode("RETRYING");
+        payment.setUpdatedAt(LocalDateTime.now());
+        paymentRepository.save(payment);
+        PaymentDTO result = executePayment(payment);
+        orderPaymentResultClient.publish(result);
+        return result;
+    }
+
+    @Transactional
     public PaymentDTO refund(Long id, RefundRequest request, String actor) {
         if (!"OPERATOR".equals(actor) && !"TEST".equals(actor)) {
             throw new BizException("REFUND_FORBIDDEN", "Refund requires operator or test identity");

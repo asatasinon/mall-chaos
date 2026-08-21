@@ -99,9 +99,16 @@ public class OrderService {
                 item.setUnitPrice(new BigDecimal(String.valueOf(product.get("price"))));
                 subtotal = subtotal.add(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
             }
+                List<Map<String, Object>> promotionItems = freeze.getItems().stream().map(item -> Map.<String, Object>of(
+                    "sku", item.getSku(), "qty", item.getQuantity(), "price", item.getUnitPrice())).toList();
+                Map<String, Object> promotion = clients.calculatePromotion(customerId, command.getIdempotencyKey(), promotionItems);
+                BigDecimal discount = promotion == null || promotion.get("discountAmount") == null
+                    ? BigDecimal.ZERO : new BigDecimal(String.valueOf(promotion.get("discountAmount")));
+                BigDecimal total = promotion == null || promotion.get("finalAmount") == null
+                    ? subtotal : new BigDecimal(String.valueOf(promotion.get("finalAmount")));
             CheckoutItem riskItem = freeze.getItems().get(0);
             Map<String, Object> risk = clients.preCheckRisk(customerId, command.getIdempotencyKey(),
-                    subtotal, riskItem.getSku(), riskItem.getQuantity());
+                    total, riskItem.getSku(), riskItem.getQuantity());
             if (risk != null && Boolean.FALSE.equals(risk.get("passed"))) {
                 throw new BizException("RISK_REJECTED", String.valueOf(risk.getOrDefault("reason", "Risk rejected")));
             }
@@ -115,9 +122,9 @@ public class OrderService {
             order.setUserId(customerId);
             order.setStatus("PENDING_PAYMENT");
             order.setSubtotal(subtotal);
-            order.setDiscountAmount(BigDecimal.ZERO);
-            order.setTotalAmount(subtotal);
-            order.setAmount(subtotal);
+            order.setDiscountAmount(discount);
+            order.setTotalAmount(total);
+            order.setAmount(total);
             order.setAddressId(command.getAddressId());
             order.setTraceId(TraceContext.getTraceId());
             order.setCreatedAt(LocalDateTime.now());
