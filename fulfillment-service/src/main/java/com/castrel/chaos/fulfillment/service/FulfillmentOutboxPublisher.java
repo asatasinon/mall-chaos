@@ -6,11 +6,14 @@ import com.castrel.chaos.fulfillment.entity.FulfillmentOutboxEvent;
 import com.castrel.chaos.fulfillment.repository.FulfillmentOutboxRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.web.client.RestTemplate;
 
 @Component
@@ -20,29 +23,32 @@ public class FulfillmentOutboxPublisher {
     private final ObjectMapper mapper;
     private final String notificationUrl;
     private final String serviceKey;
+    private final Counter publishedCounter;
+    private final Counter failedCounter;
 
     public FulfillmentOutboxPublisher(
             FulfillmentOutboxRepository repository,
             RestTemplateBuilder builder,
             ObjectMapper mapper,
             @Value("${services.notification-url:http://localhost:18090}") String notificationUrl,
-            @Value("${CASTREL_INTERNAL_SERVICE_KEY:}") String serviceKey) {
+            @Value("${CASTREL_INTERNAL_SERVICE_KEY:}") String serviceKey,
+            MeterRegistry meterRegistry) {
         this.repository = repository;
         this.client = builder.build();
         this.mapper = mapper;
         this.notificationUrl = notificationUrl;
         this.serviceKey = serviceKey;
+        this.publishedCounter = Counter.builder("fulfillment.outbox.published.count").register(meterRegistry);
+        this.failedCounter = Counter.builder("fulfillment.outbox.failed.count").register(meterRegistry);
     }
 
     @Scheduled(fixedDelayString = "${outbox.publisher.delay-ms:1000}")
     public void publishPending() {
-        for (FulfillmentOutboxEvent event : repository.findAll().stream()
-                .filter(item -> ("PENDING".equals(item.getStatus()) || "FAILED".equals(item.getStatus()))
-                    && item.getAttempts() < 10
-                    && (item.getNextAttemptAt() == null || !item.getNextAttemptAt().isAfter(java.time.LocalDateTime.now())))
-                .limit(50).toList()) {
-            event.setStatus("PROCESSING");
-            event.setAttempts(event.getAttempts() + 1);
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        for (FulfillmentOutboxEvent event : repository.findReady(now, PageRequest.of(0, 50))) {
+            if (repository.claim(event.getId(), now) == 0) {
+                continue;
+            }
             try {
                 JsonNode payload = mapper.readTree(event.getPayload());
                 HttpHeaders headers = new HttpHeaders();
@@ -58,9 +64,11 @@ public class FulfillmentOutboxPublisher {
                         new HttpEntity<>(body, headers), Void.class);
                 event.setStatus("PUBLISHED");
                 event.setPublishedAt(java.time.LocalDateTime.now());
+                publishedCounter.increment();
             } catch (Exception exception) {
                 event.setStatus(event.getAttempts() >= 10 ? "DEAD_LETTER" : "FAILED");
                 event.setNextAttemptAt(java.time.LocalDateTime.now().plusSeconds(Math.min(event.getAttempts(), 30)));
+                failedCounter.increment();
             }
             repository.save(event);
         }
