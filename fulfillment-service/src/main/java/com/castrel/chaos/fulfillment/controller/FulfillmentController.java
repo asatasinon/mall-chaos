@@ -4,6 +4,7 @@ import com.castrel.chaos.common.ApiResponse;
 import com.castrel.chaos.fulfillment.dto.CancelFulfillmentRequest;
 import com.castrel.chaos.fulfillment.dto.CreateFulfillmentRequest;
 import com.castrel.chaos.fulfillment.dto.FulfillmentDTO;
+import com.castrel.chaos.fulfillment.dto.RiskPassedEventRequest;
 import com.castrel.chaos.fulfillment.service.FulfillmentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +23,15 @@ public class FulfillmentController {
     @PostMapping("/internal/fulfillments/create")
     public ApiResponse<FulfillmentDTO> create(@RequestBody CreateFulfillmentRequest req) {
         return ApiResponse.ok(fulfillmentService.create(req));
+    }
+
+    @PostMapping("/internal/fulfillments/events/risk-passed")
+    public ApiResponse<FulfillmentDTO> riskPassed(@RequestBody RiskPassedEventRequest request) {
+        CreateFulfillmentRequest create = new CreateFulfillmentRequest();
+        create.setOrderId(request.getOrderId());
+        create.setUserId(request.getUserId());
+        create.setOrderNo(request.getOrderNo());
+        return ApiResponse.ok(fulfillmentService.create(create));
     }
 
     @PostMapping("/internal/fulfillments/cancel")

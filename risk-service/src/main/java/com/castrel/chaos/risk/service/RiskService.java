@@ -10,6 +10,9 @@ import com.castrel.chaos.risk.entity.RiskEvent;
 import com.castrel.chaos.risk.entity.RiskRule;
 import com.castrel.chaos.risk.repository.RiskEventRepository;
 import com.castrel.chaos.risk.repository.RiskRuleRepository;
+import com.castrel.chaos.risk.repository.RiskOutboxRepository;
+import com.castrel.chaos.risk.entity.RiskOutboxEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -32,6 +35,12 @@ public class RiskService {
 
     @Autowired
     private RiskRuleRepository riskRuleRepository;
+
+    @Autowired
+    private RiskOutboxRepository outboxRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private RiskEventRepository riskEventRepository;
@@ -122,12 +131,37 @@ public class RiskService {
             dto.setPass(false);
             dto.setAction("FREEZE");
             dto.setReason("HIGH_AMOUNT_REVIEW");
+            appendRiskEvent(req, dto, "POST_PAYMENT_RISK_REJECTED");
             return dto;
         }
 
         RiskResultDTO dto = new RiskResultDTO();
         dto.setPass(true);
+        appendRiskEvent(req, dto, "POST_PAYMENT_RISK_PASSED");
         return dto;
+    }
+
+    private void appendRiskEvent(PostPayCheckRequest request, RiskResultDTO result, String type) {
+        try {
+            RiskOutboxEvent event = new RiskOutboxEvent();
+            event.setEventId(java.util.UUID.randomUUID().toString());
+            event.setEventType(type);
+            event.setAggregateId(request.getOrderNo());
+            event.setAggregateVersion(1);
+                event.setPayload(objectMapper.writeValueAsString(java.util.Map.of(
+                    "userId", request.getUserId(), "orderNo", request.getOrderNo(),
+                    "paymentId", request.getPaymentId(), "amount", request.getAmount(),
+                    "result", result)));
+            event.setOccurredAt(java.time.LocalDateTime.now());
+            event.setSchemaVersion(1);
+            event.setTraceId(com.castrel.chaos.common.TraceContext.getTraceId());
+            event.setStatus("PENDING");
+            event.setAttempts(0);
+            event.setCreatedAt(java.time.LocalDateTime.now());
+            outboxRepository.save(event);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Unable to append risk outbox event", exception);
+        }
     }
 
     private void enrichQueryIfNeeded(Long userId) {

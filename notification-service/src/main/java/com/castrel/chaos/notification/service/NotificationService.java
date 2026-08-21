@@ -8,9 +8,13 @@ import com.castrel.chaos.notification.dto.PaymentResultRequest;
 import com.castrel.chaos.notification.dto.ShippingCreatedRequest;
 import com.castrel.chaos.notification.entity.NotificationLog;
 import com.castrel.chaos.notification.repository.NotificationLogRepository;
+import com.castrel.chaos.notification.repository.CustomerNotificationRepository;
+import com.castrel.chaos.notification.entity.CustomerNotification;
+import com.castrel.chaos.notification.dto.CustomerNotificationDTO;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
+import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,8 +23,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 @Service
 public class NotificationService {
@@ -41,6 +48,9 @@ public class NotificationService {
 
     @Autowired
     private NotificationLogRepository notificationLogRepository;
+
+    @Autowired
+    private CustomerNotificationRepository customerNotificationRepository;
 
     @Autowired
     private MeterRegistry meterRegistry;
@@ -105,6 +115,14 @@ public class NotificationService {
         notifLog.setPayload(payload);
         notifLog.setTraceId(TraceContext.getTraceId());
         notificationLogRepository.save(notifLog);
+        CustomerNotification notification = new CustomerNotification();
+        notification.setCustomerId(userId);
+        notification.setEventType(eventType);
+        notification.setTitle(eventType);
+        notification.setBody(message);
+        notification.setRead(false);
+        notification.setCreatedAt(LocalDateTime.now());
+        customerNotificationRepository.save(notification);
         localQueryCacheManager.cacheIfNeeded("notification:" + orderNo, notifLog);
 
         if (failed) {
@@ -116,6 +134,27 @@ public class NotificationService {
                     TraceContext.getTraceId(), eventType, userId, orderNo, message);
             sentCounter.increment();
         }
+    }
+
+    public Page<CustomerNotificationDTO> listCustomerNotifications(Long customerId, Pageable pageable) {
+        return customerNotificationRepository.findByCustomerIdOrderByCreatedAtDesc(customerId, pageable)
+                .map(notification -> new CustomerNotificationDTO(notification.getId(), notification.getEventType(),
+                        notification.getTitle(), notification.getBody(), notification.getRead(),
+                        notification.getCreatedAt(), notification.getReadAt()));
+    }
+
+    @Transactional
+    public CustomerNotificationDTO markRead(Long customerId, Long id) {
+        CustomerNotification notification = customerNotificationRepository.findById(id)
+                .filter(item -> customerId.equals(item.getCustomerId()))
+                .orElseThrow(() -> new com.castrel.chaos.common.BizException("NOTIFICATION_NOT_FOUND", "Notification not found"));
+        if (!Boolean.TRUE.equals(notification.getRead())) {
+            notification.setRead(true);
+            notification.setReadAt(LocalDateTime.now());
+            customerNotificationRepository.save(notification);
+        }
+        return new CustomerNotificationDTO(notification.getId(), notification.getEventType(), notification.getTitle(),
+                notification.getBody(), notification.getRead(), notification.getCreatedAt(), notification.getReadAt());
     }
 
     private void enrichQueryIfNeeded(Long userId, String orderNo) {

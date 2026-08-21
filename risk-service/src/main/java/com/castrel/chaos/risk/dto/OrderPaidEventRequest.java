@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 @Data
 public class OrderPaidEventRequest {
     private String eventId;
+    private Long orderId;
     private Long userId;
     private String orderNo;
     private String paymentId;

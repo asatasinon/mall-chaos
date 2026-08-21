@@ -49,6 +49,10 @@ spring:
           uri: ${PAYMENT_SERVICE_URL:http://localhost:18085}
           predicates:
             - Path=/api/payments/**
+        - id: notifications
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:18090}
+          predicates:
+            - Path=/api/notifications/**
         - id: products
           uri: ${CATALOG_SERVICE_URL:http://localhost:18082}
           predicates:
