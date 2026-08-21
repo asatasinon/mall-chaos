@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-21 17:02 CST |
+| 更新时间 | 2026-08-21 16:57 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 

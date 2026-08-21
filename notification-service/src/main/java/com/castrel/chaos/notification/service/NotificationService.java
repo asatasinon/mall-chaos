@@ -10,6 +10,10 @@ import com.castrel.chaos.notification.dto.ShippingCreatedRequest;
 import com.castrel.chaos.notification.entity.NotificationLog;
 import com.castrel.chaos.notification.repository.NotificationLogRepository;
 import com.castrel.chaos.notification.repository.CustomerNotificationRepository;
+import com.castrel.chaos.notification.repository.NotificationInboxRepository;
+import com.castrel.chaos.notification.repository.NotificationOutboxRepository;
+import com.castrel.chaos.notification.entity.NotificationInboxEvent;
+import com.castrel.chaos.notification.entity.NotificationOutboxEvent;
 import com.castrel.chaos.notification.entity.CustomerNotification;
 import com.castrel.chaos.notification.dto.CustomerNotificationDTO;
 import io.micrometer.core.instrument.Counter;
@@ -27,6 +31,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -54,6 +60,15 @@ public class NotificationService {
     private CustomerNotificationRepository customerNotificationRepository;
 
     @Autowired
+    private NotificationInboxRepository inboxRepository;
+
+    @Autowired
+    private NotificationOutboxRepository outboxRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
     private MeterRegistry meterRegistry;
 
     private Counter sentCounter;
@@ -76,7 +91,7 @@ public class NotificationService {
         payload.put("orderNo", req.getOrderNo());
         payload.put("amount", req.getAmount());
         payload.put("sku", req.getSku());
-        send(req.getUserId(), req.getOrderNo(), "ORDER_CREATED", message, payload);
+        send(req.getEventId(), req.getUserId(), req.getOrderNo(), "ORDER_CREATED", message, payload);
     }
 
     public void notifyPaymentResult(PaymentResultRequest req) {
@@ -88,7 +103,7 @@ public class NotificationService {
         payload.put("orderNo", req.getOrderNo());
         payload.put("success", req.isSuccess());
         payload.put("amount", req.getAmount());
-        send(req.getUserId(), req.getOrderNo(), eventType, message, payload);
+        send(req.getEventId(), req.getUserId(), req.getOrderNo(), eventType, message, payload);
     }
 
     public void notifyShippingCreated(ShippingCreatedRequest req) {
@@ -98,11 +113,21 @@ public class NotificationService {
         payload.put("orderNo", req.getOrderNo());
         payload.put("trackingNo", req.getTrackingNo());
         payload.put("carrier", req.getCarrier());
-        send(req.getUserId(), req.getOrderNo(), "SHIPPING", message, payload);
+        send(req.getEventId(), req.getUserId(), req.getOrderNo(), "SHIPPING", message, payload);
     }
 
-    private void send(Long userId, String orderNo, String eventType,
+    @Transactional
+    private void send(String incomingEventId, Long userId, String orderNo, String eventType,
                       String message, Map<String, Object> payload) {
+        String eventId = incomingEventId == null || incomingEventId.isBlank()
+                ? UUID.randomUUID().toString() : incomingEventId;
+        if (inboxRepository.existsById(eventId)) return;
+        NotificationInboxEvent inbox = new NotificationInboxEvent();
+        inbox.setEventId(eventId);
+        inbox.setEventType(eventType);
+        inbox.setReceivedAt(LocalDateTime.now());
+        inbox.setStatus("RECEIVED");
+        inboxRepository.save(inbox);
         enrichQueryIfNeeded(userId, orderNo);
         boolean failed = Math.random() < failRate;
         String status = failed ? "FAILED" : "SENT";
@@ -118,12 +143,36 @@ public class NotificationService {
         notificationLogRepository.save(notifLog);
         CustomerNotification notification = new CustomerNotification();
         notification.setCustomerId(userId);
+        notification.setEventId(eventId);
         notification.setEventType(eventType);
         notification.setTitle(eventType);
         notification.setBody(message);
         notification.setRead(false);
         notification.setCreatedAt(LocalDateTime.now());
         customerNotificationRepository.save(notification);
+        try {
+            NotificationOutboxEvent outbox = new NotificationOutboxEvent();
+            outbox.setEventId(UUID.randomUUID().toString());
+            outbox.setEventType("CUSTOMER_NOTIFICATION_CREATED");
+            outbox.setAggregateId(eventId);
+            outbox.setAggregateVersion(1);
+            outbox.setPayload(objectMapper.writeValueAsString(payload));
+            outbox.setOccurredAt(LocalDateTime.now());
+            outbox.setSchemaVersion(1);
+            outbox.setTraceId(TraceContext.getTraceId());
+            outbox.setStatus("PENDING");
+            outbox.setAttempts(0);
+            outbox.setCreatedAt(LocalDateTime.now());
+            outboxRepository.save(outbox);
+        } catch (Exception exception) {
+            inbox.setStatus("FAILED");
+            inbox.setFailureReason(exception.getMessage());
+            inboxRepository.save(inbox);
+            throw new IllegalStateException("Unable to append notification outbox event", exception);
+        }
+        inbox.setStatus("PROCESSED");
+        inbox.setProcessedAt(LocalDateTime.now());
+        inboxRepository.save(inbox);
         localQueryCacheManager.cacheIfNeeded("notification:" + orderNo, notifLog);
 
         if (failed) {
