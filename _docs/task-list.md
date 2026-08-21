@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-21 10:47 CST |
+| 更新时间 | 2026-08-21 11:03 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -115,8 +115,8 @@
 - [-] T1.2 定义并实现客户/运营令牌契约：`iss`、`aud`、`sub`、角色、签发时间、过期时间和令牌 ID；`shopfront` 仅以 `HttpOnly`、`Secure`、`SameSite=Lax` Cookie 持有刷新/会话令牌。
 - [-] T1.3 在 `gateway-service` 实现认证过滤器、角色授权、身份头清洗与可信下游主体声明；拒绝直连业务服务和伪造 `X-User-Id` / `X-User-Role`。
 - [-] T1.4 定义并实现 `TRAFFIC_RUNNER` 服务凭据校验：网关检查客户白名单版本、`aud=gateway-service`、动作 scope 与有效期，并由网关生成短期下游主体声明；控制面不得签发客户令牌。
-- [ ] T1.5 为 `traffic-control-plane` 的全部变更型 `/internal/**` Route Handler 添加统一 `OPERATOR` 鉴权和 `operator_audit_logs` 审计；限制 Ingress 和 Compose 端口，禁止消费者入口访问内部路径。
-- [ ] T1.6 实现 Gateway 至业务服务的内部服务认证：下游主体声明验签、Compose 共享服务密钥注入与轮换、Kubernetes 工作负载身份或 mTLS 策略；覆盖直连、伪造声明和未认证内部调用拒绝测试。
+- [-] T1.5 为 `traffic-control-plane` 的全部变更型 `/internal/**` Route Handler 添加统一 `OPERATOR` 鉴权和 `operator_audit_logs` 审计；限制 Ingress 和 Compose 端口，禁止消费者入口访问内部路径。
+- [-] T1.6 实现 Gateway 至业务服务的内部服务认证：下游主体声明验签、Compose 共享服务密钥注入与轮换、Kubernetes 工作负载身份或 mTLS 策略；覆盖直连、伪造声明和未认证内部调用拒绝测试。
 
 **涉及文件**：
 
@@ -155,6 +155,14 @@
 ### T1.4 当前进展
 
 `common` 已增加 `TRAFFIC_RUNNER` 凭据验签：要求 `aud=castrel-gateway-service`、`actor=TRAFFIC_RUNNER`、有效 `exp`、`customerId` 和 `customer_api` scope。Gateway 将合法 runner 凭据转换为短期下游主体声明，控制面 `GatewayClient` 只从服务端环境变量发送 `X-Traffic-Runner-Credential`，不签发客户 token。白名单版本校验、密钥轮换和完整 runner scope 测试仍待完成，因此 T1.4 保持进行中。
+
+### T1.5 当前进展
+
+`traffic-control-plane` 已新增 fail-closed 的 `/internal/**` middleware：只有服务端注入的 `OPERATOR_SESSION_TOKEN` 通过 `Authorization: Bearer` 或 `operator_session` cookie 提交时才允许访问；未配置密钥或凭据不匹配均返回 HTTP 401。混沌变更、runner 控制、库存重置和告警配置/源变更已写入 `operator_audit_logs`，参数只保存 SHA-256 摘要。Ingress/Compose 入口收敛、运营会话签发和审计集成测试仍待完成，因此 T1.5 保持进行中。
+
+### T1.6 当前进展
+
+`common` 已新增 Servlet 业务服务的 `DownstreamPrincipalFilter`：所有 `/internal/**` 请求必须携带 Gateway 签发的 `X-Downstream-Principal`，验签失败或缺失返回 HTTP 401，并将 `customerId`、`trafficRunId` 和允许动作写入可信 request attributes；Reactive Gateway 不加载该 Servlet 过滤器。业务服务旧的裸 HTTP 下游客户端尚未全部改为携带声明，Compose 密钥轮换、Kubernetes 身份策略和直连/伪造集成测试仍待完成，因此 T1.6 保持进行中。
 
 ### 问题与解决方案
 

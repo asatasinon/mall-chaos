@@ -2,6 +2,7 @@ import { getGatewayClient } from '@/lib/gateway-client';
 import { jsonOk, jsonError } from '@/lib/api-response';
 import { getOrCreateTraceId } from '@/lib/trace';
 import { NextRequest } from 'next/server';
+import { recordOperatorAudit } from '@/lib/operator-audit';
 
 /**
  * Creates standard chaos control route handlers that proxy through gateway.
@@ -20,8 +21,10 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
       const gateway = getGatewayClient();
       try {
         const result = await gateway.post(`${gatewayPrefix}/enable`, body, traceId);
+        await recordOperatorAudit({ request, action: 'CHAOS_ENABLE', target: chaosType, parameters: body, result: 'SUCCESS', correlationId: traceId });
         return jsonOk(unwrapGateway(result));
       } catch (e: any) {
+        await recordOperatorAudit({ request, action: 'CHAOS_ENABLE', target: chaosType, parameters: body, result: 'FAILURE', correlationId: traceId });
         return jsonError(502, `Failed to enable ${chaosType}: ${e.message}`, 502);
       }
     },
@@ -32,8 +35,10 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
       const gateway = getGatewayClient();
       try {
         const result = await gateway.post(`${gatewayPrefix}/disable`, body, traceId);
+        await recordOperatorAudit({ request, action: 'CHAOS_DISABLE', target: chaosType, parameters: body, result: 'SUCCESS', correlationId: traceId });
         return jsonOk(unwrapGateway(result));
       } catch (e: any) {
+        await recordOperatorAudit({ request, action: 'CHAOS_DISABLE', target: chaosType, parameters: body, result: 'FAILURE', correlationId: traceId });
         return jsonError(502, `Failed to disable ${chaosType}: ${e.message}`, 502);
       }
     },
@@ -44,8 +49,10 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
       const gateway = getGatewayClient();
       try {
         const result = await gateway.post(`${gatewayPrefix}/cleanup`, body, traceId);
+        await recordOperatorAudit({ request, action: 'CHAOS_CLEANUP', target: chaosType, parameters: body, result: 'SUCCESS', correlationId: traceId });
         return jsonOk(unwrapGateway(result));
       } catch (e: any) {
+        await recordOperatorAudit({ request, action: 'CHAOS_CLEANUP', target: chaosType, parameters: body, result: 'FAILURE', correlationId: traceId });
         return jsonError(502, `Failed to cleanup ${chaosType}: ${e.message}`, 502);
       }
     },

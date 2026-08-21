@@ -471,6 +471,7 @@ services:
       HOSTNAME: 0.0.0.0
       GATEWAY_BASE_URL: http://gateway-service:8080
       TRAFFIC_RUNNER_CREDENTIAL: ${TRAFFIC_RUNNER_CREDENTIAL:-}
+      OPERATOR_SESSION_TOKEN: ${OPERATOR_SESSION_TOKEN:-}
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: ${MYSQL_USER:-castrel}
@@ -509,6 +510,7 @@ services:
       NODE_ENV: production
       GATEWAY_BASE_URL: http://gateway-service:8080
       TRAFFIC_RUNNER_CREDENTIAL: ${TRAFFIC_RUNNER_CREDENTIAL:-}
+      OPERATOR_SESSION_TOKEN: ${OPERATOR_SESSION_TOKEN:-}
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: ${MYSQL_USER:-castrel}
