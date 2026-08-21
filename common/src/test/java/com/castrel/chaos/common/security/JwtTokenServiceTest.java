@@ -33,4 +33,23 @@ class JwtTokenServiceTest {
         assertThatThrownBy(() -> service.verifyAccessToken(tampered))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void issuesAndVerifiesGatewayDownstreamPrincipal() {
+        String token = service.issueDownstreamPrincipal(42L, "run-1", List.of("CUSTOMER_API"));
+
+        JwtTokenService.DownstreamPrincipal principal = service.verifyDownstreamPrincipal(token);
+
+        assertThat(principal.customerId()).isEqualTo(42L);
+        assertThat(principal.trafficRunId()).isEqualTo("run-1");
+        assertThat(principal.allowedActions()).containsExactly("CUSTOMER_API");
+    }
+
+    @Test
+    void doesNotAcceptCustomerAccessTokenAsDownstreamPrincipal() {
+        String token = service.issueAccessToken(42L, List.of("CUSTOMER"));
+
+        assertThatThrownBy(() -> service.verifyDownstreamPrincipal(token))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

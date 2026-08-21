@@ -15,7 +15,7 @@ export class GatewayClient {
     const url = `${this.baseUrl}${path}`;
     const res = await fetch(url, withTrace({
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.headers('application/json'),
       body: JSON.stringify(body),
     }, traceId));
     if (!res.ok) {
@@ -28,7 +28,7 @@ export class GatewayClient {
   async get<T = unknown>(path: string, params?: Record<string, string>, traceId?: string): Promise<T> {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
     const url = `${this.baseUrl}${path}${qs}`;
-    const res = await fetch(url, withTrace({ method: 'GET' }, traceId));
+    const res = await fetch(url, withTrace({ method: 'GET', headers: this.headers() }, traceId));
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`Gateway GET ${path} failed (${res.status}): ${text}`);
@@ -38,12 +38,21 @@ export class GatewayClient {
 
   async delete<T = unknown>(path: string, traceId?: string): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    const res = await fetch(url, withTrace({ method: 'DELETE' }, traceId));
+    const res = await fetch(url, withTrace({ method: 'DELETE', headers: this.headers() }, traceId));
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`Gateway DELETE ${path} failed (${res.status}): ${text}`);
     }
     return res.json();
+  }
+
+  private headers(contentType?: string): Record<string, string> {
+    return {
+      ...(contentType ? { 'Content-Type': contentType } : {}),
+      ...(env.TRAFFIC_RUNNER_CREDENTIAL
+        ? { 'X-Traffic-Runner-Credential': env.TRAFFIC_RUNNER_CREDENTIAL }
+        : {}),
+    };
   }
 }
 

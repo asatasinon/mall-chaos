@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-21 09:35 CST |
+| 更新时间 | 2026-08-21 10:47 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -114,7 +114,7 @@
 - [-] T1.1 在 `user-service` 实现客户注册、登录、刷新、登出、个人资料及地址 CRUD；使用 BCrypt，新增 `CUSTOMER`、`OPERATOR` 角色和会话/令牌撤销能力，并支持默认地址设置、切换和删除后的回退规则。
 - [-] T1.2 定义并实现客户/运营令牌契约：`iss`、`aud`、`sub`、角色、签发时间、过期时间和令牌 ID；`shopfront` 仅以 `HttpOnly`、`Secure`、`SameSite=Lax` Cookie 持有刷新/会话令牌。
 - [-] T1.3 在 `gateway-service` 实现认证过滤器、角色授权、身份头清洗与可信下游主体声明；拒绝直连业务服务和伪造 `X-User-Id` / `X-User-Role`。
-- [ ] T1.4 定义并实现 `TRAFFIC_RUNNER` 服务凭据校验：网关检查客户白名单版本、`aud=gateway-service`、动作 scope 与有效期，并由网关生成短期下游主体声明；控制面不得签发客户令牌。
+- [-] T1.4 定义并实现 `TRAFFIC_RUNNER` 服务凭据校验：网关检查客户白名单版本、`aud=gateway-service`、动作 scope 与有效期，并由网关生成短期下游主体声明；控制面不得签发客户令牌。
 - [ ] T1.5 为 `traffic-control-plane` 的全部变更型 `/internal/**` Route Handler 添加统一 `OPERATOR` 鉴权和 `operator_audit_logs` 审计；限制 Ingress 和 Compose 端口，禁止消费者入口访问内部路径。
 - [ ] T1.6 实现 Gateway 至业务服务的内部服务认证：下游主体声明验签、Compose 共享服务密钥注入与轮换、Kubernetes 工作负载身份或 mTLS 策略；覆盖直连、伪造声明和未认证内部调用拒绝测试。
 
@@ -150,7 +150,11 @@
 
 ### T1.3 当前进展
 
-`gateway-service` 已新增客户认证 GlobalFilter：受保护客户路径要求 Bearer JWT，清洗传入的 `X-User-Id`、`X-User-Role`、`X-Auth-Actor`，并依据验签主体向下游注入可信身份头；认证、用户资料和地址路由已接入 Gateway，用户资料路径还会校验可信主体与路径 ID 一致。Gateway 到业务服务的内部声明验签、直连拒绝和角色授权测试仍待完成，因此 T1.3 保持进行中。
+`gateway-service` 已新增客户认证 GlobalFilter：受保护客户路径要求 Bearer JWT，清洗传入的 `X-User-Id`、`X-User-Role`、`X-Auth-Actor` 和 `X-Downstream-Principal`，依据验签主体向下游注入可信身份头及短期 `actor=GATEWAY` 下游主体声明；认证、用户资料和地址路由已接入 Gateway，用户资料路径还会校验可信主体与路径 ID 一致。共享下游主体声明的合法验签和客户 token 误用拒绝测试已通过。业务服务强制验签、直连拒绝和角色授权测试仍待完成，因此 T1.3 保持进行中。
+
+### T1.4 当前进展
+
+`common` 已增加 `TRAFFIC_RUNNER` 凭据验签：要求 `aud=castrel-gateway-service`、`actor=TRAFFIC_RUNNER`、有效 `exp`、`customerId` 和 `customer_api` scope。Gateway 将合法 runner 凭据转换为短期下游主体声明，控制面 `GatewayClient` 只从服务端环境变量发送 `X-Traffic-Runner-Credential`，不签发客户 token。白名单版本校验、密钥轮换和完整 runner scope 测试仍待完成，因此 T1.4 保持进行中。
 
 ### 问题与解决方案
 

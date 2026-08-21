@@ -11,6 +11,7 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.Set;
+import java.util.List;
 import java.util.stream.Collectors;
 
 @Component
@@ -36,6 +37,7 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
                     headers.remove("X-User-Id");
                     headers.remove("X-User-Role");
                     headers.remove("X-Auth-Actor");
+                    headers.remove("X-Downstream-Principal");
                 }))
                 .build();
 
@@ -44,6 +46,27 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
         }
 
         String authorization = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+        String runnerCredential = exchange.getRequest().getHeaders().getFirst("X-Traffic-Runner-Credential");
+        if (runnerCredential != null && !runnerCredential.isBlank()) {
+            try {
+                JwtTokenService.RunnerPrincipal runner = jwtTokenService.verifyRunnerCredential(runnerCredential);
+                if (!runner.scopes().contains("customer_api")) {
+                    return unauthorized(exchange);
+                }
+                ServerWebExchange authenticated = sanitized.mutate()
+                        .request(request -> request.headers(headers -> {
+                            headers.set("X-User-Id", runner.customerId().toString());
+                            headers.set("X-User-Role", "CUSTOMER");
+                            headers.set("X-Auth-Actor", "TRAFFIC_RUNNER");
+                            headers.set("X-Downstream-Principal", jwtTokenService.issueDownstreamPrincipal(
+                                    runner.customerId(), runner.tokenId(), runner.scopes()));
+                        }))
+                        .build();
+                return chain.filter(authenticated);
+            } catch (IllegalArgumentException exception) {
+                return unauthorized(exchange);
+            }
+        }
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             return unauthorized(exchange);
         }
@@ -57,6 +80,9 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
                         headers.set("X-User-Id", principal.userId().toString());
                         headers.set("X-User-Role", roles);
                         headers.set("X-Auth-Actor", "CUSTOMER");
+                        headers.set("X-Downstream-Principal",
+                            jwtTokenService.issueDownstreamPrincipal(
+                                principal.userId(), "", List.of("CUSTOMER_API")));
                     }))
                     .build();
             return chain.filter(authenticated);
