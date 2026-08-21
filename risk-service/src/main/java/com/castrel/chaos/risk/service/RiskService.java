@@ -149,7 +149,7 @@ public class RiskService {
             event.setAggregateId(request.getOrderNo());
             event.setAggregateVersion(1);
                 event.setPayload(objectMapper.writeValueAsString(java.util.Map.of(
-                    "userId", request.getUserId(), "orderNo", request.getOrderNo(),
+                    "orderId", request.getOrderId(), "userId", request.getUserId(), "orderNo", request.getOrderNo(),
                     "paymentId", request.getPaymentId(), "amount", request.getAmount(),
                     "result", result)));
             event.setOccurredAt(java.time.LocalDateTime.now());

@@ -18,6 +18,10 @@ spring:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:16379}
 
+services:
+  fulfillment-url: ${FULFILLMENT_SERVICE_URL:http://localhost:18089}
+  order-url: ${ORDER_SERVICE_URL:http://localhost:18084}
+
 management:
   endpoint:
     health:

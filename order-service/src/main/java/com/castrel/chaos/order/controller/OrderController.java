@@ -5,6 +5,7 @@ import com.castrel.chaos.order.dto.CreateOrderRequest;
 import com.castrel.chaos.order.dto.OrderDTO;
 import com.castrel.chaos.order.dto.CheckoutCommand;
 import com.castrel.chaos.order.dto.PaymentResultRequest;
+import com.castrel.chaos.order.dto.RiskRejectedRequest;
 import com.castrel.chaos.order.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -66,6 +67,11 @@ public class OrderController {
     @PostMapping("/internal/orders/{id}/expire")
     public ApiResponse<OrderDTO> expire(@PathVariable Long id) {
         return ApiResponse.ok(orderService.expireOrder(id));
+    }
+
+    @PostMapping("/internal/orders/risk-rejected")
+    public ApiResponse<OrderDTO> riskRejected(@RequestBody RiskRejectedRequest request) {
+        return ApiResponse.ok(orderService.applyRiskRejected(request));
     }
 
     @PostMapping("/internal/orders/{id}/cancel")

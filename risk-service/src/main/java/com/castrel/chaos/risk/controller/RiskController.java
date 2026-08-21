@@ -29,6 +29,7 @@ public class RiskController {
     public ApiResponse<RiskResultDTO> orderPaid(@RequestBody OrderPaidEventRequest req) {
         PostPayCheckRequest check = new PostPayCheckRequest();
         check.setUserId(req.getUserId());
+        check.setOrderId(req.getOrderId());
         check.setOrderNo(req.getOrderNo());
         check.setPaymentId(req.getPaymentId());
         check.setAmount(req.getAmount());

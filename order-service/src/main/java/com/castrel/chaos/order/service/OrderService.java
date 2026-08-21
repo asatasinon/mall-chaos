@@ -11,6 +11,7 @@ import com.castrel.chaos.order.dto.CheckoutFreeze;
 import com.castrel.chaos.order.dto.CheckoutItem;
 import com.castrel.chaos.order.dto.PaymentResultRequest;
 import com.castrel.chaos.order.dto.OrderItemDTO;
+import com.castrel.chaos.order.dto.RiskRejectedRequest;
 import com.castrel.chaos.order.dto.OrderDTO;
 import com.castrel.chaos.order.entity.Order;
 import com.castrel.chaos.order.entity.OrderItem;
@@ -497,6 +498,27 @@ public class OrderService {
         order.setFailReason("RESERVATION_EXPIRED");
         order.setVersion(order.getVersion() + 1);
         return toDTO(order);
+    }
+
+    @Transactional
+    public OrderDTO applyRiskRejected(RiskRejectedRequest request) {
+        Order order = orderRepository.findByOrderNo(request.getOrderNo())
+                .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + request.getOrderNo()));
+        if ("CANCELLED".equals(order.getStatus()) || "PAYMENT_FAILED".equals(order.getStatus())) {
+            return toDTO(order);
+        }
+        for (OrderItem item : orderItemRepository.findByOrderIdOrderByIdAsc(order.getId())) {
+            try {
+                clients.releaseInventory(order.getOrderNo(), item.getSku(), order.getOrderNo() + ":" + item.getSku());
+            } catch (Exception exception) {
+                log.warn("Failed to release risk-rejected inventory for {}", item.getSku());
+            }
+        }
+        if (order.getCouponId() != null) clients.releaseCoupon(order.getOrderNo(), order.getCouponId());
+        order.setStatus("PAYMENT_FAILED");
+        order.setFailReason(request.getReason());
+        order.setVersion(order.getVersion() + 1);
+        return toDTO(orderRepository.save(order));
     }
 
     private OrderDTO cancelOrder(Order order) {
