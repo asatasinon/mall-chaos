@@ -5,6 +5,8 @@ metadata:
   namespace: castrel
 data:
   SPRING_PROFILES_ACTIVE: "docker,chaos"
+  CASTREL_JWT_ISSUER: "castrel-user-service"
+  CASTREL_JWT_AUDIENCE: "castrel-gateway"
   SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
   SPRING_DATA_REDIS_HOST: "redis"
   SPRING_DATA_REDIS_PORT: "6379"

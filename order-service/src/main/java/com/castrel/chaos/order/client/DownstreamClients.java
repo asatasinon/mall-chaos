@@ -12,6 +12,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -45,6 +47,14 @@ public class DownstreamClients {
         String tid = TraceContext.getTraceId();
         if (tid != null) {
             headers.set(TraceContext.TRACE_ID_HEADER, tid);
+        }
+        ServletRequestAttributes attributes =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes != null) {
+            String principal = attributes.getRequest().getHeader("X-Downstream-Principal");
+            if (principal != null && !principal.isBlank()) {
+                headers.set("X-Downstream-Principal", principal);
+            }
         }
         return headers;
     }

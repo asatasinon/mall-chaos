@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-21 11:03 CST |
+| 更新时间 | 2026-08-21 11:11 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -162,7 +162,7 @@
 
 ### T1.6 当前进展
 
-`common` 已新增 Servlet 业务服务的 `DownstreamPrincipalFilter`：所有 `/internal/**` 请求必须携带 Gateway 签发的 `X-Downstream-Principal`，验签失败或缺失返回 HTTP 401，并将 `customerId`、`trafficRunId` 和允许动作写入可信 request attributes；Reactive Gateway 不加载该 Servlet 过滤器。业务服务旧的裸 HTTP 下游客户端尚未全部改为携带声明，Compose 密钥轮换、Kubernetes 身份策略和直连/伪造集成测试仍待完成，因此 T1.6 保持进行中。
+`common` 已新增 Servlet 业务服务的 `DownstreamPrincipalFilter`：所有 `/internal/**` 请求必须携带 Gateway 签发的 `X-Downstream-Principal`，验签失败或缺失返回 HTTP 401，并将 `customerId`、`trafficRunId` 和允许动作写入可信 request attributes；Reactive Gateway 不加载该 Servlet 过滤器。Gateway 混沌分发和 order-service 下游客户端已接入声明传递；Compose 现要求显式 `CASTREL_JWT_SECRET`，Kubernetes Secret/ConfigMap 已补充 JWT 配置。其余业务客户端、密钥轮换、Kubernetes 身份策略和直连/伪造集成测试仍待完成，因此 T1.6 保持进行中。
 
 ### 问题与解决方案
 

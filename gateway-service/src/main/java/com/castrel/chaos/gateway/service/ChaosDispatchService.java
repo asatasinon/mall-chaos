@@ -1,6 +1,7 @@
 package com.castrel.chaos.gateway.service;
 
 import com.castrel.chaos.common.TraceContext;
+import com.castrel.chaos.common.security.JwtTokenService;
 import com.castrel.chaos.gateway.config.ChaosDispatchProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,10 +20,13 @@ public class ChaosDispatchService {
     private static final Logger log = LoggerFactory.getLogger(ChaosDispatchService.class);
     private final ChaosDispatchProperties props;
     private final WebClient webClient;
+    private final JwtTokenService jwtTokenService;
 
-    public ChaosDispatchService(ChaosDispatchProperties props, WebClient.Builder webClientBuilder) {
+    public ChaosDispatchService(
+            ChaosDispatchProperties props, WebClient.Builder webClientBuilder, JwtTokenService jwtTokenService) {
         this.props = props;
         this.webClient = webClientBuilder.build();
+        this.jwtTokenService = jwtTokenService;
     }
 
     /**
@@ -130,6 +134,9 @@ public class ChaosDispatchService {
         if (traceId != null) {
             request.header(TraceContext.TRACE_ID_HEADER, traceId);
         }
+        request.header("X-Downstream-Principal",
+            jwtTokenService.issueDownstreamPrincipal(0L, traceId == null ? "" : traceId,
+                List.of("CHAOS_DISPATCH")));
         return request
                 .bodyValue(body)
                 .retrieve()
@@ -147,6 +154,9 @@ public class ChaosDispatchService {
         if (traceId != null) {
             request.header(TraceContext.TRACE_ID_HEADER, traceId);
         }
+        request.header("X-Downstream-Principal",
+            jwtTokenService.issueDownstreamPrincipal(0L, traceId == null ? "" : traceId,
+                List.of("CHAOS_DISPATCH")));
         return request
                 .retrieve()
                 .bodyToMono(Object.class);
