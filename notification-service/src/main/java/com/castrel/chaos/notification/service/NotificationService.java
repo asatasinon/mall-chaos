@@ -3,6 +3,7 @@ package com.castrel.chaos.notification.service;
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
 import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.common.TraceContext;
+import com.castrel.chaos.common.observability.SensitiveDataSanitizer;
 import com.castrel.chaos.notification.dto.OrderCreatedRequest;
 import com.castrel.chaos.notification.dto.PaymentResultRequest;
 import com.castrel.chaos.notification.dto.ShippingCreatedRequest;
@@ -130,8 +131,9 @@ public class NotificationService {
                     TraceContext.getTraceId(), eventType, userId, orderNo);
             failCounter.increment();
         } else {
-            log.info("traceId={} Notification SENT event={} userId={} orderNo={} message={}",
-                    TraceContext.getTraceId(), eventType, userId, orderNo, message);
+                log.info("traceId={} Notification SENT event={} userId={} orderNo={} messageLength={}",
+                    TraceContext.getTraceId(), eventType, userId, orderNo,
+                    SensitiveDataSanitizer.message(message).length());
             sentCounter.increment();
         }
     }

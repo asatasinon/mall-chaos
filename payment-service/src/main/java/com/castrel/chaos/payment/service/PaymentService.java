@@ -63,6 +63,7 @@ public class PaymentService {
     private Counter successCounter;
     private Counter failCounter;
     private Counter timeoutCounter;
+    private Counter outboxCounter;
     private final Random random = new Random();
 
     @PostConstruct
@@ -70,6 +71,7 @@ public class PaymentService {
         successCounter = Counter.builder("payment.charge.success.count").register(meterRegistry);
         failCounter = Counter.builder("payment.charge.fail.count").register(meterRegistry);
         timeoutCounter = Counter.builder("payment.charge.timeout.count").register(meterRegistry);
+        outboxCounter = Counter.builder("payment.outbox.append.count").register(meterRegistry);
     }
 
     @Transactional
@@ -183,6 +185,7 @@ public class PaymentService {
             event.setAttempts(0);
             event.setCreatedAt(LocalDateTime.now());
             outboxRepository.save(event);
+            outboxCounter.increment();
         } catch (Exception exception) {
             throw new IllegalStateException("Unable to append payment outbox event", exception);
         }

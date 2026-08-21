@@ -87,6 +87,7 @@ public class OrderService {
 
     private Counter successCounter;
     private Counter failCounter;
+    private Counter checkoutCounter;
 
     @Transactional
     public OrderDTO checkout(Long customerId, CheckoutCommand command) {
@@ -211,6 +212,7 @@ public class OrderService {
     void initMetrics() {
         successCounter = Counter.builder("order.create.success.count").register(meterRegistry);
         failCounter = Counter.builder("order.create.fail.count").register(meterRegistry);
+        checkoutCounter = Counter.builder("checkout.total").register(meterRegistry);
     }
 
     @Transactional
