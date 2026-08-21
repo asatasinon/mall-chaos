@@ -4,6 +4,7 @@ import com.castrel.chaos.common.ApiResponse;
 import com.castrel.chaos.order.dto.CreateOrderRequest;
 import com.castrel.chaos.order.dto.OrderDTO;
 import com.castrel.chaos.order.dto.CheckoutCommand;
+import com.castrel.chaos.order.dto.PaymentResultRequest;
 import com.castrel.chaos.order.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -57,5 +58,16 @@ public class OrderController {
     @PostMapping("/internal/orders/{id}/cancel")
     public ApiResponse<OrderDTO> cancelOrder(@PathVariable Long id) {
         return ApiResponse.ok(orderService.cancelOrder(id));
+    }
+
+    @PostMapping("/internal/orders/{id}/paid")
+    public ApiResponse<OrderDTO> markPaid(
+            @PathVariable Long id, @RequestParam String paymentId) {
+        return ApiResponse.ok(orderService.markPaid(id, paymentId));
+    }
+
+    @PostMapping("/internal/orders/payment-result")
+    public ApiResponse<OrderDTO> paymentResult(@RequestBody PaymentResultRequest request) {
+        return ApiResponse.ok(orderService.applyPaymentResult(request));
     }
 }

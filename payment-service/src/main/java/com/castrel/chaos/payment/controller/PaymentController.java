@@ -4,6 +4,7 @@ import com.castrel.chaos.common.ApiResponse;
 import com.castrel.chaos.payment.dto.ChargeRequest;
 import com.castrel.chaos.payment.dto.PaymentDTO;
 import com.castrel.chaos.payment.dto.PaymentIntentRequest;
+import com.castrel.chaos.payment.dto.RefundRequest;
 import com.castrel.chaos.payment.service.PaymentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -25,6 +26,14 @@ public class PaymentController {
     @PostMapping("/api/payments/{id}/confirm")
     public ApiResponse<PaymentDTO> confirm(@PathVariable Long id) {
         return ApiResponse.ok(paymentService.confirmIntent(id));
+    }
+
+    @PostMapping("/internal/payments/{id}/refund")
+    public ApiResponse<PaymentDTO> refund(
+            @PathVariable Long id,
+            @RequestHeader("X-Auth-Actor") String actor,
+            @RequestBody RefundRequest request) {
+        return ApiResponse.ok(paymentService.refund(id, request, actor));
     }
 
     @PostMapping("/internal/payments/charge")

@@ -18,7 +18,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BizException.class)
     public ApiResponse<Void> handleBizException(BizException ex) {
-        int code = "PAYMENT_NOT_FOUND".equals(ex.getErrorCode()) ? 404 : 400;
+        int code = "PAYMENT_NOT_FOUND".equals(ex.getErrorCode()) ? 404
+            : "REFUND_FORBIDDEN".equals(ex.getErrorCode()) ? 403 : 400;
         log.warn("BizException [{}]: {}", ex.getErrorCode(), ex.getMessage());
         return ApiResponse.error(code, ex.getMessage());
     }

@@ -22,4 +22,17 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query("update Order o set o.status = 'CANCELLED', o.updatedAt = CURRENT_TIMESTAMP, o.version = o.version + 1 "
             + "where o.id = :id and o.version = :version and o.status in ('PENDING', 'PENDING_PAYMENT')")
     int cancelPending(@Param("id") Long id, @Param("version") Integer version);
+
+        @Modifying
+        @Query("update Order o set o.status = 'PAID', o.paymentId = :paymentId, o.updatedAt = CURRENT_TIMESTAMP, "
+            + "o.version = o.version + 1 where o.id = :id and o.version = :version and o.status = 'PENDING_PAYMENT'")
+        int markPaid(@Param("id") Long id, @Param("version") Integer version, @Param("paymentId") String paymentId);
+
+            @Modifying
+            @Query("update Order o set o.status = :status, o.paymentId = :paymentId, o.failReason = :failReason, "
+                + "o.updatedAt = CURRENT_TIMESTAMP, o.version = o.version + 1 "
+                + "where o.orderNo = :orderNo and o.version = :version and o.status = 'PENDING_PAYMENT'")
+            int applyPaymentResult(@Param("orderNo") String orderNo, @Param("version") Integer version,
+                       @Param("status") String status, @Param("paymentId") String paymentId,
+                       @Param("failReason") String failReason);
 }

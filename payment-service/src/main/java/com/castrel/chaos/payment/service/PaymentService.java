@@ -7,6 +7,8 @@ import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.payment.dto.ChargeRequest;
 import com.castrel.chaos.payment.dto.PaymentDTO;
 import com.castrel.chaos.payment.dto.PaymentIntentRequest;
+import com.castrel.chaos.payment.dto.RefundRequest;
+import com.castrel.chaos.payment.client.OrderPaymentResultClient;
 import com.castrel.chaos.payment.entity.Payment;
 import com.castrel.chaos.payment.repository.PaymentRepository;
 import io.micrometer.core.instrument.Counter;
@@ -27,6 +29,9 @@ public class PaymentService {
 
     @Autowired
     private PaymentRepository paymentRepository;
+
+    @Autowired
+    private OrderPaymentResultClient orderPaymentResultClient;
 
     @Autowired
     private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
@@ -90,7 +95,30 @@ public class PaymentService {
         Payment payment = paymentRepository.findById(id)
                 .orElseThrow(() -> new BizException("PAYMENT_NOT_FOUND", "Payment not found: " + id));
         if (!"PROCESSING".equals(payment.getStatus())) return toDTO(payment);
-        return executePayment(payment);
+        PaymentDTO result = executePayment(payment);
+        orderPaymentResultClient.publish(result);
+        return result;
+    }
+
+    @Transactional
+    public PaymentDTO refund(Long id, RefundRequest request, String actor) {
+        if (!"OPERATOR".equals(actor) && !"TEST".equals(actor)) {
+            throw new BizException("REFUND_FORBIDDEN", "Refund requires operator or test identity");
+        }
+        if (request == null || request.getIdempotencyKey() == null || request.getIdempotencyKey().isBlank()) {
+            throw new BizException("INVALID_REFUND", "idempotencyKey is required");
+        }
+        Payment payment = paymentRepository.findById(id)
+                .orElseThrow(() -> new BizException("PAYMENT_NOT_FOUND", "Payment not found: " + id));
+        if ("REFUNDED".equals(payment.getStatus())) return toDTO(payment);
+        if (!"SUCCESS".equals(payment.getStatus())) {
+            throw new BizException("REFUND_INVALID_STATUS", "Only successful payments can be refunded");
+        }
+        payment.setStatus("REFUNDED");
+        payment.setResultCode("REFUNDED");
+        payment.setFailReason("Refunded by " + actor + ": " + request.getIdempotencyKey());
+        payment.setUpdatedAt(LocalDateTime.now());
+        return toDTO(paymentRepository.save(payment));
     }
 
     private PaymentDTO executePayment(Payment payment) {

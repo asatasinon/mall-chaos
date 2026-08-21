@@ -9,6 +9,7 @@ import com.castrel.chaos.order.dto.CreateOrderRequest;
 import com.castrel.chaos.order.dto.CheckoutCommand;
 import com.castrel.chaos.order.dto.CheckoutFreeze;
 import com.castrel.chaos.order.dto.CheckoutItem;
+import com.castrel.chaos.order.dto.PaymentResultRequest;
 import com.castrel.chaos.order.dto.OrderDTO;
 import com.castrel.chaos.order.entity.Order;
 import com.castrel.chaos.order.entity.OrderItem;
@@ -312,6 +313,40 @@ public class OrderService {
                 .filter(candidate -> customerId.equals(candidate.getUserId()))
                 .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + id));
         return cancelOrder(order);
+    }
+
+    @Transactional
+    public OrderDTO markPaid(Long id, String paymentId) {
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + id));
+        if ("PAID".equals(order.getStatus())) return toDTO(order);
+        if (orderRepository.markPaid(order.getId(), order.getVersion(), paymentId) == 0) {
+            throw new BizException("ORDER_STATE_CONFLICT", "Order is no longer pending payment");
+        }
+        order.setStatus("PAID");
+        order.setPaymentId(paymentId);
+        order.setVersion(order.getVersion() + 1);
+        return toDTO(order);
+    }
+
+    @Transactional
+    public OrderDTO applyPaymentResult(PaymentResultRequest request) {
+        Order order = orderRepository.findByOrderNo(request.getOrderNo())
+                .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + request.getOrderNo()));
+        if ("PAID".equals(order.getStatus()) || "PAYMENT_FAILED".equals(order.getStatus())) {
+            return toDTO(order);
+        }
+        String status = "SUCCESS".equals(request.getStatus()) ? "PAID" : "PAYMENT_FAILED";
+        String reason = "SUCCESS".equals(request.getStatus()) ? null : request.getResultCode();
+        if (orderRepository.applyPaymentResult(order.getOrderNo(), order.getVersion(), status,
+                request.getPaymentNo(), reason) == 0) {
+            throw new BizException("ORDER_STATE_CONFLICT", "Payment result lost order state race");
+        }
+        order.setStatus(status);
+        order.setPaymentId(request.getPaymentNo());
+        order.setFailReason(reason);
+        order.setVersion(order.getVersion() + 1);
+        return toDTO(order);
     }
 
     private OrderDTO cancelOrder(Order order) {
