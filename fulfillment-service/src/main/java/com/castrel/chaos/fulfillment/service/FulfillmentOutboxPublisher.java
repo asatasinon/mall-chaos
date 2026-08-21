@@ -2,6 +2,8 @@ package com.castrel.chaos.fulfillment.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.castrel.chaos.common.event.EventEnvelope;
+import com.castrel.chaos.common.event.EventEnvelopeCodec;
 import com.castrel.chaos.fulfillment.entity.FulfillmentOutboxEvent;
 import com.castrel.chaos.fulfillment.repository.FulfillmentOutboxRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,7 +52,11 @@ public class FulfillmentOutboxPublisher {
                 continue;
             }
             try {
-                JsonNode payload = mapper.readTree(event.getPayload());
+                EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.decode(mapper,
+                    event.getEventId(), event.getEventType(), event.getAggregateId(),
+                    event.getAggregateVersion(), event.getPayload(), event.getOccurredAt(),
+                    event.getSchemaVersion(), event.getTraceId(), null);
+                JsonNode payload = envelope.getPayload();
                 HttpHeaders headers = new HttpHeaders();
                 headers.setContentType(MediaType.APPLICATION_JSON);
                 headers.set("X-Internal-Service-Key", serviceKey);

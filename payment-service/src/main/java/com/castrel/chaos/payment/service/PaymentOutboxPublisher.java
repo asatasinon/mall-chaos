@@ -1,6 +1,9 @@
 package com.castrel.chaos.payment.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.castrel.chaos.common.event.EventEnvelope;
+import com.castrel.chaos.common.event.EventEnvelopeCodec;
 import com.castrel.chaos.payment.entity.PaymentOutboxEvent;
 import com.castrel.chaos.payment.repository.PaymentOutboxRepository;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -25,7 +28,11 @@ public class PaymentOutboxPublisher {
     public void publishPending() {
         for (PaymentOutboxEvent event : repository.findTop50ByStatusOrderByCreatedAtAsc("PENDING")) {
             try {
-                delivery.deliver(objectMapper.readTree(event.getPayload()));
+                EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.decode(objectMapper,
+                    event.getEventId(), event.getEventType(), event.getAggregateId(),
+                    event.getAggregateVersion(), event.getPayload(), event.getOccurredAt(),
+                    event.getSchemaVersion(), event.getTraceId(), event.getTrafficRunId());
+                delivery.deliver(envelope.getPayload());
                 event.setStatus("PUBLISHED");
                 event.setPublishedAt(LocalDateTime.now());
             } catch (Exception exception) {

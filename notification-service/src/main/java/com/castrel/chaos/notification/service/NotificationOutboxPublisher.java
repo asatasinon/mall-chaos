@@ -2,6 +2,8 @@ package com.castrel.chaos.notification.service;
 
 import com.castrel.chaos.notification.entity.NotificationOutboxEvent;
 import com.castrel.chaos.notification.repository.NotificationOutboxRepository;
+import com.castrel.chaos.common.event.EventEnvelopeCodec;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -13,11 +15,14 @@ import java.time.LocalDateTime;
 @Component
 public class NotificationOutboxPublisher {
     private final NotificationOutboxRepository repository;
+    private final ObjectMapper mapper;
     private final Counter publishedCounter;
     private final Counter failedCounter;
 
-    public NotificationOutboxPublisher(NotificationOutboxRepository repository, MeterRegistry meterRegistry) {
+    public NotificationOutboxPublisher(NotificationOutboxRepository repository, ObjectMapper mapper,
+                                       MeterRegistry meterRegistry) {
         this.repository = repository;
+        this.mapper = mapper;
         this.publishedCounter = Counter.builder("notification.outbox.published.count").register(meterRegistry);
         this.failedCounter = Counter.builder("notification.outbox.failed.count").register(meterRegistry);
     }
@@ -30,6 +35,10 @@ public class NotificationOutboxPublisher {
                 continue;
             }
             try {
+                EventEnvelopeCodec.decode(mapper,
+                        event.getEventId(), event.getEventType(), event.getAggregateId(),
+                        event.getAggregateVersion(), event.getPayload(), event.getOccurredAt(),
+                        event.getSchemaVersion(), event.getTraceId(), null);
                 event.setStatus("PUBLISHED");
                 event.setPublishedAt(LocalDateTime.now());
                 publishedCounter.increment();

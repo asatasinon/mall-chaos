@@ -12,6 +12,8 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestTemplate;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.castrel.chaos.common.event.EventEnvelope;
+import com.castrel.chaos.common.event.EventEnvelopeCodec;
 
 import java.time.LocalDateTime;
 
@@ -59,7 +61,11 @@ public class OrderOutboxPublisher {
     }
 
     private void deliver(OrderOutboxEvent event) throws Exception {
-        JsonNode payload = objectMapper.readTree(event.getPayload());
+        EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.decode(objectMapper,
+            event.getEventId(), event.getEventType(), event.getAggregateId(),
+            event.getAggregateVersion(), event.getPayload(), event.getOccurredAt(),
+            event.getSchemaVersion(), event.getTraceId(), event.getTrafficRunId());
+        JsonNode payload = envelope.getPayload();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-Internal-Service-Key", serviceKey);

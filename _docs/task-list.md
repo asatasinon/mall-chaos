@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-21 18:50 CST |
+| 更新时间 | 2026-08-21 18:53 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -283,7 +283,7 @@
 - [-] T4.2 实现 `payment-service -> PAYMENT_RESULT -> order-service`：支付状态与 `payment_outbox_events` 同事务写入；订单 Inbox 去重后裁决订单、库存和优惠券，并发布 `ORDER_PAID` 或 `ORDER_PAYMENT_FAILED`。
 - [-] T4.3 实现支付后风控事件链：`risk-service` 只消费 `ORDER_PAID`，发布 `POST_PAYMENT_RISK_PASSED` 或 `POST_PAYMENT_RISK_REJECTED`；拒绝结果触发订单规定补偿和客户通知。
 - [-] T4.4 实现履约和物流：`fulfillment-service` 只消费 `POST_PAYMENT_RISK_PASSED` 创建发货单和时间线，发布 `SHIPMENT_UPDATED`；实现演示发货、客户确认签收以及 `FULFILLING -> SHIPPED -> COMPLETED` 的幂等状态转换，不得直接消费支付成功事件。
-- [ ] T4.5 定义并实现统一版本化事件信封：`eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId`、`trafficRunId`；缺字段拒绝消费，重放保留原始信封。
+- [-] T4.5 定义并实现统一版本化事件信封：`eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId`、`trafficRunId`；缺字段拒绝消费，重放保留原始信封。
 - [-] T4.6 实现通知偏好、客户通知记录、`GET/PATCH /api/notifications` 分页/已读 API 和事件订阅；通过 Gateway 强制客户归属。
 - [-] T4.7 实现业务可观测性和隐私安全：`checkout_total`、结算耗时、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、Outbox 延迟/失败、`fulfillment_transition_total`、`customer_api_error_total`；统一关联 ID、稳定错误码和日志/指标/链路中的 PII、令牌、密码及模拟支付密钥脱敏。
 - [ ] T4.8 编写并执行 Phase 4 可靠性与隐私测试：Outbox/Inbox 重复投递、租约恢复、死信重放、事件版本兼容、风控门禁、通知归属、指标/链路关联和敏感信息脱敏。
