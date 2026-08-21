@@ -11,6 +11,9 @@ import com.castrel.chaos.payment.dto.RefundRequest;
 import com.castrel.chaos.payment.client.OrderPaymentResultClient;
 import com.castrel.chaos.payment.entity.Payment;
 import com.castrel.chaos.payment.repository.PaymentRepository;
+import com.castrel.chaos.payment.repository.PaymentOutboxRepository;
+import com.castrel.chaos.payment.entity.PaymentOutboxEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -29,6 +32,12 @@ public class PaymentService {
 
     @Autowired
     private PaymentRepository paymentRepository;
+
+    @Autowired
+    private PaymentOutboxRepository outboxRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private OrderPaymentResultClient orderPaymentResultClient;
@@ -95,9 +104,7 @@ public class PaymentService {
         Payment payment = paymentRepository.findById(id)
                 .orElseThrow(() -> new BizException("PAYMENT_NOT_FOUND", "Payment not found: " + id));
         if (!"PROCESSING".equals(payment.getStatus())) return toDTO(payment);
-        PaymentDTO result = executePayment(payment);
-        orderPaymentResultClient.publish(result);
-        return result;
+        return executePayment(payment);
     }
 
     @Transactional
@@ -113,9 +120,7 @@ public class PaymentService {
         payment.setResultCode("RETRYING");
         payment.setUpdatedAt(LocalDateTime.now());
         paymentRepository.save(payment);
-        PaymentDTO result = executePayment(payment);
-        orderPaymentResultClient.publish(result);
-        return result;
+        return executePayment(payment);
     }
 
     @Transactional
@@ -157,7 +162,29 @@ public class PaymentService {
             failCounter.increment();
         }
         payment.setUpdatedAt(LocalDateTime.now());
-        return toDTO(paymentRepository.save(payment));
+        PaymentDTO result = toDTO(paymentRepository.save(payment));
+        appendPaymentResultEvent(result);
+        return result;
+    }
+
+    private void appendPaymentResultEvent(PaymentDTO payment) {
+        try {
+            PaymentOutboxEvent event = new PaymentOutboxEvent();
+            event.setEventId(UUID.randomUUID().toString());
+            event.setEventType("PAYMENT_RESULT");
+            event.setAggregateId(payment.getOrderNo());
+            event.setAggregateVersion(1);
+            event.setPayload(objectMapper.writeValueAsString(payment));
+            event.setOccurredAt(LocalDateTime.now());
+            event.setSchemaVersion(1);
+            event.setTraceId(TraceContext.getTraceId());
+            event.setStatus("PENDING");
+            event.setAttempts(0);
+            event.setCreatedAt(LocalDateTime.now());
+            outboxRepository.save(event);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Unable to append payment outbox event", exception);
+        }
     }
 
     private PaymentDTO executeCharge(ChargeRequest req) {

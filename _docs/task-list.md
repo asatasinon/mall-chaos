@@ -27,7 +27,7 @@
 | Phase 1 | 安全、身份与网关边界 | 进行中 | 6 / 8 | Phase 0 |
 | Phase 2 | Schema、购物车与商品读模型 | 进行中 | 5 / 6 | Phase 0、Phase 1 |
 | Phase 3 | Checkout、库存、促销与支付 | 进行中 | 7 / 8 | Phase 1、Phase 2 |
-| Phase 4 | 可靠事件、风控、履约与通知 | 未开始 | 0 / 8 | Phase 3 |
+| Phase 4 | 可靠事件、风控、履约与通知 | 进行中 | 0 / 8 | Phase 3 |
 | Phase 5 | 控制面、完整 runner 与运维流程 | 未开始 | 0 / 5 | Phase 1、Phase 3、Phase 4 |
 | Phase 6 | Shopfront、部署与端到端验收 | 未开始 | 0 / 5 | Phase 1 至 Phase 5 |
 
@@ -271,7 +271,7 @@
 
 ---
 
-## Phase 4：可靠事件、风控、履约与通知 - 未开始
+## Phase 4：可靠事件、风控、履约与通知 - 进行中
 
 **阶段进度**：0 / 8
 
@@ -279,8 +279,8 @@
 
 ### 子任务
 
-- [ ] T4.1 为 order、payment、risk、fulfillment、notification 服务创建各自 `*_outbox_events` 与 `*_inbox_events` 表、发布器、Inbox 去重和租约/重试机制；任何服务不得读写其他服务的事件表。
-- [ ] T4.2 实现 `payment-service -> PAYMENT_RESULT -> order-service`：支付状态与 `payment_outbox_events` 同事务写入；订单 Inbox 去重后裁决订单、库存和优惠券，并发布 `ORDER_PAID` 或 `ORDER_PAYMENT_FAILED`。
+- [-] T4.1 为 order、payment、risk、fulfillment、notification 服务创建各自 `*_outbox_events` 与 `*_inbox_events` 表、发布器、Inbox 去重和租约/重试机制；任何服务不得读写其他服务的事件表。
+- [-] T4.2 实现 `payment-service -> PAYMENT_RESULT -> order-service`：支付状态与 `payment_outbox_events` 同事务写入；订单 Inbox 去重后裁决订单、库存和优惠券，并发布 `ORDER_PAID` 或 `ORDER_PAYMENT_FAILED`。
 - [ ] T4.3 实现支付后风控事件链：`risk-service` 只消费 `ORDER_PAID`，发布 `POST_PAYMENT_RISK_PASSED` 或 `POST_PAYMENT_RISK_REJECTED`；拒绝结果触发订单规定补偿和客户通知。
 - [ ] T4.4 实现履约和物流：`fulfillment-service` 只消费 `POST_PAYMENT_RISK_PASSED` 创建发货单和时间线，发布 `SHIPMENT_UPDATED`；实现演示发货、客户确认签收以及 `FULFILLING -> SHIPPED -> COMPLETED` 的幂等状态转换，不得直接消费支付成功事件。
 - [ ] T4.5 定义并实现统一版本化事件信封：`eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId`、`trafficRunId`；缺字段拒绝消费，重放保留原始信封。
