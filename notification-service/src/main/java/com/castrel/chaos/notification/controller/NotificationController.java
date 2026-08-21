@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import com.castrel.chaos.notification.dto.CustomerNotificationDTO;
+import com.castrel.chaos.notification.dto.NotificationPreferenceDTO;
+import com.castrel.chaos.notification.dto.UpdateNotificationPreferenceRequest;
 
 @RestController
 public class NotificationController {
@@ -30,6 +32,18 @@ public class NotificationController {
     public ApiResponse<CustomerNotificationDTO> read(
             @RequestHeader("X-User-Id") Long customerId, @PathVariable Long id) {
         return ApiResponse.ok(notificationService.markRead(customerId, id));
+    }
+
+    @GetMapping("/api/notifications/preferences")
+    public ApiResponse<NotificationPreferenceDTO> preferences(@RequestHeader("X-User-Id") Long customerId) {
+        return ApiResponse.ok(notificationService.getPreferences(customerId));
+    }
+
+    @PatchMapping("/api/notifications/preferences")
+    public ApiResponse<NotificationPreferenceDTO> updatePreferences(
+            @RequestHeader("X-User-Id") Long customerId,
+            @RequestBody UpdateNotificationPreferenceRequest request) {
+        return ApiResponse.ok(notificationService.updatePreferences(customerId, request));
     }
 
     @PostMapping("/internal/notifications/order-created")

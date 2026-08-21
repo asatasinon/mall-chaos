@@ -26,6 +26,7 @@ import com.castrel.chaos.order.entity.OrderOutboxEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -89,17 +90,23 @@ public class OrderService {
     private Counter successCounter;
     private Counter failCounter;
     private Counter checkoutCounter;
+    private Timer checkoutTimer;
 
     @Transactional
     public OrderDTO checkout(Long customerId, CheckoutCommand command) {
-        if (customerId == null || command == null || command.getIdempotencyKey() == null
-                || command.getIdempotencyKey().isBlank() || command.getCartId() == null
-                || command.getCartVersion() == null || command.getAddressId() == null) {
-            throw new BizException("INVALID_CHECKOUT", "cart, version, address and idempotencyKey are required");
+        Timer.Sample sample = Timer.start(meterRegistry);
+        try {
+            if (customerId == null || command == null || command.getIdempotencyKey() == null
+                    || command.getIdempotencyKey().isBlank() || command.getCartId() == null
+                    || command.getCartVersion() == null || command.getAddressId() == null) {
+                throw new BizException("INVALID_CHECKOUT", "cart, version, address and idempotencyKey are required");
+            }
+            return orderRepository.findByUserIdAndIdempotencyKey(customerId, command.getIdempotencyKey())
+                    .map(this::toDTO)
+                    .orElseGet(() -> createPendingCheckout(customerId, command));
+        } finally {
+            sample.stop(checkoutTimer);
         }
-        return orderRepository.findByUserIdAndIdempotencyKey(customerId, command.getIdempotencyKey())
-                .map(this::toDTO)
-                .orElseGet(() -> createPendingCheckout(customerId, command));
     }
 
     private OrderDTO createPendingCheckout(Long customerId, CheckoutCommand command) {
@@ -214,6 +221,7 @@ public class OrderService {
         successCounter = Counter.builder("order.create.success.count").register(meterRegistry);
         failCounter = Counter.builder("order.create.fail.count").register(meterRegistry);
         checkoutCounter = Counter.builder("checkout.total").register(meterRegistry);
+        checkoutTimer = Timer.builder("checkout_duration").register(meterRegistry);
     }
 
     @Transactional

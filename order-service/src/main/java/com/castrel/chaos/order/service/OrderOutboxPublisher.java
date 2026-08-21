@@ -6,6 +6,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -43,10 +44,13 @@ public class OrderOutboxPublisher {
 
     @Scheduled(fixedDelayString = "${outbox.publisher.delay-ms:1000}")
     public void publishPending() {
-        for (OrderOutboxEvent event : repository.findAll().stream()
-                .filter(candidate -> "PENDING".equals(candidate.getStatus())).limit(50).toList()) {
+        LocalDateTime now = LocalDateTime.now();
+        for (OrderOutboxEvent event : repository.findReady(now, PageRequest.of(0, 50))) {
+            if (repository.claim(event.getId(), now) == 0) {
+                continue;
+            }
             event.setStatus("PROCESSING");
-            event.setAttempts(event.getAttempts() + 1);
+            event.setAttempts((event.getAttempts() == null ? 0 : event.getAttempts()) + 1);
             repository.save(event);
             try {
                 deliver(event);
@@ -54,7 +58,7 @@ public class OrderOutboxPublisher {
                 event.setPublishedAt(LocalDateTime.now());
             } catch (Exception exception) {
                 event.setStatus(event.getAttempts() >= 10 ? "DEAD_LETTER" : "FAILED");
-                event.setNextAttemptAt(LocalDateTime.now().plusSeconds(1));
+                event.setNextAttemptAt(LocalDateTime.now().plusSeconds(Math.min(event.getAttempts(), 30)));
             }
             repository.save(event);
         }
@@ -71,7 +75,7 @@ public class OrderOutboxPublisher {
         headers.set("X-Internal-Service-Key", serviceKey);
         if ("ORDER_PAID".equals(event.getEventType())) {
             client.postForEntity(riskUrl + "/internal/risk/events/order-paid",
-                    new HttpEntity<>(payload, headers), Void.class);
+                    new HttpEntity<>(envelope, headers), Void.class);
         }
         if ("ORDER_PAID".equals(event.getEventType()) || "ORDER_PAYMENT_FAILED".equals(event.getEventType())) {
             boolean success = "ORDER_PAID".equals(event.getEventType());

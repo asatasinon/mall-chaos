@@ -7,6 +7,8 @@ import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -22,9 +24,11 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
             "/api/payments", "/api/fulfillments", "/api/notifications");
 
     private final JwtTokenService jwtTokenService;
+    private final Counter customerApiErrorCounter;
 
-    public CustomerAuthenticationGlobalFilter(JwtTokenService jwtTokenService) {
+    public CustomerAuthenticationGlobalFilter(JwtTokenService jwtTokenService, MeterRegistry meterRegistry) {
         this.jwtTokenService = jwtTokenService;
+        this.customerApiErrorCounter = Counter.builder("customer_api_error_total").register(meterRegistry);
     }
 
     @Override
@@ -95,11 +99,13 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
     }
 
     private Mono<Void> unauthorized(ServerWebExchange exchange) {
+        customerApiErrorCounter.increment();
         exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
         return exchange.getResponse().setComplete();
     }
 
     private Mono<Void> forbidden(ServerWebExchange exchange) {
+        customerApiErrorCounter.increment();
         exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
         return exchange.getResponse().setComplete();
     }

@@ -12,10 +12,14 @@ import com.castrel.chaos.notification.repository.NotificationLogRepository;
 import com.castrel.chaos.notification.repository.CustomerNotificationRepository;
 import com.castrel.chaos.notification.repository.NotificationInboxRepository;
 import com.castrel.chaos.notification.repository.NotificationOutboxRepository;
+import com.castrel.chaos.notification.repository.NotificationPreferenceRepository;
 import com.castrel.chaos.notification.entity.NotificationInboxEvent;
 import com.castrel.chaos.notification.entity.NotificationOutboxEvent;
 import com.castrel.chaos.notification.entity.CustomerNotification;
+import com.castrel.chaos.notification.entity.NotificationPreference;
 import com.castrel.chaos.notification.dto.CustomerNotificationDTO;
+import com.castrel.chaos.notification.dto.NotificationPreferenceDTO;
+import com.castrel.chaos.notification.dto.UpdateNotificationPreferenceRequest;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -64,6 +68,9 @@ public class NotificationService {
 
     @Autowired
     private NotificationOutboxRepository outboxRepository;
+
+    @Autowired
+    private NotificationPreferenceRepository preferenceRepository;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -129,6 +136,19 @@ public class NotificationService {
         inbox.setStatus("RECEIVED");
         inboxRepository.save(inbox);
         enrichQueryIfNeeded(userId, orderNo);
+        NotificationPreference preference = preferenceRepository.findById(userId).orElseGet(() -> {
+            NotificationPreference created = new NotificationPreference();
+            created.setCustomerId(userId);
+            created.setEmail(true);
+            created.setInApp(true);
+            return preferenceRepository.save(created);
+        });
+        if (!Boolean.TRUE.equals(preference.getInApp())) {
+            inbox.setStatus("PROCESSED");
+            inbox.setProcessedAt(LocalDateTime.now());
+            inboxRepository.save(inbox);
+            return;
+        }
         boolean failed = Math.random() < failRate;
         String status = failed ? "FAILED" : "SENT";
 
@@ -206,6 +226,37 @@ public class NotificationService {
         }
         return new CustomerNotificationDTO(notification.getId(), notification.getEventType(), notification.getTitle(),
                 notification.getBody(), notification.getRead(), notification.getCreatedAt(), notification.getReadAt());
+    }
+
+    @Transactional
+    public NotificationPreferenceDTO getPreferences(Long customerId) {
+        NotificationPreference preference = preferenceRepository.findById(customerId).orElseGet(() -> {
+            NotificationPreference created = new NotificationPreference();
+            created.setCustomerId(customerId);
+            created.setEmail(true);
+            created.setInApp(true);
+            return preferenceRepository.save(created);
+        });
+        return new NotificationPreferenceDTO(preference.getEmail(), preference.getInApp());
+    }
+
+    @Transactional
+    public NotificationPreferenceDTO updatePreferences(Long customerId, UpdateNotificationPreferenceRequest request) {
+        NotificationPreference preference = preferenceRepository.findById(customerId).orElseGet(() -> {
+            NotificationPreference created = new NotificationPreference();
+            created.setCustomerId(customerId);
+            created.setEmail(true);
+            created.setInApp(true);
+            return created;
+        });
+        if (request.getEmail() != null) {
+            preference.setEmail(request.getEmail());
+        }
+        if (request.getInApp() != null) {
+            preference.setInApp(request.getInApp());
+        }
+        preferenceRepository.save(preference);
+        return new NotificationPreferenceDTO(preference.getEmail(), preference.getInApp());
     }
 
     private void enrichQueryIfNeeded(Long userId, String orderNo) {

@@ -6,6 +6,7 @@ import com.castrel.chaos.common.event.EventEnvelope;
 import com.castrel.chaos.common.event.EventEnvelopeCodec;
 import com.castrel.chaos.payment.entity.PaymentOutboxEvent;
 import com.castrel.chaos.payment.repository.PaymentOutboxRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -26,7 +27,13 @@ public class PaymentOutboxPublisher {
 
     @Scheduled(fixedDelayString = "${outbox.publisher.delay-ms:1000}")
     public void publishPending() {
-        for (PaymentOutboxEvent event : repository.findTop50ByStatusOrderByCreatedAtAsc("PENDING")) {
+        LocalDateTime now = LocalDateTime.now();
+        for (PaymentOutboxEvent event : repository.findReady(now, PageRequest.of(0, 50))) {
+            if (repository.claim(event.getId(), now) == 0) {
+                continue;
+            }
+            event.setStatus("PROCESSING");
+            event.setAttempts((event.getAttempts() == null ? 0 : event.getAttempts()) + 1);
             try {
                 EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.decode(objectMapper,
                     event.getEventId(), event.getEventType(), event.getAggregateId(),
@@ -36,8 +43,8 @@ public class PaymentOutboxPublisher {
                 event.setStatus("PUBLISHED");
                 event.setPublishedAt(LocalDateTime.now());
             } catch (Exception exception) {
-                event.setAttempts(event.getAttempts() + 1);
                 event.setStatus(event.getAttempts() >= 10 ? "DEAD_LETTER" : "FAILED");
+                event.setNextAttemptAt(LocalDateTime.now().plusSeconds(Math.min(event.getAttempts(), 30)));
             }
             repository.save(event);
         }

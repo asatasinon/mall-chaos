@@ -56,12 +56,14 @@ public class FulfillmentService {
     private Counter createCounter;
     private Counter cancelCounter;
     private Counter transitionCounter;
+    private Counter transitionTotalCounter;
 
     @PostConstruct
     void initMetrics() {
         createCounter = Counter.builder("fulfillment.create.count").register(meterRegistry);
         cancelCounter = Counter.builder("fulfillment.cancel.count").register(meterRegistry);
         transitionCounter = Counter.builder("fulfillment.transition.count").register(meterRegistry);
+        transitionTotalCounter = Counter.builder("fulfillment_transition_total").register(meterRegistry);
     }
 
     @Transactional
@@ -112,6 +114,7 @@ public class FulfillmentService {
             appendTimeline(f.getId(), status, "Shipment status: " + status);
             appendShipmentEvent(f);
             transitionCounter.increment();
+            transitionTotalCounter.increment();
         });
     }
 

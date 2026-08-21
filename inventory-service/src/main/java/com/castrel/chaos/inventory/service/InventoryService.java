@@ -58,12 +58,14 @@ public class InventoryService {
     private Counter reserveSuccess;
     private Counter reserveFail;
     private Counter resetCount;
+    private Counter reservationCounter;
 
     @PostConstruct
     void initMetrics() {
         reserveSuccess = Counter.builder("inventory.reserve.success.count").register(meterRegistry);
         reserveFail = Counter.builder("inventory.reserve.fail.count").register(meterRegistry);
         resetCount = Counter.builder("inventory.reset.count").register(meterRegistry);
+        reservationCounter = Counter.builder("inventory_reservation_total").register(meterRegistry);
     }
 
     @Transactional
@@ -76,6 +78,7 @@ public class InventoryService {
     @Transactional
     public Map<String, Object> reserve(String orderId, String sku, int qty,
                                        String reservationId, String operationId) {
+        reservationCounter.increment();
         if (qty <= 0 || reservationId == null || reservationId.isBlank()
                 || operationId == null || operationId.isBlank()) {
             throw new BizException("INVALID_RESERVATION", "reservationId, operationId and positive qty are required");

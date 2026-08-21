@@ -64,6 +64,7 @@ public class PaymentService {
     private Counter failCounter;
     private Counter timeoutCounter;
     private Counter outboxCounter;
+    private Counter attemptCounter;
     private final Random random = new Random();
 
     @PostConstruct
@@ -72,6 +73,7 @@ public class PaymentService {
         failCounter = Counter.builder("payment.charge.fail.count").register(meterRegistry);
         timeoutCounter = Counter.builder("payment.charge.timeout.count").register(meterRegistry);
         outboxCounter = Counter.builder("payment.outbox.append.count").register(meterRegistry);
+        attemptCounter = Counter.builder("payment_attempt_total").register(meterRegistry);
     }
 
     @Transactional
@@ -147,6 +149,7 @@ public class PaymentService {
     }
 
     private PaymentDTO executePayment(Payment payment) {
+        attemptCounter.increment();
         double roll = random.nextDouble();
         if (roll < successRate) {
             payment.setStatus("SUCCESS");
@@ -192,6 +195,7 @@ public class PaymentService {
     }
 
     private PaymentDTO executeCharge(ChargeRequest req) {
+        attemptCounter.increment();
         enrichQueryIfNeeded(req.getOrderNo());
 
         Payment payment = new Payment();

@@ -14,6 +14,8 @@ import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,16 +28,18 @@ public class CartService {
 
     private final CartRepository cartRepository;
     private final CartItemRepository itemRepository;
+    private final Counter mutationCounter;
         private final StringRedisTemplate redisTemplate;
         private static final Duration FREEZE_TTL = Duration.ofMinutes(10);
         private static final DefaultRedisScript<Long> RELEASE_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", Long.class);
 
     public CartService(CartRepository cartRepository, CartItemRepository itemRepository,
-                       StringRedisTemplate redisTemplate) {
+                       StringRedisTemplate redisTemplate, MeterRegistry meterRegistry) {
         this.cartRepository = cartRepository;
         this.itemRepository = itemRepository;
         this.redisTemplate = redisTemplate;
+        this.mutationCounter = Counter.builder("cart_item_mutation_total").register(meterRegistry);
     }
 
     @Transactional
@@ -45,6 +49,7 @@ public class CartService {
 
     @Transactional
     public CartDTO addItem(Long customerId, CartItemRequest request) {
+        mutationCounter.increment();
         validateItem(request);
         Cart cart = getOrCreate(customerId);
         CartItem item = itemRepository.findByCartIdAndSku(cart.getId(), request.getSku().trim())
@@ -58,6 +63,7 @@ public class CartService {
 
     @Transactional
     public CartDTO updateItem(Long customerId, Long itemId, CartItemRequest request) {
+        mutationCounter.increment();
         validateItem(request);
         Cart cart = getOrCreate(customerId);
         CartItem item = ownedItem(cart, itemId);
@@ -70,6 +76,7 @@ public class CartService {
 
     @Transactional
     public CartDTO removeItem(Long customerId, Long itemId) {
+        mutationCounter.increment();
         Cart cart = getOrCreate(customerId);
         CartItem item = ownedItem(cart, itemId);
         itemRepository.delete(item);
@@ -79,6 +86,7 @@ public class CartService {
 
     @Transactional
     public CartDTO clear(Long customerId) {
+        mutationCounter.increment();
         Cart cart = getOrCreate(customerId);
         itemRepository.deleteByCartId(cart.getId());
         touch(cart);
