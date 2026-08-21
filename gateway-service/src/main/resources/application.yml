@@ -21,6 +21,10 @@ spring:
             allowedHeaders: "*"
             allowCredentials: false
       routes:
+        - id: cart
+          uri: ${CART_SERVICE_URL:http://localhost:18091}
+          predicates:
+            - Path=/api/cart/**
         - id: user-auth
           uri: ${USER_SERVICE_URL:http://localhost:18081}
           predicates:

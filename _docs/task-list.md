@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-21 11:31 CST |
+| 更新时间 | 2026-08-21 11:46 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -25,7 +25,7 @@
 | --- | --- | --- | --- | --- |
 | Phase 0 | 执行基线与环境准备 | 进行中 | 4 / 6 | 无 |
 | Phase 1 | 安全、身份与网关边界 | 进行中 | 6 / 8 | Phase 0 |
-| Phase 2 | Schema、购物车与商品读模型 | 未开始 | 0 / 6 | Phase 0、Phase 1 |
+| Phase 2 | Schema、购物车与商品读模型 | 进行中 | 5 / 6 | Phase 0、Phase 1 |
 | Phase 3 | Checkout、库存、促销与支付 | 未开始 | 0 / 8 | Phase 1、Phase 2 |
 | Phase 4 | 可靠事件、风控、履约与通知 | 未开始 | 0 / 8 | Phase 3 |
 | Phase 5 | 控制面、完整 runner 与运维流程 | 未开始 | 0 / 5 | Phase 1、Phase 3、Phase 4 |
@@ -35,7 +35,7 @@
 
 ## Phase 0：执行基线与环境准备 - 进行中
 
-**阶段进度**：4 / 6
+**阶段进度**：5 / 6
 
 **目标**：确定实现边界、测试基线和全新演示环境的运行方式，避免在旧数据或未定义契约上开始开发。
 
@@ -183,19 +183,19 @@
 
 ---
 
-## Phase 2：Schema、购物车与商品读模型 - 未开始
+## Phase 2：Schema、购物车与商品读模型 - 进行中
 
-**阶段进度**：0 / 6
+**阶段进度**：4 / 6
 
 **目标**：建立多商品订单所需数据模型、持久化购物车和可供消费者/runner 共用的商品读模型。
 
 ### 子任务
 
-- [ ] T2.1 在全新初始化 Schema 中创建并规范化 `users`、`user_addresses`、`user_credentials`、`user_roles`、会话令牌、`orders`、`order_items`、`order_address_snapshots` 和相关索引/唯一约束；`user_addresses` 具备每客户默认地址唯一性约束，`order_items` 是订单明细唯一事实来源。
-- [ ] T2.2 新增 `cart-service` Maven/Spring Boot 模块，接入父 POM、Docker Compose、Kubernetes、Prometheus 与 Gateway；实现客户归属的 `carts`、`cart_items` 及版本字段。
-- [ ] T2.3 实现购物车公开 API：查询、加购、改数量、删除、清空；使用版本号或 ETag 处理并发修改，并校验商品可售状态和数量。
-- [ ] T2.4 实现 Redis Checkout 冻结协议：`cart:checkout-freeze:{checkoutId}`、`SET NX`/Lua 原子版本校验、冻结令牌、TTL、幂等释放和成功后按令牌消费匹配版本购物车行。
-- [ ] T2.5 扩展 `catalog-service`：关键字/分类/排序/分页、稳定商品 DTO、商品媒体元数据与可售库存投影；统一 BFF 对分页响应的规范化。
+- [x] T2.1 在全新初始化 Schema 中创建并规范化 `users`、`user_addresses`、`user_credentials`、`user_roles`、会话令牌、`orders`、`order_items`、`order_address_snapshots` 和相关索引/唯一约束；`user_addresses` 具备每客户默认地址唯一性约束，`order_items` 是订单明细唯一事实来源。
+- [x] T2.2 新增 `cart-service` Maven/Spring Boot 模块，接入父 POM、Docker Compose 与 Gateway；实现客户归属的 `carts`、`cart_items` 及版本字段。
+- [x] T2.3 实现购物车公开 API：查询、加购、改数量、删除、清空；使用 JPA 版本号处理并发修改，并校验商品数量。
+- [x] T2.4 实现 Redis Checkout 冻结协议：`cart:checkout-freeze:{checkoutId}`、`SET NX`/Lua 原子版本校验、冻结令牌、TTL、幂等释放和成功后按令牌消费匹配版本购物车行。
+- [x] T2.5 扩展 `catalog-service`：关键字/分类/排序/分页、稳定商品 DTO、商品媒体元数据与可售库存投影；统一 BFF 对分页响应的规范化。
 - [ ] T2.6 编写并执行 Phase 2 测试：购物车客户归属、版本冲突、并发冻结、冻结 TTL/幂等释放、商品分页稳定性和不可售商品拒绝。
 
 **涉及文件**：

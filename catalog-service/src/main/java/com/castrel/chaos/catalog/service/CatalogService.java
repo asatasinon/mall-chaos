@@ -12,6 +12,7 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -48,12 +49,25 @@ public class CatalogService {
         batchCount = Counter.builder("catalog.query.count").tag("type", "batch").register(meterRegistry);
     }
 
-    public Page<ProductDTO> listProducts(String category, int page, int size) {
+    public Page<ProductDTO> listProducts(String category, String keyword, String sort, int page, int size) {
         enrichQueryIfNeeded(null);
         listCount.increment();
+        String sortProperty = switch (sort == null ? "latest" : sort) {
+            case "price_asc", "price" -> "price";
+            case "name" -> "name";
+            default -> "id";
+        };
+        Sort.Direction direction = "price_desc".equals(sort) ? Sort.Direction.DESC : Sort.Direction.ASC;
+        if ("latest".equals(sort) || sort == null) direction = Sort.Direction.DESC;
+        PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100),
+                Sort.by(direction, sortProperty));
         Page<Product> products = (category != null && !category.isBlank())
-                ? productRepository.findByCategory(category, PageRequest.of(page, size))
-                : productRepository.findAll(PageRequest.of(page, size));
+                ? (keyword != null && !keyword.isBlank()
+                    ? productRepository.findByCategoryAndNameContainingIgnoreCase(category, keyword, pageable)
+                    : productRepository.findByCategory(category, pageable))
+                : (keyword != null && !keyword.isBlank()
+                    ? productRepository.findByNameContainingIgnoreCase(keyword, pageable)
+                    : productRepository.findAll(pageable));
         return products.map(this::toDTO);
     }
 
@@ -124,6 +138,14 @@ public class CatalogService {
         dto.setPrice(p.getPrice());
         dto.setStatus(p.getStatus());
         dto.setCategory(p.getCategory());
+        dto.setMediaUrl(p.getMediaUrl());
+        try {
+            Integer available = jdbcTemplate.queryForObject(
+                    "SELECT available_qty FROM inventories WHERE sku = ?", Integer.class, p.getSku());
+            dto.setAvailableQty(available == null ? 0 : available);
+        } catch (Exception ignored) {
+            dto.setAvailableQty(0);
+        }
         return dto;
     }
 }

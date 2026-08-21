@@ -284,6 +284,7 @@ services:
       SW_AGENT_NAME: gateway-service
       CW_APP_NAME: ${GATEWAY_CW_APP_NAME:-gateway-service}
       ORDER_SERVICE_URL: http://toxiproxy:18084
+      CART_SERVICE_URL: http://cart-service:8091
       CATALOG_SERVICE_URL: http://catalog-service:8082
       INVENTORY_SERVICE_URL: http://inventory-service:8083
       PAYMENT_SERVICE_URL: http://payment-service:8085
@@ -302,7 +303,10 @@ services:
       TOXIPROXY_API_URL: http://toxiproxy:8474
       CHAOS_CONSOLE_GRAFANA_BASE_URL: ${CHAOS_CONSOLE_GRAFANA_BASE_URL:-http://localhost:13000}
     depends_on:
-      - toxiproxy
+      toxiproxy:
+        condition: service_started
+      cart-service:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
       <<: *healthcheck-defaults
@@ -328,6 +332,29 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      <<: *healthcheck-defaults
+
+  cart-service:
+    image: ${REGISTRY:-harbor.cloudwise.com/noname}/cart-service:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: cart-service/Dockerfile
+    container_name: castrel-cart
+    <<: *service-defaults
+    volumes:
+      - ./data/cart-service:/service-data
+    environment:
+      <<: *java-service-env
+      OTEL_SERVICE_NAME: cart-service
+      SW_AGENT_NAME: cart-service
+      CW_APP_NAME: ${CART_CW_APP_NAME:-cart-service}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8091/actuator/health"]
       <<: *healthcheck-defaults
 
   catalog-service:

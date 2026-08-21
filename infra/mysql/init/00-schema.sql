@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS products (
     price       DECIMAL(10, 2)  NOT NULL,
     status      TINYINT         NOT NULL DEFAULT 1  COMMENT '1=上架 0=下架',
     category    VARCHAR(64),
+    media_url   VARCHAR(512),
     created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_sku (sku),

@@ -20,9 +20,11 @@ public class CatalogController {
     @GetMapping("/api/products")
     public ApiResponse<Page<ProductDTO>> listProducts(
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "latest") String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.ok(catalogService.listProducts(category, page, size));
+        return ApiResponse.ok(catalogService.listProducts(category, keyword, sort, page, size));
     }
 
     @GetMapping("/api/products/{sku}")

@@ -25,6 +25,9 @@ public class Product {
 
     private String category;
 
+    @Column(name = "media_url")
+    private String mediaUrl;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

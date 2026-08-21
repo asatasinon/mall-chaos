@@ -12,4 +12,6 @@ public class ProductDTO {
     private BigDecimal price;
     private Integer status;
     private String category;
+    private String mediaUrl;
+    private Integer availableQty;
 }
