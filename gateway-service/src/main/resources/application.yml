@@ -16,6 +16,18 @@ spring:
             allowedHeaders: "*"
             allowCredentials: false
       routes:
+        - id: user-auth
+          uri: ${USER_SERVICE_URL:http://localhost:18081}
+          predicates:
+            - Path=/api/auth/**
+        - id: user-addresses
+          uri: ${USER_SERVICE_URL:http://localhost:18081}
+          predicates:
+            - Path=/api/addresses/**
+        - id: user-profile
+          uri: ${USER_SERVICE_URL:http://localhost:18081}
+          predicates:
+            - Path=/api/users/**
         - id: orders
           uri: ${ORDER_SERVICE_URL:http://localhost:18084}
           predicates:

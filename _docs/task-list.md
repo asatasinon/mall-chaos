@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-20 19:53 CST |
+| 更新时间 | 2026-08-21 09:35 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -112,8 +112,8 @@
 ### 子任务
 
 - [-] T1.1 在 `user-service` 实现客户注册、登录、刷新、登出、个人资料及地址 CRUD；使用 BCrypt，新增 `CUSTOMER`、`OPERATOR` 角色和会话/令牌撤销能力，并支持默认地址设置、切换和删除后的回退规则。
-- [ ] T1.2 定义并实现客户/运营令牌契约：`iss`、`aud`、`sub`、角色、签发时间、过期时间和令牌 ID；`shopfront` 仅以 `HttpOnly`、`Secure`、`SameSite=Lax` Cookie 持有刷新/会话令牌。
-- [ ] T1.3 在 `gateway-service` 实现认证过滤器、角色授权、身份头清洗与可信下游主体声明；拒绝直连业务服务和伪造 `X-User-Id` / `X-User-Role`。
+- [-] T1.2 定义并实现客户/运营令牌契约：`iss`、`aud`、`sub`、角色、签发时间、过期时间和令牌 ID；`shopfront` 仅以 `HttpOnly`、`Secure`、`SameSite=Lax` Cookie 持有刷新/会话令牌。
+- [-] T1.3 在 `gateway-service` 实现认证过滤器、角色授权、身份头清洗与可信下游主体声明；拒绝直连业务服务和伪造 `X-User-Id` / `X-User-Role`。
 - [ ] T1.4 定义并实现 `TRAFFIC_RUNNER` 服务凭据校验：网关检查客户白名单版本、`aud=gateway-service`、动作 scope 与有效期，并由网关生成短期下游主体声明；控制面不得签发客户令牌。
 - [ ] T1.5 为 `traffic-control-plane` 的全部变更型 `/internal/**` Route Handler 添加统一 `OPERATOR` 鉴权和 `operator_audit_logs` 审计；限制 Ingress 和 Compose 端口，禁止消费者入口访问内部路径。
 - [ ] T1.6 实现 Gateway 至业务服务的内部服务认证：下游主体声明验签、Compose 共享服务密钥注入与轮换、Kubernetes 工作负载身份或 mTLS 策略；覆盖直连、伪造声明和未认证内部调用拒绝测试。
@@ -142,7 +142,15 @@
 
 ### T1.1 当前进展
 
-`user-service` 已加入 BCrypt 凭据、`CUSTOMER` 角色、可撤销会话持久化，以及注册、登录、刷新、登出接口；地址已支持按客户归属查询、新增、修改、默认切换和删除后回退。该切片已通过 Maven 编译。JWT 声明契约、HttpOnly Cookie、可信 Gateway 主体和完整接口测试仍由 T1.2-T1.6 完成，因此 T1.1 保持进行中。
+`user-service` 已加入 BCrypt 凭据、`CUSTOMER` 角色、可撤销会话持久化，以及注册、登录、刷新、登出接口；地址已支持按客户归属查询、新增、修改、默认切换和删除后回退。该切片已通过 Maven 编译。完整接口测试、运营角色管理和 Gateway 可信主体接入仍待完成，因此 T1.1 保持进行中。
+
+### T1.2 当前进展
+
+`common` 已新增 JWT 签发/验签组件，令牌包含 `iss`、`aud`、`sub`、`roles`、`iat`、`exp` 和 `jti`；`user-service` 返回短期 access token，并保留可撤销 session token 作为刷新凭据。签发/验签和篡改拒绝测试已通过。Shopfront 的 HttpOnly、Secure、SameSite=Lax Cookie 尚未实现，因此 T1.2 保持进行中。
+
+### T1.3 当前进展
+
+`gateway-service` 已新增客户认证 GlobalFilter：受保护客户路径要求 Bearer JWT，清洗传入的 `X-User-Id`、`X-User-Role`、`X-Auth-Actor`，并依据验签主体向下游注入可信身份头；认证、用户资料和地址路由已接入 Gateway，用户资料路径还会校验可信主体与路径 ID 一致。Gateway 到业务服务的内部声明验签、直连拒绝和角色授权测试仍待完成，因此 T1.3 保持进行中。
 
 ### 问题与解决方案
 

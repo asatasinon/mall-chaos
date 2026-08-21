@@ -10,6 +10,7 @@ import java.util.List;
 @AllArgsConstructor
 public class AuthResponse {
     private Long userId;
+    private String accessToken;
     private String sessionToken;
     private LocalDateTime expiresAt;
     private List<String> roles;

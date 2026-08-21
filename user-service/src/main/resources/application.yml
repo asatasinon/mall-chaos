@@ -18,6 +18,13 @@ spring:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:16379}
 
+castrel:
+  security:
+    jwt:
+      issuer: ${CASTREL_JWT_ISSUER:castrel-user-service}
+      audience: ${CASTREL_JWT_AUDIENCE:castrel-gateway}
+      access-ttl: ${CASTREL_JWT_ACCESS_TTL:PT15M}
+
 management:
   endpoint:
     health:

@@ -1,6 +1,7 @@
 package com.castrel.chaos.user.service;
 
 import com.castrel.chaos.common.BizException;
+import com.castrel.chaos.common.security.JwtTokenService;
 import com.castrel.chaos.user.dto.UserAddressDTO;
 import com.castrel.chaos.user.dto.UserDTO;
 import com.castrel.chaos.user.dto.AuthResponse;
@@ -48,6 +49,9 @@ public class UserService {
 
     @Autowired
     private SessionTokenRepository sessionTokenRepository;
+
+    @Autowired
+    private JwtTokenService jwtTokenService;
 
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final SecureRandom secureRandom = new SecureRandom();
@@ -127,28 +131,34 @@ public class UserService {
     }
 
     private AuthResponse createSession(User user, List<String> roles) {
-        String rawToken = UUID.randomUUID() + "." + Long.toUnsignedString(secureRandom.nextLong());
+        String tokenId = UUID.randomUUID().toString();
+        String rawToken = tokenId + "." + Long.toUnsignedString(secureRandom.nextLong());
         LocalDateTime expiresAt = LocalDateTime.now().plus(SESSION_TTL);
         SessionToken session = new SessionToken();
         session.setUserId(user.getId());
-        session.setTokenId(UUID.randomUUID().toString());
+        session.setTokenId(tokenId);
         session.setTokenHash(hashToken(rawToken));
         session.setExpiresAt(expiresAt);
         session.setCreatedAt(LocalDateTime.now());
         sessionTokenRepository.save(session);
-        return new AuthResponse(user.getId(), rawToken, expiresAt, roles);
+        return new AuthResponse(
+            user.getId(), jwtTokenService.issueAccessToken(user.getId(), roles), rawToken, expiresAt, roles);
     }
 
     private SessionToken findActiveSession(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) {
             throw new BizException("INVALID_SESSION", "Invalid session");
         }
-        String hash = hashToken(rawToken);
-        SessionToken session = sessionTokenRepository.findByTokenId(rawToken)
-                .orElseGet(() -> sessionTokenRepository.findAll().stream()
-                        .filter(candidate -> hash.equals(candidate.getTokenHash()))
-                        .findFirst()
-                        .orElseThrow(() -> new BizException("INVALID_SESSION", "Invalid session")));
+        int separator = rawToken.indexOf('.');
+        if (separator <= 0) {
+            throw new BizException("INVALID_SESSION", "Invalid session");
+        }
+        String tokenId = rawToken.substring(0, separator);
+        SessionToken session = sessionTokenRepository.findByTokenId(tokenId)
+            .orElseThrow(() -> new BizException("INVALID_SESSION", "Invalid session"));
+        if (!hashToken(rawToken).equals(session.getTokenHash())) {
+            throw new BizException("INVALID_SESSION", "Invalid session");
+        }
         if (session.getRevokedAt() != null || !session.getExpiresAt().isAfter(LocalDateTime.now())) {
             throw new BizException("INVALID_SESSION", "Invalid session");
         }

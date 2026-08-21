@@ -1,2 +1,3 @@
 com.castrel.chaos.common.config.ChaosRedisAutoConfiguration
 com.castrel.chaos.common.config.ServiceComponentAutoConfiguration
+com.castrel.chaos.common.config.SecurityAutoConfiguration

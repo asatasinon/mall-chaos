@@ -16,7 +16,8 @@ import org.springframework.context.annotation.ComponentScan;
         "com.castrel.chaos.common.cache",
         "com.castrel.chaos.common.chaos",
         "com.castrel.chaos.common.management",
-        "com.castrel.chaos.common.storage"
+        "com.castrel.chaos.common.storage",
+        "com.castrel.chaos.common.security"
 })
 public class ServiceComponentAutoConfiguration {
 }

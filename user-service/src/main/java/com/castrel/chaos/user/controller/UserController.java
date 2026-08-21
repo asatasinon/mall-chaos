@@ -41,7 +41,11 @@ public class UserController {
     }
 
     @GetMapping("/api/users/{id}")
-    public ApiResponse<UserDTO> getUser(@PathVariable Long id) {
+    public ApiResponse<UserDTO> getUser(
+            @RequestHeader("X-User-Id") Long authenticatedUserId, @PathVariable Long id) {
+        if (!authenticatedUserId.equals(id)) {
+            throw new com.castrel.chaos.common.BizException("USER_NOT_FOUND", "User not found: " + id);
+        }
         return ApiResponse.ok(userService.getUser(id));
     }
 
