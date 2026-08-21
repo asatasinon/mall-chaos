@@ -169,8 +169,9 @@ public class PaymentService {
 
     private void appendPaymentResultEvent(PaymentDTO payment) {
         try {
+            payment.setEventId(UUID.randomUUID().toString());
             PaymentOutboxEvent event = new PaymentOutboxEvent();
-            event.setEventId(UUID.randomUUID().toString());
+            event.setEventId(payment.getEventId());
             event.setEventType("PAYMENT_RESULT");
             event.setAggregateId(payment.getOrderNo());
             event.setAggregateVersion(1);

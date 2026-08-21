@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 
 @Data
 public class PaymentDTO {
+    private String eventId;
     private Long id;
     private String paymentNo;
     private String orderNo;

@@ -18,6 +18,11 @@ import com.castrel.chaos.order.entity.OrderAddressSnapshot;
 import com.castrel.chaos.order.repository.OrderItemRepository;
 import com.castrel.chaos.order.repository.OrderAddressSnapshotRepository;
 import com.castrel.chaos.order.repository.OrderRepository;
+import com.castrel.chaos.order.repository.OrderInboxRepository;
+import com.castrel.chaos.order.repository.OrderOutboxRepository;
+import com.castrel.chaos.order.entity.OrderInboxEvent;
+import com.castrel.chaos.order.entity.OrderOutboxEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -46,6 +51,15 @@ public class OrderService {
 
     @Autowired
     private OrderRepository orderRepository;
+
+    @Autowired
+    private OrderInboxRepository inboxRepository;
+
+    @Autowired
+    private OrderOutboxRepository outboxRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private OrderItemRepository orderItemRepository;
@@ -379,6 +393,19 @@ public class OrderService {
 
     @Transactional
     public OrderDTO applyPaymentResult(PaymentResultRequest request) {
+        if (request.getEventId() == null || request.getEventId().isBlank()) {
+            throw new BizException("EVENT_ID_REQUIRED", "Payment eventId is required");
+        }
+        if (inboxRepository.existsById(request.getEventId())) {
+            return orderRepository.findByOrderNo(request.getOrderNo()).map(this::toDTO)
+                    .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + request.getOrderNo()));
+        }
+        OrderInboxEvent inbox = new OrderInboxEvent();
+        inbox.setEventId(request.getEventId());
+        inbox.setEventType("PAYMENT_RESULT");
+        inbox.setReceivedAt(LocalDateTime.now());
+        inbox.setStatus("RECEIVED");
+        inboxRepository.save(inbox);
         Order order = orderRepository.findByOrderNo(request.getOrderNo())
                 .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + request.getOrderNo()));
         if ("PAID".equals(order.getStatus()) || "PAYMENT_FAILED".equals(order.getStatus())) {
@@ -404,6 +431,29 @@ public class OrderService {
             if (order.getCouponId() != null) {
                 clients.confirmCoupon(order.getOrderNo(), order.getCouponId());
             }
+        }
+        try {
+            OrderOutboxEvent event = new OrderOutboxEvent();
+            event.setEventId(UUID.randomUUID().toString());
+            event.setEventType(success ? "ORDER_PAID" : "ORDER_PAYMENT_FAILED");
+            event.setAggregateId(order.getOrderNo());
+            event.setAggregateVersion(order.getVersion());
+            event.setPayload(objectMapper.writeValueAsString(toDTO(order)));
+            event.setOccurredAt(LocalDateTime.now());
+            event.setSchemaVersion(1);
+            event.setTraceId(TraceContext.getTraceId());
+            event.setStatus("PENDING");
+            event.setAttempts(0);
+            event.setCreatedAt(LocalDateTime.now());
+            outboxRepository.save(event);
+            inbox.setProcessedAt(LocalDateTime.now());
+            inbox.setStatus("PROCESSED");
+            inboxRepository.save(inbox);
+        } catch (Exception exception) {
+            inbox.setStatus("FAILED");
+            inbox.setFailureReason(exception.getMessage());
+            inboxRepository.save(inbox);
+            throw new IllegalStateException("Unable to append order outbox event", exception);
         }
         return toDTO(order);
     }
