@@ -9,20 +9,27 @@ import com.castrel.chaos.payment.repository.PaymentOutboxRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import java.time.LocalDateTime;
+import java.time.Duration;
 
 @Component
 public class PaymentOutboxPublisher {
     private final PaymentOutboxRepository repository;
     private final ObjectMapper objectMapper;
     private final PaymentResultDelivery delivery;
+    private final Timer publishLatency;
 
     public PaymentOutboxPublisher(PaymentOutboxRepository repository, ObjectMapper objectMapper,
-                                  PaymentResultDelivery delivery) {
+                                  PaymentResultDelivery delivery, MeterRegistry meterRegistry) {
         this.repository = repository;
         this.objectMapper = objectMapper;
         this.delivery = delivery;
+        this.publishLatency = Timer.builder("outbox.publish.latency")
+            .tag("service", "payment")
+            .register(meterRegistry);
     }
 
     @Scheduled(fixedDelayString = "${outbox.publisher.delay-ms:1000}")
@@ -42,6 +49,7 @@ public class PaymentOutboxPublisher {
                 delivery.deliver(envelope.getPayload());
                 event.setStatus("PUBLISHED");
                 event.setPublishedAt(LocalDateTime.now());
+                publishLatency.record(Duration.between(event.getOccurredAt(), event.getPublishedAt()));
             } catch (Exception exception) {
                 event.setStatus(event.getAttempts() >= 10 ? "DEAD_LETTER" : "FAILED");
                 event.setNextAttemptAt(LocalDateTime.now().plusSeconds(Math.min(event.getAttempts(), 30)));

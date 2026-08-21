@@ -11,4 +11,5 @@ public class PaymentResultRequest {
     private String orderNo;
     private boolean success;
     private BigDecimal amount;
+    private BigDecimal totalAmount;
 }

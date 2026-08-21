@@ -1,6 +1,10 @@
 package com.castrel.chaos.notification.controller;
 
 import com.castrel.chaos.common.ApiResponse;
+import com.castrel.chaos.common.event.EventEnvelope;
+import com.castrel.chaos.common.event.EventEnvelopeValidator;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.castrel.chaos.notification.dto.OrderCreatedRequest;
 import com.castrel.chaos.notification.dto.PaymentResultRequest;
 import com.castrel.chaos.notification.dto.ShippingCreatedRequest;
@@ -18,6 +22,9 @@ public class NotificationController {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @GetMapping("/api/notifications")
     public ApiResponse<Page<CustomerNotificationDTO>> list(
@@ -53,14 +60,35 @@ public class NotificationController {
     }
 
     @PostMapping("/internal/notifications/payment-result")
-    public ApiResponse<Void> paymentResult(@RequestBody PaymentResultRequest req) {
+    public ApiResponse<Void> paymentResult(@RequestBody EventEnvelope<JsonNode> envelope) {
+        EventEnvelopeValidator.validate(envelope);
+        if (!"ORDER_PAID".equals(envelope.getEventType())
+                && !"ORDER_PAYMENT_FAILED".equals(envelope.getEventType())) {
+            throw new IllegalArgumentException("Unsupported notification event type");
+        }
+        PaymentResultRequest req = toRequest(envelope, PaymentResultRequest.class);
+        req.setEventId(envelope.getEventId());
         notificationService.notifyPaymentResult(req);
         return ApiResponse.ok();
     }
 
     @PostMapping("/internal/notifications/shipping-created")
-    public ApiResponse<Void> shippingCreated(@RequestBody ShippingCreatedRequest req) {
+    public ApiResponse<Void> shippingCreated(@RequestBody EventEnvelope<JsonNode> envelope) {
+        EventEnvelopeValidator.validate(envelope);
+        if (!"SHIPMENT_UPDATED".equals(envelope.getEventType())) {
+            throw new IllegalArgumentException("Unsupported notification event type");
+        }
+        ShippingCreatedRequest req = toRequest(envelope, ShippingCreatedRequest.class);
+        req.setEventId(envelope.getEventId());
         notificationService.notifyShippingCreated(req);
         return ApiResponse.ok();
+    }
+
+    private <T> T toRequest(EventEnvelope<JsonNode> envelope, Class<T> type) {
+        try {
+            return objectMapper.treeToValue(envelope.getPayload(), type);
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("Invalid notification event payload", exception);
+        }
     }
 }

@@ -16,6 +16,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
@@ -31,6 +32,7 @@ public class RiskOutboxPublisher {
     private final String serviceKey;
     private final Counter publishedCounter;
     private final Counter failedCounter;
+    private final Timer publishLatency;
 
     public RiskOutboxPublisher(
             RiskOutboxRepository repository,
@@ -48,6 +50,9 @@ public class RiskOutboxPublisher {
         this.serviceKey = serviceKey;
         this.publishedCounter = Counter.builder("risk.outbox.published.count").register(meterRegistry);
         this.failedCounter = Counter.builder("risk.outbox.failed.count").register(meterRegistry);
+        this.publishLatency = Timer.builder("outbox.publish.latency")
+            .tag("service", "risk")
+            .register(meterRegistry);
     }
 
     @Scheduled(fixedDelayString = "${outbox.publisher.delay-ms:1000}")
@@ -69,14 +74,14 @@ public class RiskOutboxPublisher {
                 headers.set("X-Internal-Service-Key", serviceKey);
                 if ("POST_PAYMENT_RISK_PASSED".equals(event.getEventType())) {
                     client.postForEntity(fulfillmentUrl + "/internal/fulfillments/events/risk-passed",
-                            new HttpEntity<>(payload, headers), Void.class);
+                        new HttpEntity<>(envelope, headers), Void.class);
                 } else if ("POST_PAYMENT_RISK_REJECTED".equals(event.getEventType())) {
                     client.postForEntity(orderUrl + "/internal/orders/risk-rejected",
-                            new HttpEntity<>(Map.of("orderNo", payload.path("orderNo").asText(),
-                                    "reason", payload.path("result").path("reason").asText()), headers), Void.class);
+                        new HttpEntity<>(envelope, headers), Void.class);
                 }
                 event.setStatus("PUBLISHED");
                 event.setPublishedAt(java.time.LocalDateTime.now());
+                publishLatency.record(java.time.Duration.between(event.getOccurredAt(), event.getPublishedAt()));
                 publishedCounter.increment();
             } catch (Exception exception) {
                 event.setStatus(event.getAttempts() >= 10 ? "DEAD_LETTER" : "FAILED");

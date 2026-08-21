@@ -102,14 +102,15 @@ public class NotificationService {
     }
 
     public void notifyPaymentResult(PaymentResultRequest req) {
+        BigDecimal amount = req.getAmount() != null ? req.getAmount() : req.getTotalAmount();
         String message = req.isSuccess()
-                ? String.format("【支付成功】订单 %s 支付 ¥%.2f 成功", req.getOrderNo(), req.getAmount())
+            ? String.format("【支付成功】订单 %s 支付 ¥%.2f 成功", req.getOrderNo(), amount)
                 : String.format("【支付失败】订单 %s 支付失败，请重试", req.getOrderNo());
         String eventType = req.isSuccess() ? "PAYMENT_SUCCESS" : "PAYMENT_FAILED";
         Map<String, Object> payload = new HashMap<>();
         payload.put("orderNo", req.getOrderNo());
         payload.put("success", req.isSuccess());
-        payload.put("amount", req.getAmount());
+        payload.put("amount", amount);
         send(req.getEventId(), req.getUserId(), req.getOrderNo(), eventType, message, payload);
     }
 

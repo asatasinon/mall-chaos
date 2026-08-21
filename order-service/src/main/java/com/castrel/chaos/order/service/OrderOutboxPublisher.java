@@ -11,12 +11,15 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestTemplate;
+import io.micrometer.core.instrument.MeterRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.castrel.chaos.common.event.EventEnvelope;
 import com.castrel.chaos.common.event.EventEnvelopeCodec;
+import io.micrometer.core.instrument.Timer;
 
 import java.time.LocalDateTime;
+import java.time.Duration;
 
 @Component
 public class OrderOutboxPublisher {
@@ -26,6 +29,7 @@ public class OrderOutboxPublisher {
     private final String riskUrl;
     private final String notificationUrl;
     private final String serviceKey;
+    private final Timer publishLatency;
 
     public OrderOutboxPublisher(
             OrderOutboxRepository repository,
@@ -33,13 +37,17 @@ public class OrderOutboxPublisher {
             ObjectMapper objectMapper,
             @Value("${services.risk-url:http://localhost:18088}") String riskUrl,
             @Value("${services.notification-url:http://localhost:18090}") String notificationUrl,
-            @Value("${CASTREL_INTERNAL_SERVICE_KEY:}") String serviceKey) {
+            @Value("${CASTREL_INTERNAL_SERVICE_KEY:}") String serviceKey,
+            MeterRegistry meterRegistry) {
         this.repository = repository;
         this.client = builder.build();
         this.objectMapper = objectMapper;
         this.riskUrl = riskUrl;
         this.notificationUrl = notificationUrl;
         this.serviceKey = serviceKey;
+        this.publishLatency = Timer.builder("outbox.publish.latency")
+            .tag("service", "order")
+            .register(meterRegistry);
     }
 
     @Scheduled(fixedDelayString = "${outbox.publisher.delay-ms:1000}")
@@ -56,6 +64,7 @@ public class OrderOutboxPublisher {
                 deliver(event);
                 event.setStatus("PUBLISHED");
                 event.setPublishedAt(LocalDateTime.now());
+                publishLatency.record(Duration.between(event.getOccurredAt(), event.getPublishedAt()));
             } catch (Exception exception) {
                 event.setStatus(event.getAttempts() >= 10 ? "DEAD_LETTER" : "FAILED");
                 event.setNextAttemptAt(LocalDateTime.now().plusSeconds(Math.min(event.getAttempts(), 30)));
@@ -78,15 +87,8 @@ public class OrderOutboxPublisher {
                     new HttpEntity<>(envelope, headers), Void.class);
         }
         if ("ORDER_PAID".equals(event.getEventType()) || "ORDER_PAYMENT_FAILED".equals(event.getEventType())) {
-            boolean success = "ORDER_PAID".equals(event.getEventType());
-            var body = java.util.Map.of(
-                    "eventId", event.getEventId(),
-                    "userId", payload.path("userId").asLong(),
-                    "orderNo", payload.path("orderNo").asText(),
-                    "success", success,
-                    "amount", payload.path("totalAmount").decimalValue());
             client.postForEntity(notificationUrl + "/internal/notifications/payment-result",
-                    new HttpEntity<>(body, headers), Void.class);
+                new HttpEntity<>(envelope, headers), Void.class);
         }
     }
 }

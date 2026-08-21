@@ -1,6 +1,10 @@
 package com.castrel.chaos.order.controller;
 
 import com.castrel.chaos.common.ApiResponse;
+import com.castrel.chaos.common.event.EventEnvelope;
+import com.castrel.chaos.common.event.EventEnvelopeValidator;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.castrel.chaos.order.dto.CreateOrderRequest;
 import com.castrel.chaos.order.dto.OrderDTO;
 import com.castrel.chaos.order.dto.CheckoutCommand;
@@ -19,6 +23,9 @@ public class OrderController {
 
     @Autowired
     private OrderService orderService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @PostMapping("/api/checkout")
     public ApiResponse<OrderDTO> checkout(
@@ -70,7 +77,17 @@ public class OrderController {
     }
 
     @PostMapping("/internal/orders/risk-rejected")
-    public ApiResponse<OrderDTO> riskRejected(@RequestBody RiskRejectedRequest request) {
+    public ApiResponse<OrderDTO> riskRejected(@RequestBody EventEnvelope<JsonNode> envelope) {
+        EventEnvelopeValidator.validate(envelope);
+        if (!"POST_PAYMENT_RISK_REJECTED".equals(envelope.getEventType())) {
+            throw new IllegalArgumentException("Unsupported order event type");
+        }
+        RiskRejectedRequest request;
+        try {
+            request = objectMapper.treeToValue(envelope.getPayload(), RiskRejectedRequest.class);
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("Invalid POST_PAYMENT_RISK_REJECTED event payload", exception);
+        }
         return ApiResponse.ok(orderService.applyRiskRejected(request));
     }
 

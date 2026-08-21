@@ -9,6 +9,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 
 import java.time.LocalDateTime;
 
@@ -18,6 +19,7 @@ public class NotificationOutboxPublisher {
     private final ObjectMapper mapper;
     private final Counter publishedCounter;
     private final Counter failedCounter;
+    private final Timer publishLatency;
 
     public NotificationOutboxPublisher(NotificationOutboxRepository repository, ObjectMapper mapper,
                                        MeterRegistry meterRegistry) {
@@ -25,6 +27,9 @@ public class NotificationOutboxPublisher {
         this.mapper = mapper;
         this.publishedCounter = Counter.builder("notification.outbox.published.count").register(meterRegistry);
         this.failedCounter = Counter.builder("notification.outbox.failed.count").register(meterRegistry);
+        this.publishLatency = Timer.builder("outbox.publish.latency")
+            .tag("service", "notification")
+            .register(meterRegistry);
     }
 
     @Scheduled(fixedDelayString = "${outbox.publisher.delay-ms:1000}")
@@ -41,6 +46,7 @@ public class NotificationOutboxPublisher {
                         event.getSchemaVersion(), event.getTraceId(), null);
                 event.setStatus("PUBLISHED");
                 event.setPublishedAt(LocalDateTime.now());
+                publishLatency.record(java.time.Duration.between(event.getOccurredAt(), event.getPublishedAt()));
                 publishedCounter.increment();
             } catch (Exception exception) {
                 event.setStatus(event.getAttempts() >= 10 ? "DEAD_LETTER" : "FAILED");
