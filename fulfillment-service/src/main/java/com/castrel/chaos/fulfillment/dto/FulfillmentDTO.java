@@ -9,6 +9,7 @@ import java.util.List;
 public class FulfillmentDTO {
     private Long id;
     private Long orderId;
+    private Long userId;
     private String orderNo;
     private String status;
     private String trackingNo;

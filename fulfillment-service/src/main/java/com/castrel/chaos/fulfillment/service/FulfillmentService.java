@@ -10,6 +10,9 @@ import com.castrel.chaos.fulfillment.dto.FulfillmentDTO;
 import com.castrel.chaos.fulfillment.entity.Fulfillment;
 import com.castrel.chaos.fulfillment.repository.FulfillmentRepository;
 import com.castrel.chaos.fulfillment.repository.ShipmentTimelineRepository;
+import com.castrel.chaos.fulfillment.repository.FulfillmentOutboxRepository;
+import com.castrel.chaos.fulfillment.entity.FulfillmentOutboxEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.castrel.chaos.fulfillment.entity.ShipmentTimelineEvent;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -31,6 +34,12 @@ public class FulfillmentService {
 
     @Autowired
     private ShipmentTimelineRepository timelineRepository;
+
+    @Autowired
+    private FulfillmentOutboxRepository outboxRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
@@ -101,6 +110,7 @@ public class FulfillmentService {
             if (deliveredAt != null) f.setDeliveredAt(deliveredAt);
             fulfillmentRepository.save(f);
             appendTimeline(f.getId(), status, "Shipment status: " + status);
+            appendShipmentEvent(f);
             transitionCounter.increment();
         });
     }
@@ -122,7 +132,28 @@ public class FulfillmentService {
         fulfillment.setDeliveredAt(LocalDateTime.now());
         fulfillmentRepository.save(fulfillment);
         appendTimeline(fulfillment.getId(), "COMPLETED", "Customer confirmed delivery");
+        appendShipmentEvent(fulfillment);
         return toDTO(fulfillment);
+    }
+
+    private void appendShipmentEvent(Fulfillment fulfillment) {
+        try {
+            FulfillmentOutboxEvent event = new FulfillmentOutboxEvent();
+            event.setEventId(UUID.randomUUID().toString());
+            event.setEventType("SHIPMENT_UPDATED");
+            event.setAggregateId(fulfillment.getOrderNo());
+            event.setAggregateVersion(1);
+            event.setPayload(objectMapper.writeValueAsString(toDTO(fulfillment)));
+            event.setOccurredAt(LocalDateTime.now());
+            event.setSchemaVersion(1);
+            event.setTraceId(TraceContext.getTraceId());
+            event.setStatus("PENDING");
+            event.setAttempts(0);
+            event.setCreatedAt(LocalDateTime.now());
+            outboxRepository.save(event);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Unable to append shipment outbox event", exception);
+        }
     }
 
     private void appendTimeline(Long shipmentId, String status, String message) {
@@ -198,6 +229,7 @@ public class FulfillmentService {
         FulfillmentDTO dto = new FulfillmentDTO();
         dto.setId(f.getId());
         dto.setOrderId(f.getOrderId());
+        dto.setUserId(f.getCustomerId());
         dto.setOrderNo(f.getOrderNo());
         dto.setStatus(f.getStatus());
         dto.setTrackingNo(f.getTrackingNo());

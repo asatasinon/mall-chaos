@@ -70,6 +70,7 @@ public class OrderOutboxPublisher {
         if ("ORDER_PAID".equals(event.getEventType()) || "ORDER_PAYMENT_FAILED".equals(event.getEventType())) {
             boolean success = "ORDER_PAID".equals(event.getEventType());
             var body = java.util.Map.of(
+                    "eventId", event.getEventId(),
                     "userId", payload.path("userId").asLong(),
                     "orderNo", payload.path("orderNo").asText(),
                     "success", success,
