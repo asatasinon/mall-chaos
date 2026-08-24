@@ -17,6 +17,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -63,6 +64,9 @@ public class RiskService {
     private Counter passCounter;
     private Counter rejectCounter;
     private Counter freezeCounter;
+
+    @Value("${risk.post-pay-review-rate:0.0}")
+    private double postPayReviewRate;
 
     @PostConstruct
     void initMetrics() {
@@ -123,8 +127,9 @@ public class RiskService {
         enrichQueryIfNeeded(req.getUserId());
 
         if (req.getAmount() != null
-                && req.getAmount().compareTo(POST_PAY_HIGH_AMOUNT) > 0
-                && Math.random() < 0.05) {
+            && req.getAmount().compareTo(POST_PAY_HIGH_AMOUNT) > 0
+            && postPayReviewRate > 0
+            && Math.random() < postPayReviewRate) {
             saveEvent(req.getUserId(), req.getOrderNo(), "POST_PAY_FREEZE", "HIGH_AMOUNT_REVIEW");
             freezeCounter.increment();
             RiskResultDTO dto = new RiskResultDTO();

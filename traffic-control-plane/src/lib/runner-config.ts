@@ -29,6 +29,13 @@ export async function loadRunnerConfigFromDb(): Promise<RunnerConfig> {
     actionType: r.action_type,
     ratio: Number(r.ratio),
   }));
+  const paymentSuccessRatio = Number(profile?.payment_success_ratio ?? 1);
+  const paymentFailureRatio = Number(profile?.payment_failure_ratio ?? 0);
+  const paymentUnknownRatio = Number(profile?.payment_unknown_ratio ?? 0);
+  const isLegacyPaymentDefault = Number(profile?.version ?? 1) === 1
+    && paymentSuccessRatio === 0.9
+    && paymentFailureRatio === 0.05
+    && paymentUnknownRatio === 0.05;
 
   return {
     version: Number(profile?.version ?? 1),
@@ -38,9 +45,9 @@ export async function loadRunnerConfigFromDb(): Promise<RunnerConfig> {
     jitterPct: Number(profile?.jitter_pct ?? 0.1),
     maxItems: Number(profile?.max_items ?? 3),
     maxItemQuantity: Number(profile?.max_item_quantity ?? 3),
-    paymentSuccessRatio: Number(profile?.payment_success_ratio ?? 1),
-    paymentFailureRatio: Number(profile?.payment_failure_ratio ?? 0),
-    paymentUnknownRatio: Number(profile?.payment_unknown_ratio ?? 0),
+    paymentSuccessRatio: isLegacyPaymentDefault ? 1 : paymentSuccessRatio,
+    paymentFailureRatio: isLegacyPaymentDefault ? 0 : paymentFailureRatio,
+    paymentUnknownRatio: isLegacyPaymentDefault ? 0 : paymentUnknownRatio,
     mixRules: mixRules.length > 0 ? mixRules : [
       { actionType: 'BROWSE_PRODUCT', ratio: 1 },
     ],

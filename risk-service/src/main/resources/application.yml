@@ -22,6 +22,9 @@ services:
   fulfillment-url: ${FULFILLMENT_SERVICE_URL:http://localhost:18089}
   order-url: ${ORDER_SERVICE_URL:http://localhost:18084}
 
+risk:
+  post-pay-review-rate: 0.0
+
 management:
   endpoint:
     health:

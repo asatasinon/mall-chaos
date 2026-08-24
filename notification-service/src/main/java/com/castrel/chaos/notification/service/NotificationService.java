@@ -45,7 +45,7 @@ public class NotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
-    @Value("${notification.fail-rate:0.02}")
+    @Value("${notification.fail-rate:0.0}")
     private double failRate;
 
     @Autowired
