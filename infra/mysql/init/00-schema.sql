@@ -277,22 +277,51 @@ CREATE TABLE IF NOT EXISTS runner_profile (
     peak_multiplier  FLOAT   NOT NULL DEFAULT 2.0,
     cycle_minutes    INT     NOT NULL DEFAULT 10,
     jitter_pct       FLOAT   NOT NULL DEFAULT 0.1,
+  max_items        TINYINT NOT NULL DEFAULT 3,
+  max_item_quantity TINYINT NOT NULL DEFAULT 3,
+  payment_success_ratio DECIMAL(5,4) NOT NULL DEFAULT 0.9000,
+  payment_failure_ratio  DECIMAL(5,4) NOT NULL DEFAULT 0.0500,
+  payment_unknown_ratio  DECIMAL(5,4) NOT NULL DEFAULT 0.0500,
     version          INT     NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT INTO runner_profile (enabled, base_qps, peak_multiplier, cycle_minutes, jitter_pct, version)
-VALUES (1, 5, 2.0, 10, 0.1, 1);
+INSERT INTO runner_profile
+  (enabled, base_qps, peak_multiplier, cycle_minutes, jitter_pct, max_items,
+   max_item_quantity, payment_success_ratio, payment_failure_ratio,
+   payment_unknown_ratio, version)
+VALUES (1, 5, 2.0, 10, 0.1, 3, 3, 0.9000, 0.0500, 0.0500, 1);
 
 CREATE TABLE IF NOT EXISTS runner_mix_rule (
     id           BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    action_type  VARCHAR(32) NOT NULL COMMENT 'ORDER_SUCCESS/CANCEL_ORDER',
+    action_type  VARCHAR(32) NOT NULL COMMENT 'BROWSE_PRODUCT/SEARCH_CATALOG/ADD_CART_ITEM/UPDATE_CART_ITEM/CHECKOUT/PAYMENT_CONFIRM/CANCEL_PENDING_ORDER/QUERY_ORDER/QUERY_SHIPMENT',
     ratio        FLOAT       NOT NULL,
     version      INT         NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO runner_mix_rule (action_type, ratio, version) VALUES
-  ('ORDER_SUCCESS', 0.90, 1),
-  ('CANCEL_ORDER',  0.10, 1);
+  ('BROWSE_PRODUCT',      0.20, 1),
+  ('SEARCH_CATALOG',      0.10, 1),
+  ('ADD_CART_ITEM',       0.18, 1),
+  ('UPDATE_CART_ITEM',    0.08, 1),
+  ('CHECKOUT',            0.12, 1),
+  ('PAYMENT_CONFIRM',     0.12, 1),
+  ('CANCEL_PENDING_ORDER',0.05, 1),
+  ('QUERY_ORDER',         0.10, 1),
+  ('QUERY_SHIPMENT',      0.05, 1);
+
+CREATE TABLE IF NOT EXISTS runner_customer_whitelist (
+    customer_id BIGINT  NOT NULL PRIMARY KEY,
+    enabled     TINYINT NOT NULL DEFAULT 1,
+    version     INT     NOT NULL DEFAULT 1,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_runner_customer_user FOREIGN KEY (customer_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO runner_customer_whitelist (customer_id, enabled, version) VALUES
+  (1, 1, 1),
+  (2, 1, 1)
+ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), version = VALUES(version);
 
 CREATE TABLE IF NOT EXISTS runner_time_window (
     id          BIGINT  NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -891,6 +920,7 @@ CREATE TABLE IF NOT EXISTS traffic_runs (
   id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
   traffic_run_id VARCHAR(64)  NOT NULL,
   status         VARCHAR(16)  NOT NULL DEFAULT 'RUNNING',
+  config_version INT          NOT NULL DEFAULT 1,
   started_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   ended_at       DATETIME,
   created_by     BIGINT,
@@ -907,7 +937,9 @@ CREATE TABLE IF NOT EXISTS traffic_actions (
   order_id       BIGINT,
   payment_id     BIGINT,
   cart_version   INT,
+  result_code    VARCHAR(64),
   error_code     VARCHAR(64),
+  payment_strategy VARCHAR(16),
   trace_id       VARCHAR(64),
   latency_ms     BIGINT,
   created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,

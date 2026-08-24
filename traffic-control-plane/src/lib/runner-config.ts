@@ -11,6 +11,11 @@ export interface RunnerConfig {
   peakMultiplier: number;
   cycleMinutes: number;
   jitterPct: number;
+  maxItems: number;
+  maxItemQuantity: number;
+  paymentSuccessRatio: number;
+  paymentFailureRatio: number;
+  paymentUnknownRatio: number;
   mixRules: MixRule[];
 }
 
@@ -31,9 +36,13 @@ export async function loadRunnerConfigFromDb(): Promise<RunnerConfig> {
     peakMultiplier: Number(profile?.peak_multiplier ?? 2.0),
     cycleMinutes: Number(profile?.cycle_minutes ?? 10),
     jitterPct: Number(profile?.jitter_pct ?? 0.1),
+    maxItems: Number(profile?.max_items ?? 3),
+    maxItemQuantity: Number(profile?.max_item_quantity ?? 3),
+    paymentSuccessRatio: Number(profile?.payment_success_ratio ?? 0.9),
+    paymentFailureRatio: Number(profile?.payment_failure_ratio ?? 0.05),
+    paymentUnknownRatio: Number(profile?.payment_unknown_ratio ?? 0.05),
     mixRules: mixRules.length > 0 ? mixRules : [
-      { actionType: 'ORDER_SUCCESS', ratio: 0.9 },
-      { actionType: 'CANCEL_ORDER', ratio: 0.1 },
+      { actionType: 'BROWSE_PRODUCT', ratio: 1 },
     ],
   };
 }
@@ -44,36 +53,76 @@ export async function updateRunnerConfigInDb(req: {
   peakMultiplier?: number;
   cycleMinutes?: number;
   jitterPct?: number;
+  maxItems?: number;
+  maxItemQuantity?: number;
+  paymentSuccessRatio?: number;
+  paymentFailureRatio?: number;
+  paymentUnknownRatio?: number;
   mixRules?: MixRule[];
 }): Promise<{ newVersion: number; appliedAt: string }> {
   const current = await loadRunnerConfigFromDb();
   const pool = getPool();
-
-  const [result] = await pool.query(
-    `UPDATE runner_profile
-     SET base_qps = ?, peak_multiplier = ?, cycle_minutes = ?, jitter_pct = ?, version = version + 1
-     WHERE id = 1 AND version = ?`,
-    [
-      req.baseQps ?? current.baseQps,
-      req.peakMultiplier ?? current.peakMultiplier,
-      req.cycleMinutes ?? current.cycleMinutes,
-      req.jitterPct ?? current.jitterPct,
-      req.version,
-    ]
-  );
-
-  if ((result as any).affectedRows === 0) {
-    throw new Error('VERSION_CONFLICT');
+  const values = [
+    req.baseQps ?? current.baseQps,
+    req.peakMultiplier ?? current.peakMultiplier,
+    req.cycleMinutes ?? current.cycleMinutes,
+    req.jitterPct ?? current.jitterPct,
+    req.maxItems ?? current.maxItems,
+    req.maxItemQuantity ?? current.maxItemQuantity,
+    req.paymentSuccessRatio ?? current.paymentSuccessRatio,
+    req.paymentFailureRatio ?? current.paymentFailureRatio,
+    req.paymentUnknownRatio ?? current.paymentUnknownRatio,
+  ];
+  if (!values.every(Number.isFinite)
+      || values[0] < 1 || values[1] < 1 || values[2] < 1 || values[3] < 0 || values[3] > 1
+      || values[4] < 1 || values[4] > 20 || values[5] < 1 || values[5] > 99
+      || values.slice(6).some((value) => value < 0 || value > 1)
+      || Math.abs(values.slice(6).reduce((sum, value) => sum + value, 0) - 1) > 0.0001) {
+    throw new Error('INVALID_RUNNER_CONFIG');
+  }
+  const supportedActions = new Set([
+    'BROWSE_PRODUCT', 'SEARCH_CATALOG', 'ADD_CART_ITEM', 'UPDATE_CART_ITEM',
+    'CHECKOUT', 'PAYMENT_CONFIRM', 'CANCEL_PENDING_ORDER', 'QUERY_ORDER', 'QUERY_SHIPMENT',
+  ]);
+  if (req.mixRules && (req.mixRules.length === 0 || req.mixRules.some((rule) =>
+    !supportedActions.has(rule.actionType) || !Number.isFinite(rule.ratio) || rule.ratio < 0))) {
+    throw new Error('INVALID_RUNNER_MIX_RULES');
   }
 
-  if (req.mixRules) {
-    await pool.query('DELETE FROM runner_mix_rule');
-    for (const rule of req.mixRules) {
-      await pool.query(
-        'INSERT INTO runner_mix_rule (action_type, ratio, version) VALUES (?, ?, ?)',
-        [rule.actionType, rule.ratio, req.version + 1]
-      );
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [result] = await connection.query(
+      `UPDATE runner_profile
+       SET base_qps = ?, peak_multiplier = ?, cycle_minutes = ?, jitter_pct = ?,
+         max_items = ?, max_item_quantity = ?, payment_success_ratio = ?,
+         payment_failure_ratio = ?, payment_unknown_ratio = ?, version = version + 1
+       WHERE id = 1 AND version = ?`,
+      [
+        ...values,
+        req.version,
+      ]
+    );
+
+    if ((result as any).affectedRows === 0) {
+      throw new Error('VERSION_CONFLICT');
     }
+
+    if (req.mixRules) {
+      await connection.query('DELETE FROM runner_mix_rule');
+      for (const rule of req.mixRules) {
+        await connection.query(
+          'INSERT INTO runner_mix_rule (action_type, ratio, version) VALUES (?, ?, ?)',
+          [rule.actionType, rule.ratio, req.version + 1]
+        );
+      }
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
 
   return {

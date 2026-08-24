@@ -14,7 +14,12 @@ import reactor.core.publisher.Mono;
 
 import java.util.Set;
 import java.util.List;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
 
 @Component
 public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered {
@@ -22,19 +27,32 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
     private static final Set<String> PROTECTED_PREFIXES = Set.of(
             "/api/users", "/api/addresses", "/api/cart", "/api/checkout", "/api/orders",
             "/api/payments", "/api/fulfillments", "/api/notifications");
+        private static final Map<String, Set<String>> RUNNER_ACTIONS_BY_PREFIX = Map.of(
+            "/api/products", Set.of("BROWSE_PRODUCT", "SEARCH_CATALOG"),
+            "/api/cart", Set.of("ADD_CART_ITEM", "UPDATE_CART_ITEM", "CHECKOUT"),
+            "/api/checkout", Set.of("CHECKOUT"),
+            "/api/orders", Set.of("PAYMENT_CONFIRM", "CANCEL_PENDING_ORDER", "QUERY_ORDER"),
+            "/api/payments", Set.of("PAYMENT_CONFIRM"),
+            "/api/fulfillments", Set.of("QUERY_SHIPMENT"));
 
     private final JwtTokenService jwtTokenService;
     private final Counter customerApiErrorCounter;
+    private final Set<Long> runnerCustomerIds;
 
-    public CustomerAuthenticationGlobalFilter(JwtTokenService jwtTokenService, MeterRegistry meterRegistry) {
+    public CustomerAuthenticationGlobalFilter(
+            JwtTokenService jwtTokenService,
+            MeterRegistry meterRegistry,
+            @Value("${castrel.security.runner.customer-ids:1,2}") String runnerCustomerIds) {
         this.jwtTokenService = jwtTokenService;
         this.customerApiErrorCounter = Counter.builder("customer_api_error_total").register(meterRegistry);
+        this.runnerCustomerIds = parseCustomerIds(runnerCustomerIds);
     }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = exchange.getRequest().getURI().getPath();
         boolean protectedPath = PROTECTED_PREFIXES.stream().anyMatch(path::startsWith);
+        String runnerCredential = exchange.getRequest().getHeaders().getFirst("X-Traffic-Runner-Credential");
 
         ServerWebExchange sanitized = exchange.mutate()
                 .request(request -> request.headers(headers -> {
@@ -45,25 +63,34 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
                 }))
                 .build();
 
-        if (!protectedPath) {
+        if (!protectedPath && (runnerCredential == null || runnerCredential.isBlank())) {
             return chain.filter(sanitized);
         }
 
         String authorization = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
-        String runnerCredential = exchange.getRequest().getHeaders().getFirst("X-Traffic-Runner-Credential");
         if (runnerCredential != null && !runnerCredential.isBlank()) {
             try {
                 JwtTokenService.RunnerPrincipal runner = jwtTokenService.verifyRunnerCredential(runnerCredential);
                 if (!runner.scopes().contains("customer_api")) {
                     return unauthorized(exchange);
                 }
+                Long customerId = requestedRunnerCustomerId(exchange, runner);
+                if (customerId == null || !runner.customerId().equals(customerId)
+                        || !runnerCustomerIds.contains(customerId)) {
+                    return forbidden(exchange);
+                }
+                String action = exchange.getRequest().getHeaders().getFirst("X-Traffic-Runner-Action");
+                if (!isAllowedRunnerAction(path, action, runner.scopes())) {
+                    return forbidden(exchange);
+                }
+                String trafficRunId = exchange.getRequest().getHeaders().getFirst("X-Traffic-Run-Id");
                 ServerWebExchange authenticated = sanitized.mutate()
                         .request(request -> request.headers(headers -> {
-                            headers.set("X-User-Id", runner.customerId().toString());
+                            headers.set("X-User-Id", customerId.toString());
                             headers.set("X-User-Role", "CUSTOMER");
                             headers.set("X-Auth-Actor", "TRAFFIC_RUNNER");
                             headers.set("X-Downstream-Principal", jwtTokenService.issueDownstreamPrincipal(
-                                    runner.customerId(), runner.tokenId(), runner.scopes()));
+                                    customerId, trafficRunId == null ? "" : trafficRunId, runner.scopes()));
                         }))
                         .build();
                 return observeCustomerResponse(authenticated, chain.filter(authenticated));
@@ -108,6 +135,41 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
         customerApiErrorCounter.increment();
         exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
         return exchange.getResponse().setComplete();
+    }
+
+    private Long requestedRunnerCustomerId(ServerWebExchange exchange, JwtTokenService.RunnerPrincipal runner) {
+        String requested = exchange.getRequest().getHeaders().getFirst("X-Traffic-Runner-Customer-Id");
+        if (requested == null || requested.isBlank()) return runner.customerId();
+        try {
+            return Long.valueOf(requested);
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    private boolean isAllowedRunnerAction(String path, String action, List<String> scopes) {
+        if (action == null || action.isBlank() || !scopes.contains(action)) {
+            return false;
+        }
+        Optional<Set<String>> allowed = RUNNER_ACTIONS_BY_PREFIX.entrySet().stream()
+                .filter(entry -> path.startsWith(entry.getKey()))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        return allowed.isPresent() && allowed.get().contains(action);
+    }
+
+    private Set<Long> parseCustomerIds(String value) {
+        Set<Long> result = new HashSet<>();
+        Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(item -> !item.isBlank())
+                .forEach(item -> {
+                    try {
+                        result.add(Long.valueOf(item));
+                    } catch (NumberFormatException ignored) {
+                    }
+                });
+        return Set.copyOf(result);
     }
 
     private Mono<Void> observeCustomerResponse(ServerWebExchange exchange, Mono<Void> response) {

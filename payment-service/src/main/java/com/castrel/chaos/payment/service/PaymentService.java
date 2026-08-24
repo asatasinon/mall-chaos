@@ -105,10 +105,15 @@ public class PaymentService {
 
     @Transactional
     public PaymentDTO confirmIntent(Long id) {
+        return confirmIntent(id, null);
+    }
+
+    @Transactional
+    public PaymentDTO confirmIntent(Long id, String runnerStrategy) {
         Payment payment = paymentRepository.findById(id)
                 .orElseThrow(() -> new BizException("PAYMENT_NOT_FOUND", "Payment not found: " + id));
         if (!"PROCESSING".equals(payment.getStatus())) return toDTO(payment);
-        return executePayment(payment);
+        return executePayment(payment, runnerStrategy);
     }
 
     @Transactional
@@ -149,13 +154,19 @@ public class PaymentService {
     }
 
     private PaymentDTO executePayment(Payment payment) {
+        return executePayment(payment, null);
+    }
+
+    private PaymentDTO executePayment(Payment payment, String requestedStrategy) {
         attemptCounter.increment();
+        String strategy = requestedStrategy == null ? "" : requestedStrategy.toUpperCase();
         double roll = random.nextDouble();
-        if (roll < successRate) {
+        if ("SUCCESS".equals(strategy) || (strategy.isBlank() && roll < successRate)) {
             payment.setStatus("SUCCESS");
             payment.setResultCode("SUCCESS");
             successCounter.increment();
-        } else if (roll < successRate + timeoutRate) {
+        } else if ("UNKNOWN".equals(strategy)
+            || (strategy.isBlank() && roll < successRate + timeoutRate)) {
             payment.setStatus("UNKNOWN");
             payment.setResultCode("UNKNOWN");
             payment.setFailReason("Payment gateway result unknown");

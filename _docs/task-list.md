@@ -28,7 +28,7 @@
 | Phase 2 | Schema、购物车与商品读模型 | 进行中 | 5 / 6 | Phase 0、Phase 1 |
 | Phase 3 | Checkout、库存、促销与支付 | 进行中 | 7 / 8 | Phase 1、Phase 2 |
 | Phase 4 | 可靠事件、风控、履约与通知 | 进行中 | 0 / 8 | Phase 3 |
-| Phase 5 | 控制面、完整 runner 与运维流程 | 未开始 | 0 / 5 | Phase 1、Phase 3、Phase 4 |
+| Phase 5 | 控制面、完整 runner 与运维流程 | 进行中 | 4 / 5 | Phase 1、Phase 3、Phase 4 |
 | Phase 6 | Shopfront、部署与端到端验收 | 未开始 | 0 / 5 | Phase 1 至 Phase 5 |
 
 ---
@@ -50,7 +50,7 @@
 5. **购物车与商品读模型**：仓库没有 `cart-service` 模块；catalog 仍需扩展搜索、分页、媒体元数据和可售库存投影。按 T2.2-T2.5 完成。
 6. **Checkout 与订单状态机**：订单服务仍接受客户端 `userId`、单个 `sku/qty`，并在同步请求中直接扣款；需要改为服务端归属的多商品 `CheckoutCommand`、购物车冻结、预占补偿、`PENDING_PAYMENT` 和版本条件状态转换。按 T3.1-T3.6 完成。
 7. **支付后可靠事件链**：当前订单/支付模型没有按服务隔离的 Outbox/Inbox 和统一事件信封；需要按 T4.1-T4.7 实现支付结果、支付后风控、履约和通知链路。
-8. **Runner 与消费者链路**：当前 runner 仅执行 `ORDER_SUCCESS`/`CANCEL_ORDER`，直接调用旧 `/api/orders` 并维护松散订单队列；需要按 T5.1-T5.4 改为经 Gateway 的客户白名单、服务凭据和完整购物流程编排。
+8. **Runner 与消费者链路**：runner 已按 T5.1-T5.4 改为经 Gateway 的客户白名单、服务凭据和完整购物流程编排；跨服务运行态验收仍归入 T5.5。
 9. **独立 Shopfront 与部署验收**：当前没有 `shopfront` 应用；需要按 T6.1-T6.4 新建消费者 BFF/UI，隔离入口和端口，并补齐端到端、安全、恢复和可观测性验收。
 
 本 backlog 只记录现状与目标契约的差异，不在 T0.1 修改业务行为。
@@ -330,19 +330,19 @@
 
 ---
 
-## Phase 5：控制面、完整 runner 与运维流程 - 未开始
+## Phase 5：控制面、完整 runner 与运维流程 - 进行中
 
-**阶段进度**：0 / 5
+**阶段进度**：4 / 5
 
 **目标**：使 `traffic-control-plane` 通过完整消费者流程生成可观测流量，并保留安全的运营能力。
 
 ### 子任务
 
-- [ ] T5.1 新增 `TrafficActionOrchestrator`，由 `RunnerEngine` 进程内调用；从演示客户白名单选择客户，生成 `trafficRunId`、动作 ID、结算幂等键和受控支付策略，并经 `GatewayClient` 调用客户 API。
-- [ ] T5.2 重构 `RunnerEngine` 动作与状态队列：实现 `BROWSE_PRODUCT`、`SEARCH_CATALOG`、`ADD_CART_ITEM`、`UPDATE_CART_ITEM`、`CHECKOUT`、`PAYMENT_CONFIRM`、`CANCEL_PENDING_ORDER`、`QUERY_ORDER`、`QUERY_SHIPMENT`；只取消已记录的待支付订单，只查询已支付订单物流。
-- [ ] T5.3 实现 `traffic_runs`、`traffic_actions` 持久化与活动记录，关联演示客户、购物车版本、订单、支付、动作、结果、耗时、错误码和 `traceId`；移除 runner 向旧 `/api/orders` 直接提交 `userId` 及已支付订单取消队列的旧行为。
-- [ ] T5.4 更新控制台的 runner 配置、状态、活动和错误展示，支持动作比例、商品数量、支付成功/失败/未知比例和取消比例；确保内部控制面变更动作经过 Phase 1 的 `OPERATOR` 鉴权和审计。
-- [ ] T5.5 编写并执行 Phase 5 runner/运维测试：客户白名单、动作状态队列、只取消待支付订单、重置后队列清理、配置乐观锁、控制面审计和完整 Gateway 流量链路。
+- [x] T5.1 新增 `TrafficActionOrchestrator`，由 `RunnerEngine` 进程内调用；从演示客户白名单选择客户，生成 `trafficRunId`、动作 ID、结算幂等键和受控支付策略，并经 `GatewayClient` 调用客户 API。
+- [x] T5.2 重构 `RunnerEngine` 动作与状态队列：实现 `BROWSE_PRODUCT`、`SEARCH_CATALOG`、`ADD_CART_ITEM`、`UPDATE_CART_ITEM`、`CHECKOUT`、`PAYMENT_CONFIRM`、`CANCEL_PENDING_ORDER`、`QUERY_ORDER`、`QUERY_SHIPMENT`；只取消已记录的待支付订单，只查询已支付订单物流。
+- [x] T5.3 实现 `traffic_runs`、`traffic_actions` 持久化与活动记录，关联演示客户、购物车版本、订单、支付、动作、结果、耗时、错误码和 `traceId`；移除 runner 向旧 `/api/orders` 直接提交 `userId` 及已支付订单取消队列的旧行为。
+- [x] T5.4 更新控制台的 runner 配置、状态、活动和错误展示，支持动作比例、商品数量、支付成功/失败/未知比例和取消比例；确保内部控制面变更动作经过 Phase 1 的 `OPERATOR` 鉴权和审计。
+- [-] T5.5 编写并执行 Phase 5 runner/运维测试：客户白名单、动作状态队列、只取消待支付订单、重置后队列清理、配置乐观锁、控制面审计和完整 Gateway 流量链路。
 
 **涉及文件**：
 
@@ -362,10 +362,22 @@
 - 每次 runner 动作都能关联 `trafficRunId`、客户、订单/支付、结果、耗时和完整 trace。
 - runner 不会取消已支付订单，不会读取演示客户池外数据，也不会在 Redis/MySQL 重置后保留无效队列。
 
+### T5.1-T5.4 当前进展
+
+- T5.1：已完成。`TrafficActionOrchestrator` 从 `runner_customer_whitelist` 读取启用客户，经 `GatewayClient` 发送 runner credential、客户、动作、run 和 trace 上下文；checkout/payment 使用独立幂等键和受控支付策略。
+- T5.2：已完成。`RunnerEngine` 支持九类公开客户动作，tick 串行执行；pending/paid/order typed Redis queues 分离，取消前重新读取订单状态，物流查询只消费 paid queue，并通过真实 `/api/fulfillments/{orderId}` 路由。
+- T5.3：已完成。clean-install Schema 增加客户白名单、runner profile、九类 mix rules、`traffic_runs` 和 `traffic_actions`；run 建立与结束、动作结果和 Redis activity 均保存关联客户、订单/支付、trace、状态、错误和延迟。
+- T5.4：已完成。控制台支持九类动作、商品数量、支付结果比例、运行状态和关联活动字段；配置更新保留 version 乐观锁，输入校验在事务写入前执行，变更继续使用既有 OPERATOR middleware 和 audit route。
+
+### T5.5 测试进展
+
+已新增并执行 `cd traffic-control-plane && pnpm test:runner`：九类动作集合、支付策略分桶和 Gateway runner/trace headers 共 3 项通过；`pnpm typecheck`、控制面 lint（仅既有 warning）和 Gateway/payment 窄编译通过。完整白名单拒绝矩阵、Redis/MySQL 重置后队列、实际 `traffic_runs`/`traffic_actions` 写入及跨服务 Gateway smoke 尚未执行：当前 Compose 读取配置时缺少必需的 `CASTREL_INTERNAL_SERVICE_KEY`，需在具备完整部署密钥的环境补验。
+
 ### 问题与解决方案
 
 | 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
 | --- | --- | --- | --- | --- | --- |
+| P5-001 | 2026-08-24 | 本地 Compose smoke 无法启动状态检查，环境未提供必需的 `CASTREL_INTERNAL_SERVICE_KEY`；因此无法在本机宣称完整 Gateway、MySQL 和 Redis runner 链路已验收。 | T5.5 | 保留 T5.5 为进行中；先交付可执行的 runner 契约测试和编译验证，待部署环境补做白名单拒绝、队列清理、持久化和完整流量链路检查。 | 未关闭 |
 | - | - | 暂无 | - | - | - |
 
 ---

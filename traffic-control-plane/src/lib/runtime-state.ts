@@ -1,4 +1,5 @@
 import { getRedis } from './redis';
+import type { RunnerOrderRef } from './runner-persistence';
 
 const CONTROL_KEY = 'traffic-control-plane:runner:control';
 const STATUS_KEY = 'traffic-control-plane:runner:status';
@@ -125,6 +126,13 @@ export interface ActivityEntry {
   action: string;
   success: boolean;
   latencyMs: number;
+  trafficRunId?: string;
+  customerId?: number;
+  orderId?: string;
+  paymentId?: string;
+  traceId?: string;
+  status?: 'SUCCESS' | 'FAILED' | 'NOOP';
+  errorCode?: string;
 }
 
 const ACTIVITY_KEY = 'traffic-control-plane:runner:activity';
@@ -149,6 +157,11 @@ export async function getRunnerActivity(limit = 20): Promise<ActivityEntry[]> {
 const RECENT_ORDERS_KEY = 'traffic-control-plane:runner:recent-orders';
 const RECENT_ORDERS_MAX = 100;
 
+const PENDING_ORDERS_KEY = 'traffic-control-plane:runner:pending-orders';
+const PAID_ORDERS_KEY = 'traffic-control-plane:runner:paid-orders';
+const RUNNER_ORDERS_KEY = 'traffic-control-plane:runner:orders';
+const ORDER_QUEUE_MAX = 100;
+
 export async function pushRecentOrderId(orderId: string): Promise<void> {
   const redis = getRedis();
   await redis.connect().catch(() => undefined);
@@ -160,4 +173,55 @@ export async function popRecentOrderId(): Promise<string | null> {
   const redis = getRedis();
   await redis.connect().catch(() => undefined);
   return redis.rpop(RECENT_ORDERS_KEY);
+}
+
+export async function pushPendingOrder(order: RunnerOrderRef): Promise<void> {
+  await pushOrder(PENDING_ORDERS_KEY, order);
+}
+
+export async function popPendingOrder(): Promise<RunnerOrderRef | null> {
+  return popOrder(PENDING_ORDERS_KEY);
+}
+
+export async function pushPaidOrder(order: RunnerOrderRef): Promise<void> {
+  await pushOrder(PAID_ORDERS_KEY, order);
+}
+
+export async function popPaidOrder(): Promise<RunnerOrderRef | null> {
+  return popOrder(PAID_ORDERS_KEY);
+}
+
+export async function pushRunnerOrder(order: RunnerOrderRef): Promise<void> {
+  await pushOrder(RUNNER_ORDERS_KEY, order);
+}
+
+export async function popRunnerOrder(): Promise<RunnerOrderRef | null> {
+  return popOrder(RUNNER_ORDERS_KEY);
+}
+
+export async function clearRunnerOrderQueues(): Promise<void> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  await redis.del(RECENT_ORDERS_KEY, PENDING_ORDERS_KEY, PAID_ORDERS_KEY, RUNNER_ORDERS_KEY);
+}
+
+async function pushOrder(key: string, order: RunnerOrderRef): Promise<void> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  await redis.lpush(key, JSON.stringify(order));
+  await redis.ltrim(key, 0, ORDER_QUEUE_MAX - 1);
+}
+
+async function popOrder(key: string): Promise<RunnerOrderRef | null> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  const value = await redis.rpop(key);
+  if (!value) return null;
+  try {
+    const order = JSON.parse(value) as Partial<RunnerOrderRef>;
+    if (typeof order.customerId !== 'number' || typeof order.orderId !== 'string') return null;
+    return order as RunnerOrderRef;
+  } catch {
+    return null;
+  }
 }

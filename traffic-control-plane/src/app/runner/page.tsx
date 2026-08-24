@@ -9,15 +9,25 @@ import { Play, Pause, Pencil, Save, X, Check, Zap } from 'lucide-react';
 interface RunnerStatus {
   running: boolean; paused: boolean;
   currentQps: number; successRate: number; failRate: number;
-  totalRequests: number; rateMultiplier: number;
+  totalRequests: number; rateMultiplier: number; trafficRunId?: string | null;
 }
 interface MixRule { actionType: string; ratio: number; }
 interface RunnerConfig {
   version: number; baseQps: number; peakMultiplier: number;
-  cycleMinutes: number; jitterPct: number; mixRules: MixRule[];
+  cycleMinutes: number; jitterPct: number; maxItems: number; maxItemQuantity: number;
+  paymentSuccessRatio: number; paymentFailureRatio: number; paymentUnknownRatio: number;
+  mixRules: MixRule[];
 }
-interface ConfigForm { baseQps: string; peakMultiplier: string; cycleMinutes: string; jitterPct: string; }
-interface ActivityEntry { ts: number; action: string; success: boolean; latencyMs: number; }
+interface ConfigForm {
+  baseQps: string; peakMultiplier: string; cycleMinutes: string; jitterPct: string;
+  maxItems: string; maxItemQuantity: string; paymentSuccessRatio: string;
+  paymentFailureRatio: string; paymentUnknownRatio: string;
+}
+interface ActivityEntry {
+  ts: number; action: string; success: boolean; latencyMs: number;
+  trafficRunId?: string; customerId?: number; orderId?: string; paymentId?: string;
+  traceId?: string; status?: string; errorCode?: string;
+}
 interface WarmupProgress {
   priceHistoryCount: number; priceHistoryTarget: number;
   behaviorLogCount: number;  behaviorLogTarget: number;
@@ -30,12 +40,15 @@ interface ResetPolicy {
 interface ResetPolicyForm { cronExpr: string; allowedWindow: string; resetScope: string; }
 
 const ACTION_LABELS: Record<string, string> = {
-  ORDER_SUCCESS:  'Order',
-  ORDER_FAIL:     'Fail',
-  CANCEL:         'Cancel',
-  CANCEL_ORDER:   'Cancel',
   BROWSE_PRODUCT: 'Browse',
   SEARCH_CATALOG: 'Search',
+  ADD_CART_ITEM: 'Add cart',
+  UPDATE_CART_ITEM: 'Update cart',
+  CHECKOUT: 'Checkout',
+  PAYMENT_CONFIRM: 'Confirm payment',
+  CANCEL_PENDING_ORDER: 'Cancel pending',
+  QUERY_ORDER: 'Query order',
+  QUERY_SHIPMENT: 'Query shipment',
 };
 
 export default function RunnerPage() {
@@ -43,7 +56,10 @@ export default function RunnerPage() {
   const [config, setConfig]       = useState<RunnerConfig | null>(null);
   const [multiplier, setMult]     = useState('1.0');
   const [editing, setEditing]     = useState(false);
-  const [form, setForm]           = useState<ConfigForm>({ baseQps: '', peakMultiplier: '', cycleMinutes: '', jitterPct: '' });
+  const [form, setForm]           = useState<ConfigForm>({
+    baseQps: '', peakMultiplier: '', cycleMinutes: '', jitterPct: '', maxItems: '',
+    maxItemQuantity: '', paymentSuccessRatio: '', paymentFailureRatio: '', paymentUnknownRatio: '',
+  });
   const [saving, setSaving]       = useState(false);
   const [saveMsg, setSaveMsg]     = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -74,6 +90,11 @@ export default function RunnerPage() {
         peakMultiplier: String(json.data.peakMultiplier),
         cycleMinutes:   String(json.data.cycleMinutes),
         jitterPct:      String((json.data.jitterPct * 100).toFixed(0)),
+        maxItems:       String(json.data.maxItems),
+        maxItemQuantity: String(json.data.maxItemQuantity),
+        paymentSuccessRatio: String((json.data.paymentSuccessRatio * 100).toFixed(0)),
+        paymentFailureRatio: String((json.data.paymentFailureRatio * 100).toFixed(0)),
+        paymentUnknownRatio: String((json.data.paymentUnknownRatio * 100).toFixed(0)),
       });
       setMixForm(json.data.mixRules ?? []);
     }
@@ -154,6 +175,11 @@ export default function RunnerPage() {
           peakMultiplier: parseFloat(form.peakMultiplier),
           cycleMinutes:   parseInt(form.cycleMinutes, 10),
           jitterPct:      parseFloat(form.jitterPct) / 100,
+          maxItems:       parseInt(form.maxItems, 10),
+          maxItemQuantity: parseInt(form.maxItemQuantity, 10),
+          paymentSuccessRatio: parseFloat(form.paymentSuccessRatio) / 100,
+          paymentFailureRatio: parseFloat(form.paymentFailureRatio) / 100,
+          paymentUnknownRatio: parseFloat(form.paymentUnknownRatio) / 100,
         }),
       });
       const json = await res.json();
@@ -176,6 +202,11 @@ export default function RunnerPage() {
       peakMultiplier: String(config.peakMultiplier),
       cycleMinutes:   String(config.cycleMinutes),
       jitterPct:      String((config.jitterPct * 100).toFixed(0)),
+      maxItems:       String(config.maxItems),
+      maxItemQuantity: String(config.maxItemQuantity),
+      paymentSuccessRatio: String((config.paymentSuccessRatio * 100).toFixed(0)),
+      paymentFailureRatio: String((config.paymentFailureRatio * 100).toFixed(0)),
+      paymentUnknownRatio: String((config.paymentUnknownRatio * 100).toFixed(0)),
     });
   };
 
@@ -343,7 +374,7 @@ export default function RunnerPage() {
           <div className="h-px bg-border" />
           {!config && <p className="text-sm text-muted-foreground">Loading…</p>}
           {config && !editing && (
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <KVTile label="Base QPS"   value={String(config.baseQps)} />
               <KVTile label="Peak mult." value={`${config.peakMultiplier}×`} />
               <KVTile label="Cycle"      value={`${config.cycleMinutes} min`} />
@@ -351,7 +382,7 @@ export default function RunnerPage() {
             </div>
           )}
           {config && editing && (
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Field label="Base QPS"    hint="req/s baseline" value={form.baseQps}        type="number" min="1"   step="1"
                 onChange={(v) => setForm((f) => ({ ...f, baseQps: v }))} />
               <Field label="Peak mult."  hint="spike factor"   value={form.peakMultiplier} type="number" min="1"   step="0.1"
@@ -360,6 +391,16 @@ export default function RunnerPage() {
                 onChange={(v) => setForm((f) => ({ ...f, cycleMinutes: v }))} />
               <Field label="Jitter %"    hint="0–100"          value={form.jitterPct}      type="number" min="0"   max="100" step="1"
                 onChange={(v) => setForm((f) => ({ ...f, jitterPct: v }))} />
+              <Field label="Max items" hint="cart item types" value={form.maxItems} type="number" min="1" max="20" step="1"
+                onChange={(v) => setForm((f) => ({ ...f, maxItems: v }))} />
+              <Field label="Max quantity" hint="per SKU" value={form.maxItemQuantity} type="number" min="1" max="99" step="1"
+                onChange={(v) => setForm((f) => ({ ...f, maxItemQuantity: v }))} />
+              <Field label="Payment success %" hint="runner strategy" value={form.paymentSuccessRatio} type="number" min="0" max="100" step="1"
+                onChange={(v) => setForm((f) => ({ ...f, paymentSuccessRatio: v }))} />
+              <Field label="Payment failure %" hint="runner strategy" value={form.paymentFailureRatio} type="number" min="0" max="100" step="1"
+                onChange={(v) => setForm((f) => ({ ...f, paymentFailureRatio: v }))} />
+              <Field label="Payment unknown %" hint="runner strategy" value={form.paymentUnknownRatio} type="number" min="0" max="100" step="1"
+                onChange={(v) => setForm((f) => ({ ...f, paymentUnknownRatio: v }))} />
             </div>
           )}
         </CardContent>
@@ -394,9 +435,9 @@ export default function RunnerPage() {
               {(mixEditing ? mixForm : config.mixRules).map((rule, i) => {
                 const displayPct = (rule.ratio * 100).toFixed(1);
                 const actionLabel = ACTION_LABELS[rule.actionType] ?? rule.actionType;
-                const barColor = rule.actionType === 'ORDER_SUCCESS'
+                const barColor = rule.actionType === 'PAYMENT_CONFIRM'
                   ? 'bg-[oklch(0.55_0.15_155)]'
-                  : rule.actionType === 'ORDER_FAIL'
+                  : rule.actionType === 'CANCEL_PENDING_ORDER'
                   ? 'bg-destructive'
                   : 'bg-muted-foreground/40';
 
@@ -457,14 +498,17 @@ export default function RunnerPage() {
                   <div key={i} className="flex items-center gap-3 text-xs">
                     <span className="font-mono text-muted-foreground tabular-nums w-20 shrink-0">{time}</span>
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                      e.action === 'ORDER_SUCCESS' ? 'bg-[oklch(0.55_0.15_155)]/10 text-[oklch(0.55_0.15_155)]' :
-                      e.action === 'ORDER_FAIL'    ? 'bg-destructive/10 text-destructive' :
+                      e.action === 'PAYMENT_CONFIRM' ? 'bg-[oklch(0.55_0.15_155)]/10 text-[oklch(0.55_0.15_155)]' :
+                      e.action === 'CANCEL_PENDING_ORDER' ? 'bg-destructive/10 text-destructive' :
                       'bg-muted text-muted-foreground'
                     }`}>{label}</span>
                     <span className={e.success ? 'text-[oklch(0.55_0.15_155)]' : 'text-destructive'}>
                       {e.success ? '✓' : '✗'}
                     </span>
                     <span className="text-muted-foreground tabular-nums">{e.latencyMs}ms</span>
+                    {e.customerId && <span className="text-muted-foreground">customer {e.customerId}</span>}
+                    {e.orderId && <span className="font-mono text-muted-foreground">order {e.orderId}</span>}
+                    {e.errorCode && <span className="text-destructive font-mono">{e.errorCode}</span>}
                   </div>
                 );
               })}

@@ -1,7 +1,14 @@
-import { getGatewayClient } from '../lib/gateway-client';
-import { loadRunnerConfigFromDb, RunnerConfig, MixRule } from '../lib/runner-config';
-import { getRunnerControlState, setRunnerStatus, pushActivity, pushRecentOrderId, popRecentOrderId } from '../lib/runtime-state';
 import pino from 'pino';
+import { v4 as uuidv4 } from 'uuid';
+import { loadRunnerConfigFromDb, RunnerConfig } from '../lib/runner-config';
+import { completeTrafficRun, ensureTrafficRun, recordTrafficAction } from '../lib/runner-persistence';
+import { getRunnerControlState, pushActivity, setRunnerStatus } from '../lib/runtime-state';
+import {
+  RunnerAction,
+  RUNNER_ACTIONS,
+  RunnerActionResult,
+  TrafficActionOrchestrator,
+} from './traffic-action-orchestrator';
 
 const log = pino({ name: 'runner-engine' });
 
@@ -11,9 +18,6 @@ interface SlidingEntry {
 }
 
 const WINDOW_SECONDS = 60;
-const SKUS = Array.from({ length: 50 }, (_, i) => `SKU-${String(i + 1).padStart(3, '0')}`);
-const USER_COUNT = 20;
-const CATEGORIES = ['electronics', 'clothing', 'home', 'sports', 'books', 'toys'];
 
 export class RunnerEngine {
   private config: RunnerConfig;
@@ -24,7 +28,9 @@ export class RunnerEngine {
   private window: SlidingEntry[] = [];
   private totalRequests = 0;
   private lastConfigCheckAt = 0;
-  private gateway = getGatewayClient();
+  private trafficRunId: string | null = null;
+  private trafficRunPersistence: Promise<void> | null = null;
+  private readonly orchestrator = new TrafficActionOrchestrator();
 
   constructor() {
     this.config = {
@@ -33,10 +39,12 @@ export class RunnerEngine {
       peakMultiplier: 2.0,
       cycleMinutes: 10,
       jitterPct: 0.1,
-      mixRules: [
-        { actionType: 'ORDER_SUCCESS', ratio: 0.9 },
-        { actionType: 'CANCEL_ORDER', ratio: 0.1 },
-      ],
+      maxItems: 3,
+      maxItemQuantity: 3,
+      paymentSuccessRatio: 0.9,
+      paymentFailureRatio: 0.05,
+      paymentUnknownRatio: 0.05,
+      mixRules: [{ actionType: 'BROWSE_PRODUCT', ratio: 1 }],
     };
   }
 
@@ -48,8 +56,13 @@ export class RunnerEngine {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.trafficRunId = uuidv4();
+    const trafficRunId = this.trafficRunId;
+    this.trafficRunPersistence = ensureTrafficRun(trafficRunId, this.config.version).catch((error) => {
+      log.error({ error }, 'Failed to persist runner start');
+    });
     this.scheduleTick();
-    log.info('Runner engine started');
+    log.info({ trafficRunId }, 'Runner engine started');
   }
 
   stop(): void {
@@ -58,7 +71,15 @@ export class RunnerEngine {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    log.info('Runner engine stopped');
+    const trafficRunId = this.trafficRunId;
+    this.trafficRunId = null;
+    if (trafficRunId) {
+      void (this.trafficRunPersistence ?? Promise.resolve()).then(() => completeTrafficRun(trafficRunId)).catch((error) => {
+          log.error({ error, trafficRunId }, 'Failed to persist runner stop');
+        });
+    }
+    this.trafficRunPersistence = null;
+    log.info({ trafficRunId }, 'Runner engine stopped');
   }
 
   pause(): void {
@@ -94,6 +115,7 @@ export class RunnerEngine {
       windowSeconds: WINDOW_SECONDS,
       rateMultiplier: this.rateMultiplier,
       configVersion: this.config.version,
+      trafficRunId: this.trafficRunId,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -102,7 +124,7 @@ export class RunnerEngine {
 
   private effectiveQps(): number {
     const { baseQps, peakMultiplier, cycleMinutes, jitterPct } = this.config;
-    const cycleSec = cycleMinutes * 60;
+    const cycleSec = Math.max(cycleMinutes * 60, 1);
     const phase = ((Date.now() / 1000) % cycleSec) / cycleSec;
     const wave = 1 + (peakMultiplier - 1) * Math.sin(phase * Math.PI * 2);
     const jitter = 1 + (Math.random() * 2 - 1) * jitterPct;
@@ -113,8 +135,12 @@ export class RunnerEngine {
     if (!this.running) return;
     const qps = Math.max(this.effectiveQps(), 0.1);
     const delayMs = 1000 / qps;
-    this.timer = setTimeout(() => {
-      this.tick();
+    this.timer = setTimeout(async () => {
+      try {
+        await this.tick();
+      } catch (error) {
+        log.error({ error }, 'Runner tick failed');
+      }
       this.scheduleTick();
     }, delayMs);
   }
@@ -125,67 +151,75 @@ export class RunnerEngine {
     await this.publishStatus();
 
     if (this.paused) return;
+    if (!this.trafficRunId) return;
     const action = this.pickAction();
-    this.totalRequests++;
     const t0 = Date.now();
-    const success = await this.executeAction(action);
+    const trafficRunId = this.trafficRunId;
+    if (this.trafficRunPersistence) await this.trafficRunPersistence;
+    const result = await this.orchestrator.execute(action, trafficRunId, {
+      maxItems: this.config.maxItems,
+      maxItemQuantity: this.config.maxItemQuantity,
+      paymentSuccessRatio: this.config.paymentSuccessRatio,
+      paymentFailureRatio: this.config.paymentFailureRatio,
+      paymentUnknownRatio: this.config.paymentUnknownRatio,
+    });
     const latencyMs = Date.now() - t0;
-    this.window.push({ ts: t0, success });
-    void pushActivity({ ts: t0, action, success, latencyMs });
+    this.totalRequests++;
+    this.window.push({ ts: t0, success: result.success });
+    void this.persistAction(result, action, latencyMs, trafficRunId);
+    void pushActivity({
+      ts: t0,
+      action,
+      success: result.success,
+      latencyMs,
+      trafficRunId,
+      customerId: result.customerId,
+      orderId: result.orderId,
+      paymentId: result.paymentId,
+      traceId: result.traceId,
+      status: result.status,
+      errorCode: result.errorCode,
+    });
     await this.publishStatus();
   }
 
-  private pickAction(): string {
-    const rand = Math.random();
+  private pickAction(): RunnerAction {
+    const random = Math.random();
     let cumulative = 0;
     for (const rule of this.config.mixRules) {
       cumulative += rule.ratio;
-      if (rand <= cumulative) return rule.actionType;
+      if (random <= cumulative && RUNNER_ACTIONS.includes(rule.actionType as RunnerAction)) {
+        return rule.actionType as RunnerAction;
+      }
     }
-    return this.config.mixRules[0]?.actionType ?? 'ORDER_SUCCESS';
+    return 'BROWSE_PRODUCT';
   }
 
-  private async executeAction(action: string): Promise<boolean> {
-    const userId = Math.floor(Math.random() * USER_COUNT) + 1;
-    const sku = SKUS[Math.floor(Math.random() * SKUS.length)];
-    const qty = Math.floor(Math.random() * 3) + 1;
-
+  private async persistAction(
+    result: RunnerActionResult,
+    action: RunnerAction,
+    latencyMs: number,
+    trafficRunId: string,
+  ): Promise<void> {
+    if (result.customerId <= 0) return;
     try {
-      switch (action) {
-        case 'ORDER_SUCCESS': {
-          const orderNo = `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-          const resp = await this.gateway.post<any>('/api/orders', { orderNo, userId, sku, qty });
-          const paid = resp?.data?.status === 'PAID';
-          if (paid && resp?.data?.id) {
-            void pushRecentOrderId(String(resp.data.id));
-          }
-          return paid;
-        }
-
-        case 'BROWSE_PRODUCT': {
-          const resp = await this.gateway.get<any>(`/api/products/${sku}`);
-          return resp?.data != null;
-        }
-
-        case 'SEARCH_CATALOG': {
-          const category = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
-          const page = String(Math.floor(Math.random() * 5));
-          const resp = await this.gateway.get<any>('/api/products', { category, page, size: '10' });
-          return Array.isArray(resp?.data) && resp.data.length > 0;
-        }
-
-        case 'CANCEL_ORDER': {
-          const orderId = await popRecentOrderId();
-          if (!orderId) return true;
-          const resp = await this.gateway.post<any>(`/api/orders/${orderId}/cancel`, {});
-          return resp?.data?.status === 'CANCELLED';
-        }
-
-        default:
-          return true;
-      }
-    } catch {
-      return false;
+      await recordTrafficAction({
+        trafficRunId,
+        actionId: result.actionId,
+        customerId: result.customerId,
+        actionType: action,
+        status: result.status,
+        orderId: result.orderId,
+        paymentId: result.paymentId,
+        cartVersion: result.cartVersion,
+        resultCode: result.resultCode,
+        errorCode: result.errorCode,
+        paymentStrategy: result.paymentStrategy,
+        traceId: result.traceId,
+        latencyMs,
+      });
+    } catch (error) {
+      log.error({ error, actionId: result.actionId }, 'Failed to persist runner action');
     }
   }
 

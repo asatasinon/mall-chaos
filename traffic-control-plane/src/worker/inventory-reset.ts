@@ -1,7 +1,7 @@
 import { getGatewayClient } from '../lib/gateway-client';
 import { getRedis } from '../lib/redis';
 import { loadResetPolicyFromDb, ResetPolicy, updateResetPolicyInDb } from '../lib/reset-policy';
-import { consumeInventoryPolicyReload, consumeInventoryResetTrigger } from '../lib/runtime-state';
+import { clearRunnerOrderQueues, consumeInventoryPolicyReload, consumeInventoryResetTrigger } from '../lib/runtime-state';
 import pino from 'pino';
 import { CronExpressionParser } from 'cron-parser';
 
@@ -135,6 +135,7 @@ export class InventoryResetScheduler {
           scope,
           result: result.data,
         }, 'Inventory reset executed through gateway');
+        await clearRunnerOrderQueues();
         return { success: true, message: 'Reset completed' };
       } finally {
         await redis.del(lockKey);
