@@ -83,6 +83,16 @@ fi
 echo "--- [traffic-control-plane] Done ---"
 
 echo ""
+echo "=== Building shopfront (Node.js) ==="
+echo "--- [shopfront] Docker build (tag: ${REGISTRY}/shopfront:${IMAGE_TAG}) ---"
+docker build ${DOCKER_PLATFORM_ARGS[@]+"${DOCKER_PLATFORM_ARGS[@]}"} ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/shopfront:${IMAGE_TAG}" "$REPO_ROOT/shopfront"
+if [[ "$PUSH_IMAGE" == "true" ]]; then
+  echo "--- [shopfront] Docker push ---"
+  docker push "${REGISTRY}/shopfront:${IMAGE_TAG}"
+fi
+echo "--- [shopfront] Done ---"
+
+echo ""
 echo "=== Build complete. All images tagged as ${REGISTRY}/*:${IMAGE_TAG} ==="
 if [[ -n "$BASE_IMAGE_REGISTRY" ]]; then
   echo "Base images resolved from ${BASE_IMAGE_REGISTRY}"

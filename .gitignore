@@ -83,3 +83,5 @@ node_modules
 *.tsbuildinfo
 
 .remember
+
+.pnpm-store

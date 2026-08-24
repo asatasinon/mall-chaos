@@ -34,9 +34,11 @@ resources:
   - services/risk/deployment.yaml
   - services/fulfillment/deployment.yaml
   - services/notification/deployment.yaml
+  - services/shopfront/deployment.yaml
 
   # Ingress
   - ingress/gateway-ingress.yaml
+  - ingress/shopfront-ingress.yaml
 
 # Image overrides — update tags for each release
 images:
@@ -61,4 +63,6 @@ images:
   - name: castrel/fulfillment-service
     newTag: latest
   - name: castrel/notification-service
+    newTag: latest
+  - name: castrel/shopfront
     newTag: latest

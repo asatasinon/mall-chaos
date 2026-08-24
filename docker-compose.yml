@@ -549,6 +549,28 @@ services:
       redis:
         condition: service_healthy
 
+  shopfront:
+    image: ${REGISTRY:-harbor.cloudwise.com/noname}/shopfront:${IMAGE_TAG:-latest}
+    build:
+      context: ./shopfront
+      dockerfile: Dockerfile
+    container_name: castrel-shopfront
+    <<: *service-defaults
+    ports:
+      - "18091:3090"
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3090
+      GATEWAY_BASE_URL: http://gateway-service:8080
+      SHOPFRONT_ACCESS_TOKEN: ${SHOPFRONT_ACCESS_TOKEN:-}
+    depends_on:
+      gateway-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3090/"]
+      <<: *healthcheck-defaults
+
   promotion-service:
     image: ${REGISTRY:-harbor.cloudwise.com/noname}/promotion-service:${IMAGE_TAG:-latest}
     build:

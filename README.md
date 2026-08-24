@@ -49,6 +49,8 @@ Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、
 | 同步基础设施镜像到 Harbor | `./scripts/push-infra-images.sh` |
 | 单独开发 `traffic-control-plane` Web | `cd traffic-control-plane && pnpm dev` |
 | 单独启动 `traffic-control-plane` Worker | `cd traffic-control-plane && pnpm worker` |
+| 单独开发 `shopfront` Web | `cd shopfront && pnpm install && pnpm dev` |
+| 检查 `shopfront` 类型 / lint / 构建 | `cd shopfront && pnpm typecheck && pnpm lint && pnpm build` |
 | 关闭服务并保留数据卷 | `docker compose down` |
 | 关闭服务并清空数据卷 | `docker compose down -v` |
 | 运行混沌验收助手 | `./scripts/chaos/chaos-verify.sh` |
@@ -59,8 +61,11 @@ Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、
 
 ```text
 Browser
-  -> traffic-control-plane :18086 (Next.js UI + Route Handlers)
-  -> gateway-service :18080 (仅由 traffic/业务流量访问)
+  -> shopfront :18091 (消费者 UI + BFF)
+  -> gateway-service :18080 (业务 API 唯一公开入口)
+
+Operator browser
+  -> traffic-control-plane :18086 (运营控制台 + Route Handlers)
 
 traffic-control-plane
   -> Runner Worker
@@ -87,6 +92,7 @@ gateway-service
 | inventory-service | 18083 | 库存预占/释放/重置 |
 | order-service | 18084 | 下单编排、状态机、3 类 Chaos |
 | payment-service | 18085 | 支付模拟、3 类 Chaos |
+| shopfront | 18091 | 消费者前台、服务端 BFF |
 | traffic-control-plane | 18086 | Next.js 控制台、Route Handlers、Runner worker |
 | promotion-service | 18087 | 优惠券计算、慢 SQL Chaos |
 | risk-service | 18088 | 前置风控、支付后复核 |
@@ -122,7 +128,8 @@ castrel-chaos/
 ├── inventory-service/
 ├── order-service/
 ├── payment-service/
-├── traffic-control-plane/        # Next.js 控制台 + Runner worker
+├── traffic-control-plane/        # Next.js 运营控制台 + Runner worker
+├── shopfront/                    # Next.js 消费者前台 + Gateway BFF
 ├── promotion-service/
 ├── risk-service/
 ├── fulfillment-service/
@@ -179,6 +186,8 @@ traffic-control-plane/
 └── next.config.* 
 ```
 
+`shopfront/` 是独立的消费者入口，容器端口为 `3090`，Compose 宿主机端口为 `18091`。浏览器只请求 Shopfront 的 `/api/*` BFF；BFF 仅允许产品、购物车、结算、订单、支付、履约、通知和账户资源，并在服务端转发到 `GATEWAY_BASE_URL`，`/internal/**` 永远返回 404。认证 UI 不属于本阶段；部署时可通过现有登录流程写入 `castrel_access_token` Cookie，或在本地演示环境注入服务端可见的 `SHOPFRONT_ACCESS_TOKEN`。
+
 ---
 
 ## 本地启动
@@ -202,7 +211,7 @@ traffic-control-plane/
 关键区别：
 
 - `./scripts/compose-up.sh` 会先执行 `docker compose pull`，适合“直接拉远端镜像启动”，不适合“优先使用本地刚构建的镜像”。
-- `./scripts/build-all.sh` 会完成 `common` 安装、各 Java 服务 `mvn package`、以及全部业务镜像和 `traffic-control-plane` 镜像构建。
+- `./scripts/build-all.sh` 会完成 `common` 安装、各 Java 服务 `mvn package`，以及全部业务、`traffic-control-plane` 和 `shopfront` 镜像构建。
 - 如果你的目标只是产出 Docker 镜像，不需要先手动执行 `mvn clean package -DskipTests` 或 `pnpm build`；`build-all.sh` 和 `traffic-control-plane/Dockerfile` 会处理这些步骤。
 
 ### 路径 A：直接拉取预构建镜像启动
