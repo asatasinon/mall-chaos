@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ArrowLeft, ArrowRight, LockKeyhole } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { checkout, createPaymentIntent, getAddresses, getCart, getProduct, money } from '@/lib/api';
+import { checkout, createClientRequestId, createPaymentIntent, getAddresses, getCart, getProduct, money } from '@/lib/api';
 import type { Address, Cart, Product } from '@/lib/types';
 import { ErrorNotice, EmptyState } from '@/components/ui';
 import { useRouter } from 'next/navigation';
@@ -23,7 +23,7 @@ export default function CheckoutPage() {
     if (!cart || !addressId) { setError('请选择一个收货地址后继续。'); return; }
     setBusy(true); setError('');
     try {
-      const order = await checkout({ cartId: cart.id, cartVersion: cart.version, addressId: Number(addressId), ...(couponId ? { couponId: Number(couponId) } : {}), idempotencyKey: `shopfront-checkout-${crypto.randomUUID()}` });
+      const order = await checkout({ cartId: cart.id, cartVersion: cart.version, addressId: Number(addressId), ...(couponId ? { couponId: Number(couponId) } : {}), idempotencyKey: createClientRequestId('shopfront-checkout') });
       const payment = await createPaymentIntent(order.orderNo, Number(order.totalAmount ?? order.amount ?? subtotal), `shopfront-payment-${order.orderNo}`);
       localStorage.setItem(`shopfront-payment:${payment.id}`, JSON.stringify({ payment, order }));
       router.push(`/payment/${payment.id}`);

@@ -26,6 +26,19 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return payload.data;
 }
 
+export function createClientRequestId(prefix: string) {
+  const webCrypto = globalThis.crypto;
+  if (typeof webCrypto?.randomUUID === 'function') {
+    return `${prefix}-${webCrypto.randomUUID()}`;
+  }
+  if (typeof webCrypto?.getRandomValues === 'function') {
+    const values = new Uint32Array(4);
+    webCrypto.getRandomValues(values);
+    return `${prefix}-${Array.from(values, (value) => value.toString(16).padStart(8, '0')).join('')}`;
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export const getProducts = (query = '') => api<Page<Product>>(`products${query}`);
 export const getProduct = (sku: string) => api<Product>(`products/${encodeURIComponent(sku)}`);
 export const getCart = () => api<Cart>('cart');

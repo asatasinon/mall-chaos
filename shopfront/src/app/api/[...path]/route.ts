@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'node:crypto';
 import { ACCESS_TOKEN_COOKIE } from '@/lib/auth';
 
 const allowedRoots = new Set(['products', 'cart', 'checkout', 'orders', 'payments', 'fulfillments', 'notifications', 'auth', 'users', 'addresses']);
@@ -20,7 +21,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   const contentType = request.headers.get('content-type');
   if (contentType) headers.set('content-type', contentType);
   if (auth) headers.set('authorization', auth);
-  headers.set('x-correlation-id', request.headers.get('x-correlation-id') ?? crypto.randomUUID());
+  headers.set('x-correlation-id', request.headers.get('x-correlation-id') ?? randomUUID());
 
   const upstream = await fetch(target, { method: request.method, headers, body: request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.text(), cache: 'no-store' }).catch(() => null);
   if (!upstream) return NextResponse.json({ code: 503, message: '网关暂时无法连接，请稍后重试', data: null }, { status: 503 });

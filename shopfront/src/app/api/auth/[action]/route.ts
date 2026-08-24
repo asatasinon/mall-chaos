@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'node:crypto';
 import { ACCESS_TOKEN_COOKIE, SESSION_TOKEN_COOKIE, USER_ID_COOKIE } from '@/lib/auth';
 
 type AuthResponse = {
@@ -29,7 +30,7 @@ function clearCookie(response: NextResponse, name: string) {
 
 async function forward(request: NextRequest, action: string, sessionToken?: string) {
   const baseUrl = process.env.GATEWAY_BASE_URL ?? 'http://localhost:18080';
-  const headers = new Headers({ 'content-type': 'application/json', 'x-correlation-id': crypto.randomUUID() });
+  const headers = new Headers({ 'content-type': 'application/json', 'x-correlation-id': randomUUID() });
   const authorization = request.headers.get('authorization');
   if (authorization) headers.set('authorization', authorization);
   if (sessionToken) headers.set('x-session-token', sessionToken);
