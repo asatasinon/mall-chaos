@@ -188,6 +188,15 @@ traffic-control-plane/
 
 `shopfront/` 是独立的消费者入口，容器端口为 `3090`，Compose 宿主机端口为 `18091`。浏览器只请求 Shopfront 的 `/api/*` BFF；BFF 仅允许产品、购物车、结算、订单、支付、履约、通知、认证和账户资源，并在服务端转发到 `GATEWAY_BASE_URL`，`/internal/**` 永远返回 404。`/auth` 提供注册、登录、刷新会话和登出；access token、session token 和用户 ID 只由服务端写入 HttpOnly Cookie，生产环境启用 `Secure`，本地 HTTP 开发环境关闭 `Secure` 以便浏览器发送 Cookie。`SHOPFRONT_ACCESS_TOKEN` 仍可用于无浏览器的本地演示环境。
 
+Shopfront 初始化时会创建可用于业务流量和故障注入场景的默认客户账号：
+
+| 账号 | 密码 | 用户 ID |
+|---|---|---:|
+| `alice@example.com` | `password` | 1 |
+| `bob@example.com` | `password` | 2 |
+
+这两个账号同时位于 Runner 默认客户白名单中。若 MySQL 已经使用旧数据卷启动过，修改初始化 SQL 不会重新执行；需要清空并重新创建 MySQL 数据卷后才会重新导入种子数据。
+
 ---
 
 ## 本地启动
