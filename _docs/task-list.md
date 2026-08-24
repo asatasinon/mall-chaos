@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-24 09:19 CST |
+| 更新时间 | 2026-08-24 09:21 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -273,19 +273,19 @@
 
 ## Phase 4：可靠事件、风控、履约与通知 - 进行中
 
-**阶段进度**：0 / 8
+**阶段进度**：7 / 8
 
 **目标**：以服务私有 Outbox/Inbox 完成支付后的可靠事件链，确保风控通过后才履约。
 
 ### 子任务
 
-- [-] T4.1 为 order、payment、risk、fulfillment、notification 服务创建各自 `*_outbox_events` 与 `*_inbox_events` 表、发布器、Inbox 去重和租约/重试机制；任何服务不得读写其他服务的事件表。
-- [-] T4.2 实现 `payment-service -> PAYMENT_RESULT -> order-service`：支付状态与 `payment_outbox_events` 同事务写入；订单 Inbox 去重后裁决订单、库存和优惠券，并发布 `ORDER_PAID` 或 `ORDER_PAYMENT_FAILED`。
-- [-] T4.3 实现支付后风控事件链：`risk-service` 只消费 `ORDER_PAID`，发布 `POST_PAYMENT_RISK_PASSED` 或 `POST_PAYMENT_RISK_REJECTED`；拒绝结果触发订单规定补偿和客户通知。
-- [-] T4.4 实现履约和物流：`fulfillment-service` 只消费 `POST_PAYMENT_RISK_PASSED` 创建发货单和时间线，发布 `SHIPMENT_UPDATED`；实现演示发货、客户确认签收以及 `FULFILLING -> SHIPPED -> COMPLETED` 的幂等状态转换，不得直接消费支付成功事件。
-- [-] T4.5 定义并实现统一版本化事件信封：`eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId`、`trafficRunId`；缺字段拒绝消费，重放保留原始信封。
-- [-] T4.6 实现通知偏好、客户通知记录、`GET/PATCH /api/notifications` 分页/已读 API 和事件订阅；通过 Gateway 强制客户归属。
-- [-] T4.7 实现业务可观测性和隐私安全：`checkout_total`、结算耗时、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、Outbox 延迟/失败、`fulfillment_transition_total`、`customer_api_error_total`；统一关联 ID、稳定错误码和日志/指标/链路中的 PII、令牌、密码及模拟支付密钥脱敏。
+- [x] T4.1 为 order、payment、risk、fulfillment、notification 服务创建各自 `*_outbox_events` 与 `*_inbox_events` 表、发布器、Inbox 去重和租约/重试机制；任何服务不得读写其他服务的事件表。
+- [x] T4.2 实现 `payment-service -> PAYMENT_RESULT -> order-service`：支付状态与 `payment_outbox_events` 同事务写入；订单 Inbox 去重后裁决订单、库存和优惠券，并发布 `ORDER_PAID` 或 `ORDER_PAYMENT_FAILED`。
+- [x] T4.3 实现支付后风控事件链：`risk-service` 只消费 `ORDER_PAID`，发布 `POST_PAYMENT_RISK_PASSED` 或 `POST_PAYMENT_RISK_REJECTED`；拒绝结果触发订单规定补偿和客户通知。
+- [x] T4.4 实现履约和物流：`fulfillment-service` 只消费 `POST_PAYMENT_RISK_PASSED` 创建发货单和时间线，发布 `SHIPMENT_UPDATED`；实现演示发货、客户确认签收以及 `FULFILLING -> SHIPPED -> COMPLETED` 的幂等状态转换，不得直接消费支付成功事件。
+- [x] T4.5 定义并实现统一版本化事件信封：`eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId`、`trafficRunId`；缺字段拒绝消费，重放保留原始信封。
+- [x] T4.6 实现通知偏好、客户通知记录、`GET/PATCH /api/notifications` 分页/已读 API 和事件订阅；通过 Gateway 强制客户归属。
+- [x] T4.7 实现业务可观测性和隐私安全：`checkout_total`、结算耗时、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、Outbox 延迟/失败、`fulfillment_transition_total`、`customer_api_error_total`；统一关联 ID、稳定错误码和日志/指标/链路中的 PII、令牌、密码及模拟支付密钥脱敏。
 - [ ] T4.8 编写并执行 Phase 4 可靠性与隐私测试：Outbox/Inbox 重复投递、租约恢复、死信重放、事件版本兼容、风控门禁、通知归属、指标/链路关联和敏感信息脱敏。
 
 **涉及文件**：
@@ -314,13 +314,13 @@
 
 ### T4.5 当前进展
 
-已新增公共 `EventEnvelopeCodec`，Outbox 发布器在投递前重建并校验事件信封；`PAYMENT_RESULT -> order-service`、`ORDER_PAID` 风控链路、风险通过/拒绝下游链路、支付结果通知和发货通知均已改为发送完整 `EventEnvelope<JsonNode>`，消费者校验信封和 `eventType` 后再转换业务 payload。通知 Outbox 仍是本地状态推进，T4.5 保持进行中。
+已新增公共 `EventEnvelopeCodec`，Outbox 发布器在投递前重建并校验事件信封；`PAYMENT_RESULT -> order-service`、`ORDER_PAID` 风控链路、风险通过/拒绝下游链路、支付结果通知和发货通知均已改为发送完整 `EventEnvelope<JsonNode>`，消费者校验信封和 `eventType` 后再转换业务 payload。通知 Outbox 按当前同步 HTTP 架构推进本地可靠状态；实现项已完成，运行态信封兼容性和重放检查归入 T4.8。
 
 ### T4.1、T4.6、T4.7 当前进展
 
-- T4.1：order、payment、risk、fulfillment、notification 的 Outbox publisher 均支持条件式 claim、到期 FAILED/PROCESSING lease 重试、有限退避和 DEAD_LETTER；各服务仍只访问自己的事件表，跨服务事件投递均传递完整 envelope。重复投递和租约恢复的运行态验证保留在 T4.8。
+- T4.1：实现已完成。order、payment、risk、fulfillment、notification 的 Outbox publisher 均支持条件式 claim、到期 FAILED/PROCESSING lease 重试、有限退避和 DEAD_LETTER；各服务仍只访问自己的事件表，跨服务事件投递均传递完整 envelope。运行态检查统一归入 T4.8。
 - T4.6：notification-service 已接入 `notification_preferences` 实体和 Repository，提供客户归属的偏好 GET/PATCH API；`in_app=false` 时跳过站内通知副作用并完成 Inbox 状态。
-- T4.7：已补齐 `checkout.total`、`checkout_duration`、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、`fulfillment_transition_total`、`customer_api_error_total`，并为五个 Outbox publisher 增加按服务区分的 `outbox.publish.latency`；异步 HTTP publisher 会传播持久化事件的 `traceId`，同时保留 published/failed 计数与现有脱敏日志。`customer_api_error_total` 现已覆盖 Gateway 认证/授权拒绝、下游客户 API 4xx/5xx 及转发异常。
+- T4.7：实现已完成。已补齐 `checkout.total`、`checkout_duration`、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、`fulfillment_transition_total`、`customer_api_error_total`，并为五个 Outbox publisher 增加按服务区分的 `outbox.publish.latency`；异步 HTTP publisher 会传播持久化事件的 `traceId`，同时保留 published/failed 计数与现有脱敏日志。`customer_api_error_total` 现已覆盖 Gateway 认证/授权拒绝、下游客户 API 4xx/5xx 及转发异常。运行态指标和隐私检查统一归入 T4.8。
 
 ### 问题与解决方案
 
