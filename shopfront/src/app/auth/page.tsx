@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ArrowRight, Check, LogIn, LogOut, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { getSession, login, logout, refreshSession, register } from '@/lib/api';
 import type { AuthSession } from '@/lib/auth';
 import { ErrorNotice } from '@/components/ui';
@@ -10,6 +11,7 @@ import { ErrorNotice } from '@/components/ui';
 type Mode = 'login' | 'register';
 
 export default function AuthPage() {
+  const router = useRouter();
   const [mode, setMode] = useState<Mode>('login');
   const [session, setSession] = useState<AuthSession | null>(null);
   const [email, setEmail] = useState('');
@@ -30,7 +32,7 @@ export default function AuthPage() {
         : await register({ email, password, nickname });
       setSession(nextSession);
       window.dispatchEvent(new Event('auth-updated'));
-      window.location.href = '/';
+      router.push('/');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '认证请求失败，请稍后重试');
     } finally {

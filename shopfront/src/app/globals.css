@@ -46,7 +46,7 @@ button { cursor: pointer; }
 
 main { max-width: 1320px; margin: 0 auto; padding: 50px 32px 92px; }
 .eyebrow { color: var(--muted); font: 500 11px 'DM Mono', monospace; letter-spacing: .1em; text-transform: uppercase; }
-.page-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 34px; }
+.page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 34px; }
 .page-heading h1 { margin: 7px 0 0; font: 600 clamp(38px, 5.8vw, 76px)/.96 'Fraunces', Georgia, serif; letter-spacing: -.055em; }
 .page-heading p { max-width: 410px; margin: 0; color: var(--muted); }
 

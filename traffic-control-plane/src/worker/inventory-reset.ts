@@ -140,9 +140,10 @@ export class InventoryResetScheduler {
       } finally {
         await redis.del(lockKey);
       }
-    } catch (e: any) {
-      log.error({ error: e.message }, 'Inventory reset failed');
-      return { success: false, message: e.message };
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      log.error({ error: message }, 'Inventory reset failed');
+      return { success: false, message };
     }
   }
 }

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Ban, CreditCard, Truck } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { cancelOrder, getOrder, money, retryPayment } from '@/lib/api';
 import type { Order } from '@/lib/types';
 import { ErrorNotice, StatusPill } from '@/components/ui';
@@ -14,8 +14,8 @@ export default function OrderDetailPage() {
   const [order, setOrder] = useState<Order | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const load = () => getOrder(id).then(setOrder).catch((e: Error) => setError(e.message));
-  useEffect(() => { load(); }, [id]);
+  const load = useCallback(() => getOrder(id).then(setOrder).catch((e: Error) => setError(e.message)), [id]);
+  useEffect(() => { void load(); }, [load]);
   const cancel = async () => { setBusy(true); try { setOrder(await cancelOrder(Number(id))); } catch (e) { setError(e instanceof Error ? e.message : '订单无法取消'); } finally { setBusy(false); } };
   const retry = async () => { setBusy(true); try { const result = await retryPayment(Number(id)); const paymentId = result.paymentId ?? result.payment?.id; if (paymentId) router.push(`/payment/${paymentId}`); else load(); } catch (e) { setError(e instanceof Error ? e.message : '支付重试暂时失败'); } finally { setBusy(false); } };
   if (!order && !error) return <div className="loading">opening order /</div>;

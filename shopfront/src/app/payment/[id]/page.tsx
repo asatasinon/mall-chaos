@@ -14,7 +14,7 @@ export default function PaymentPage() {
   const [order, setOrder] = useState<Order | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { try { const stored = localStorage.getItem(`shopfront-payment:${id}`); if (stored) { const snapshot = JSON.parse(stored) as { payment: Payment; order: Order }; setPayment(snapshot.payment); setOrder(snapshot.order); } else setError('支付会话已过期，请从订单页重新发起支付。'); } catch { setError('支付会话无法恢复，请稍后重试。'); } }, [id]);
+  useEffect(() => { void Promise.resolve().then(() => { try { const stored = localStorage.getItem(`shopfront-payment:${id}`); if (stored) { const snapshot = JSON.parse(stored) as { payment: Payment; order: Order }; setPayment(snapshot.payment); setOrder(snapshot.order); } else setError('支付会话已过期，请从订单页重新发起支付。'); } catch { setError('支付会话无法恢复，请稍后重试。'); } }); }, [id]);
   const confirm = async () => { setBusy(true); setError(''); try { const result = await confirmPayment(id); setPayment(result); localStorage.setItem(`shopfront-payment:${id}`, JSON.stringify({ payment: result, order })); } catch (e) { setError(e instanceof Error ? e.message : '支付结果暂时未知，请查询订单'); } finally { setBusy(false); } };
   const retry = async () => { setBusy(true); setError(''); try { setPayment(await retryPaymentIntent(id)); } catch (e) { setError(e instanceof Error ? e.message : '支付重试暂时失败'); } finally { setBusy(false); } };
   if (!payment && !error) return <div className="loading">opening payment /</div>;

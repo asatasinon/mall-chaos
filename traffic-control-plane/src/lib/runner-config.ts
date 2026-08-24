@@ -22,11 +22,11 @@ export interface RunnerConfig {
 export async function loadRunnerConfigFromDb(): Promise<RunnerConfig> {
   const pool = getPool();
   const [profiles] = await pool.query('SELECT * FROM runner_profile WHERE id = 1');
-  const profile = (profiles as any[])[0];
+  const profile = (profiles as Record<string, unknown>[])[0];
 
   const [rules] = await pool.query('SELECT * FROM runner_mix_rule ORDER BY id');
-  const mixRules = (rules as any[]).map((r) => ({
-    actionType: r.action_type,
+  const mixRules = (rules as Record<string, unknown>[]).map((r) => ({
+    actionType: String(r.action_type ?? ''),
     ratio: Number(r.ratio),
   }));
   const paymentSuccessRatio = Number(profile?.payment_success_ratio ?? 1);
@@ -111,7 +111,7 @@ export async function updateRunnerConfigInDb(req: {
       ]
     );
 
-    if ((result as any).affectedRows === 0) {
+    if ((result as { affectedRows: number }).affectedRows === 0) {
       throw new Error('VERSION_CONFLICT');
     }
 

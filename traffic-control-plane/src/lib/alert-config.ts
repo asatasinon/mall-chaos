@@ -1,9 +1,18 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import yaml from 'js-yaml';
 import { getPool } from './db';
 import { env } from './env';
 
-const yaml: { load(input: string): unknown; dump(input: unknown, options?: Record<string, unknown>): string } = require('js-yaml');
+type JsonRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): JsonRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
+function asRecords(value: unknown): JsonRecord[] {
+  return Array.isArray(value) ? value.filter((item): item is JsonRecord => typeof item === 'object' && item !== null && !Array.isArray(item)) : [];
+}
 
 export interface AlertRule {
   id?: number;
@@ -116,18 +125,18 @@ async function importSourceConfig(): Promise<void> {
   const pool = getPool();
   const [ruleCount] = await pool.query('SELECT COUNT(*) AS count FROM alert_rule');
   const [receiverCount] = await pool.query('SELECT COUNT(*) AS count FROM alert_receiver');
-  const shouldImportRules = Number((ruleCount as any[])[0]?.count) === 0;
-  const shouldImportReceivers = Number((receiverCount as any[])[0]?.count) === 0;
+  const shouldImportRules = Number(asRecords(ruleCount)[0]?.count) === 0;
+  const shouldImportReceivers = Number(asRecords(receiverCount)[0]?.count) === 0;
 
   if (shouldImportRules) try {
-    const rulesDoc = yaml.load(await fs.readFile(env.ALERT_SOURCE_RULES_PATH, 'utf8')) as any;
-    const rules = (rulesDoc?.groups ?? []).flatMap((group: any) =>
-      (group.rules ?? []).map((rule: any) => ({
+    const rulesDoc = asRecord(yaml.load(await fs.readFile(env.ALERT_SOURCE_RULES_PATH, 'utf8')));
+    const rules = asRecords(rulesDoc.groups).flatMap((group) =>
+      asRecords(group.rules).map((rule) => ({
         ruleName: String(rule.alert ?? ''), groupName: String(group.name ?? 'castrel'),
         intervalSec: parseInterval(String(group.interval ?? '30s')),
         expression: String(rule.expr ?? ''), forDuration: String(rule.for ?? '0m'),
-        severity: normalizeSeverity(rule.labels?.severity), summary: String(rule.annotations?.summary ?? rule.alert ?? ''),
-        description: String(rule.annotations?.description ?? ''), enabled: true,
+        severity: normalizeSeverity(asRecord(rule.labels).severity), summary: String(asRecord(rule.annotations).summary ?? rule.alert ?? ''),
+        description: String(asRecord(rule.annotations).description ?? ''), enabled: true,
       })).filter((rule: AlertRule) => rule.ruleName && rule.expression),
     );
     for (const rule of rules) {
@@ -142,20 +151,20 @@ async function importSourceConfig(): Promise<void> {
   }
 
   if (shouldImportReceivers) try {
-    const managerDoc = yaml.load(await fs.readFile(env.ALERT_SOURCE_MANAGER_PATH, 'utf8')) as any;
-    const route = managerDoc?.route ?? {};
+    const managerDoc = asRecord(yaml.load(await fs.readFile(env.ALERT_SOURCE_MANAGER_PATH, 'utf8')));
+    const route = asRecord(managerDoc.route);
     await pool.query(
       `UPDATE alert_config_meta SET route_receiver = ?, group_by_json = ?, group_wait = ?, group_interval = ?, repeat_interval = ?, route_continue = ?, child_routes_json = ? WHERE id = 1`,
       [String(route.receiver ?? DEFAULT_RECEIVER), JSON.stringify(route.group_by ?? ['alertname', 'severity', 'service']), String(route.group_wait ?? '30s'), String(route.group_interval ?? '3m'), String(route.repeat_interval ?? '5m'), false, JSON.stringify(parseRoutes(route.routes))],
     );
-    const receivers = (managerDoc?.receivers ?? []).flatMap((receiver: any) =>
-      (receiver.webhook_configs ?? []).map((webhook: any) => ({
+    const receivers = asRecords(managerDoc.receivers).flatMap((receiver) =>
+      asRecords(receiver.webhook_configs).map((webhook) => ({
         receiverName: String(receiver.name ?? DEFAULT_RECEIVER), receiverType: 'webhook' as const,
         endpoint: String(webhook.url ?? ''), severityMatch: receiver.name === 'critical-receiver' ? 'critical' : receiver.name === 'warning-receiver' ? 'warning' : 'all',
         sendResolved: webhook.send_resolved !== false, enabled: true,
-        basicAuthUsername: String(webhook.http_config?.basic_auth?.username ?? ''),
-        basicAuthPassword: String(webhook.http_config?.basic_auth?.password ?? ''),
-      })).filter((receiver: AlertReceiver) => receiver.endpoint),
+        basicAuthUsername: String(asRecord(asRecord(webhook.http_config).basic_auth).username ?? ''),
+        basicAuthPassword: String(asRecord(asRecord(webhook.http_config).basic_auth).password ?? ''),
+      })).filter((receiver) => receiver.endpoint),
     );
     for (const receiver of receivers) {
       await pool.query(
@@ -191,10 +200,10 @@ export async function loadAlertConfig(includeSecrets = false): Promise<AlertConf
   const [ruleRows] = await pool.query('SELECT * FROM alert_rule ORDER BY group_name, rule_name');
   const [receiverRows] = await pool.query('SELECT * FROM alert_receiver ORDER BY receiver_name');
   return {
-    version: Number((metaRows as any[])[0]?.version ?? 1),
-    updatedAt: (metaRows as any[])[0]?.updated_at ? new Date((metaRows as any[])[0].updated_at).toISOString() : null,
-    rules: (ruleRows as any[]).map(toRule), receivers: (receiverRows as any[]).map((row) => toReceiver(row, includeSecrets)),
-    route: toRoute((metaRows as any[])[0]),
+    version: Number(asRecords(metaRows)[0]?.version ?? 1),
+    updatedAt: asRecords(metaRows)[0]?.updated_at ? new Date(String(asRecords(metaRows)[0].updated_at)).toISOString() : null,
+    rules: asRecords(ruleRows).map(toRule), receivers: asRecords(receiverRows).map((row) => toReceiver(row, includeSecrets)),
+    route: toRoute(asRecords(metaRows)[0]),
   };
 }
 
@@ -209,7 +218,7 @@ export async function saveAlertConfig(input: AlertConfig): Promise<AlertConfig> 
   try {
     await connection.beginTransaction();
     const [result] = await connection.query('UPDATE alert_config_meta SET version = version + 1 WHERE id = 1 AND version = ?', [input.version]);
-    if ((result as any).affectedRows !== 1) throw new Error('VERSION_CONFLICT');
+    if ((result as { affectedRows: number }).affectedRows !== 1) throw new Error('VERSION_CONFLICT');
     await connection.query('DELETE FROM alert_rule');
     for (const rule of input.rules) {
       await connection.query(
@@ -258,16 +267,16 @@ export async function saveAlertConfig(input: AlertConfig): Promise<AlertConfig> 
 }
 
 export function parseAlertmanagerYaml(source: string, current: AlertConfig): AlertConfig {
-  const document = yaml.load(source) as any;
-  if (!document || typeof document !== 'object') throw new Error('INVALID_ALERTMANAGER_YAML');
-  const route = document.route ?? {};
-  const receivers = (document.receivers ?? []).flatMap((receiver: any) =>
-    (receiver.webhook_configs ?? []).map((webhook: any) => ({
+  const document = asRecord(yaml.load(source));
+  if (!Object.keys(document).length) throw new Error('INVALID_ALERTMANAGER_YAML');
+  const route = asRecord(document.route);
+  const receivers = asRecords(document.receivers).flatMap((receiver) =>
+    asRecords(receiver.webhook_configs).map((webhook) => ({
       receiverName: String(receiver.name ?? DEFAULT_RECEIVER), receiverType: 'webhook' as const,
       endpoint: String(webhook.url ?? ''), severityMatch: 'all' as const,
       sendResolved: webhook.send_resolved !== false, enabled: true,
-      basicAuthUsername: String(webhook.http_config?.basic_auth?.username ?? ''),
-      basicAuthPassword: String(webhook.http_config?.basic_auth?.password ?? ''),
+      basicAuthUsername: String(asRecord(asRecord(webhook.http_config).basic_auth).username ?? ''),
+      basicAuthPassword: String(asRecord(asRecord(webhook.http_config).basic_auth).password ?? ''),
     })).filter((receiver: AlertReceiver) => receiver.endpoint),
   );
   if (!receivers.length) throw new Error('INVALID_ALERTMANAGER_RECEIVERS');
@@ -294,18 +303,18 @@ export function parseAlertmanagerYaml(source: string, current: AlertConfig): Ale
 }
 
 export function parsePrometheusRulesYaml(source: string, current: AlertConfig): AlertConfig {
-  const document = yaml.load(source) as any;
-  if (!document || typeof document !== 'object' || !Array.isArray(document.groups)) throw new Error('INVALID_PROMETHEUS_RULES_YAML');
-  const importedRules: AlertRule[] = document.groups.flatMap((group: any) =>
-    (Array.isArray(group?.rules) ? group.rules : []).map((rule: any) => ({
+  const document = asRecord(yaml.load(source));
+  if (!Object.keys(document).length || !Array.isArray(document.groups)) throw new Error('INVALID_PROMETHEUS_RULES_YAML');
+  const importedRules: AlertRule[] = asRecords(document.groups).flatMap((group) =>
+    asRecords(group.rules).map((rule) => ({
       ruleName: String(rule?.alert ?? ''),
       groupName: String(group?.name ?? 'castrel-custom'),
       intervalSec: parseInterval(String(group?.interval ?? '30s')),
       expression: String(rule?.expr ?? ''),
       forDuration: String(rule?.for ?? '0m'),
-      severity: normalizeSeverity(rule?.labels?.severity),
-      summary: String(rule?.annotations?.summary ?? rule?.alert ?? ''),
-      description: String(rule?.annotations?.description ?? ''),
+      severity: normalizeSeverity(asRecord(rule.labels).severity),
+      summary: String(asRecord(rule.annotations).summary ?? rule.alert ?? ''),
+      description: String(asRecord(rule.annotations).description ?? ''),
       enabled: true,
     })).filter((rule: AlertRule) => rule.ruleName && rule.expression),
   );
@@ -379,10 +388,11 @@ async function reload(url: string, service: string): Promise<void> {
 }
 
 function toPrometheusConfig(config: AlertConfig) {
-  const groups = new Map<string, any>();
+  const groups = new Map<string, { name: string; interval: string; rules: JsonRecord[] }>();
   for (const rule of config.rules.filter((item) => item.enabled)) {
     if (!groups.has(rule.groupName)) groups.set(rule.groupName, { name: rule.groupName, interval: `${rule.intervalSec}s`, rules: [] });
-    groups.get(rule.groupName).rules.push({ alert: rule.ruleName, expr: rule.expression, for: rule.forDuration, labels: { severity: rule.severity }, annotations: { summary: rule.summary, description: rule.description } });
+    const group = groups.get(rule.groupName);
+    if (group) group.rules.push({ alert: rule.ruleName, expr: rule.expression, for: rule.forDuration, labels: { severity: rule.severity }, annotations: { summary: rule.summary, description: rule.description } });
   }
   return { groups: [...groups.values()] };
 }
@@ -394,18 +404,24 @@ function toAlertmanagerConfig(config: AlertConfig) {
   return { global: { resolve_timeout: '5m' }, route: { receiver: fallback, group_by: config.route.groupBy, group_wait: config.route.groupWait, group_interval: config.route.groupInterval, repeat_interval: config.route.repeatInterval, routes }, receivers: receivers.length ? receivers : [{ name: DEFAULT_RECEIVER, webhook_configs: [{ url: INTERNAL_WEBHOOK, send_resolved: true }] }] };
 }
 
-function toRule(row: any): AlertRule {
-  return { id: Number(row.id), ruleName: row.rule_name, groupName: row.group_name, intervalSec: Number(row.interval_sec), expression: row.expression, forDuration: row.for_duration, severity: normalizeSeverity(row.severity), summary: row.summary, description: row.description, enabled: Boolean(row.enabled) };
+function toRule(row: JsonRecord): AlertRule {
+  return { id: Number(row.id), ruleName: String(row.rule_name ?? ''), groupName: String(row.group_name ?? ''), intervalSec: Number(row.interval_sec), expression: String(row.expression ?? ''), forDuration: String(row.for_duration ?? ''), severity: normalizeSeverity(row.severity), summary: String(row.summary ?? ''), description: String(row.description ?? ''), enabled: Boolean(row.enabled) };
 }
-function toReceiver(row: any, includeSecret: boolean): AlertReceiver {
-  return { id: Number(row.id), receiverName: row.receiver_name, receiverType: 'webhook', endpoint: row.endpoint, basicAuthUsername: row.basic_auth_username || undefined, ...(includeSecret ? { basicAuthPassword: row.basic_auth_password || undefined } : { basicAuthPasswordSet: Boolean(row.basic_auth_password) }), severityMatch: row.severity_match, sendResolved: Boolean(row.send_resolved), enabled: Boolean(row.enabled) };
+function toReceiver(row: JsonRecord, includeSecret: boolean): AlertReceiver {
+  return { id: Number(row.id), receiverName: String(row.receiver_name ?? ''), receiverType: 'webhook', endpoint: String(row.endpoint ?? ''), basicAuthUsername: row.basic_auth_username ? String(row.basic_auth_username) : undefined, ...(includeSecret ? { basicAuthPassword: row.basic_auth_password ? String(row.basic_auth_password) : undefined } : { basicAuthPasswordSet: Boolean(row.basic_auth_password) }), severityMatch: row.severity_match === 'critical' || row.severity_match === 'warning' || row.severity_match === 'info' ? row.severity_match : 'all', sendResolved: Boolean(row.send_resolved), enabled: Boolean(row.enabled) };
 }
-function toRoute(row: any): AlertConfig['route'] {
+function toRoute(row: JsonRecord | undefined): AlertConfig['route'] {
   let groupBy: string[] = ['alertname', 'severity', 'service'];
-  try { groupBy = Array.isArray(row?.group_by_json) ? row.group_by_json : JSON.parse(row?.group_by_json || '[]'); } catch { /* use default */ }
+  try {
+    const groupByValue = row?.group_by_json;
+    groupBy = Array.isArray(groupByValue) ? groupByValue.map(String) : JSON.parse(typeof groupByValue === 'string' ? groupByValue : '[]');
+  } catch { /* use default */ }
   let routes: AlertRoute[] = [];
-  try { routes = parseRoutes(Array.isArray(row?.child_routes_json) ? row.child_routes_json : JSON.parse(row?.child_routes_json || '[]')); } catch { /* use default */ }
-  return { receiver: row?.route_receiver || DEFAULT_RECEIVER, groupBy: groupBy.length ? groupBy : ['alertname'], groupWait: row?.group_wait || '30s', groupInterval: row?.group_interval || '3m', repeatInterval: row?.repeat_interval || '5m', continue: false, routes };
+  try {
+    const routesValue = row?.child_routes_json;
+    routes = parseRoutes(Array.isArray(routesValue) ? routesValue : JSON.parse(typeof routesValue === 'string' ? routesValue : '[]'));
+  } catch { /* use default */ }
+  return { receiver: typeof row?.route_receiver === 'string' ? row.route_receiver : DEFAULT_RECEIVER, groupBy: groupBy.length ? groupBy : ['alertname'], groupWait: typeof row?.group_wait === 'string' ? row.group_wait : '30s', groupInterval: typeof row?.group_interval === 'string' ? row.group_interval : '3m', repeatInterval: typeof row?.repeat_interval === 'string' ? row.repeat_interval : '5m', continue: false, routes };
 }
 function normalizeSeverity(value: unknown): AlertRule['severity'] {
   return value === 'critical' || value === 'info' ? value : 'warning';
@@ -438,15 +454,16 @@ function validateConfig(config: AlertConfig): void {
 
 function parseRoutes(routes: unknown): AlertRoute[] {
   if (!Array.isArray(routes)) return [];
-  return routes.flatMap((route: any) => {
-    if (!route || typeof route !== 'object' || typeof route.receiver !== 'string') return [];
+  return routes.flatMap((value) => {
+    const route = asRecord(value);
+    if (typeof route.receiver !== 'string') return [];
     const match = route.match ?? route.match_re ?? {};
-    return [{ receiver: route.receiver, match: typeof match === 'object' ? match : {}, groupBy: Array.isArray(route.group_by) ? route.group_by.map(String) : undefined, groupWait: route.group_wait ? String(route.group_wait) : undefined, groupInterval: route.group_interval ? String(route.group_interval) : undefined, repeatInterval: route.repeat_interval ? String(route.repeat_interval) : undefined, continue: Boolean(route.continue) } satisfies AlertRoute];
+    return [{ receiver: route.receiver, match: asRecord(match) as Record<string, string>, groupBy: Array.isArray(route.group_by) ? route.group_by.map(String) : undefined, groupWait: route.group_wait ? String(route.group_wait) : undefined, groupInterval: route.group_interval ? String(route.group_interval) : undefined, repeatInterval: route.repeat_interval ? String(route.repeat_interval) : undefined, continue: Boolean(route.continue) } satisfies AlertRoute];
   });
 }
 
 async function addColumn(pool: ReturnType<typeof getPool>, table: string, column: string, definition: string): Promise<void> {
-  try { await pool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`); } catch (error: any) {
-    if (error?.code !== 'ER_DUP_FIELDNAME') throw error;
+  try { await pool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`); } catch (error: unknown) {
+    if (asRecord(error).code !== 'ER_DUP_FIELDNAME') throw error;
   }
 }

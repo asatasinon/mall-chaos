@@ -9,7 +9,7 @@ export async function GET() {
   const countTable = async (table: string) => {
     try {
       const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table}`);
-      return Number((rows as any[])[0]?.cnt ?? 0);
+      return Number((rows as Record<string, unknown>[])[0]?.cnt ?? 0);
     } catch {
       return 0;
     }

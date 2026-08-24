@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
 
   const chaosStatus: Record<string, unknown> = {};
 
-  const results = await Promise.allSettled(
+  await Promise.allSettled(
     chaosTypes.map(async ({ key, path }) => {
       try {
         const data = await gateway.get(path, undefined, traceId);

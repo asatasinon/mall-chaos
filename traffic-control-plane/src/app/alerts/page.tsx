@@ -74,21 +74,27 @@ export default function AlertsPage() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : '保存 YAML 失败'); }
     finally { setSaving(false); }
   };
-  useEffect(() => { void load(); }, []);
-  useEffect(() => { if (activeTab === 'yaml') void loadSource(sourceKind); }, [activeTab, sourceKind]);
+  useEffect(() => { void Promise.resolve().then(() => load()); }, []);
+  useEffect(() => { if (activeTab === 'yaml') void Promise.resolve().then(() => loadSource(sourceKind)); }, [activeTab, sourceKind]);
   useEffect(() => {
     if (!scrollTarget) return;
     const target = itemRefs.current[scrollTarget];
     target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     target?.focus({ preventScroll: true });
-    setScrollTarget('');
+    const clearTarget = window.setTimeout(() => setScrollTarget(''), 0);
+    return () => window.clearTimeout(clearTarget);
   }, [config, scrollTarget]);
 
   const save = async () => {
     if (!config) return;
     setSaving(true); setError(''); setNotice('');
     try {
-      const persistableConfig = { ...config, rules: config.rules.map(({ isDraft, ...rule }) => rule), receivers: config.receivers.map(({ isDraft, ...receiver }) => receiver), route: { ...config.route, routes: config.route.routes.map(({ isDraft, ...route }) => route) } };
+      const persistableConfig = {
+        ...config,
+        rules: config.rules.map((rule) => { const next = { ...rule }; delete next.isDraft; return next; }),
+        receivers: config.receivers.map((receiver) => { const next = { ...receiver }; delete next.isDraft; return next; }),
+        route: { ...config.route, routes: config.route.routes.map((route) => { const next = { ...route }; delete next.isDraft; return next; }) },
+      };
       const response = await fetch('/internal/alerts/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(persistableConfig) });
       const result = await response.json();
       if (!response.ok || result.code !== 0) throw new Error(result.message);

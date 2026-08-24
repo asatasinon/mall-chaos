@@ -14,20 +14,20 @@ export interface ResetPolicy {
 export async function loadResetPolicyFromDb(): Promise<ResetPolicy | null> {
   const pool = getPool();
   const [rows] = await pool.query('SELECT * FROM runner_inventory_reset_policy WHERE id = 1');
-  const data = (rows as any[])[0];
+  const data = (rows as Record<string, unknown>[])[0];
   if (!data) {
     return null;
   }
 
   return {
-    id: data.id,
+    id: Number(data.id),
     enabled: !!data.enabled,
-    cronExpr: data.cron_expr,
-    timezone: data.timezone,
-    allowedWindow: data.allowed_window,
-    resetScope: data.reset_scope,
-    baselineVersion: data.baseline_version,
-    version: data.version,
+    cronExpr: String(data.cron_expr ?? ''),
+    timezone: String(data.timezone ?? ''),
+    allowedWindow: String(data.allowed_window ?? ''),
+    resetScope: String(data.reset_scope ?? ''),
+    baselineVersion: Number(data.baseline_version),
+    version: Number(data.version),
   };
 }
 
@@ -47,7 +47,7 @@ export async function updateResetPolicyInDb(req: {
      WHERE id = 1 AND version = ?`,
     [req.cronExpr, req.allowedWindow, req.resetScope, req.version]
   );
-  if ((result as any).affectedRows === 0) {
+  if ((result as { affectedRows: number }).affectedRows === 0) {
     throw new Error('VERSION_CONFLICT');
   }
   return (await loadResetPolicyFromDb())!;

@@ -18,11 +18,12 @@ export async function PUT(request: NextRequest) {
     await signalInventoryPolicyReload();
     await recordOperatorAudit({ request, action: 'INVENTORY_RESET_POLICY_UPDATE', parameters: body, result: 'SUCCESS' });
     return jsonOk(result);
-  } catch (e: any) {
+  } catch (e: unknown) {
     await recordOperatorAudit({ request, action: 'INVENTORY_RESET_POLICY_UPDATE', parameters: body, result: 'FAILURE' });
-    if (e.message === 'VERSION_CONFLICT') {
+    const message = e instanceof Error ? e.message : String(e);
+    if (message === 'VERSION_CONFLICT') {
       return jsonError(409, 'Policy version conflict', 409);
     }
-    return jsonError(500, e.message, 500);
+    return jsonError(500, message, 500);
   }
 }

@@ -139,11 +139,11 @@ export default function RunnerPage() {
         if (json.code === 0) setActivity(json.data);
       } catch {}
     };
-    loadConfig().catch(() => {});
-    loadStatus();
-    loadActivity();
-    loadResetPolicy();
-    loadWarmup();
+    void Promise.resolve().then(() => loadConfig()).catch(() => {});
+    void Promise.resolve().then(() => loadStatus());
+    void Promise.resolve().then(() => loadActivity());
+    void Promise.resolve().then(() => loadResetPolicy());
+    void Promise.resolve().then(() => loadWarmup());
     const id1 = setInterval(loadStatus, 3000);
     const id2 = setInterval(loadActivity, 5000);
     return () => { clearInterval(id1); clearInterval(id2); };

@@ -197,7 +197,7 @@ export class DataWarmupService {
   private async loadPricePoints(): Promise<PricePoint[]> {
     const pool = getPool();
     const [rows] = await pool.query('SELECT sku, price FROM products WHERE sku IS NOT NULL');
-    return (rows as any[]).map((row) => ({
+    return (rows as Record<string, unknown>[]).map((row) => ({
       sku: String(row.sku),
       price: Number(row.price),
     }));
@@ -207,7 +207,7 @@ export class DataWarmupService {
 async function countTable(table: string): Promise<number> {
   const pool = getPool();
   const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table}`);
-  return Number((rows as any[])[0]?.cnt ?? 0);
+  return Number((rows as Record<string, unknown>[])[0]?.cnt ?? 0);
 }
 
 function pickWeighted<T extends string>(entries: Array<[T, number]>): T {

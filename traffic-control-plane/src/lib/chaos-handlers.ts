@@ -23,9 +23,9 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
         const result = await gateway.post(`${gatewayPrefix}/enable`, body, traceId);
         await recordOperatorAudit({ request, action: 'CHAOS_ENABLE', target: chaosType, parameters: body, result: 'SUCCESS', correlationId: traceId });
         return jsonOk(unwrapGateway(result));
-      } catch (e: any) {
+      } catch (e: unknown) {
         await recordOperatorAudit({ request, action: 'CHAOS_ENABLE', target: chaosType, parameters: body, result: 'FAILURE', correlationId: traceId });
-        return jsonError(502, `Failed to enable ${chaosType}: ${e.message}`, 502);
+        return jsonError(502, `Failed to enable ${chaosType}: ${e instanceof Error ? e.message : String(e)}`, 502);
       }
     },
 
@@ -37,9 +37,9 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
         const result = await gateway.post(`${gatewayPrefix}/disable`, body, traceId);
         await recordOperatorAudit({ request, action: 'CHAOS_DISABLE', target: chaosType, parameters: body, result: 'SUCCESS', correlationId: traceId });
         return jsonOk(unwrapGateway(result));
-      } catch (e: any) {
+      } catch (e: unknown) {
         await recordOperatorAudit({ request, action: 'CHAOS_DISABLE', target: chaosType, parameters: body, result: 'FAILURE', correlationId: traceId });
-        return jsonError(502, `Failed to disable ${chaosType}: ${e.message}`, 502);
+        return jsonError(502, `Failed to disable ${chaosType}: ${e instanceof Error ? e.message : String(e)}`, 502);
       }
     },
 
@@ -51,9 +51,9 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
         const result = await gateway.post(`${gatewayPrefix}/cleanup`, body, traceId);
         await recordOperatorAudit({ request, action: 'CHAOS_CLEANUP', target: chaosType, parameters: body, result: 'SUCCESS', correlationId: traceId });
         return jsonOk(unwrapGateway(result));
-      } catch (e: any) {
+      } catch (e: unknown) {
         await recordOperatorAudit({ request, action: 'CHAOS_CLEANUP', target: chaosType, parameters: body, result: 'FAILURE', correlationId: traceId });
-        return jsonError(502, `Failed to cleanup ${chaosType}: ${e.message}`, 502);
+        return jsonError(502, `Failed to cleanup ${chaosType}: ${e instanceof Error ? e.message : String(e)}`, 502);
       }
     },
 
@@ -68,8 +68,8 @@ export function createChaosHandlers(chaosType: string, gatewayPrefix: string) {
       try {
         const result = await gateway.get(`${gatewayPrefix}/status`, params, traceId);
         return jsonOk(unwrapGateway(result));
-      } catch (e: any) {
-        return jsonError(502, `Failed to get ${chaosType} status: ${e.message}`, 502);
+      } catch (e: unknown) {
+        return jsonError(502, `Failed to get ${chaosType} status: ${e instanceof Error ? e.message : String(e)}`, 502);
       }
     },
   };

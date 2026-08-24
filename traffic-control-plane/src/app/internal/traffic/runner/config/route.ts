@@ -16,14 +16,15 @@ export async function PUT(request: NextRequest) {
     const result = await updateRunnerConfigInDb(body);
     await recordOperatorAudit({ request, action: 'RUNNER_CONFIG_UPDATE', parameters: body, result: 'SUCCESS' });
     return jsonOk(result);
-  } catch (e: any) {
+  } catch (e: unknown) {
     await recordOperatorAudit({ request, action: 'RUNNER_CONFIG_UPDATE', parameters: body, result: 'FAILURE' });
-    if (e.message === 'VERSION_CONFLICT') {
+    const message = e instanceof Error ? e.message : String(e);
+    if (message === 'VERSION_CONFLICT') {
       return jsonError(409, 'Config version conflict', 409);
     }
-    if (e.message === 'INVALID_RUNNER_CONFIG' || e.message === 'INVALID_RUNNER_MIX_RULES') {
+    if (message === 'INVALID_RUNNER_CONFIG' || message === 'INVALID_RUNNER_MIX_RULES') {
       return jsonError(400, 'Invalid runner configuration', 400);
     }
-    return jsonError(500, e.message, 500);
+    return jsonError(500, message, 500);
   }
 }

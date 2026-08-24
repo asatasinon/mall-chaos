@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Zap, ShieldOff, Trash2, Activity, Pencil, Save, X, Play, Pause, Check, AlertCircle } from 'lucide-react';
+import { Zap, ShieldOff, Trash2, Activity, AlertCircle } from 'lucide-react';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 

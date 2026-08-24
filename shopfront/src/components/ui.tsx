@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { AlertCircle, ArrowRight, PackageOpen } from 'lucide-react';
 import type { Product } from '@/lib/types';
 import { money } from '@/lib/api';
@@ -21,7 +22,7 @@ export function ProductCard({ product, index = 0 }: { product: Product; index?: 
   return <article className="product-card" style={{ animationDelay: `${index * 70}ms` }}>
     <Link href={`/products/${encodeURIComponent(product.sku)}`} className="product-visual">
       <span className="availability">{available ? `${product.availableQty ?? 0} available` : 'not available'}</span>
-      {product.mediaUrl ? <img src={product.mediaUrl} alt={product.name} /> : <span className="product-placeholder">{product.name.slice(0, 1)}</span>}
+      {product.mediaUrl ? <Image src={product.mediaUrl} alt={product.name} width={640} height={672} unoptimized /> : <span className="product-placeholder">{product.name.slice(0, 1)}</span>}
     </Link>
     <div className="product-info"><h3><Link href={`/products/${encodeURIComponent(product.sku)}`}>{product.name}</Link></h3><div className="product-meta"><span>{product.category ?? 'collection'}</span><span className="price">{money(product.price)}</span></div></div>
   </article>;

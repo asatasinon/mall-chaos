@@ -121,7 +121,6 @@ export default function OverviewPage() {
             {data && (
               <div className="grid grid-cols-3 gap-2.5">
                 {Object.entries(data.chaos).map(([key, value]) => {
-                  const obj = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
                   const isError   = typeof value === 'object' && value !== null && 'error' in (value as object) && !!(value as Record<string,unknown>).error;
                   const isEnabled = isChaosActive(value);
                   return (
