@@ -62,6 +62,7 @@ public class RiskOutboxPublisher {
             if (repository.claim(event.getId(), now) == 0) {
                 continue;
             }
+            event.setNextAttemptAt(now.plusSeconds(60));
             repository.save(event);
             try {
                 EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.decode(mapper,

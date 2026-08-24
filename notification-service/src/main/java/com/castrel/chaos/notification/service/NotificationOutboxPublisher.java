@@ -39,6 +39,7 @@ public class NotificationOutboxPublisher {
             if (repository.claim(event.getId(), now) == 0) {
                 continue;
             }
+            event.setNextAttemptAt(now.plusSeconds(60));
             try {
                 EventEnvelopeCodec.decode(mapper,
                         event.getEventId(), event.getEventType(), event.getAggregateId(),

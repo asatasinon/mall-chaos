@@ -13,7 +13,8 @@ import java.util.List;
 public interface FulfillmentOutboxRepository extends JpaRepository<FulfillmentOutboxEvent, Long> {
     @Query("""
 	    select event from FulfillmentOutboxEvent event
-	    where event.status in ('PENDING', 'FAILED')
+		where (event.status in ('PENDING', 'FAILED')
+			or (event.status = 'PROCESSING' and event.nextAttemptAt <= :now))
 	      and coalesce(event.attempts, 0) < 10
 	      and (event.nextAttemptAt is null or event.nextAttemptAt <= :now)
 	    order by event.id
@@ -26,7 +27,8 @@ public interface FulfillmentOutboxRepository extends JpaRepository<FulfillmentOu
 	       set event.status = 'PROCESSING',
 		   event.attempts = coalesce(event.attempts, 0) + 1
 	     where event.id = :id
-	       and event.status in ('PENDING', 'FAILED')
+		  and (event.status in ('PENDING', 'FAILED')
+			  or (event.status = 'PROCESSING' and event.nextAttemptAt <= :now))
 	       and coalesce(event.attempts, 0) < 10
 	       and (event.nextAttemptAt is null or event.nextAttemptAt <= :now)
 	    """)

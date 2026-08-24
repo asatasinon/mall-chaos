@@ -41,6 +41,7 @@ public class PaymentOutboxPublisher {
             }
             event.setStatus("PROCESSING");
             event.setAttempts((event.getAttempts() == null ? 0 : event.getAttempts()) + 1);
+            event.setNextAttemptAt(now.plusSeconds(60));
             try {
                 EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.decode(objectMapper,
                     event.getEventId(), event.getEventType(), event.getAggregateId(),

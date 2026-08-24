@@ -66,7 +66,7 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
                                     runner.customerId(), runner.tokenId(), runner.scopes()));
                         }))
                         .build();
-                return chain.filter(authenticated);
+                return observeCustomerResponse(authenticated, chain.filter(authenticated));
             } catch (IllegalArgumentException exception) {
                 return unauthorized(exchange);
             }
@@ -92,7 +92,7 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
                                 principal.userId(), "", List.of("CUSTOMER_API")));
                     }))
                     .build();
-            return chain.filter(authenticated);
+            return observeCustomerResponse(authenticated, chain.filter(authenticated));
         } catch (IllegalArgumentException exception) {
             return unauthorized(exchange);
         }
@@ -108,6 +108,15 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
         customerApiErrorCounter.increment();
         exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
         return exchange.getResponse().setComplete();
+    }
+
+    private Mono<Void> observeCustomerResponse(ServerWebExchange exchange, Mono<Void> response) {
+        return response.doOnSuccess(ignored -> {
+            if (exchange.getResponse().getStatusCode() != null
+                    && exchange.getResponse().getStatusCode().isError()) {
+                customerApiErrorCounter.increment();
+            }
+        }).doOnError(ignored -> customerApiErrorCounter.increment());
     }
 
     @Override

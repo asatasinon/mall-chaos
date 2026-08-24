@@ -56,6 +56,7 @@ public class FulfillmentOutboxPublisher {
             if (repository.claim(event.getId(), now) == 0) {
                 continue;
             }
+            event.setNextAttemptAt(now.plusSeconds(60));
             try {
                 EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.decode(mapper,
                     event.getEventId(), event.getEventType(), event.getAggregateId(),

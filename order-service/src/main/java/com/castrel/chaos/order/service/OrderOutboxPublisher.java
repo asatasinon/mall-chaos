@@ -59,6 +59,7 @@ public class OrderOutboxPublisher {
             }
             event.setStatus("PROCESSING");
             event.setAttempts((event.getAttempts() == null ? 0 : event.getAttempts()) + 1);
+            event.setNextAttemptAt(now.plusSeconds(60));
             repository.save(event);
             try {
                 deliver(event);
