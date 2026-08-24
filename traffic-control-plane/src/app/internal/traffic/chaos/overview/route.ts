@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
         running: false,
         paused: controlState.paused,
         currentQps: 0,
-        successRate: 0,
+        successRate: 1,
         failRate: 0,
         totalRequests: 0,
         windowSeconds: 60,

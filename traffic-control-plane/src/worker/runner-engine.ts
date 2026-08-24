@@ -41,9 +41,9 @@ export class RunnerEngine {
       jitterPct: 0.1,
       maxItems: 3,
       maxItemQuantity: 3,
-      paymentSuccessRatio: 0.9,
-      paymentFailureRatio: 0.05,
-      paymentUnknownRatio: 0.05,
+      paymentSuccessRatio: 1,
+      paymentFailureRatio: 0,
+      paymentUnknownRatio: 0,
       mixRules: [{ actionType: 'BROWSE_PRODUCT', ratio: 1 }],
     };
   }
@@ -109,7 +109,7 @@ export class RunnerEngine {
       running: this.running && !this.paused,
       paused: this.paused,
       currentQps: windowTotal > 0 ? +(windowTotal / WINDOW_SECONDS).toFixed(2) : 0,
-      successRate: windowTotal > 0 ? +(windowSuccess / windowTotal).toFixed(4) : 0,
+      successRate: windowTotal > 0 ? +(windowSuccess / windowTotal).toFixed(4) : 1,
       failRate: windowTotal > 0 ? +(windowFail / windowTotal).toFixed(4) : 0,
       totalRequests: this.totalRequests,
       windowSeconds: WINDOW_SECONDS,

@@ -11,6 +11,12 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/internal/gateway")
@@ -19,6 +25,12 @@ public class NetworkFaultDispatchController {
     private static final Logger log = LoggerFactory.getLogger(NetworkFaultDispatchController.class);
     private final WebClient toxiproxyClient;
     private final ToxiproxyProperties toxiproxyProps;
+    private final ScheduledExecutorService autoDisableScheduler = Executors.newScheduledThreadPool(1, runnable -> {
+        Thread thread = new Thread(runnable, "network-chaos-auto-disable");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private final ConcurrentMap<String, ScheduledFuture<?>> autoDisableTasks = new ConcurrentHashMap<>();
 
     public NetworkFaultDispatchController(
             WebClient.Builder webClientBuilder,
@@ -53,6 +65,7 @@ public class NetworkFaultDispatchController {
                 .bodyValue(toxicBody)
                 .retrieve()
                 .bodyToMono(Object.class)
+                .doOnSuccess(ignored -> scheduleAutoDisable(req.proxyName(), req.proxyName() + "_latency", req.durationSec()))
                 .map(ApiResponse::ok)
                 .onErrorResume(e -> {
                     log.warn("Enable network delay failed: {}", e.getMessage());
@@ -133,6 +146,7 @@ public class NetworkFaultDispatchController {
                 .bodyValue(toxicBody)
                 .retrieve()
                 .bodyToMono(Object.class)
+                .doOnSuccess(ignored -> scheduleAutoDisable(req.proxyName(), req.proxyName() + "_reset_peer", req.durationSec()))
                 .map(ApiResponse::ok)
                 .onErrorResume(e -> {
                     log.warn("Enable network reset failed: {}", e.getMessage());
@@ -189,5 +203,24 @@ public class NetworkFaultDispatchController {
                     return ApiResponse.ok((Object) Map.of("active", anyActive, "services", perProxy));
                 })
                 .onErrorResume(e -> Mono.just(ApiResponse.error(502, "ToxiProxy unavailable: " + e.getMessage())));
+    }
+
+    private void scheduleAutoDisable(String proxyName, String toxicName, int durationSec) {
+        ScheduledFuture<?> previous = autoDisableTasks.remove(toxicName);
+        if (previous != null) previous.cancel(false);
+        if (durationSec <= 0) return;
+
+        ScheduledFuture<?> task = autoDisableScheduler.schedule(() -> {
+            toxiproxyClient.delete()
+                    .uri("/proxies/{proxy}/toxics/{toxic}", proxyName, toxicName)
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .doOnSuccess(ignored -> log.info("Auto-disabled network chaos: proxy={}, toxic={}", proxyName, toxicName))
+                    .doOnError(error -> log.warn("Auto-disable network chaos failed: proxy={}, toxic={}, message={}",
+                            proxyName, toxicName, error.getMessage()))
+                    .subscribe();
+            autoDisableTasks.remove(toxicName);
+        }, durationSec, TimeUnit.SECONDS);
+        autoDisableTasks.put(toxicName, task);
     }
 }

@@ -96,9 +96,9 @@ export class TrafficActionOrchestrator {
     config: RunnerExecutionConfig = {
       maxItemQuantity: 3,
       maxItems: 3,
-      paymentSuccessRatio: 0.9,
-      paymentFailureRatio: 0.05,
-      paymentUnknownRatio: 0.05,
+      paymentSuccessRatio: 1,
+      paymentFailureRatio: 0,
+      paymentUnknownRatio: 0,
     },
   ): Promise<RunnerActionResult> {
     const actionId = uuidv4();

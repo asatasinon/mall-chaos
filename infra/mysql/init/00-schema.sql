@@ -279,17 +279,17 @@ CREATE TABLE IF NOT EXISTS runner_profile (
     jitter_pct       FLOAT   NOT NULL DEFAULT 0.1,
   max_items        TINYINT NOT NULL DEFAULT 3,
   max_item_quantity TINYINT NOT NULL DEFAULT 3,
-  payment_success_ratio DECIMAL(5,4) NOT NULL DEFAULT 0.9000,
-  payment_failure_ratio  DECIMAL(5,4) NOT NULL DEFAULT 0.0500,
-  payment_unknown_ratio  DECIMAL(5,4) NOT NULL DEFAULT 0.0500,
+  payment_success_ratio DECIMAL(5,4) NOT NULL DEFAULT 1.0000,
+  payment_failure_ratio  DECIMAL(5,4) NOT NULL DEFAULT 0.0000,
+  payment_unknown_ratio  DECIMAL(5,4) NOT NULL DEFAULT 0.0000,
     version          INT     NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO runner_profile
   (enabled, base_qps, peak_multiplier, cycle_minutes, jitter_pct, max_items,
-   max_item_quantity, payment_success_ratio, payment_failure_ratio,
-   payment_unknown_ratio, version)
-VALUES (1, 5, 2.0, 10, 0.1, 3, 3, 0.9000, 0.0500, 0.0500, 1);
+  max_item_quantity, payment_success_ratio, payment_failure_ratio,
+  payment_unknown_ratio, version)
+VALUES (1, 5, 2.0, 10, 0.1, 3, 3, 1.0000, 0.0000, 0.0000, 1);
 
 CREATE TABLE IF NOT EXISTS runner_mix_rule (
     id           BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,

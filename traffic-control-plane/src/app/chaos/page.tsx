@@ -620,6 +620,7 @@ function MemoryLeakPanel({ armed }: { armed?: boolean }) {
   const EXTRA: ParamDef[] = [
     { key: 'chunkSizeKb', label: 'Chunk (KB)',    type: 'number', default: '512' },
     { key: 'intervalMs',  label: 'Interval (ms)', type: 'number', default: '500' },
+    { key: 'durationSec', label: 'Duration (s)',  type: 'number', default: '300' },
   ];
   const [selected, setSelected] = useState(['payment-service']);
   const [params, setParams]     = useState(Object.fromEntries(EXTRA.map((p) => [p.key, p.default])));
@@ -804,6 +805,7 @@ function NetworkDelayPanel({ armed }: { armed?: boolean }) {
   const EXTRA = [
     { key: 'latencyMs', label: 'Latency (ms)', default: '5000' },
     { key: 'jitter',    label: 'Jitter (ms)',  default: '2000' },
+    { key: 'durationSec', label: 'Duration (s)', default: '300' },
   ];
   const [proxy, setProxy]     = useState(PROXY_NAMES[0]);
   const [params, setParams]   = useState(Object.fromEntries(EXTRA.map((p) => [p.key, p.default])));
@@ -845,6 +847,7 @@ function NetworkDelayPanel({ armed }: { armed?: boolean }) {
 
 function NetworkResetPanel({ armed }: { armed?: boolean }) {
   const [proxy, setProxy]     = useState(PROXY_NAMES[0]);
+  const [duration, setDuration] = useState('300');
   const [loading, setLoading] = useState(false);
   const [result, setResult]   = useState<ApiResult | null>(null);
 
@@ -863,10 +866,15 @@ function NetworkResetPanel({ armed }: { armed?: boolean }) {
         <div className="grid grid-cols-3 gap-4">
           <SelectField label="Proxy" value={proxy} onChange={setProxy}
             options={PROXY_NAMES.map((p) => ({ value: p, label: p }))} />
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Duration (s)</label>
+            <input type="number" min="1" value={duration} onChange={(e) => setDuration(e.target.value)}
+              className="w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-sm font-mono text-foreground outline-none focus:ring-1 focus:ring-ring" />
+          </div>
         </div>
       </Section>
       <ActionRow loading={loading}
-        onInject={() => call('inject', '/internal/traffic/chaos/network-reset/enable', { proxyName: proxy, latencyMs: 0, jitter: 0 })}
+        onInject={() => call('inject', '/internal/traffic/chaos/network-reset/enable', { proxyName: proxy, latencyMs: 0, jitter: 0, durationSec: parseInt(duration, 10) })}
         onDisarm={() => call('disarm', '/internal/traffic/chaos/network-reset/disable', { proxyName: proxy })}
         onStatus={() => call('status', '/internal/traffic/chaos/network-reset/status')} />
       <ResultOutput result={result} />

@@ -38,9 +38,9 @@ export async function loadRunnerConfigFromDb(): Promise<RunnerConfig> {
     jitterPct: Number(profile?.jitter_pct ?? 0.1),
     maxItems: Number(profile?.max_items ?? 3),
     maxItemQuantity: Number(profile?.max_item_quantity ?? 3),
-    paymentSuccessRatio: Number(profile?.payment_success_ratio ?? 0.9),
-    paymentFailureRatio: Number(profile?.payment_failure_ratio ?? 0.05),
-    paymentUnknownRatio: Number(profile?.payment_unknown_ratio ?? 0.05),
+    paymentSuccessRatio: Number(profile?.payment_success_ratio ?? 1),
+    paymentFailureRatio: Number(profile?.payment_failure_ratio ?? 0),
+    paymentUnknownRatio: Number(profile?.payment_unknown_ratio ?? 0),
     mixRules: mixRules.length > 0 ? mixRules : [
       { actionType: 'BROWSE_PRODUCT', ratio: 1 },
     ],

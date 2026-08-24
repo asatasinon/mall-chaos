@@ -149,7 +149,7 @@ public class ChaosService {
     public void enableMemoryLeak(int chunkSizeKb, int intervalMs, int maxMb, int durationSec) {
         this.memoryLeakChunkSizeKb = chunkSizeKb > 0 ? chunkSizeKb : 512;
         this.memoryLeakIntervalMs = intervalMs > 0 ? intervalMs : 500;
-        this.memoryLeakMaxMb = 0;
+        this.memoryLeakMaxMb = maxMb > 0 ? maxMb : 256;
         this.memoryLeakStartedAt = Instant.now();
         this.memoryLeakActive = true;
 
@@ -167,7 +167,9 @@ public class ChaosService {
             }
         }, 0, this.memoryLeakIntervalMs, TimeUnit.MILLISECONDS);
 
-        memoryLeakAutoDisable = null;
+        if (durationSec > 0) {
+            memoryLeakAutoDisable = scheduler.schedule(this::cleanupMemoryLeak, durationSec, TimeUnit.SECONDS);
+        }
         log.info("Cache prewarm pressure task activated: batchKb={}, cadenceMs={}, ceilingMbHint={}, ttlSecHint={}",
             chunkSizeKb, intervalMs, maxMb, durationSec);
     }

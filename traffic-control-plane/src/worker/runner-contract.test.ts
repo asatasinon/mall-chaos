@@ -42,6 +42,25 @@ test('runner payment strategy follows configured buckets', () => {
   }
 });
 
+test('runner payment strategy is always successful without failure injection', () => {
+  const config: RunnerExecutionConfig = {
+    maxItems: 3,
+    maxItemQuantity: 3,
+    paymentSuccessRatio: 1,
+    paymentFailureRatio: 0,
+    paymentUnknownRatio: 0,
+  };
+  const originalRandom = Math.random;
+  try {
+    Math.random = () => 0;
+    assert.equal(choosePaymentStrategy(config), 'SUCCESS');
+    Math.random = () => 0.999999;
+    assert.equal(choosePaymentStrategy(config), 'SUCCESS');
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
 test('GatewayClient sends runner customer and correlation context', async () => {
   const originalFetch = globalThis.fetch;
   let capturedHeaders: Headers | undefined;
