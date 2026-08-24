@@ -103,7 +103,18 @@ public class OrderController {
     }
 
     @PostMapping("/internal/orders/payment-result")
-    public ApiResponse<OrderDTO> paymentResult(@RequestBody PaymentResultRequest request) {
+    public ApiResponse<OrderDTO> paymentResult(@RequestBody EventEnvelope<JsonNode> envelope) {
+        EventEnvelopeValidator.validate(envelope);
+        if (!"PAYMENT_RESULT".equals(envelope.getEventType())) {
+            throw new IllegalArgumentException("Unsupported payment event type");
+        }
+        PaymentResultRequest request;
+        try {
+            request = objectMapper.treeToValue(envelope.getPayload(), PaymentResultRequest.class);
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("Invalid PAYMENT_RESULT event payload", exception);
+        }
+        request.setEventId(envelope.getEventId());
         return ApiResponse.ok(orderService.applyPaymentResult(request));
     }
 }

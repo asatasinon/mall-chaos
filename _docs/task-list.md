@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-21 19:11 CST |
+| 更新时间 | 2026-08-24 09:01 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -314,11 +314,11 @@
 
 ### T4.5 当前进展
 
-已新增公共 `EventEnvelopeCodec`，Outbox 发布器在投递前重建并校验事件信封；`ORDER_PAID` 风控链路、风险通过/拒绝下游链路、支付结果通知和发货通知均已改为发送完整 `EventEnvelope<JsonNode>`，消费者校验信封和 `eventType` 后再转换业务 payload。通知 Outbox 仍是本地状态推进，T4.5 保持进行中。
+已新增公共 `EventEnvelopeCodec`，Outbox 发布器在投递前重建并校验事件信封；`PAYMENT_RESULT -> order-service`、`ORDER_PAID` 风控链路、风险通过/拒绝下游链路、支付结果通知和发货通知均已改为发送完整 `EventEnvelope<JsonNode>`，消费者校验信封和 `eventType` 后再转换业务 payload。通知 Outbox 仍是本地状态推进，T4.5 保持进行中。
 
 ### T4.1、T4.6、T4.7 当前进展
 
-- T4.1：order、payment、risk、fulfillment、notification 的 Outbox publisher 均支持条件式 claim、到期 FAILED 重试、有限退避和 DEAD_LETTER；各服务仍只访问自己的事件表。完整租约恢复和重复投递验证保留在 T4.8。
+- T4.1：order、payment、risk、fulfillment、notification 的 Outbox publisher 均支持条件式 claim、到期 FAILED 重试、有限退避和 DEAD_LETTER；各服务仍只访问自己的事件表，跨服务事件投递均传递完整 envelope。完整租约恢复和重复投递验证保留在 T4.8。
 - T4.6：notification-service 已接入 `notification_preferences` 实体和 Repository，提供客户归属的偏好 GET/PATCH API；`in_app=false` 时跳过站内通知副作用并完成 Inbox 状态。
 - T4.7：已补齐 `checkout.total`、`checkout_duration`、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、`fulfillment_transition_total`、`customer_api_error_total`，并为五个 Outbox publisher 增加按服务区分的 `outbox.publish.latency`，保留 published/failed 计数与现有脱敏日志。`customer_api_error_total` 当前统计 Gateway 认证/授权拒绝，业务异常统一出口仍需继续收口。
 

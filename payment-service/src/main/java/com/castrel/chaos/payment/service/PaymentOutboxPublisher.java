@@ -46,7 +46,7 @@ public class PaymentOutboxPublisher {
                     event.getEventId(), event.getEventType(), event.getAggregateId(),
                     event.getAggregateVersion(), event.getPayload(), event.getOccurredAt(),
                     event.getSchemaVersion(), event.getTraceId(), event.getTrafficRunId());
-                delivery.deliver(envelope.getPayload());
+                delivery.deliver(envelope);
                 event.setStatus("PUBLISHED");
                 event.setPublishedAt(LocalDateTime.now());
                 publishLatency.record(Duration.between(event.getOccurredAt(), event.getPublishedAt()));
