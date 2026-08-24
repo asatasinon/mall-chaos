@@ -33,6 +33,28 @@ else
   BASE_IMAGE_REGISTRY=""
 fi
 
+castrel_docker_build() {
+  local build_log
+  local build_exit_code
+  build_log="$(mktemp)"
+
+  if docker build "$@" 2>&1 | tee "$build_log"; then
+    rm -f "$build_log"
+    return 0
+  fi
+
+  build_exit_code="${PIPESTATUS[0]}"
+  if grep -Eq '(^|[[:space:]])(parent )?snapshot [^[:space:]]+ does not exist' "$build_log"; then
+    echo "BuildKit cache snapshot is missing; retrying without cache."
+    rm -f "$build_log"
+    docker build --no-cache "$@"
+    return $?
+  fi
+
+  rm -f "$build_log"
+  return "$build_exit_code"
+}
+
 SERVICES=(
   gateway-service
   user-service
@@ -61,7 +83,7 @@ for svc in "${SERVICES[@]}"; do
   mvn package -pl "$svc" -DskipTests -q
 
   echo "--- [$svc] Docker build (tag: ${REGISTRY}/${svc}:${IMAGE_TAG}) ---"
-  docker build ${DOCKER_PLATFORM_ARGS[@]+"${DOCKER_PLATFORM_ARGS[@]}"} ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "$REPO_ROOT/$svc/Dockerfile" "$REPO_ROOT"
+  castrel_docker_build ${DOCKER_PLATFORM_ARGS[@]+"${DOCKER_PLATFORM_ARGS[@]}"} ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/${svc}:${IMAGE_TAG}" -f "$REPO_ROOT/$svc/Dockerfile" "$REPO_ROOT"
 
   if [[ "$PUSH_IMAGE" == "true" ]]; then
     echo "--- [$svc] Docker push ---"
@@ -75,7 +97,7 @@ done
 echo ""
 echo "=== Building traffic-control-plane (Node.js) ==="
 echo "--- [traffic-control-plane] Docker build (tag: ${REGISTRY}/traffic-control-plane:${IMAGE_TAG}) ---"
-docker build ${DOCKER_PLATFORM_ARGS[@]+"${DOCKER_PLATFORM_ARGS[@]}"} ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/traffic-control-plane:${IMAGE_TAG}" "$REPO_ROOT/traffic-control-plane"
+castrel_docker_build ${DOCKER_PLATFORM_ARGS[@]+"${DOCKER_PLATFORM_ARGS[@]}"} ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/traffic-control-plane:${IMAGE_TAG}" "$REPO_ROOT/traffic-control-plane"
 if [[ "$PUSH_IMAGE" == "true" ]]; then
   echo "--- [traffic-control-plane] Docker push ---"
   docker push "${REGISTRY}/traffic-control-plane:${IMAGE_TAG}"
@@ -85,7 +107,7 @@ echo "--- [traffic-control-plane] Done ---"
 echo ""
 echo "=== Building shopfront (Node.js) ==="
 echo "--- [shopfront] Docker build (tag: ${REGISTRY}/shopfront:${IMAGE_TAG}) ---"
-docker build ${DOCKER_PLATFORM_ARGS[@]+"${DOCKER_PLATFORM_ARGS[@]}"} ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/shopfront:${IMAGE_TAG}" "$REPO_ROOT/shopfront"
+castrel_docker_build ${DOCKER_PLATFORM_ARGS[@]+"${DOCKER_PLATFORM_ARGS[@]}"} ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/shopfront:${IMAGE_TAG}" "$REPO_ROOT/shopfront"
 if [[ "$PUSH_IMAGE" == "true" ]]; then
   echo "--- [shopfront] Docker push ---"
   docker push "${REGISTRY}/shopfront:${IMAGE_TAG}"
