@@ -19,7 +19,7 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:16379}
 
 services:
-  notification-url: ${NOTIFICATION_SERVICE_URL:http://localhost:18090}
+  notification-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8090}
 
 management:
   endpoint:

@@ -58,6 +58,7 @@ castrel_docker_build() {
 SERVICES=(
   gateway-service
   user-service
+  cart-service
   catalog-service
   inventory-service
   order-service

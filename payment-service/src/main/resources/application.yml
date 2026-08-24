@@ -23,7 +23,7 @@ payment:
   timeout-rate: 0.0
 
 services:
-  order-url: ${ORDER_SERVICE_URL:http://localhost:18084}
+  order-url: ${ORDER_SERVICE_URL:http://localhost:8084}
 
 management:
   endpoint:

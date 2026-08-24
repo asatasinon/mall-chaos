@@ -423,6 +423,10 @@ services:
       CATALOG_SERVICE_URL: http://catalog-service:8082
       INVENTORY_SERVICE_URL: http://toxiproxy:18083
       PAYMENT_SERVICE_URL: http://toxiproxy:18085
+      CART_SERVICE_URL: http://cart-service:8091
+      RISK_SERVICE_URL: http://risk-service:8088
+      PROMOTION_SERVICE_URL: http://promotion-service:8087
+      NOTIFICATION_SERVICE_URL: http://notification-service:8090
       JAVA_TOOL_OPTIONS: >-
         -Xms512m
         -Xmx1024m
@@ -616,6 +620,8 @@ services:
       OTEL_SERVICE_NAME: risk-service
       SW_AGENT_NAME: risk-service
       CW_APP_NAME: ${RISK_CW_APP_NAME:-risk-service}
+      ORDER_SERVICE_URL: http://order-service:8084
+      FULFILLMENT_SERVICE_URL: http://fulfillment-service:8089
     depends_on:
       mysql:
         condition: service_healthy
@@ -639,6 +645,7 @@ services:
       OTEL_SERVICE_NAME: fulfillment-service
       SW_AGENT_NAME: fulfillment-service
       CW_APP_NAME: ${FULFILLMENT_CW_APP_NAME:-fulfillment-service}
+      NOTIFICATION_SERVICE_URL: http://notification-service:8090
     depends_on:
       mysql:
         condition: service_healthy

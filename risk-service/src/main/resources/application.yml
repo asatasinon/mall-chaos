@@ -19,8 +19,8 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:16379}
 
 services:
-  fulfillment-url: ${FULFILLMENT_SERVICE_URL:http://localhost:18089}
-  order-url: ${ORDER_SERVICE_URL:http://localhost:18084}
+  fulfillment-url: ${FULFILLMENT_SERVICE_URL:http://localhost:8089}
+  order-url: ${ORDER_SERVICE_URL:http://localhost:8084}
 
 risk:
   post-pay-review-rate: 0.0

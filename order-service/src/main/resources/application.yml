@@ -19,13 +19,14 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:16379}
 
 services:
-  user-url: ${USER_SERVICE_URL:http://localhost:18081}
-  catalog-url: ${CATALOG_SERVICE_URL:http://localhost:18082}
-  inventory-url: ${INVENTORY_SERVICE_URL:http://localhost:18083}
-  payment-url: ${PAYMENT_SERVICE_URL:http://localhost:18085}
-  risk-url: ${RISK_SERVICE_URL:http://localhost:18088}
-  promotion-url: ${PROMOTION_SERVICE_URL:http://localhost:18087}
-  notification-url: ${NOTIFICATION_SERVICE_URL:http://localhost:18090}
+  user-url: ${USER_SERVICE_URL:http://localhost:8081}
+  catalog-url: ${CATALOG_SERVICE_URL:http://localhost:8082}
+  inventory-url: ${INVENTORY_SERVICE_URL:http://localhost:8083}
+  payment-url: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+  risk-url: ${RISK_SERVICE_URL:http://localhost:8088}
+  promotion-url: ${PROMOTION_SERVICE_URL:http://localhost:8087}
+  notification-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8090}
+  cart-url: ${CART_SERVICE_URL:http://localhost:8091}
 
 management:
   endpoint:

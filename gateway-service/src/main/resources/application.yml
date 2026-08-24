@@ -23,43 +23,43 @@ spring:
             allowCredentials: false
       routes:
         - id: cart
-          uri: ${CART_SERVICE_URL:http://localhost:18091}
+          uri: ${CART_SERVICE_URL:http://localhost:8091}
           predicates:
             - Path=/api/cart/**
         - id: user-auth
-          uri: ${USER_SERVICE_URL:http://localhost:18081}
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/auth/**
         - id: user-addresses
-          uri: ${USER_SERVICE_URL:http://localhost:18081}
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/addresses/**
         - id: user-profile
-          uri: ${USER_SERVICE_URL:http://localhost:18081}
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/users/**
         - id: orders
-          uri: ${ORDER_SERVICE_URL:http://localhost:18084}
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/api/orders/**
         - id: checkout
-          uri: ${ORDER_SERVICE_URL:http://localhost:18084}
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/api/checkout
         - id: payments
-          uri: ${PAYMENT_SERVICE_URL:http://localhost:18085}
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8085}
           predicates:
             - Path=/api/payments/**
         - id: notifications
-          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:18090}
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8090}
           predicates:
             - Path=/api/notifications/**
         - id: fulfillments
-          uri: ${FULFILLMENT_SERVICE_URL:http://localhost:18089}
+          uri: ${FULFILLMENT_SERVICE_URL:http://localhost:8089}
           predicates:
             - Path=/api/fulfillments/**
         - id: products
-          uri: ${CATALOG_SERVICE_URL:http://localhost:18082}
+          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
           predicates:
             - Path=/api/products/**
 
@@ -79,14 +79,14 @@ chaos:
     enabled: false
   dispatch:
     services:
-      catalog-service: ${CHAOS_CATALOG_URL:${CATALOG_SERVICE_URL:http://localhost:18082}}
-      inventory-service: ${CHAOS_INVENTORY_URL:${INVENTORY_SERVICE_URL:http://localhost:18083}}
-      order-service: ${CHAOS_ORDER_URL:${ORDER_SERVICE_URL:http://localhost:18084}}
-      payment-service: ${CHAOS_PAYMENT_URL:${PAYMENT_SERVICE_URL:http://localhost:18085}}
-      promotion-service: ${CHAOS_PROMOTION_URL:${PROMOTION_SERVICE_URL:http://localhost:18087}}
-      risk-service: ${CHAOS_RISK_URL:${RISK_SERVICE_URL:http://localhost:18088}}
-      fulfillment-service: ${CHAOS_FULFILLMENT_URL:${FULFILLMENT_SERVICE_URL:http://localhost:18089}}
-      notification-service: ${CHAOS_NOTIFICATION_URL:${NOTIFICATION_SERVICE_URL:http://localhost:18090}}
+      catalog-service: ${CHAOS_CATALOG_URL:${CATALOG_SERVICE_URL:http://localhost:8082}}
+      inventory-service: ${CHAOS_INVENTORY_URL:${INVENTORY_SERVICE_URL:http://localhost:8083}}
+      order-service: ${CHAOS_ORDER_URL:${ORDER_SERVICE_URL:http://localhost:8084}}
+      payment-service: ${CHAOS_PAYMENT_URL:${PAYMENT_SERVICE_URL:http://localhost:8085}}
+      promotion-service: ${CHAOS_PROMOTION_URL:${PROMOTION_SERVICE_URL:http://localhost:8087}}
+      risk-service: ${CHAOS_RISK_URL:${RISK_SERVICE_URL:http://localhost:8088}}
+      fulfillment-service: ${CHAOS_FULFILLMENT_URL:${FULFILLMENT_SERVICE_URL:http://localhost:8089}}
+      notification-service: ${CHAOS_NOTIFICATION_URL:${NOTIFICATION_SERVICE_URL:http://localhost:8090}}
     # Which services support which chaos type
     whitelist:
       slow-sql:

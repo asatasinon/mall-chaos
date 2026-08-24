@@ -159,7 +159,7 @@ public class DownstreamClients {
                 "cartId", command.getCartId(),
                 "cartVersion", command.getCartVersion());
         Map<String, Object> response = exchange(
-                cartUrl + "/internal/freeze", HttpMethod.POST, body, Map.class);
+            cartUrl + "/api/cart/internal/freeze", HttpMethod.POST, body, Map.class);
         return mapper.convertValue(((Map<?, ?>) response).get("data"), CheckoutFreeze.class);
     }
 
@@ -172,7 +172,7 @@ public class DownstreamClients {
             String userId = attributes.getRequest().getHeader("X-User-Id");
             if (userId != null) headers.set("X-User-Id", userId);
         }
-        client.exchange(cartUrl + "/internal/freeze/" + checkoutId + "/release",
+        client.exchange(cartUrl + "/api/cart/internal/freeze/" + checkoutId + "/release",
                 HttpMethod.POST, new HttpEntity<>(headers), Map.class);
     }
 
@@ -185,7 +185,7 @@ public class DownstreamClients {
             String userId = attributes.getRequest().getHeader("X-User-Id");
             if (userId != null) headers.set("X-User-Id", userId);
         }
-        client.exchange(cartUrl + "/internal/freeze/" + checkoutId + "/consume",
+        client.exchange(cartUrl + "/api/cart/internal/freeze/" + checkoutId + "/consume",
                 HttpMethod.POST, new HttpEntity<>(headers), Map.class);
     }
 
