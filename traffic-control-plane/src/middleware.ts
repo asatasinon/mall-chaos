@@ -1,12 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isOperatorRequest, operatorId } from '@/lib/operator-auth';
 
-export function middleware(request: NextRequest) {
-  if (!request.nextUrl.pathname.startsWith('/internal/')) {
+export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  const isInternalRequest = pathname.startsWith('/internal/');
+  const isLoginRequest = pathname === '/login';
+  const isSessionRequest = pathname === '/api/operator/session';
+
+  if (isLoginRequest || isSessionRequest) {
     return NextResponse.next();
   }
 
-  if (!isOperatorRequest(request)) {
+  if (!(await isOperatorRequest(request))) {
+    if (!isInternalRequest && pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { code: 401, message: 'Operator authentication required', data: null },
+        { status: 401 },
+      );
+    }
+
+    if (!isInternalRequest) {
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = '/login';
+      loginUrl.search = '';
+      loginUrl.searchParams.set('returnTo', `${pathname}${request.nextUrl.search}`);
+      return NextResponse.redirect(loginUrl);
+    }
+
     return NextResponse.json(
       { code: 401, message: 'Operator authentication required', data: null },
       { status: 401 },
@@ -20,5 +40,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/internal/:path*'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)'],
 };

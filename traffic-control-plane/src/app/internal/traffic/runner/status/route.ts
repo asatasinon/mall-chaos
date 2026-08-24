@@ -12,6 +12,7 @@ export async function GET() {
   return jsonOk(
     status ?? {
       running: false,
+      enabled: config.enabled,
       paused: control.paused,
       currentQps: 0,
       successRate: 1,

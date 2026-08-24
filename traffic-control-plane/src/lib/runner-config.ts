@@ -7,6 +7,7 @@ export interface MixRule {
 
 export interface RunnerConfig {
   version: number;
+  enabled: boolean;
   baseQps: number;
   peakMultiplier: number;
   cycleMinutes: number;
@@ -39,6 +40,7 @@ export async function loadRunnerConfigFromDb(): Promise<RunnerConfig> {
 
   return {
     version: Number(profile?.version ?? 1),
+    enabled: Number(profile?.enabled ?? 1) === 1,
     baseQps: Number(profile?.base_qps ?? 5),
     peakMultiplier: Number(profile?.peak_multiplier ?? 2.0),
     cycleMinutes: Number(profile?.cycle_minutes ?? 10),
@@ -56,6 +58,7 @@ export async function loadRunnerConfigFromDb(): Promise<RunnerConfig> {
 
 export async function updateRunnerConfigInDb(req: {
   version: number;
+  enabled?: boolean;
   baseQps?: number;
   peakMultiplier?: number;
   cycleMinutes?: number;
@@ -66,7 +69,7 @@ export async function updateRunnerConfigInDb(req: {
   paymentFailureRatio?: number;
   paymentUnknownRatio?: number;
   mixRules?: MixRule[];
-}): Promise<{ newVersion: number; appliedAt: string }> {
+}): Promise<{ newVersion: number; enabled: boolean; appliedAt: string }> {
   const current = await loadRunnerConfigFromDb();
   const pool = getPool();
   const values = [
@@ -101,11 +104,12 @@ export async function updateRunnerConfigInDb(req: {
     await connection.beginTransaction();
     const [result] = await connection.query(
       `UPDATE runner_profile
-       SET base_qps = ?, peak_multiplier = ?, cycle_minutes = ?, jitter_pct = ?,
+       SET enabled = ?, base_qps = ?, peak_multiplier = ?, cycle_minutes = ?, jitter_pct = ?,
          max_items = ?, max_item_quantity = ?, payment_success_ratio = ?,
          payment_failure_ratio = ?, payment_unknown_ratio = ?, version = version + 1
        WHERE id = 1 AND version = ?`,
       [
+        (req.enabled ?? current.enabled) ? 1 : 0,
         ...values,
         req.version,
       ]
@@ -134,6 +138,7 @@ export async function updateRunnerConfigInDb(req: {
 
   return {
     newVersion: req.version + 1,
+    enabled: req.enabled ?? current.enabled,
     appliedAt: new Date().toISOString(),
   };
 }

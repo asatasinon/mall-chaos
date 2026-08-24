@@ -4,16 +4,16 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Pause, Pencil, Save, X, Check, Zap } from 'lucide-react';
+import { Play, Pause, Pencil, Save, X, Check, Zap, Power, PowerOff } from 'lucide-react';
 
 interface RunnerStatus {
-  running: boolean; paused: boolean;
+  running: boolean; enabled: boolean; paused: boolean;
   currentQps: number; successRate: number; failRate: number;
   totalRequests: number; rateMultiplier: number; trafficRunId?: string | null;
 }
 interface MixRule { actionType: string; ratio: number; }
 interface RunnerConfig {
-  version: number; baseQps: number; peakMultiplier: number;
+  version: number; enabled: boolean; baseQps: number; peakMultiplier: number;
   cycleMinutes: number; jitterPct: number; maxItems: number; maxItemQuantity: number;
   paymentSuccessRatio: number; paymentFailureRatio: number; paymentUnknownRatio: number;
   mixRules: MixRule[];
@@ -61,6 +61,7 @@ export default function RunnerPage() {
     maxItemQuantity: '', paymentSuccessRatio: '', paymentFailureRatio: '', paymentUnknownRatio: '',
   });
   const [saving, setSaving]       = useState(false);
+    const [toggleSaving, setToggleSaving] = useState(false);
   const [saveMsg, setSaveMsg]     = useState<{ ok: boolean; text: string } | null>(null);
 
   const [mixEditing, setMixEditing] = useState(false);
@@ -161,6 +162,25 @@ export default function RunnerPage() {
 
   const action = (path: string, body?: unknown) =>
     fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+
+  const toggleEnabled = async () => {
+    if (!config) return;
+    setToggleSaving(true); setSaveMsg(null);
+    try {
+      const res = await fetch('/internal/traffic/runner/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: config.version, enabled: !config.enabled }),
+      });
+      const json = await res.json();
+      if (json.code !== 0) throw new Error(json.message || 'Failed to update runner state');
+      setSaveMsg({ ok: true, text: json.data.enabled ? 'Traffic generation enabled' : 'Traffic generation disabled' });
+      await loadConfig();
+      setStatus((current) => current ? { ...current, enabled: json.data.enabled, running: json.data.enabled && !current.paused } : current);
+    } catch (e: unknown) {
+      setSaveMsg({ ok: false, text: e instanceof Error ? e.message : 'Failed to update runner state' });
+    } finally { setToggleSaving(false); }
+  };
 
   const saveConfig = async () => {
     if (!config) return;
@@ -280,8 +300,9 @@ export default function RunnerPage() {
 
   const successPct = status ? status.successRate * 100 : 0;
   const failPct    = status ? status.failRate    * 100 : 0;
-  const dotCls     = !status ? 'status-dot-off' : status.paused ? 'status-dot-yellow' : status.running ? 'status-dot-green' : 'status-dot-off';
-  const stateLabel = !status ? '—' : status.paused ? 'Paused' : status.running ? 'Running' : 'Stopped';
+  const enabled    = status?.enabled ?? config?.enabled ?? false;
+  const dotCls     = !status || !enabled ? 'status-dot-off' : status.paused ? 'status-dot-yellow' : status.running ? 'status-dot-green' : 'status-dot-off';
+  const stateLabel = !status ? '—' : !enabled ? 'Disabled' : status.paused ? 'Paused' : status.running ? 'Running' : 'Stopped';
 
   const KPI_ITEMS = [
     { label: 'QPS',        value: status ? String(status.currentQps) : '—',             color: 'green' },
@@ -320,7 +341,7 @@ export default function RunnerPage() {
           <CardTitle className="text-sm font-medium flex items-center justify-between">
             <span className="flex items-center gap-2">
               Baseline Config
-              {config && <Badge variant="secondary" className="text-[10px] font-mono">v{config.version}</Badge>}
+              {config && <><Badge variant="secondary" className="text-[10px] font-mono">v{config.version}</Badge><Badge variant="secondary" className={`text-[10px] ${config.enabled ? 'bg-[oklch(0.55_0.15_155)]/10 text-[oklch(0.55_0.15_155)]' : 'bg-muted text-muted-foreground'}`}>{config.enabled ? 'enabled' : 'disabled'}</Badge></>}
             </span>
             <div className="flex items-center gap-3">
               <span className={`status-dot ${dotCls}`} />
@@ -346,17 +367,24 @@ export default function RunnerPage() {
         <CardContent className="space-y-4">
           {/* Lifecycle + rate row */}
           <div className="flex items-center gap-4">
-            {status?.running && !status.paused ? (
+            {enabled ? <Button size="sm" variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/10"
+              onClick={toggleEnabled} disabled={toggleSaving}>
+              <PowerOff />{toggleSaving ? 'Updating…' : 'Disable'}
+            </Button> : <Button size="sm" className="bg-[oklch(0.55_0.15_155)] hover:bg-[oklch(0.50_0.15_155)] text-white"
+              onClick={toggleEnabled} disabled={toggleSaving}>
+              <Power />{toggleSaving ? 'Updating…' : 'Enable'}
+            </Button>}
+            {enabled && (status?.running && !status.paused ? (
               <Button size="sm" variant="outline" className="border-warning/40 text-warning hover:bg-warning/10"
                 onClick={() => action('/internal/traffic/runner/pause')}>
                 <Pause />Pause
               </Button>
             ) : (
-              <Button size="sm" className="bg-[oklch(0.55_0.15_155)] hover:bg-[oklch(0.50_0.15_155)] text-white"
+              <Button size="sm" variant="outline"
                 onClick={() => action('/internal/traffic/runner/resume')}>
                 <Play />Resume
               </Button>
-            )}
+            ))}
             <div className="h-5 w-px bg-border" />
             <span className="text-xs text-muted-foreground shrink-0">Rate multiplier</span>
             <div className="flex items-center gap-2">

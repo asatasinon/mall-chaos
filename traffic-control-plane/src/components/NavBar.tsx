@@ -1,7 +1,8 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { LogOut } from 'lucide-react';
 
 const LINKS = [
   { href: '/',       label: 'Overview'   },
@@ -12,6 +13,7 @@ const LINKS = [
 
 export default function NavBar() {
   const path = usePathname();
+  const router = useRouter();
   const [time, setTime] = useState('');
 
   useEffect(() => {
@@ -45,6 +47,18 @@ export default function NavBar() {
         <span className="status-dot status-dot-green" />
         {time}
       </div>
+      <button
+        type="button"
+        title="Sign out"
+        aria-label="Sign out"
+        className="ml-4 flex items-center px-2 text-muted-foreground transition-colors hover:text-foreground"
+        onClick={async () => {
+          await fetch('/api/operator/session', { method: 'DELETE' });
+          router.replace('/login');
+        }}
+      >
+        <LogOut className="size-4" />
+      </button>
     </nav>
   );
 }

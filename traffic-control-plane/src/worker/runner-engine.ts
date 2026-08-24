@@ -35,6 +35,7 @@ export class RunnerEngine {
   constructor() {
     this.config = {
       version: 1,
+      enabled: true,
       baseQps: 5,
       peakMultiplier: 2.0,
       cycleMinutes: 10,
@@ -106,7 +107,8 @@ export class RunnerEngine {
     const windowFail = windowTotal - windowSuccess;
 
     return {
-      running: this.running && !this.paused,
+      running: this.running && this.config.enabled && !this.paused,
+      enabled: this.config.enabled,
       paused: this.paused,
       currentQps: windowTotal > 0 ? +(windowTotal / WINDOW_SECONDS).toFixed(2) : 0,
       successRate: windowTotal > 0 ? +(windowSuccess / windowTotal).toFixed(4) : 1,
@@ -150,7 +152,7 @@ export class RunnerEngine {
     await this.refreshConfigIfNeeded();
     await this.publishStatus();
 
-    if (this.paused) return;
+    if (!this.config.enabled || this.paused) return;
     if (!this.trafficRunId) return;
     const action = this.pickAction();
     const t0 = Date.now();

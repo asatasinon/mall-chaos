@@ -13,6 +13,7 @@ export interface RunnerControlState {
 
 export interface RunnerStatusState {
   running: boolean;
+  enabled: boolean;
   paused: boolean;
   currentQps: number;
   successRate: number;
@@ -51,6 +52,7 @@ export async function setRunnerStatus(status: RunnerStatusState): Promise<void> 
   await redis.connect().catch(() => undefined);
   await redis.hset(STATUS_KEY, {
     running: status.running ? 'true' : 'false',
+    enabled: status.enabled ? 'true' : 'false',
     paused: status.paused ? 'true' : 'false',
     currentQps: String(status.currentQps),
     successRate: String(status.successRate),
@@ -73,6 +75,7 @@ export async function getRunnerStatus(): Promise<RunnerStatusState | null> {
   }
   return {
     running: data.running === 'true',
+    enabled: data.enabled !== 'false',
     paused: data.paused === 'true',
     currentQps: Number(data.currentQps || 0),
     successRate: Number(data.successRate || 0),

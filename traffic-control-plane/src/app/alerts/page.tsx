@@ -1,9 +1,18 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Plus, Save, Trash2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+async function fetchAlerts(input: RequestInfo | URL, init: RequestInit | undefined, onUnauthorized: () => void): Promise<Response> {
+  const response = await fetch(input, init);
+  if (response.status === 401 && typeof window !== 'undefined') {
+    onUnauthorized();
+  }
+  return response;
+}
 
 type Severity = 'critical' | 'warning' | 'info';
 type Match = 'all' | Severity;
@@ -19,6 +28,7 @@ const blankRoute = (): AlertRoute => ({ receiver: 'custom-receiver', match: { se
 const draftWrapperClass = 'rounded-xl bg-amber-500/10 p-1 ring-2 ring-amber-500/60 scroll-mt-24 focus:outline-none';
 
 export default function AlertsPage() {
+  const router = useRouter();
   const [config, setConfig] = useState<Config | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -44,7 +54,7 @@ export default function AlertsPage() {
   const load = async () => {
     setError('');
     try {
-      const response = await fetch('/internal/alerts/config', { cache: 'no-store' });
+      const response = await fetchAlerts('/internal/alerts/config', { cache: 'no-store' }, () => router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`));
       const result = await response.json();
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       setConfig(result.data);
@@ -53,7 +63,7 @@ export default function AlertsPage() {
   const loadSource = async (kind: SourceKind) => {
     setSourceLoading(true); setError('');
     try {
-      const response = await fetch(`/internal/alerts/source?kind=${kind}`, { cache: 'no-store' });
+      const response = await fetchAlerts(`/internal/alerts/source?kind=${kind}`, { cache: 'no-store' }, () => router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`));
       const result = await response.json();
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       setEditorYaml(result.data.yaml); setSourceVersion(result.data.version); setSourceDirty(false);
@@ -64,10 +74,10 @@ export default function AlertsPage() {
     if (!config || sourceVersion === null || !editorYaml.trim()) return;
     setSaving(true); setError(''); setNotice('');
     try {
-      const response = await fetch('/internal/alerts/source', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: sourceKind, version: sourceVersion, yaml: editorYaml }) });
+      const response = await fetchAlerts('/internal/alerts/source', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: sourceKind, version: sourceVersion, yaml: editorYaml }) }, () => router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`));
       const result = await response.json();
       if (!response.ok || result.code !== 0) throw new Error(result.message);
-      const configResponse = await fetch('/internal/alerts/config', { cache: 'no-store' });
+      const configResponse = await fetchAlerts('/internal/alerts/config', { cache: 'no-store' }, () => router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`));
       const configResult = await configResponse.json();
       setConfig(configResult.data); setEditorYaml(result.data.yaml); setSourceVersion(result.data.version); setSourceDirty(false);
       setNotice(`${sourceKind === 'prometheus-rules' ? 'Prometheus rules' : 'Alertmanager'} YAML saved and reloaded`);
@@ -95,7 +105,7 @@ export default function AlertsPage() {
         receivers: config.receivers.map((receiver) => { const next = { ...receiver }; delete next.isDraft; return next; }),
         route: { ...config.route, routes: config.route.routes.map((route) => { const next = { ...route }; delete next.isDraft; return next; }) },
       };
-      const response = await fetch('/internal/alerts/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(persistableConfig) });
+      const response = await fetchAlerts('/internal/alerts/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(persistableConfig) }, () => router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`));
       const result = await response.json();
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       setConfig(result.data); setNotice('配置已保存，Prometheus 与 Alertmanager 已 reload');
@@ -107,7 +117,7 @@ export default function AlertsPage() {
     if (!config || !sourceYaml.trim()) return;
     setSaving(true); setError(''); setImportError(''); setNotice('');
     try {
-      const response = await fetch('/internal/alerts/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: config.version, kind, yaml: sourceYaml }) });
+      const response = await fetchAlerts('/internal/alerts/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: config.version, kind, yaml: sourceYaml }) }, () => router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`));
       const result = await response.json();
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       setConfig(result.data); setSourceYaml(''); setCreateModalOpen(false); setReceiverModalOpen(false); setNotice(kind === 'prometheus-rules' ? 'Prometheus 告警规则 YAML 已解析，规则已追加到当前配置' : 'Alertmanager YAML 已解析，推送地址已追加到当前配置');
