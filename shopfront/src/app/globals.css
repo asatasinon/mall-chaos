@@ -38,6 +38,8 @@ button { cursor: pointer; }
 .header-nav a:hover, .header-nav a.active { color: var(--ink); }
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .cart-link { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--ink); padding: 9px 13px; border-radius: 99px; font-size: 12px; font-weight: 800; background: var(--panel); }
+.account-link { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 800; }
+.header-logout { width: 32px; height: 32px; }
 .cart-count { display: grid; place-items: center; min-width: 20px; height: 20px; border-radius: 50%; background: var(--acid); font-family: 'DM Mono', monospace; font-size: 11px; }
 .demo-chip { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font: 500 10px 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .08em; }
 .demo-chip i { width: 7px; height: 7px; background: var(--acid-deep); border-radius: 50%; box-shadow: 0 0 0 4px rgba(168, 198, 63, .18); }
@@ -149,6 +151,26 @@ main { max-width: 1320px; margin: 0 auto; padding: 50px 32px 92px; }
 .notice { margin: 0 0 25px; padding: 11px 14px; border-left: 3px solid var(--acid-deep); background: #eaf2d2; color: #54652b; font-size: 12px; }
 .pagination { display: flex; justify-content: space-between; margin-top: 27px; }
 
+.auth-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 22px; max-width: 960px; }
+.auth-form { padding: clamp(24px, 4vw, 48px); }
+.auth-tabs { display: flex; gap: 21px; margin-bottom: 42px; border-bottom: 1px solid var(--line); }
+.auth-tabs button { position: relative; padding: 0 0 12px; border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 800; }
+.auth-tabs button.active { color: var(--ink); }
+.auth-tabs button.active:after { content: ''; position: absolute; right: 0; bottom: -1px; left: 0; height: 3px; background: var(--acid); }
+.auth-form-heading { display: flex; align-items: flex-start; gap: 13px; margin-bottom: 27px; }
+.auth-form-heading h2, .session-panel h2, .auth-side h2 { margin: 5px 0 0; font: 600 31px/1 'Fraunces', Georgia, serif; letter-spacing: -.04em; }
+.auth-form .field + .field { margin-top: 15px; }
+.auth-form .btn { margin-top: 25px; }
+.session-panel { min-height: 300px; padding: clamp(24px, 4vw, 48px); }
+.session-mark { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 28px; background: var(--acid); border: 1px solid var(--ink); border-radius: 50%; }
+.session-panel p, .auth-side p { max-width: 430px; color: var(--muted); }
+.session-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 27px; }
+.auth-side { padding: 27px; background: var(--ink); color: #f8f7ef; }
+.auth-side p { color: rgba(248,247,239,.7); }
+.auth-side .btn.ghost { color: #f8f7ef; border-color: rgba(248,247,239,.35); }
+.auth-flow { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.auth-flow span { padding: 7px 9px; border: 1px solid rgba(248,247,239,.3); color: rgba(248,247,239,.78); font: 10px 'DM Mono', monospace; text-transform: uppercase; }
+
 .site-footer { max-width: 1320px; margin: 0 auto; padding: 22px 32px 28px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; color: var(--muted); font: 10px 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .06em; }
 .reveal { animation: rise .6s both; }
 .reveal-delay { animation: rise .6s .12s both; }
@@ -164,6 +186,7 @@ main { max-width: 1320px; margin: 0 auto; padding: 50px 32px 92px; }
   .hero-art { justify-content: center; min-height: 245px; }
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
   .split-layout, .detail-layout { grid-template-columns: 1fr; gap: 25px; }
+  .auth-layout { grid-template-columns: 1fr; }
   .summary { position: static; }
   .detail-visual { max-width: 560px; }
 }
@@ -172,6 +195,8 @@ main { max-width: 1320px; margin: 0 auto; padding: 50px 32px 92px; }
   .brand { font-size: 16px; }
   .header-nav { font-size: 11px; gap: 10px; }
   .cart-link { padding: 7px 9px; }
+  .account-link { font-size: 11px; }
+  .header-logout { display: none; }
   .page-heading { display: block; }
   .page-heading h1 { font-size: 47px; }
   .hero h1 { font-size: 61px; }

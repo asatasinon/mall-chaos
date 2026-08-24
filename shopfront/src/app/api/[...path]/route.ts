@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { ACCESS_TOKEN_COOKIE } from '@/lib/auth';
 
 const allowedRoots = new Set(['products', 'cart', 'checkout', 'orders', 'payments', 'fulfillments', 'notifications', 'auth', 'users', 'addresses']);
 
@@ -14,7 +15,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   const baseUrl = process.env.GATEWAY_BASE_URL ?? 'http://localhost:18080';
   const target = `${baseUrl.replace(/\/$/, '')}/api/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`;
   const cookieStore = await cookies();
-  const auth = request.headers.get('authorization') ?? (cookieStore.get('castrel_access_token')?.value ? `Bearer ${cookieStore.get('castrel_access_token')?.value}` : process.env.SHOPFRONT_ACCESS_TOKEN ? `Bearer ${process.env.SHOPFRONT_ACCESS_TOKEN}` : null);
+  const auth = request.headers.get('authorization') ?? (cookieStore.get(ACCESS_TOKEN_COOKIE)?.value ? `Bearer ${cookieStore.get(ACCESS_TOKEN_COOKIE)?.value}` : process.env.SHOPFRONT_ACCESS_TOKEN ? `Bearer ${process.env.SHOPFRONT_ACCESS_TOKEN}` : null);
   const headers = new Headers();
   const contentType = request.headers.get('content-type');
   if (contentType) headers.set('content-type', contentType);

@@ -1,4 +1,5 @@
 import type { Address, ApiResponse, Cart, CartItem, Fulfillment, Notification, Order, Page, Payment, Product } from './types';
+import type { AuthSession } from './auth';
 
 export class ShopApiError extends Error {
   code: number;
@@ -56,4 +57,18 @@ export function money(value: number | string | undefined | null) {
 
 export function cartQuantity(cart: Cart | null) {
   return cart?.items.reduce((total: number, item: CartItem) => total + item.quantity, 0) ?? 0;
+}
+
+export const register = (payload: { email: string; password: string; nickname: string }) =>
+  api<AuthSession>('auth/register', { method: 'POST', body: JSON.stringify(payload) });
+export const login = (payload: { email: string; password: string }) =>
+  api<AuthSession>('auth/login', { method: 'POST', body: JSON.stringify(payload) });
+export const refreshSession = () => api<AuthSession>('auth/refresh', { method: 'POST' });
+export const logout = () => api<void>('auth/logout', { method: 'POST' });
+
+export async function getSession(): Promise<AuthSession | null> {
+  const response = await fetch('/api/auth/session', { cache: 'no-store' });
+  if (!response.ok) return null;
+  const payload = (await response.json().catch(() => null)) as ApiResponse<AuthSession> | null;
+  return payload?.code === 200 ? payload.data : null;
 }

@@ -2,14 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ShoppingBag } from 'lucide-react';
+import { LogOut, ShoppingBag, UserRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getCart, cartQuantity } from '@/lib/api';
+import { getCart, cartQuantity, getSession, logout } from '@/lib/api';
+import type { AuthSession } from '@/lib/auth';
 import type { Cart } from '@/lib/types';
 
 export function ShopShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [cart, setCart] = useState<Cart | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(null);
 
   useEffect(() => {
     getCart().then(setCart).catch(() => setCart(null));
@@ -17,6 +19,19 @@ export function ShopShell({ children }: { children: React.ReactNode }) {
     window.addEventListener('cart-updated', refresh);
     return () => window.removeEventListener('cart-updated', refresh);
   }, [pathname]);
+
+  useEffect(() => {
+    const loadSession = () => getSession().then(setSession);
+    loadSession();
+    window.addEventListener('auth-updated', loadSession);
+    return () => window.removeEventListener('auth-updated', loadSession);
+  }, [pathname]);
+
+  const signOut = async () => {
+    await logout().catch(() => undefined);
+    setSession(null);
+    window.dispatchEvent(new Event('auth-updated'));
+  };
 
   const nav = [
     { href: '/', label: '首页' },
@@ -40,6 +55,8 @@ export function ShopShell({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="header-actions">
             <span className="demo-chip"><i /> demo channel</span>
+            <Link className="account-link" href="/auth"><UserRound size={15} />{session ? `#${session.userId}` : '登录'}</Link>
+            {session && <button className="icon-btn header-logout" aria-label="登出" onClick={signOut}><LogOut size={15} /></button>}
             <Link className="cart-link" href="/cart"><ShoppingBag size={15} strokeWidth={1.8} />购物车 <span className="cart-count">{cartQuantity(cart)}</span></Link>
           </div>
         </div>
