@@ -9,6 +9,7 @@ infra
 k8s
 data
 traffic-control-plane
+shopfront
 
 # Java services only need packaged jars for image build.
 */src
