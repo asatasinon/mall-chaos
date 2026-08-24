@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.castrel.chaos.common.event.EventEnvelope;
 import com.castrel.chaos.common.event.EventEnvelopeCodec;
+import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.fulfillment.entity.FulfillmentOutboxEvent;
 import com.castrel.chaos.fulfillment.repository.FulfillmentOutboxRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -66,6 +67,9 @@ public class FulfillmentOutboxPublisher {
                 HttpHeaders headers = new HttpHeaders();
                 headers.setContentType(MediaType.APPLICATION_JSON);
                 headers.set("X-Internal-Service-Key", serviceKey);
+                if (envelope.getTraceId() != null && !envelope.getTraceId().isBlank()) {
+                    headers.set(TraceContext.TRACE_ID_HEADER, envelope.getTraceId());
+                }
                 client.postForEntity(notificationUrl + "/internal/notifications/shipping-created",
                     new HttpEntity<>(envelope, headers), Void.class);
                 event.setStatus("PUBLISHED");

@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.castrel.chaos.common.event.EventEnvelope;
 import com.castrel.chaos.common.event.EventEnvelopeCodec;
+import com.castrel.chaos.common.TraceContext;
 import io.micrometer.core.instrument.Timer;
 
 import java.time.LocalDateTime;
@@ -83,6 +84,9 @@ public class OrderOutboxPublisher {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-Internal-Service-Key", serviceKey);
+        if (envelope.getTraceId() != null && !envelope.getTraceId().isBlank()) {
+            headers.set(TraceContext.TRACE_ID_HEADER, envelope.getTraceId());
+        }
         if ("ORDER_PAID".equals(event.getEventType())) {
             client.postForEntity(riskUrl + "/internal/risk/events/order-paid",
                     new HttpEntity<>(envelope, headers), Void.class);

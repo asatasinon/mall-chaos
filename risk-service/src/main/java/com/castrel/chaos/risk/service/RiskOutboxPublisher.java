@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.castrel.chaos.common.event.EventEnvelope;
 import com.castrel.chaos.common.event.EventEnvelopeCodec;
+import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.risk.entity.RiskOutboxEvent;
 import com.castrel.chaos.risk.repository.RiskOutboxRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -73,6 +74,9 @@ public class RiskOutboxPublisher {
                 HttpHeaders headers = new HttpHeaders();
                 headers.setContentType(MediaType.APPLICATION_JSON);
                 headers.set("X-Internal-Service-Key", serviceKey);
+                if (envelope.getTraceId() != null && !envelope.getTraceId().isBlank()) {
+                    headers.set(TraceContext.TRACE_ID_HEADER, envelope.getTraceId());
+                }
                 if ("POST_PAYMENT_RISK_PASSED".equals(event.getEventType())) {
                     client.postForEntity(fulfillmentUrl + "/internal/fulfillments/events/risk-passed",
                         new HttpEntity<>(envelope, headers), Void.class);

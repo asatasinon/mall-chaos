@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 执行基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-24 09:18 CST |
+| 更新时间 | 2026-08-24 09:19 CST |
 | 关联产品文档 | [product.md](product.md) |
 | 关联技术设计 | [technical-design.md](technical-design.md) |
 
@@ -320,7 +320,7 @@
 
 - T4.1：order、payment、risk、fulfillment、notification 的 Outbox publisher 均支持条件式 claim、到期 FAILED/PROCESSING lease 重试、有限退避和 DEAD_LETTER；各服务仍只访问自己的事件表，跨服务事件投递均传递完整 envelope。重复投递和租约恢复的运行态验证保留在 T4.8。
 - T4.6：notification-service 已接入 `notification_preferences` 实体和 Repository，提供客户归属的偏好 GET/PATCH API；`in_app=false` 时跳过站内通知副作用并完成 Inbox 状态。
-- T4.7：已补齐 `checkout.total`、`checkout_duration`、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、`fulfillment_transition_total`、`customer_api_error_total`，并为五个 Outbox publisher 增加按服务区分的 `outbox.publish.latency`，保留 published/failed 计数与现有脱敏日志。`customer_api_error_total` 现已覆盖 Gateway 认证/授权拒绝、下游客户 API 4xx/5xx 及转发异常。
+- T4.7：已补齐 `checkout.total`、`checkout_duration`、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、`fulfillment_transition_total`、`customer_api_error_total`，并为五个 Outbox publisher 增加按服务区分的 `outbox.publish.latency`；异步 HTTP publisher 会传播持久化事件的 `traceId`，同时保留 published/failed 计数与现有脱敏日志。`customer_api_error_total` 现已覆盖 Gateway 认证/授权拒绝、下游客户 API 4xx/5xx 及转发异常。
 
 ### 问题与解决方案
 

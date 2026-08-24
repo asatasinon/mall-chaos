@@ -28,7 +28,7 @@ public class OrderPaymentResultClient {
     public void publish(EventEnvelope<JsonNode> envelope) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        String traceId = TraceContext.getTraceId();
+        String traceId = envelope.getTraceId() != null ? envelope.getTraceId() : TraceContext.getTraceId();
         if (traceId != null) headers.set(TraceContext.TRACE_ID_HEADER, traceId);
         ServletRequestAttributes attrs =
                 (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
