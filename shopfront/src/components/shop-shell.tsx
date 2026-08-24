@@ -55,7 +55,7 @@ export function ShopShell({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="header-actions">
             <span className="demo-chip"><i /> demo channel</span>
-            <Link className="account-link" href="/auth"><UserRound size={15} />{session ? `#${session.userId}` : '登录'}</Link>
+            <Link className="account-link" href="/auth"><UserRound size={15} />{session ? (session.nickname ?? session.email ?? `#${session.userId}`) : '登录'}</Link>
             {session && <button className="icon-btn header-logout" aria-label="登出" onClick={signOut}><LogOut size={15} /></button>}
             <Link className="cart-link" href="/cart"><ShoppingBag size={15} strokeWidth={1.8} />购物车 <span className="cart-count">{cartQuantity(cart)}</span></Link>
           </div>

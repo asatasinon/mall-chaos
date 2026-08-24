@@ -564,6 +564,7 @@ services:
       HOSTNAME: 0.0.0.0
       PORT: 3090
       GATEWAY_BASE_URL: http://gateway-service:8080
+      SHOPFRONT_COOKIE_SECURE: ${SHOPFRONT_COOKIE_SECURE:-false}
       SHOPFRONT_ACCESS_TOKEN: ${SHOPFRONT_ACCESS_TOKEN:-}
     depends_on:
       gateway-service:
@@ -697,8 +698,7 @@ services:
     <<: *service-defaults
     environment:
       SW_OAP_ADDRESS: http://skywalking-oap:12800
-    ports:
-      - "18091:8080"
+    # Exposed through obs-auth-proxy on host port 13091.
     depends_on:
       - skywalking-oap
     profiles:

@@ -15,7 +15,8 @@ const sessionMaxAge = 7 * 24 * 60 * 60;
 function cookieOptions(maxAge = sessionMaxAge) {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.SHOPFRONT_COOKIE_SECURE === 'true'
+      || (process.env.SHOPFRONT_COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production'),
     sameSite: 'lax' as const,
     path: '/',
     maxAge,

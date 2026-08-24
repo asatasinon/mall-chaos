@@ -2,6 +2,11 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE, SESSION_TOKEN_COOKIE, USER_ID_COOKIE } from '@/lib/auth';
 
+type UserProfilePayload = {
+  code?: number;
+  data?: { nickname?: string; email?: string | null } | null;
+};
+
 export async function GET() {
   const cookieStore = await cookies();
   const userId = cookieStore.get(USER_ID_COOKIE)?.value;
@@ -10,5 +15,26 @@ export async function GET() {
   if (!userId || !accessToken || !sessionToken) {
     return NextResponse.json({ code: 401, message: '未登录', data: null }, { status: 401 });
   }
-  return NextResponse.json({ code: 200, message: 'ok', data: { userId: Number(userId), roles: ['CUSTOMER'], expiresAt: '' } });
+
+  const baseUrl = process.env.GATEWAY_BASE_URL ?? 'http://localhost:18080';
+  const profileResponse = await fetch(`${baseUrl.replace(/\/$/, '')}/api/users/${encodeURIComponent(userId)}`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  }).catch(() => null);
+  const profilePayload = profileResponse
+    ? await profileResponse.json().catch(() => null) as UserProfilePayload | null
+    : null;
+  const profile = profileResponse?.ok && profilePayload?.code === 200 ? profilePayload.data : null;
+
+  return NextResponse.json({
+    code: 200,
+    message: 'ok',
+    data: {
+      userId: Number(userId),
+      roles: ['CUSTOMER'],
+      expiresAt: '',
+      ...(profile?.nickname ? { nickname: profile.nickname } : {}),
+      ...(profile?.email ? { email: profile.email } : {}),
+    },
+  });
 }

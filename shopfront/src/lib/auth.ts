@@ -2,6 +2,8 @@ export type AuthSession = {
   userId: number;
   roles: string[];
   expiresAt: string;
+  nickname?: string;
+  email?: string;
 };
 
 export const ACCESS_TOKEN_COOKIE = 'castrel_access_token';
