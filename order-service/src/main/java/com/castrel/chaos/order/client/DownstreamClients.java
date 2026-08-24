@@ -104,17 +104,6 @@ public class DownstreamClients {
         return List.of();
     }
 
-    public Map<String, Object> reserveInventory(String orderId, String sku, int qty) {
-        Map<String, Object> reqBody = Map.of("orderId", orderId, "sku", sku, "qty", qty);
-    Map<String, Object> resp = exchange(inventoryUrl + "/internal/inventory/reserve", HttpMethod.POST, reqBody, Map.class);
-        return (Map<String, Object>) ((Map<?, ?>) resp).get("data");
-    }
-
-    public void releaseInventory(String orderId, String sku, int qty) {
-        Map<String, Object> reqBody = Map.of("orderId", orderId, "sku", sku, "qty", qty);
-    exchange(inventoryUrl + "/internal/inventory/release", HttpMethod.POST, reqBody, Map.class);
-    }
-
     public void releaseInventory(String orderId, String sku, String reservationId) {
         Map<String, Object> body = Map.of("orderId", orderId, "sku", sku, "reservationId", reservationId, "qty", 0);
         exchange(inventoryUrl + "/internal/inventory/release", HttpMethod.POST, body, Map.class);
@@ -189,32 +178,23 @@ public class DownstreamClients {
                 HttpMethod.POST, new HttpEntity<>(headers), Map.class);
     }
 
-    public Map<String, Object> reserveInventory(String orderId, String sku, int qty, String principal) {
-        Map<String, Object> reqBody = Map.of("orderId", orderId, "sku", sku, "qty", qty);
-        HttpHeaders headers = headersWithTrace();
-        headers.set("X-Downstream-Principal", principal);
-        return (Map<String, Object>) ((Map<?, ?>) client.exchange(
-                inventoryUrl + "/internal/inventory/reserve", HttpMethod.POST,
-                new HttpEntity<>(reqBody, headers), Map.class).getBody()).get("data");
-    }
-
-        public Map<String, Object> reserveInventory(String orderId, String sku, int qty,
+    public Map<String, Object> reserveInventory(String orderId, String sku, int qty,
                             String reservationId, String operationId) {
         Map<String, Object> reqBody = Map.of("orderId", orderId, "sku", sku, "qty", qty,
             "reservationId", reservationId, "operationId", operationId);
         Map<String, Object> resp = exchange(inventoryUrl + "/internal/inventory/reserve",
             HttpMethod.POST, reqBody, Map.class);
         return (Map<String, Object>) ((Map<?, ?>) resp).get("data");
-        }
+    }
 
-            public Map<String, Object> preCheckRisk(Long userId, String orderNo, BigDecimal amount,
+    public Map<String, Object> preCheckRisk(Long userId, String orderNo, BigDecimal amount,
                                 String sku, int qty) {
             Map<String, Object> body = Map.of("userId", userId, "orderNo", orderNo,
                 "amount", amount, "sku", sku, "qty", qty);
             Map<String, Object> response = exchange(riskUrl + "/internal/risk/pre-check",
                 HttpMethod.POST, body, Map.class);
             return (Map<String, Object>) ((Map<?, ?>) response).get("data");
-            }
+    }
 
             public Map<String, Object> calculatePromotion(Long userId, String orderNo,
                                                           List<Map<String, Object>> items) {

@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE, SESSION_TOKEN_COOKIE, USER_ID_COOKIE } from '@/lib/auth';
+import { clearAuthCookies } from '@/lib/server-auth';
 
 type UserProfilePayload = {
   code?: number;
@@ -24,6 +25,11 @@ export async function GET() {
   const profilePayload = profileResponse
     ? await profileResponse.json().catch(() => null) as UserProfilePayload | null
     : null;
+  if (profileResponse?.status === 401) {
+    const response = NextResponse.json({ code: 401, message: '会话已过期，请重新登录', data: null }, { status: 401 });
+    response.headers.set('x-session-expired', '1');
+    return clearAuthCookies(response);
+  }
   const profile = profileResponse?.ok && profilePayload?.code === 200 ? profilePayload.data : null;
 
   return NextResponse.json({

@@ -21,10 +21,6 @@ public class Order {
     @Column(name = "user_id")
     private Long userId;
 
-    private String sku;
-
-    private Integer qty;
-
     private BigDecimal amount;
 
     private String status; // PENDING / PAID / FAILED / CANCELLED / COMPLETED

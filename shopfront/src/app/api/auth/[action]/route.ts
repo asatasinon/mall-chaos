@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { ACCESS_TOKEN_COOKIE, SESSION_TOKEN_COOKIE, USER_ID_COOKIE } from '@/lib/auth';
+import { authCookieOptions, clearAuthCookies } from '@/lib/server-auth';
 
 type AuthResponse = {
   userId: number;
@@ -13,27 +14,10 @@ type AuthResponse = {
 
 const sessionMaxAge = 7 * 24 * 60 * 60;
 
-function cookieOptions(maxAge = sessionMaxAge) {
-  return {
-    httpOnly: true,
-    secure: process.env.SHOPFRONT_COOKIE_SECURE === 'true'
-      || (process.env.SHOPFRONT_COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production'),
-    sameSite: 'lax' as const,
-    path: '/',
-    maxAge,
-  };
-}
-
-function clearCookie(response: NextResponse, name: string) {
-  response.cookies.set(name, '', { ...cookieOptions(), maxAge: 0 });
-}
-
-function logoutResponse() {
+function logoutResponse(sessionExpired = false) {
   const response = NextResponse.json({ code: 200, message: 'ok', data: null });
-  clearCookie(response, ACCESS_TOKEN_COOKIE);
-  clearCookie(response, SESSION_TOKEN_COOKIE);
-  clearCookie(response, USER_ID_COOKIE);
-  return response;
+  if (sessionExpired) response.headers.set('x-session-expired', '1');
+  return clearAuthCookies(response);
 }
 
 async function forward(request: NextRequest, action: string, sessionToken?: string) {
@@ -68,8 +52,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   }
 
   const payload = await upstream.json().catch(() => null) as { code?: number; message?: string; data?: AuthResponse | null } | null;
-  if (action === 'logout' && payload?.message === 'Invalid session') {
-    return logoutResponse();
+  if (payload?.message === 'Invalid session') {
+    return logoutResponse(true);
+  }
+  if (action === 'refresh' && upstream.status === 401) {
+    return logoutResponse(true);
   }
   if (!upstream.ok || !payload || payload.code !== 200) {
     return NextResponse.json(payload ?? { code: upstream.status, message: '认证请求失败', data: null }, { status: upstream.status });
@@ -88,8 +75,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
     message: payload.message ?? 'ok',
     data: { userId: auth.userId, roles: auth.roles, expiresAt: auth.expiresAt },
   });
-  response.cookies.set(ACCESS_TOKEN_COOKIE, auth.accessToken, cookieOptions());
-  response.cookies.set(SESSION_TOKEN_COOKIE, auth.sessionToken, cookieOptions());
-  response.cookies.set(USER_ID_COOKIE, String(auth.userId), cookieOptions());
+  response.cookies.set(ACCESS_TOKEN_COOKIE, auth.accessToken, authCookieOptions(sessionMaxAge));
+  response.cookies.set(SESSION_TOKEN_COOKIE, auth.sessionToken, authCookieOptions(sessionMaxAge));
+  response.cookies.set(USER_ID_COOKIE, String(auth.userId), authCookieOptions(sessionMaxAge));
   return response;
 }

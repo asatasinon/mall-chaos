@@ -260,7 +260,7 @@ sequenceDiagram
 | `users`、`user_addresses`、`user_credentials`、`user_roles`、会话令牌表 | user-service | 客户资料、地址、凭据、角色与令牌撤销元数据 |
 | `notification_preferences`、`customer_notifications` | notification-service | 客户通知偏好和已读状态 |
 
-初始化 Schema 必须是确定性的，并完整创建演示所需的表、索引、约束与种子数据。`orders` 以多商品模型为准，`order_items` 为订单明细的唯一事实来源；若保留 `orders.sku`、`orders.qty`、`orders.amount` 仅用于短期 API 兼容，必须由单商品适配器写入，不能作为新结算流程的数据依赖。所有客户数据表需要归属索引、时间戳和幂等唯一约束；金额使用 `DECIMAL`，禁止 `FLOAT`、`DOUBLE`。服务启动时校验预期 schema version，不匹配即拒绝处理流量。
+初始化 Schema 必须是确定性的，并完整创建演示所需的表、索引、约束与种子数据。`orders` 以多商品模型为准，`order_items` 为订单明细的唯一事实来源；订单创建统一使用多商品 checkout 流程，禁止单商品创建适配器和旧创建接口。所有客户数据表需要归属索引、时间戳和幂等唯一约束；金额使用 `DECIMAL`，禁止 `FLOAT`、`DOUBLE`。服务启动时校验预期 schema version，不匹配即拒绝处理流量。
 
 ### 5.1 运维环境重置
 

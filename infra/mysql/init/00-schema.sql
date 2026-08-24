@@ -230,8 +230,6 @@ CREATE TABLE IF NOT EXISTS orders (
     id          BIGINT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
     order_no    VARCHAR(32)    NOT NULL,
     user_id     BIGINT         NOT NULL,
-    sku         VARCHAR(32)    NOT NULL,
-    qty         INT            NOT NULL DEFAULT 1,
     amount      DECIMAL(10,2)  NOT NULL,
     status      VARCHAR(16)    NOT NULL DEFAULT 'PENDING'
                 COMMENT 'PENDING/PAID/FAILED/CANCELLED/COMPLETED',

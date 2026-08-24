@@ -342,6 +342,7 @@ docker compose up -d --no-build
 |---|---|
 | `./scripts/build-all.sh` | 安装 `common`、打包所有 Java 服务，并构建全部业务镜像与 `traffic-control-plane` 镜像 |
 | `./scripts/build-all.sh --push --tag <tag>` | 在构建完成后推送业务镜像与 `traffic-control-plane` 镜像 |
+| `./scripts/cleanup-local-images.sh` | 清理本地旧版业务镜像，默认保留 `latest` |
 | `./scripts/push-base-images.sh` | 同步基础镜像：`alpine`、`eclipse-temurin`、`node` |
 | `./scripts/push-infra-images.sh` | 同步 MySQL / Redis / Prometheus / Loki / Tempo / Grafana / ToxiProxy 等基础设施镜像 |
 | `./scripts/compose-up.sh` | 拉取远端镜像并启动容器，不负责编译源码或构建镜像 |
@@ -361,6 +362,23 @@ REGISTRY=harbor.cloudwise.com/noname IMAGE_TAG=v1.0.0 ./scripts/build-all.sh --t
 - `build-all.sh` 会先执行 `mvn clean install -pl common -DskipTests`。
 - 随后逐个执行业务服务的 `mvn package -DskipTests` 与 `docker build`。
 - `traffic-control-plane` 的 Docker 构建会在镜像构建阶段内部完成 `pnpm install` 和 `pnpm build`。
+
+### 清理本地旧版镜像
+
+构建多个版本后，可清理本地 Castrel 业务镜像标签，同时保留当前使用的标签：
+
+```bash
+# 交互确认后删除，默认保留 latest
+./scripts/cleanup-local-images.sh
+
+# 先查看待删除列表
+./scripts/cleanup-local-images.sh --keep-tag v1.0.0 --dry-run
+
+# 在脚本或 CI 中跳过确认
+REGISTRY=harbor.cloudwise.com/noname ./scripts/cleanup-local-images.sh --yes
+```
+
+脚本只处理 `build-all.sh` 生成的业务镜像，不会删除 MySQL、Redis、监控组件或 dangling 镜像。正在运行的容器所使用的镜像不会被强制删除；清理前请先停止对应容器。
 
 ### 推送业务镜像
 

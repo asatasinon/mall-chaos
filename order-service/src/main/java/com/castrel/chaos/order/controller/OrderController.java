@@ -5,7 +5,6 @@ import com.castrel.chaos.common.event.EventEnvelope;
 import com.castrel.chaos.common.event.EventEnvelopeValidator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.castrel.chaos.order.dto.CreateOrderRequest;
 import com.castrel.chaos.order.dto.OrderDTO;
 import com.castrel.chaos.order.dto.CheckoutCommand;
 import com.castrel.chaos.order.dto.PaymentResultRequest;
@@ -34,11 +33,6 @@ public class OrderController {
         return ApiResponse.ok(orderService.checkout(customerId, command));
     }
 
-    @PostMapping("/api/orders")
-    public ApiResponse<OrderDTO> createOrder(@RequestBody CreateOrderRequest req) {
-        return ApiResponse.ok(orderService.createOrder(req));
-    }
-
     @GetMapping("/api/orders/{id}")
     public ApiResponse<OrderDTO> getOrder(
             @RequestHeader("X-User-Id") Long customerId, @PathVariable Long id) {
@@ -52,11 +46,6 @@ public class OrderController {
             @RequestParam(defaultValue = "20") int size) {
         return ApiResponse.ok(orderService.listCustomerOrders(
                 customerId, PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100))));
-    }
-
-    @PostMapping("/internal/orders/create")
-    public ApiResponse<OrderDTO> createOrderInternal(@RequestBody CreateOrderRequest req) {
-        return ApiResponse.ok(orderService.createOrder(req));
     }
 
     @PostMapping("/api/orders/{id}/cancel")

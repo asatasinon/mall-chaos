@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { ACCESS_TOKEN_COOKIE } from '@/lib/auth';
+import { clearAuthCookies } from '@/lib/server-auth';
 
 const allowedRoots = new Set(['products', 'cart', 'checkout', 'orders', 'payments', 'fulfillments', 'notifications', 'auth', 'users', 'addresses']);
 
@@ -25,7 +26,12 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
 
   const upstream = await fetch(target, { method: request.method, headers, body: request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.text(), cache: 'no-store' }).catch(() => null);
   if (!upstream) return NextResponse.json({ code: 503, message: '网关暂时无法连接，请稍后重试', data: null }, { status: 503 });
-  return new NextResponse(upstream.body, { status: upstream.status, headers: { 'content-type': upstream.headers.get('content-type') ?? 'application/json' } });
+  const response = new NextResponse(upstream.body, { status: upstream.status, headers: { 'content-type': upstream.headers.get('content-type') ?? 'application/json' } });
+  if (upstream.status === 401) {
+    response.headers.set('x-session-expired', '1');
+    clearAuthCookies(response);
+  }
+  return response;
 }
 
 export const GET = proxy;

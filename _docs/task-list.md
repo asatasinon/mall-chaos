@@ -77,7 +77,7 @@
 
 ### T0.3 验收结果
 
-已在唯一初始化入口加入 `schema_version` Version 1 记录，并补齐购物车、多商品订单明细/地址快照、身份会话、支付尝试、库存/优惠券预留、按服务 Outbox/Inbox、履约、通知、runner 活动和运营审计表。真实 MySQL 全新目录初始化已通过：Schema 版本为 1，演示凭据/角色/购物车均有 2 条，Outbox/Inbox 各 5 张，Redis 初始键数为 0。旧 `orders.sku/qty` 字段保留为兼容适配字段，不作为新结算事实来源。
+已在唯一初始化入口加入 `schema_version` Version 1 记录，并补齐购物车、多商品订单明细/地址快照、身份会话、支付尝试、库存/优惠券预留、按服务 Outbox/Inbox、履约、通知、runner 活动和运营审计表。真实 MySQL 全新目录初始化已通过：Schema 版本为 1，演示凭据/角色/购物车均有 2 条，Outbox/Inbox 各 5 张，Redis 初始键数为 0。订单商品与数量仅由 `order_items` 记录，结算统一使用多商品 checkout 流程。
 
 ### T0.4 当前进展
 
