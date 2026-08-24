@@ -28,6 +28,14 @@ function clearCookie(response: NextResponse, name: string) {
   response.cookies.set(name, '', { ...cookieOptions(), maxAge: 0 });
 }
 
+function logoutResponse() {
+  const response = NextResponse.json({ code: 200, message: 'ok', data: null });
+  clearCookie(response, ACCESS_TOKEN_COOKIE);
+  clearCookie(response, SESSION_TOKEN_COOKIE);
+  clearCookie(response, USER_ID_COOKIE);
+  return response;
+}
+
 async function forward(request: NextRequest, action: string, sessionToken?: string) {
   const baseUrl = process.env.GATEWAY_BASE_URL ?? 'http://localhost:18080';
   const headers = new Headers({ 'content-type': 'application/json', 'x-correlation-id': randomUUID() });
@@ -49,22 +57,26 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   }
 
   const cookieStore = await cookies();
-  const upstream = await forward(request, action, cookieStore.get(SESSION_TOKEN_COOKIE)?.value);
+  const sessionToken = cookieStore.get(SESSION_TOKEN_COOKIE)?.value;
+  if (action === 'logout' && !sessionToken) {
+    return logoutResponse();
+  }
+
+  const upstream = await forward(request, action, sessionToken);
   if (!upstream) {
     return NextResponse.json({ code: 503, message: '认证服务暂时无法连接，请稍后重试', data: null }, { status: 503 });
   }
 
   const payload = await upstream.json().catch(() => null) as { code?: number; message?: string; data?: AuthResponse | null } | null;
+  if (action === 'logout' && payload?.message === 'Invalid session') {
+    return logoutResponse();
+  }
   if (!upstream.ok || !payload || payload.code !== 200) {
     return NextResponse.json(payload ?? { code: upstream.status, message: '认证请求失败', data: null }, { status: upstream.status });
   }
 
   if (action === 'logout') {
-    const response = NextResponse.json({ code: 200, message: 'ok', data: null });
-    clearCookie(response, ACCESS_TOKEN_COOKIE);
-    clearCookie(response, SESSION_TOKEN_COOKIE);
-    clearCookie(response, USER_ID_COOKIE);
-    return response;
+    return logoutResponse();
   }
 
   const auth = payload.data;

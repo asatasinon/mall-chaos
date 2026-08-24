@@ -11,8 +11,8 @@ function safeReturnTo(value: string | null): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = useState('castrel');
-  const [password, setPassword] = useState('C@stre1_best_ai');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { fetchWithAuth } from '@/lib/auth-fetch';
 
 interface OverviewData {
   runner: {
@@ -21,7 +22,7 @@ export default function OverviewPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch('/internal/traffic/chaos/overview');
+        const res = await fetchWithAuth('/internal/traffic/chaos/overview');
         const json = await res.json();
         if (json.code === 0) { setData(json.data); setError(null); }
         else setError(json.message);

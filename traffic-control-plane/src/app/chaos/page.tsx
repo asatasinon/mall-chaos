@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Zap, ShieldOff, Trash2, Activity, AlertCircle } from 'lucide-react';
+import { fetchWithAuth } from '@/lib/auth-fetch';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -73,7 +74,7 @@ function useArmedStatus() {
     const poll = async () => {
       const results = await Promise.allSettled(
         CHAOS_LIST.map(async (c) => {
-          const res  = await fetch(c.statusPath);
+          const res  = await fetchWithAuth(c.statusPath);
           const json = await res.json();
           return { id: c.id, active: isActive(json.data), svcs: activeServices(json.data) };
         })
@@ -566,7 +567,7 @@ interface ApiResult {
 async function callApi(action: ApiAction, path: string, body?: unknown): Promise<ApiResult> {
   const isGet = path.includes('/status');
   try {
-    const res  = await fetch(path, {
+    const res  = await fetchWithAuth(path, {
       method:  isGet ? 'GET' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    !isGet && body !== undefined ? JSON.stringify(body) : undefined,

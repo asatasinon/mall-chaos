@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Play, Pause, Pencil, Save, X, Check, Zap, Power, PowerOff } from 'lucide-react';
+import { fetchWithAuth } from '@/lib/auth-fetch';
 
 interface RunnerStatus {
   running: boolean; enabled: boolean; paused: boolean;
@@ -82,7 +83,7 @@ export default function RunnerPage() {
   const [triggerMsg, setTriggerMsg]     = useState<{ ok: boolean; text: string } | null>(null);
 
   const loadConfig = async () => {
-    const res  = await fetch('/internal/traffic/runner/config');
+    const res  = await fetchWithAuth('/internal/traffic/runner/config');
     const json = await res.json();
     if (json.code === 0) {
       setConfig(json.data);
@@ -103,7 +104,7 @@ export default function RunnerPage() {
 
   const loadWarmup = async () => {
     try {
-      const res  = await fetch('/internal/traffic/runner/data-warmup/progress');
+      const res  = await fetchWithAuth('/internal/traffic/runner/data-warmup/progress');
       const json = await res.json();
       if (json.code === 0) {
         setWarmup(json.data);
@@ -117,7 +118,7 @@ export default function RunnerPage() {
 
   const loadResetPolicy = async () => {
     try {
-      const res  = await fetch('/internal/traffic/runner/inventory-reset/schedule');
+      const res  = await fetchWithAuth('/internal/traffic/runner/inventory-reset/schedule');
       const json = await res.json();
       if (json.code === 0 && json.data) {
         setResetPolicy(json.data);
@@ -128,14 +129,14 @@ export default function RunnerPage() {
 
   useEffect(() => {
     const loadStatus = async () => {      try {
-        const res  = await fetch('/internal/traffic/runner/status');
+        const res  = await fetchWithAuth('/internal/traffic/runner/status');
         const json = await res.json();
         if (json.code === 0) setStatus(json.data);
       } catch {}
     };
     const loadActivity = async () => {
       try {
-        const res  = await fetch('/internal/traffic/runner/activity?limit=20');
+        const res  = await fetchWithAuth('/internal/traffic/runner/activity?limit=20');
         const json = await res.json();
         if (json.code === 0) setActivity(json.data);
       } catch {}
@@ -161,13 +162,13 @@ export default function RunnerPage() {
   }, [warmup?.completed]);
 
   const action = (path: string, body?: unknown) =>
-    fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    fetchWithAuth(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
 
   const toggleEnabled = async () => {
     if (!config) return;
     setToggleSaving(true); setSaveMsg(null);
     try {
-      const res = await fetch('/internal/traffic/runner/config', {
+      const res = await fetchWithAuth('/internal/traffic/runner/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ version: config.version, enabled: !config.enabled }),
@@ -186,7 +187,7 @@ export default function RunnerPage() {
     if (!config) return;
     setSaving(true); setSaveMsg(null);
     try {
-      const res  = await fetch('/internal/traffic/runner/config', {
+      const res  = await fetchWithAuth('/internal/traffic/runner/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -237,7 +238,7 @@ export default function RunnerPage() {
     const normalised = mixForm.map((r) => ({ ...r, ratio: +(r.ratio / total).toFixed(4) }));
     setMixSaving(true); setMixMsg(null);
     try {
-      const res  = await fetch('/internal/traffic/runner/config', {
+      const res  = await fetchWithAuth('/internal/traffic/runner/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ version: config.version, mixRules: normalised }),
@@ -264,7 +265,7 @@ export default function RunnerPage() {
     if (!resetPolicy) return;
     setResetSaving(true); setResetMsg(null);
     try {
-      const res  = await fetch('/internal/traffic/runner/inventory-reset/schedule', {
+      const res  = await fetchWithAuth('/internal/traffic/runner/inventory-reset/schedule', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ version: resetPolicy.version, ...resetForm }),
@@ -290,7 +291,7 @@ export default function RunnerPage() {
   const triggerReset = async () => {
     setTriggerMsg(null);
     try {
-      const res  = await fetch('/internal/traffic/runner/inventory-reset/trigger', { method: 'POST' });
+      const res  = await fetchWithAuth('/internal/traffic/runner/inventory-reset/trigger', { method: 'POST' });
       const json = await res.json();
       setTriggerMsg(json.code === 0 ? { ok: true, text: 'Reset triggered' } : { ok: false, text: json.message || 'Failed' });
     } catch (e: unknown) {
