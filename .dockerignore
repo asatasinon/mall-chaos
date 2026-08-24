@@ -10,6 +10,7 @@ k8s
 data
 traffic-control-plane
 shopfront
+.pnpm-store
 
 # Java services only need packaged jars for image build.
 */src
