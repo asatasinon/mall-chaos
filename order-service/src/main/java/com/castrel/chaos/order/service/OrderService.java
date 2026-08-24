@@ -117,7 +117,8 @@ public class OrderService {
                 .collect(java.util.stream.Collectors.toMap(
                         product -> String.valueOf(product.get("sku")), product -> product));
         BigDecimal subtotal = BigDecimal.ZERO;
-        String orderId = command.getIdempotencyKey();
+        String orderNo = generateOrderNo();
+        String orderId = orderNo;
         List<String> reservedSkus = new java.util.ArrayList<>();
         Long reservedCouponId = null;
         try {
@@ -132,7 +133,7 @@ public class OrderService {
             }
                 List<Map<String, Object>> promotionItems = freeze.getItems().stream().map(item -> Map.<String, Object>of(
                     "sku", item.getSku(), "qty", item.getQuantity(), "price", item.getUnitPrice())).toList();
-                Map<String, Object> promotion = clients.calculatePromotion(customerId, command.getIdempotencyKey(), promotionItems);
+                Map<String, Object> promotion = clients.calculatePromotion(customerId, orderNo, promotionItems);
                 BigDecimal discount = promotion == null || promotion.get("discountAmount") == null
                     ? BigDecimal.ZERO : new BigDecimal(String.valueOf(promotion.get("discountAmount")));
                 BigDecimal total = promotion == null || promotion.get("finalAmount") == null
@@ -141,18 +142,18 @@ public class OrderService {
                     reservedCouponId = Long.valueOf(String.valueOf(promotion.get("usedCouponId")));
                 }
             CheckoutItem riskItem = freeze.getItems().get(0);
-            Map<String, Object> risk = clients.preCheckRisk(customerId, command.getIdempotencyKey(),
+            Map<String, Object> risk = clients.preCheckRisk(customerId, orderNo,
                     total, riskItem.getSku(), riskItem.getQuantity());
             if (risk != null && Boolean.FALSE.equals(risk.get("passed"))) {
                 throw new BizException("RISK_REJECTED", String.valueOf(risk.getOrDefault("reason", "Risk rejected")));
             }
             for (CheckoutItem item : freeze.getItems()) {
-                String reservationId = command.getIdempotencyKey() + ":" + item.getSku();
+                String reservationId = orderNo + ":" + item.getSku();
                 clients.reserveInventory(orderId, item.getSku(), item.getQuantity(), reservationId, reservationId);
                 reservedSkus.add(item.getSku());
             }
             Order order = new Order();
-            order.setOrderNo(command.getIdempotencyKey());
+            order.setOrderNo(orderNo);
             order.setIdempotencyKey(command.getIdempotencyKey());
             order.setUserId(customerId);
             order.setStatus("PENDING_PAYMENT");
@@ -195,14 +196,14 @@ public class OrderService {
         } catch (RuntimeException exception) {
             for (String sku : reservedSkus) {
                 try {
-                    clients.releaseInventory(orderId, sku, command.getIdempotencyKey() + ":" + sku);
+                    clients.releaseInventory(orderId, sku, orderNo + ":" + sku);
                 } catch (Exception ignored) {
                     log.warn("Failed to release inventory reservation for {}", sku);
                 }
             }
             if (reservedCouponId != null) {
                 try {
-                    clients.releaseCoupon(command.getIdempotencyKey(), reservedCouponId);
+                    clients.releaseCoupon(orderNo, reservedCouponId);
                 } catch (Exception ignored) {
                     log.warn("Failed to release coupon reservation {}", reservedCouponId);
                 }
@@ -214,6 +215,10 @@ public class OrderService {
             }
             throw exception;
         }
+    }
+
+    private String generateOrderNo() {
+        return "ORD-" + UUID.randomUUID().toString().replace("-", "").substring(0, 28);
     }
 
     @PostConstruct
