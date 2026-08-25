@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# 稳定复现 "Redis BigKey 导致 GET /api/orders/{id} 变慢" 场景。
+# Reliably reproduce the scenario where a Redis BigKey slows GET /api/orders/{id}.
 #
-# 解决的三个问题（对照 inject-bigkey-query-enrichment.sh 的单独注入）：
-#   1. QueryEnrichmentInterceptor 有 5s 本地缓存，直接注入后单次 curl 大概率
-#      读不到 Redis —— 这里用 /internal/maintenance/query-enrichment/force-refresh
-#      强制下一次请求必定触发 HGETALL。
-#   2. 该 hash 里的 enabled/joinTable 字段会额外触发一次 SQL JOIN 慢查询，
-#      污染"变慢是否来自 Redis"的判断 —— 这里显式把 enabled 设为 false，
-#      只保留 BigKey 本身的 HGETALL 开销。
-#   3. QueryEnrichmentInterceptor 优先读取 per-service key
-#      castrel:query:enrichment:{serviceName}，只有它为空时才 fallback 到
-#      全局 legacy key castrel:query:enrichment —— legacy key 被所有业务
-#      服务共享，注入大 key 会导致其他服务（例如堆内存更小的 catalog-service）
-#      在自己的 per-service key 为空时也去反序列化这个大 hash，曾经因此把
-#      catalog-service 直接 OOM 打死。因此这里改为只注入 order-service 专属的
-#      per-service key，不再写 legacy key，避免误伤其他服务。
+# Three issues addressed (compared with the standalone injection script):
+#   1. QueryEnrichmentInterceptor has a 5s local cache, so a single curl after
+#      injection will likely miss Redis. This uses /internal/maintenance/query-enrichment/force-refresh
+#      to force the next request to trigger HGETALL.
+#   2. The enabled/joinTable fields in the hash would also trigger a slow SQL JOIN,
+#      contaminating the check of whether the slowdown comes from Redis. This explicitly sets enabled
+#      to false and measures only the BigKey HGETALL overhead.
+#   3. QueryEnrichmentInterceptor reads the per-service key first,
+#      castrel:query:enrichment:{serviceName}; only when it is empty does it fall back to
+#      the global legacy key castrel:query:enrichment. The legacy key is shared by all
+#      business services, so injecting a large key can cause other services, such as the smaller
+#      catalog-service heap, to deserialize it when their per-service key is empty. This has previously
+#      caused catalog-service to OOM. This script therefore injects only the order-service-specific
+#      per-service key and does not write the legacy key, avoiding impact on other services.
 #
-# 用法: ./scripts/repro-bigkey-slow-orders.sh [order_id] [field_count] [value_size]
+# Usage: ./scripts/repro-bigkey-slow-orders.sh [order_id] [field_count] [value_size]
 set -euo pipefail
 
 REDIS_HOST="${REDIS_HOST:-10.106.2.78}"
@@ -37,47 +37,47 @@ force_refresh_and_time() {
   local label="$1"
   curl -s -o /dev/null -X POST "${ORDER_SERVICE_URL}/internal/maintenance/query-enrichment/force-refresh"
   local rt_sec http_status
-  # 用 curl 自带的 time_total，避免 `date +%s%3N` 在 macOS (BSD date) 上不支持 %N 的问题
+  # Use curl's built-in time_total because macOS BSD date does not support %N in `date +%s%3N`.
   read -r http_status rt_sec < <(curl -s -o /dev/null -w "%{http_code} %{time_total}\n" "${ORDER_SERVICE_URL}/api/orders/${ORDER_ID}"; true)
   echo "[$label] GET /api/orders/${ORDER_ID} http_status=${http_status} RT = ${rt_sec}s"
 }
 
-echo "== Step 0: 清理旧状态,还原为正常小 hash（baseline） =="
+echo "== Step 0: Clear old state and restore a normal small hash (baseline) =="
 redis-cli "${REDIS_CLI_ARGS[@]}" DEL "$REDIS_KEY" >/dev/null
 redis-cli "${REDIS_CLI_ARGS[@]}" HSET "$REDIS_KEY" \
   enabled false joinTable "" targetServices "" operator "repro-script" startedAt "$(date -u +%FT%TZ)" >/dev/null
 
 echo
-echo "== Step 1: baseline 测量（5 个正常字段,无 BigKey） =="
+echo "== Step 1: Baseline measurement (5 normal fields, no BigKey) =="
 force_refresh_and_time "baseline"
 
 echo
-echo "== Step 2: 注入 BigKey（${FIELD_COUNT} 个字段, 每个 ${VALUE_SIZE} 字节） =="
+echo "== Step 2: Inject BigKey (${FIELD_COUNT} fields, ${VALUE_SIZE} bytes each) =="
 ./scripts/inject-bigkey-query-enrichment.sh "$FIELD_COUNT" "$VALUE_SIZE"
 
-echo "确保 enabled=false,隔离 SQL JOIN 干扰,只测量 BigKey 本身的 HGETALL 开销"
+echo "Ensure enabled=false, isolate SQL JOIN interference, and measure only BigKey HGETALL overhead"
 redis-cli "${REDIS_CLI_ARGS[@]}" HSET "$REDIS_KEY" enabled false >/dev/null
 
 echo
-echo "== Step 3: BigKey 场景测量（强制绕过 5s 本地缓存） =="
+echo "== Step 3: BigKey measurement (force bypass of the 5s local cache) =="
 force_refresh_and_time "bigkey"
 
 echo
-echo "== Step 4: Redis 侧指标核对 =="
+echo "== Step 4: Verify Redis-side metrics =="
 echo "HLEN: $(redis-cli "${REDIS_CLI_ARGS[@]}" HLEN "$REDIS_KEY")"
-echo "MEMORY USAGE: $(redis-cli "${REDIS_CLI_ARGS[@]}" MEMORY USAGE "$REDIS_KEY" 2>/dev/null || echo '(需要 Redis 4.0+)') 字节"
+echo "MEMORY USAGE: $(redis-cli "${REDIS_CLI_ARGS[@]}" MEMORY USAGE "$REDIS_KEY" 2>/dev/null || echo '(requires Redis 4.0+)') bytes"
 redis-cli "${REDIS_CLI_ARGS[@]}" INFO commandstats | grep -i hgetall || true
 
 echo
-echo "== Step 5: 全局阻塞对照（可选） =="
-echo "同时段请求一个不碰该 key 的接口,确认变慢是否为 Redis 单线程全局阻塞效应:"
+echo "== Step 5: Global blocking comparison (optional) =="
+echo "At the same time, request an endpoint that does not touch this key to check whether the slowdown is caused by Redis single-threaded global blocking:"
 echo "  curl -s -o /dev/null -w '%{time_total}\\n' ${ORDER_SERVICE_URL}/actuator/health"
 
 echo
-echo "== 复现完成 =="
-echo "对比 Step 1 与 Step 3 的 RT 差值,即为 BigKey 引入的额外开销。"
-echo "详细耗时来源(HGETALL 本身耗时 vs 应用侧反序列化)可查看 order-service 日志中:"
+echo "== Reproduction complete =="
+echo "The RT difference between Step 1 and Step 3 is the additional overhead introduced by the BigKey."
+echo "For detailed timing sources (HGETALL time versus application-side deserialization), check the order-service log for:"
 echo "  \"HGETALL ${REDIS_KEY} cost=...ms fieldCount=...\""
-echo "或对应 APM trace 中 opsForHash().entries 这个 span。"
+echo "or the corresponding opsForHash().entries span in the APM trace."
 echo
-echo "清理: redis-cli -h ${REDIS_HOST} -p ${REDIS_PORT} DEL ${REDIS_KEY}"
+echo "Cleanup: redis-cli -h ${REDIS_HOST} -p ${REDIS_PORT} DEL ${REDIS_KEY}"

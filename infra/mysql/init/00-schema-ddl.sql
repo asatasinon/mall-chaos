@@ -27,8 +27,8 @@ CREATE TABLE IF NOT EXISTS schema_version (
 CREATE TABLE IF NOT EXISTS users (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     nickname    VARCHAR(64)  NOT NULL,
-    level       TINYINT      NOT NULL DEFAULT 1  COMMENT '1=普通 2=VIP 3=SVIP',
-    status      TINYINT      NOT NULL DEFAULT 1  COMMENT '1=正常 0=封禁',
+    level       TINYINT      NOT NULL DEFAULT 1  COMMENT '1=Regular 2=VIP 3=SVIP',
+    status      TINYINT      NOT NULL DEFAULT 1  COMMENT '1=Active 0=Banned',
     email       VARCHAR(128),
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS products (
     sku         VARCHAR(32)     NOT NULL,
     name        VARCHAR(128)    NOT NULL,
     price       DECIMAL(10, 2)  NOT NULL,
-    status      TINYINT         NOT NULL DEFAULT 1  COMMENT '1=上架 0=下架',
+    status      TINYINT         NOT NULL DEFAULT 1  COMMENT '1=Listed 0=Delisted',
     category    VARCHAR(64),
     media_url   VARCHAR(512),
     created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -210,10 +210,10 @@ CREATE TABLE IF NOT EXISTS chaos_event_log (
 -- Operators can toggle chaos without restarting services by flipping `enabled` directly
 -- via SQL, or through the /internal/chaos/* REST endpoints (chaos profile only).
 CREATE TABLE IF NOT EXISTS chaos_switch (
-    service_name     VARCHAR(64)   NOT NULL COMMENT '注入目标服务，对应 spring.application.name',
+  service_name     VARCHAR(64)   NOT NULL COMMENT 'Target service for injection; maps to spring.application.name',
     scenario         VARCHAR(32)   NOT NULL COMMENT 'slow_sql | memory_leak | deadlock',
     enabled          TINYINT(1)    NOT NULL DEFAULT 0,
-    mode             VARCHAR(32)            DEFAULT NULL  COMMENT 'sleep | real（慢 SQL 模式）',
+    mode             VARCHAR(32)            DEFAULT NULL  COMMENT 'sleep | real (slow SQL mode)',
     delay_ms         BIGINT                 DEFAULT 1000,
     inject_rate      DOUBLE                 DEFAULT 1.0,
     duration_sec     INT                    DEFAULT 0,
@@ -221,7 +221,7 @@ CREATE TABLE IF NOT EXISTS chaos_switch (
     updated_at       TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (service_name, scenario)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-  COMMENT='Chaos 注入开关表 — 按 service+scenario 维度控制，支持 SQL 直接操作';
+  COMMENT='Chaos injection switch table - controlled by service and scenario; supports direct SQL operations';
 
 -- =============================================================================
 -- Phase 2 tables (Tasks 10-13)
@@ -292,7 +292,7 @@ CREATE TABLE IF NOT EXISTS risk_events (
 
 
 -- =============================================================================
--- 商品价格变更历史
+-- Product price change history
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS product_price_history (
     id              BIGINT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -305,10 +305,10 @@ CREATE TABLE IF NOT EXISTS product_price_history (
     created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_sku (sku)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-  COMMENT='商品价格变更历史';
+  COMMENT='Product price change history';
 
 -- =============================================================================
--- 用户行为日志
+-- User behavior log
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS user_behavior_log (
     id              BIGINT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -320,10 +320,10 @@ CREATE TABLE IF NOT EXISTS user_behavior_log (
     session_id      VARCHAR(64),
     created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-  COMMENT='用户行为日志';
+  COMMENT='User behavior log';
 
 -- =============================================================================
--- 存储增长演练记录（仅由固定目标业务服务写入）
+-- Storage growth exercise records (written only by fixed target business services)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS storage_growth_records (
     id                   BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -334,7 +334,7 @@ CREATE TABLE IF NOT EXISTS storage_growth_records (
     INDEX idx_storage_growth_run_id (run_id),
     INDEX idx_storage_growth_source_service (source_service)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-  COMMENT='存储增长演练记录';
+  COMMENT='Storage growth exercise records';
 
 -- =============================================================================
 -- Castrel Shopfront Version 1 contract tables

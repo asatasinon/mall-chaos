@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# 向 castrel:query:enrichment 注入大量字段,模拟 Redis 大 key 故障场景。
+# Inject many fields into castrel:query:enrichment to simulate a Redis BigKey failure.
 set -euo pipefail
 
 REDIS_HOST="${REDIS_HOST:-10.106.2.78}"
 REDIS_PORT="${REDIS_PORT:-16379}"
-# 使用 per-service key，避免污染全局 legacy key 而误伤其他业务服务
-# （legacy key 是所有服务共享的 fallback，注入大 key 会导致每个服务在自己的
-# per-service key 为空时都去反序列化这个大 hash，例如把只有 256MB 堆的
-# catalog-service 直接 OOM 打死）。
+# Use a per-service key to avoid polluting the global legacy key and affecting other services.
+# (The legacy key is the fallback shared by all services. Injecting a BigKey can make every
+# service deserialize the hash when its per-service key is empty, potentially OOM-killing
+# catalog-service, which has only a 256MB heap.)
 TARGET_SERVICE="${TARGET_SERVICE:-order-service}"
 REDIS_KEY="castrel:query:enrichment:${TARGET_SERVICE}"
 FIELD_COUNT="${1:-50000}"
@@ -20,9 +20,9 @@ if [[ -n "${REDIS_PASSWORD:-}" ]]; then
   REDIS_CLI_ARGS+=(-a "$REDIS_PASSWORD" --no-auth-warning)
 fi
 
-echo "目标: redis://${REDIS_HOST}:${REDIS_PORT} key=${REDIS_KEY}"
-echo "注入字段数: ${FIELD_COUNT}, 每个字段值长度: ${VALUE_SIZE} 字节, 字段起始序号: ${START_INDEX}"
-echo "注入前该 key 的字段数: $(redis-cli "${REDIS_CLI_ARGS[@]}" HLEN "$REDIS_KEY" 2>/dev/null || echo 0)"
+echo "Target: redis://${REDIS_HOST}:${REDIS_PORT} key=${REDIS_KEY}"
+echo "Fields to inject: ${FIELD_COUNT}, value size per field: ${VALUE_SIZE} bytes, starting index: ${START_INDEX}"
+echo "Field count before injection: $(redis-cli "${REDIS_CLI_ARGS[@]}" HLEN "$REDIS_KEY" 2>/dev/null || echo 0)"
 
 PADDING=$(printf 'x%.0s' $(seq 1 "$VALUE_SIZE"))
 
@@ -32,5 +32,5 @@ PADDING=$(printf 'x%.0s' $(seq 1 "$VALUE_SIZE"))
   done
 } | redis-cli "${REDIS_CLI_ARGS[@]}" --pipe
 
-echo "注入完成,当前字段数: $(redis-cli "${REDIS_CLI_ARGS[@]}" HLEN "$REDIS_KEY")"
-echo "预估占用内存: $(redis-cli "${REDIS_CLI_ARGS[@]}" MEMORY USAGE "$REDIS_KEY" 2>/dev/null || echo '(需要 Redis 4.0+)') 字节"
+echo "Injection complete, current field count: $(redis-cli "${REDIS_CLI_ARGS[@]}" HLEN "$REDIS_KEY")"
+echo "Estimated memory usage: $(redis-cli "${REDIS_CLI_ARGS[@]}" MEMORY USAGE "$REDIS_KEY" 2>/dev/null || echo '(requires Redis 4.0+)') bytes"

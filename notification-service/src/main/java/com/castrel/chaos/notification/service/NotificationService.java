@@ -73,15 +73,15 @@ public class NotificationService {
     public void notifyPaymentResult(PaymentResultRequest req) {
         BigDecimal amount = req.getAmount() != null ? req.getAmount() : req.getTotalAmount();
         String message = req.isSuccess()
-            ? String.format("【支付成功】订单 %s 支付 ¥%.2f 成功", req.getOrderNo(), amount)
-                : String.format("【支付失败】订单 %s 支付失败，请重试", req.getOrderNo());
+            ? String.format("[Payment Successful] Payment for order %s of ¥%.2f succeeded", req.getOrderNo(), amount)
+                : String.format("[Payment Failed] Payment for order %s failed. Please try again", req.getOrderNo());
         String eventType = req.isSuccess() ? "PAYMENT_SUCCESS" : "PAYMENT_FAILED";
         send(req.getEventId(), req.getUserId(), req.getOrderNo(), eventType, message);
     }
 
     @Transactional
     public void notifyShippingCreated(ShippingCreatedRequest req) {
-        String message = String.format("【已发货】您的订单已由 %s 发出，单号：%s",
+        String message = String.format("[Shipped] Your order was shipped by %s. Tracking number: %s",
                 req.getCarrier(), req.getTrackingNo());
         send(req.getEventId(), req.getUserId(), req.getOrderNo(), "SHIPPING", message);
     }

@@ -1,21 +1,21 @@
-# Alertmanager 配置 — Castrel Chaos
-# 告警路由规则：根据严重级别和标签分发告警通知
+# Alertmanager configuration - Castrel Chaos
+# Alert routing rules: distribute notifications by severity and labels
 global:
-  # 告警初始等待时间：告警触发后等待多久才发送通知
+  # Initial alert wait time: how long to wait after an alert fires before sending a notification
   resolve_timeout: 5m
 
 route:
-  # 默认接收器
+  # Default receiver
   receiver: 'default-receiver'
-  # 分组依据：相同 group_by 标签的告警合并为一条通知
+  # Grouping criteria: alerts with the same group_by labels are combined into one notification
   group_by: ['alertname', 'severity', 'service']
-  # 同组告警首次通知等待时间（积累更多告警后一起发送）
+  # Initial notification wait for a group (allow more alerts to accumulate before sending)
   group_wait: 30s
-  # 同组告警发送间隔
+  # Notification interval for the same group
   group_interval: 3m
-  # 告警重复间隔：同一条告警在 resolve 之前每隔多久重新发送
+  # Alert repeat interval: how often to resend the same alert before it resolves
   repeat_interval: 5m
-  # 子路由：按严重级别分流
+  # Child routes: split by severity
   routes:
     - receiver: 'critical-receiver'
       match:
@@ -30,19 +30,19 @@ route:
       continue: false
 
 receivers:
-  # ── 默认接收器：仅记录，不发送外部通知 ─────────────────────────────────
+  # ── Default receiver: record only; do not send external notifications ─────────────────
   - name: 'default-receiver'
     webhook_configs:
       - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'
         send_resolved: true
 
-  # ── Critical 接收器：日志 + 可配置的 webhook ────────────────────────────
+  # ── Critical receiver: logs plus configurable webhook ────────────────────────────
   - name: 'critical-receiver'
     webhook_configs:
       - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'
         send_resolved: true
 
-  # ── Warning 接收器 ──────────────────────────────────────────────────────
+  # ── Warning receiver ──────────────────────────────────────────────────────
   - name: 'warning-receiver'
     webhook_configs:
       - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'

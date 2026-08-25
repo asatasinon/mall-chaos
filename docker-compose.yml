@@ -103,7 +103,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # ─── Observability（默认启动，可手动关闭：docker compose stop prometheus alertmanager grafana loki tempo obs-auth-proxy mysqld-exporter node-exporter promtail）──
+  # ─── Observability (starts by default; stop manually with: docker compose stop prometheus alertmanager grafana loki tempo obs-auth-proxy mysqld-exporter node-exporter promtail) ──
 
   prometheus:
     image: ${PROMETHEUS_IMAGE:-harbor.cloudwise.com/noname/prometheus:v3.11.2}
@@ -683,9 +683,9 @@ services:
       <<: *healthcheck-defaults
 
   # ─── SkyWalking（opt-in：docker compose --profile skywalking up -d）──────────
-  # TRACING_MODE=sw-only  → 仅 SkyWalking agent，停用 OTel
-  # TRACING_MODE=both     → OTel + SkyWalking 同时上报
-  # TRACING_MODE=otel-only（默认）→ 无需启动此 profile
+  # TRACING_MODE=sw-only  → SkyWalking agent only; OTel disabled
+  # TRACING_MODE=both     → Report to OTel and SkyWalking simultaneously
+  # TRACING_MODE=otel-only (default) → This profile is not required
 
   skywalking-oap:
     image: ${SKYWALKING_OAP_IMAGE:-apache/skywalking-oap-server:${SKYWALKING_VERSION:-10.2.0}}
@@ -740,7 +740,7 @@ services:
       REDIS_ADDR: redis://redis:6379
       REDIS_EXPORTER_CHECK_SINGLE_KEYS: "castrel:query:enrichment:order-service,castrel:query:enrichment:user-service,castrel:query:enrichment:catalog-service,castrel:query:enrichment:inventory-service,castrel:query:enrichment:payment-service,castrel:query:enrichment:promotion-service,castrel:query:enrichment:risk-service,castrel:query:enrichment:fulfillment-service,castrel:query:enrichment:notification-service,castrel:query:enrichment"
     ports:
-      - "19121:9121"   # 可选，不映射也可以
+      - "19121:9121"   # Optional; this port can also remain unmapped
     depends_on:
       redis:
         condition: service_healthy
