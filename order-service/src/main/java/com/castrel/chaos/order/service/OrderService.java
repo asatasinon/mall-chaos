@@ -305,12 +305,14 @@ public class OrderService {
         boolean unknown = "UNKNOWN".equals(request.getStatus());
         String status = success ? "PAID" : unknown ? "PENDING_PAYMENT" : "PAYMENT_FAILED";
         String reason = success || unknown ? null : request.getResultCode();
+        String paymentId = request.getPaymentId() == null
+            ? request.getPaymentNo() : String.valueOf(request.getPaymentId());
         if (orderRepository.applyPaymentResult(order.getOrderNo(), order.getVersion(), status,
-                request.getPaymentNo(), reason) == 0) {
+            paymentId, reason) == 0) {
             throw new BizException("ORDER_STATE_CONFLICT", "Payment result lost order state race");
         }
         order.setStatus(status);
-        order.setPaymentId(request.getPaymentNo());
+        order.setPaymentId(paymentId);
         order.setFailReason(reason);
         order.setVersion(order.getVersion() + 1);
         if (success) {
@@ -360,7 +362,13 @@ public class OrderService {
             String retryReservation = order.getOrderNo() + ":retry:" + item.getSku() + ":" + order.getVersion();
             clients.reserveInventory(order.getOrderNo(), item.getSku(), item.getQuantity(), retryReservation, retryReservation);
         }
-        return clients.retryPayment(Long.valueOf(order.getPaymentId()));
+        final Long paymentId;
+        try {
+            paymentId = Long.valueOf(order.getPaymentId());
+        } catch (NumberFormatException exception) {
+            throw new BizException("PAYMENT_NOT_RETRYABLE", "Order payment reference is invalid");
+        }
+        return clients.retryPayment(paymentId);
     }
 
     @Transactional

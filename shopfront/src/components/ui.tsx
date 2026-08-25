@@ -5,7 +5,7 @@ import type { Product } from '@/lib/types';
 import { money } from '@/lib/api';
 
 export function ErrorNotice({ message, retry }: { message: string; retry?: () => void }) {
-  return <div className="alert"><AlertCircle size={17} /><div><strong>这一步暂时没有完成</strong>{message}{retry && <button className="btn ghost" onClick={retry} style={{ marginTop: 10 }}>再试一次</button>}</div></div>;
+  return <div className="alert"><AlertCircle size={17} /><div>{message}{retry && <button className="btn ghost" onClick={retry} style={{ marginTop: 10 }}>再试一次</button>}</div></div>;
 }
 
 export function EmptyState({ title, body, href, action }: { title: string; body: string; href?: string; action?: string }) {

@@ -18,17 +18,17 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Page<Order> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("update Order o set o.status = 'CANCELLED', o.updatedAt = CURRENT_TIMESTAMP, o.version = o.version + 1 "
             + "where o.id = :id and o.version = :version and o.status in ('PENDING', 'PENDING_PAYMENT')")
     int cancelPending(@Param("id") Long id, @Param("version") Integer version);
 
-        @Modifying
+        @Modifying(clearAutomatically = true)
         @Query("update Order o set o.status = 'PAID', o.paymentId = :paymentId, o.updatedAt = CURRENT_TIMESTAMP, "
             + "o.version = o.version + 1 where o.id = :id and o.version = :version and o.status = 'PENDING_PAYMENT'")
         int markPaid(@Param("id") Long id, @Param("version") Integer version, @Param("paymentId") String paymentId);
 
-            @Modifying
+            @Modifying(clearAutomatically = true)
             @Query("update Order o set o.status = :status, o.paymentId = :paymentId, o.failReason = :failReason, "
                 + "o.updatedAt = CURRENT_TIMESTAMP, o.version = o.version + 1 "
                 + "where o.orderNo = :orderNo and o.version = :version and o.status = 'PENDING_PAYMENT'")
@@ -36,7 +36,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
                        @Param("status") String status, @Param("paymentId") String paymentId,
                        @Param("failReason") String failReason);
 
-            @Modifying
+            @Modifying(clearAutomatically = true)
             @Query("update Order o set o.status = 'PAYMENT_FAILED', o.failReason = 'RESERVATION_EXPIRED', "
                 + "o.updatedAt = CURRENT_TIMESTAMP, o.version = o.version + 1 "
                 + "where o.id = :id and o.version = :version and o.status = 'PENDING_PAYMENT'")

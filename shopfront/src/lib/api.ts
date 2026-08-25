@@ -59,7 +59,7 @@ export const clearCart = () => api<Cart>('cart', { method: 'DELETE' });
 export const getOrders = (page = 0) => api<Page<Order>>(`orders?page=${page}&size=20`);
 export const getOrder = (id: string | number) => api<Order>(`orders/${id}`);
 export const cancelOrder = (id: number) => api<Order>(`orders/${id}/cancel`, { method: 'POST' });
-export const retryPayment = (id: number) => api<{ paymentId?: number; payment?: Payment }>(`orders/${id}/payment-retry`, { method: 'POST' });
+export const retryPayment = (id: number) => api<Payment>(`orders/${id}/payment-retry`, { method: 'POST' });
 export const createPaymentIntent = (orderId: number, idempotencyKey: string) =>
   api<Payment>(`orders/${orderId}/payment-intents`, { method: 'POST', body: JSON.stringify({ idempotencyKey }) });
 export const confirmPayment = (id: string | number) => api<Payment>(`payments/${id}/confirm`, { method: 'POST' });
