@@ -59,6 +59,11 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
                     headers.remove("X-User-Role");
                     headers.remove("X-Auth-Actor");
                     headers.remove("X-Downstream-Principal");
+                    headers.remove("X-Traffic-Runner-Credential");
+                    headers.remove("X-Traffic-Runner-Customer-Id");
+                    headers.remove("X-Traffic-Run-Id");
+                    headers.remove("X-Traffic-Runner-Action");
+                    headers.remove("X-Traffic-Runner-Payment-Strategy");
                 }))
                 .build();
 

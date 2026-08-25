@@ -6,6 +6,7 @@ import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.promotion.dto.PromotionRequest;
 import com.castrel.chaos.promotion.dto.PromotionResultDTO;
 import com.castrel.chaos.promotion.dto.SkuItem;
+import com.castrel.chaos.promotion.dto.CouponCandidateDTO;
 import com.castrel.chaos.promotion.entity.Coupon;
 import com.castrel.chaos.promotion.entity.Promotion;
 import com.castrel.chaos.promotion.repository.CouponRepository;
@@ -76,6 +77,38 @@ public class PromotionService {
         BigDecimal original = calcOriginal(req.getSkus());
         return applyPromotions(req.getUserId(), original, false, null, req.getOrderId(), req.getCouponId());
     }
+
+        @Transactional(readOnly = true)
+        public List<CouponCandidateDTO> findAvailableCoupons(Long userId) {
+        if (userId == null) {
+            throw new BizException("CUSTOMER_PRINCIPAL_REQUIRED", "Customer principal is required");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        Map<Long, Promotion> activePromotions = promotionRepository.findAll().stream()
+            .filter(promotion -> isActive(promotion, now))
+            .filter(promotion -> "DISCOUNT".equals(promotion.getType())
+                || "COUPON".equals(promotion.getType()))
+            .collect(java.util.stream.Collectors.toMap(Promotion::getId, promotion -> promotion));
+
+        return couponRepository.findByUserIdAndStatus(userId, 0).stream()
+            .filter(coupon -> coupon.getExpireAt() == null || coupon.getExpireAt().isAfter(now))
+            .map(coupon -> Map.entry(coupon, activePromotions.get(coupon.getPromotionId())))
+            .filter(entry -> entry.getValue() != null)
+            .map(entry -> {
+                Coupon coupon = entry.getKey();
+                Promotion promotion = entry.getValue();
+                return new CouponCandidateDTO(
+                    coupon.getId(),
+                    promotion.getType(),
+                    promotion.getName(),
+                    promotion.getMinAmount(),
+                    promotion.getDiscount(),
+                    promotion.getReduceAmt(),
+                    coupon.getExpireAt(),
+                    "AVAILABLE");
+            })
+            .toList();
+        }
 
     @Transactional
     public PromotionResultDTO calculate(PromotionRequest req) {
@@ -166,12 +199,16 @@ public class PromotionService {
     private PromotionResultDTO applyPromotions(Long userId, BigDecimal original,
                                                 boolean lockCoupon, Long lockUserId, String orderId,
                                                 Long requestedCouponId) {
+        LocalDateTime now = LocalDateTime.now();
         List<Promotion> active = promotionRepository
-                .findByEnabledAndEndAtAfterOrEndAtIsNull(1, LocalDateTime.now());
+            .findByEnabledAndEndAtAfterOrEndAtIsNull(1, now).stream()
+            .filter(promotion -> isActive(promotion, now))
+            .toList();
 
         List<PromotionResultDTO.AppliedPromotion> applied = new ArrayList<>();
         BigDecimal remaining = original;
         Long usedCouponId = null;
+        boolean couponEligible = false;
 
         // Step 1: apply best FULL_REDUCTION
         Optional<Promotion> bestReduction = active.stream()
@@ -190,48 +227,68 @@ public class PromotionService {
             applied.add(ap);
         }
 
-        // Step 2: apply one DISCOUNT coupon for the user
-        if (userId != null) {
-            List<Coupon> userCoupons = couponRepository.findByUserIdAndStatus(userId, 0);
-            for (Coupon coupon : userCoupons) {
-                if (requestedCouponId != null && !requestedCouponId.equals(coupon.getId())) continue;
-                Optional<Promotion> promoOpt = active.stream()
-                        .filter(p -> p.getId().equals(coupon.getPromotionId()))
-                        .filter(p -> "DISCOUNT".equals(p.getType()) || "COUPON".equals(p.getType()))
-                        .findFirst();
-                if (promoOpt.isPresent()) {
-                    Promotion promo = promoOpt.get();
-                    BigDecimal discountRate = promo.getDiscount() != null ? promo.getDiscount() : BigDecimal.ONE;
-                    BigDecimal saving = remaining.subtract(remaining.multiply(discountRate)).setScale(2, RoundingMode.HALF_UP);
-                    remaining = remaining.subtract(saving);
-
-                    if (lockCoupon) {
-                        coupon.setStatus(1);
-                        coupon.setUsedAt(LocalDateTime.now());
-                        couponRepository.save(coupon);
-                        CouponReservation reservation = new CouponReservation();
-                        reservation.setCouponId(coupon.getId());
-                        reservation.setOrderId(orderId);
-                        reservation.setCustomerId(lockUserId);
-                        reservation.setStatus("RESERVED");
-                        reservation.setOperationId("coupon:" + orderId + ":" + coupon.getId());
-                        reservation.setExpiresAt(LocalDateTime.now().plusMinutes(15));
-                        reservation.setCreatedAt(LocalDateTime.now());
-                        reservation.setUpdatedAt(LocalDateTime.now());
-                        reservationRepository.save(reservation);
-                        usedCouponId = coupon.getId();
-                    }
-
-                    PromotionResultDTO.AppliedPromotion ap = new PromotionResultDTO.AppliedPromotion();
-                    ap.setPromotionId(promo.getId());
-                    ap.setPromotionName(promo.getName());
-                    ap.setType(promo.getType());
-                    ap.setSaving(saving);
-                    applied.add(ap);
-                    break; // only one coupon
-                }
+        // A missing coupon id is an explicit no-coupon checkout.
+        if (userId != null && requestedCouponId != null) {
+            Coupon coupon = lockCoupon
+                    ? couponRepository.findByIdForUpdate(requestedCouponId).orElse(null)
+                    : couponRepository.findByUserIdAndStatus(userId, 0).stream()
+                            .filter(candidate -> requestedCouponId.equals(candidate.getId()))
+                            .findFirst()
+                            .orElse(null);
+            if (coupon == null || !userId.equals(coupon.getUserId())) {
+                throw new BizException("COUPON_INELIGIBLE", "Coupon is not eligible for this order");
             }
-            if (requestedCouponId != null && usedCouponId == null) {
+            if (lockCoupon && coupon.getStatus() != 0) {
+                throw new BizException(coupon.getStatus() == 1
+                        ? "COUPON_ALREADY_RESERVED" : "COUPON_INELIGIBLE",
+                        coupon.getStatus() == 1 ? "Coupon is already reserved" : "Coupon is not eligible");
+            }
+            if (coupon.getExpireAt() != null && !coupon.getExpireAt().isAfter(now)) {
+                throw new BizException("COUPON_INELIGIBLE", "Coupon is expired");
+            }
+            Optional<Promotion> promoOpt = active.stream()
+                    .filter(p -> p.getId().equals(coupon.getPromotionId()))
+                    .filter(p -> "DISCOUNT".equals(p.getType()) || "COUPON".equals(p.getType()))
+                    .filter(p -> original.compareTo(p.getMinAmount()) >= 0)
+                    .findFirst();
+            if (promoOpt.isPresent()) {
+                couponEligible = true;
+                Promotion promo = promoOpt.get();
+                BigDecimal saving;
+                if ("DISCOUNT".equals(promo.getType())) {
+                    BigDecimal discountRate = promo.getDiscount() != null ? promo.getDiscount() : BigDecimal.ONE;
+                    saving = remaining.subtract(remaining.multiply(discountRate))
+                            .setScale(2, RoundingMode.HALF_UP);
+                } else {
+                    saving = promo.getReduceAmt() != null ? promo.getReduceAmt() : BigDecimal.ZERO;
+                }
+                remaining = remaining.subtract(saving);
+
+                if (lockCoupon) {
+                    coupon.setStatus(1);
+                    coupon.setUsedAt(null);
+                    couponRepository.save(coupon);
+                    CouponReservation reservation = new CouponReservation();
+                    reservation.setCouponId(coupon.getId());
+                    reservation.setOrderId(orderId);
+                    reservation.setCustomerId(lockUserId);
+                    reservation.setStatus("RESERVED");
+                    reservation.setOperationId("coupon:" + orderId + ":" + coupon.getId());
+                    reservation.setExpiresAt(now.plusMinutes(15));
+                    reservation.setCreatedAt(now);
+                    reservation.setUpdatedAt(now);
+                    reservationRepository.save(reservation);
+                    usedCouponId = coupon.getId();
+                }
+
+                PromotionResultDTO.AppliedPromotion ap = new PromotionResultDTO.AppliedPromotion();
+                ap.setPromotionId(promo.getId());
+                ap.setPromotionName(promo.getName());
+                ap.setType(promo.getType());
+                ap.setSaving(saving);
+                applied.add(ap);
+            }
+            if (!couponEligible) {
                 throw new BizException("COUPON_INELIGIBLE", "Coupon is not eligible for this order");
             }
         }
@@ -252,12 +309,18 @@ public class PromotionService {
         return dto;
     }
 
+    private boolean isActive(Promotion promotion, LocalDateTime now) {
+        return promotion.getEnabled() != null && promotion.getEnabled() == 1
+                && (promotion.getStartAt() == null || !promotion.getStartAt().isAfter(now))
+                && (promotion.getEndAt() == null || promotion.getEndAt().isAfter(now));
+    }
+
     @Transactional
     public void releaseReservation(String orderId, Long couponId) {
-        CouponReservation reservation = reservationRepository.findByOrderIdAndCouponId(orderId, couponId)
+        CouponReservation reservation = reservationRepository.findByOrderIdAndCouponIdForUpdate(orderId, couponId)
                 .orElseThrow(() -> new BizException("COUPON_RESERVATION_NOT_FOUND", "Coupon reservation not found"));
         if (!"RESERVED".equals(reservation.getStatus())) return;
-        couponRepository.findById(couponId).ifPresent(coupon -> {
+        couponRepository.findByIdForUpdate(couponId).ifPresent(coupon -> {
             coupon.setStatus(0);
             coupon.setUsedAt(null);
             couponRepository.save(coupon);
@@ -269,9 +332,14 @@ public class PromotionService {
 
     @Transactional
     public void confirmReservation(String orderId, Long couponId) {
-        CouponReservation reservation = reservationRepository.findByOrderIdAndCouponId(orderId, couponId)
+        CouponReservation reservation = reservationRepository.findByOrderIdAndCouponIdForUpdate(orderId, couponId)
                 .orElseThrow(() -> new BizException("COUPON_RESERVATION_NOT_FOUND", "Coupon reservation not found"));
         if ("RESERVED".equals(reservation.getStatus())) {
+            couponRepository.findByIdForUpdate(couponId).ifPresent(coupon -> {
+                coupon.setStatus(2);
+                coupon.setUsedAt(LocalDateTime.now());
+                couponRepository.save(coupon);
+            });
             reservation.setStatus("USED");
             reservation.setUpdatedAt(LocalDateTime.now());
             reservationRepository.save(reservation);

@@ -406,7 +406,7 @@ CREATE TABLE IF NOT EXISTS coupons (
     id              BIGINT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id         BIGINT          NOT NULL,
     promotion_id    BIGINT          NOT NULL,
-    status          TINYINT         NOT NULL DEFAULT 0 COMMENT '0=未使用 1=已使用',
+    status          TINYINT         NOT NULL DEFAULT 0 COMMENT '0=AVAILABLE 1=RESERVED 2=USED',
     expire_at       DATETIME,
     used_at         DATETIME,
     INDEX idx_user_id (user_id),

@@ -1,17 +1,51 @@
 package com.castrel.chaos.promotion.controller;
 
 import com.castrel.chaos.common.ApiResponse;
+import com.castrel.chaos.common.BizException;
+import com.castrel.chaos.common.security.JwtTokenService;
+import com.castrel.chaos.promotion.dto.CouponCandidateDTO;
 import com.castrel.chaos.promotion.dto.PromotionRequest;
 import com.castrel.chaos.promotion.dto.PromotionResultDTO;
 import com.castrel.chaos.promotion.service.PromotionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 public class PromotionController {
 
     @Autowired
     private PromotionService promotionService;
+
+    @Autowired
+    private JwtTokenService jwtTokenService;
+
+    @GetMapping("/api/me/coupons")
+    public ApiResponse<List<CouponCandidateDTO>> coupons(
+            @RequestParam(defaultValue = "AVAILABLE") String status,
+            @RequestHeader(value = "X-Downstream-Principal", required = false) String downstreamPrincipal) {
+        if (!"AVAILABLE".equalsIgnoreCase(status)) {
+            throw new BizException("INVALID_COUPON_STATUS", "Only AVAILABLE coupons can be queried");
+        }
+        return ApiResponse.ok(promotionService.findAvailableCoupons(customerId(downstreamPrincipal)));
+    }
+
+    private Long customerId(String downstreamPrincipal) {
+        if (downstreamPrincipal == null || downstreamPrincipal.isBlank()) {
+            throw new BizException("CUSTOMER_PRINCIPAL_REQUIRED", "Customer principal is required");
+        }
+        try {
+            JwtTokenService.DownstreamPrincipal principal =
+                    jwtTokenService.verifyDownstreamPrincipal(downstreamPrincipal);
+            if (!principal.allowedActions().contains("CUSTOMER_API")) {
+                throw new BizException("CUSTOMER_PRINCIPAL_REQUIRED", "Customer principal is required");
+            }
+            return principal.customerId();
+        } catch (IllegalArgumentException exception) {
+            throw new BizException("CUSTOMER_PRINCIPAL_REQUIRED", "Customer principal is required", exception);
+        }
+    }
 
     @PostMapping("/api/promotions/preview")
     public ApiResponse<PromotionResultDTO> preview(@RequestBody PromotionRequest req) {

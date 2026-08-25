@@ -22,6 +22,10 @@ spring:
             allowedHeaders: "*"
             allowCredentials: false
       routes:
+        - id: promotion-customer-coupons
+          uri: ${PROMOTION_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/me/coupons,/api/me/coupons/**
         - id: cart
           uri: ${CART_SERVICE_URL:http://localhost:8091}
           predicates:

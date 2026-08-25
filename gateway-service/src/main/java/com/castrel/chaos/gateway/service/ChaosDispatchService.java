@@ -46,17 +46,17 @@ public class ChaosDispatchService {
         }
 
         return Flux.fromIterable(validTargets)
-                .flatMap(service -> forwardPost(service, subPath, body, traceId)
-                        .map(result -> Map.entry(service, (Object) result))
+            .flatMap(service -> forwardPost(service, subPath, body, traceId, List.of("CHAOS_DISPATCH"))
+                .map(result -> Map.<String, Object>entry(service, result))
                         .onErrorResume(e -> {
                             log.warn("Dispatch to {} failed: {}", service, e.getMessage());
-                            return Mono.just(Map.entry(service, (Object) Map.of("error", e.getMessage())));
+                    return Mono.just(Map.<String, Object>entry(service, Map.of("error", e.getMessage())));
                         })
                 )
                 .collectList()
                 .map(entries -> {
                     Map<String, Object> result = new LinkedHashMap<>();
-                    for (var entry : entries) {
+                for (Map.Entry<String, Object> entry : entries) {
                         result.put(entry.getKey(), entry.getValue());
                     }
                     return result;
@@ -103,7 +103,16 @@ public class ChaosDispatchService {
             Object body,
             String traceId
     ) {
-        return forwardPost(serviceName, subPath, body, traceId);
+        return forwardPost(serviceName, subPath, body, traceId, List.of("CHAOS_DISPATCH"));
+        }
+
+        public Mono<Object> postToServiceAsInternal(
+            String serviceName,
+            String subPath,
+            Object body,
+            String traceId
+        ) {
+        return forwardPost(serviceName, subPath, body, traceId, List.of("TRAFFIC_REPLENISH"));
     }
 
     public Mono<Object> getFromService(
@@ -120,7 +129,8 @@ public class ChaosDispatchService {
                 .toList();
     }
 
-    private Mono<Object> forwardPost(String serviceName, String subPath, Object body, String traceId) {
+        private Mono<Object> forwardPost(
+            String serviceName, String subPath, Object body, String traceId, List<String> allowedActions) {
         String baseUrl = props.getServiceUrl(serviceName);
         if (baseUrl == null) {
             return Mono.error(new IllegalArgumentException("Unknown service: " + serviceName));
@@ -136,7 +146,7 @@ public class ChaosDispatchService {
         }
         request.header("X-Downstream-Principal",
             jwtTokenService.issueDownstreamPrincipal(0L, traceId == null ? "" : traceId,
-                List.of("CHAOS_DISPATCH")));
+                allowedActions));
         return request
                 .bodyValue(body)
                 .retrieve()

@@ -21,7 +21,7 @@ public class Coupon {
     private Long promotionId;
 
     @Column(nullable = false)
-    private Integer status = 0; // 0=未使用, 1=已使用
+    private Integer status = 0; // 0=AVAILABLE, 1=RESERVED, 2=USED
 
     @Column(name = "expire_at")
     private LocalDateTime expireAt;
