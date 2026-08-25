@@ -29,6 +29,7 @@ export class RunnerEngine {
   private lastConfigCheckAt = 0;
   private trafficRunId: string | null = null;
   private trafficRunPersistence: Promise<void> | null = null;
+  private lifecycleAbortController: AbortController | null = null;
   private readonly orchestrator = new TrafficActionOrchestrator();
 
   constructor() {
@@ -64,6 +65,8 @@ export class RunnerEngine {
 
   stop(): void {
     this.running = false;
+    this.lifecycleAbortController?.abort();
+    this.lifecycleAbortController = null;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -144,18 +147,26 @@ export class RunnerEngine {
     const t0 = Date.now();
     const trafficRunId = this.trafficRunId;
     if (this.trafficRunPersistence) await this.trafficRunPersistence;
-    const result = await this.orchestrator.execute(action, trafficRunId, {
+    const lifecycleAbortController = new AbortController();
+    this.lifecycleAbortController = lifecycleAbortController;
+    const result = await this.orchestrator.executeLifecycle(trafficRunId, {
       maxItems: this.config.maxItems,
       maxItemQuantity: this.config.maxItemQuantity,
       paymentSuccessRatio: this.config.successfulPaymentRatio,
-    });
+      couponUsageRatio: this.config.couponUsageRatio,
+    }, { signal: lifecycleAbortController.signal });
+    if (this.lifecycleAbortController === lifecycleAbortController) {
+      this.lifecycleAbortController = null;
+    }
     const latencyMs = Date.now() - t0;
     this.totalRequests++;
     this.window.push({ ts: t0, success: result.success });
-    void this.persistAction(result, action, latencyMs, trafficRunId);
+    if (!result.lifecycleId) {
+      void this.persistAction(result, action, latencyMs, trafficRunId);
+    }
     void pushActivity({
       ts: t0,
-      action,
+      action: result.lifecycleId ? 'CUSTOMER_LIFECYCLE' : action,
       success: result.success,
       latencyMs,
       trafficRunId,

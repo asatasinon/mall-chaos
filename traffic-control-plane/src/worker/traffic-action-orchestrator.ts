@@ -1,17 +1,16 @@
 import { v4 as uuidv4 } from 'uuid';
-import { GatewayClient, getGatewayClient, RunnerRequestContext } from '../lib/gateway-client';
 import {
-  loadRunnerCustomerIds,
-  RunnerOrderRef,
+  CustomerRequestContext,
+  GatewayClient,
+  getGatewayClient,
+} from '../lib/gateway-client';
+import {
+  recordTrafficAction,
+  recordTrafficLifecycle,
+  TrafficActionRecord,
+  TrafficLifecycleRecord,
 } from '../lib/runner-persistence';
-import {
-  popPaidOrder,
-  popPendingOrder,
-  popRunnerOrder,
-  pushPaidOrder,
-  pushPendingOrder,
-  pushRunnerOrder,
-} from '../lib/runtime-state';
+import { CustomerSessionManager } from './customer-session-manager';
 
 export const RUNNER_ACTIONS = [
   'BROWSE_PRODUCT',
@@ -31,26 +30,56 @@ export interface RunnerExecutionConfig {
   maxItems: number;
   maxItemQuantity: number;
   paymentSuccessRatio: number;
+  couponUsageRatio?: number;
+}
+
+export interface LifecycleStepResult {
+  actionId: string;
+  lifecycleId: string;
+  actionType: string;
+  status: 'SUCCESS' | 'FAILED' | 'NOOP' | 'INTERRUPTED';
+  success: boolean;
+  resultCode?: string;
+  errorCode?: string;
+  orderId?: string;
+  paymentId?: string;
+  cartVersion?: number;
+  latencyMs: number;
+  faultScenarioId?: string;
 }
 
 export interface RunnerActionResult {
   actionId: string;
+  lifecycleId?: string;
   customerId: number;
   traceId: string;
   success: boolean;
-  status: 'SUCCESS' | 'FAILED' | 'NOOP';
+  status: 'SUCCESS' | 'FAILED' | 'NOOP' | 'INTERRUPTED';
   resultCode?: string;
   errorCode?: string;
   orderId?: string;
   orderNo?: string;
   paymentId?: string;
   cartVersion?: number;
+  pendingPaymentRetained?: boolean;
+  faultScenarioId?: string;
+  steps?: LifecycleStepResult[];
 }
 
 interface ApiEnvelope<T> {
   data?: T;
   code?: string | number;
-  message?: string;
+}
+
+interface ProductData {
+  sku: string;
+  price?: number | string;
+  status?: number | boolean;
+  availableQty?: number;
+}
+
+interface ProductPage {
+  content?: ProductData[];
 }
 
 interface CartData {
@@ -64,291 +93,370 @@ interface AddressData {
   isDefault?: boolean | number;
 }
 
+interface CouponData {
+  id: number;
+  minAmount?: number | string;
+  expireAt?: string;
+}
+
 interface OrderData {
   id: number;
   orderNo: string;
   status: string;
-  amount?: number | string;
-  totalAmount?: number | string;
-  paymentId?: string;
 }
 
 interface PaymentData {
   id: number;
-  orderNo: string;
   status: string;
-  resultCode?: string;
 }
 
-const SKUS = Array.from({ length: 50 }, (_, index) => `SKU-${String(index + 1).padStart(3, '0')}`);
-const CATEGORIES = ['数码', '家居', '运动', '图书', '服饰'];
+interface StepValue<T> {
+  status: 'SUCCESS' | 'FAILED' | 'NOOP' | 'INTERRUPTED';
+  success: boolean;
+  value?: T;
+  resultCode?: string;
+  errorCode?: string;
+}
+
+export interface LifecycleExecutionOptions {
+  faultScenarioId?: string;
+  signal?: AbortSignal;
+}
+
+interface LifecyclePersistence {
+  recordTrafficAction: (record: TrafficActionRecord) => Promise<void>;
+  recordTrafficLifecycle: (record: TrafficLifecycleRecord) => Promise<void>;
+}
 
 export class TrafficActionOrchestrator {
-  constructor(private readonly gateway: GatewayClient = getGatewayClient()) {}
+  private readonly gateway: GatewayClient;
+  private readonly sessions: CustomerSessionManager;
+  private readonly persistence: LifecyclePersistence;
+  private currentTrafficRunId = '';
+  private currentTraceId = '';
+  private currentCustomerId = 0;
+
+  constructor(
+    gateway: GatewayClient = getGatewayClient(),
+    sessions: CustomerSessionManager = new CustomerSessionManager({ gateway }),
+    persistence: LifecyclePersistence = { recordTrafficAction, recordTrafficLifecycle },
+  ) {
+    this.gateway = gateway;
+    this.sessions = sessions;
+    this.persistence = persistence;
+  }
+
+  async executeLifecycle(
+    trafficRunId: string,
+    config: RunnerExecutionConfig,
+    options: LifecycleExecutionOptions = {},
+  ): Promise<RunnerActionResult> {
+    const lifecycleId = uuidv4();
+    const traceId = uuidv4().replace(/-/g, '');
+    const steps: LifecycleStepResult[] = [];
+    let context: CustomerRequestContext | null = null;
+    let customerId = 0;
+    let order: OrderData | undefined;
+    let paymentId: string | undefined;
+    let pendingPaymentRetained = false;
+    const startedAt = Date.now();
+    this.currentTrafficRunId = trafficRunId;
+    this.currentTraceId = traceId;
+    this.currentCustomerId = 0;
+
+    try {
+      context = await this.sessions.openSession(trafficRunId, lifecycleId, traceId);
+      customerId = context.session.customerId;
+      this.currentCustomerId = customerId;
+      await this.recordStep(steps, lifecycleId, 'LOGIN', 'SUCCESS', true, undefined, options.faultScenarioId);
+      this.throwIfInterrupted(options.signal);
+
+      const products = await this.runStep(steps, lifecycleId, 'BROWSE_CATALOG', options, () =>
+        this.findSellableProducts(context!, options.signal));
+      if (products.status === 'NOOP') {
+        return this.finish(lifecycleId, customerId, traceId, steps, 'NOOP', products.resultCode,
+          options.faultScenarioId, Date.now() - startedAt);
+      }
+      this.throwIfInterrupted(options.signal);
+
+      const initialCart = await this.runStep(steps, lifecycleId, 'CART_READ_INITIAL', options, () =>
+        this.gateway.customerGet<ApiEnvelope<CartData>>('/api/cart', undefined, context!));
+      const cart = initialCart.value?.data;
+      if (!cart) throw new Error('CART_READ_FAILED');
+
+      const selected = this.selectProducts(products.value ?? [], cart, config.maxItems);
+      if (selected.length === 0) {
+        await this.recordStep(steps, lifecycleId, 'CART_REUSED', 'NOOP', true, 'CART_REUSED', options.faultScenarioId);
+      } else {
+        for (const product of selected) {
+          this.throwIfInterrupted(options.signal);
+          const added = await this.runStep(steps, lifecycleId, 'ADD_CART_ITEM', options, () =>
+            this.gateway.customerPost<ApiEnvelope<CartData>>('/api/cart/items', {
+              sku: product.sku,
+              quantity: randomQuantity(config.maxItemQuantity),
+            }, context!));
+          if (!added.value?.data) throw new Error('ADD_CART_FAILED');
+        }
+      }
+
+      const readyCartResult = await this.runStep(steps, lifecycleId, 'CART_READ_READY', options, () =>
+        this.gateway.customerGet<ApiEnvelope<CartData>>('/api/cart', undefined, context!));
+      const readyCart = readyCartResult.value?.data;
+      if (!readyCart?.items?.length) throw new Error('CART_EMPTY');
+      steps[steps.length - 1].cartVersion = readyCart.version;
+
+      const addresses = await this.runStep(steps, lifecycleId, 'ADDRESS_READ', options, () =>
+        this.gateway.customerGet<ApiEnvelope<AddressData[]>>('/api/me/addresses', undefined, context!));
+      let address = addresses.value?.data?.find((item) => item.isDefault === true || item.isDefault === 1)
+        ?? addresses.value?.data?.[0];
+      if (!address?.id) {
+        const created = await this.runStep(steps, lifecycleId, 'ADDRESS_CREATE', options, () =>
+          this.gateway.customerPost<ApiEnvelope<AddressData>>('/api/me/addresses', {
+            province: '上海市', city: '上海市', district: '浦东新区',
+            detail: `演示客户${customerId}默认地址`, receiver: `演示客户${customerId}`,
+            phone: '13800138000', isDefault: true,
+          }, context!));
+        address = created.value?.data;
+      }
+      if (!address?.id) throw new Error('ADDRESS_NOT_FOUND');
+      this.throwIfInterrupted(options.signal);
+
+      let couponId: number | undefined;
+      if (Math.random() < (config.couponUsageRatio ?? 0)) {
+        const cartTotal = await this.runStep(steps, lifecycleId, 'CART_TOTAL_READ', options, () =>
+          this.estimateCartTotal(readyCart, products.value ?? [], context!));
+        const coupon = await this.runStep(steps, lifecycleId, 'COUPON_SELECT', options, async () => {
+          const response = await this.gateway.customerGet<ApiEnvelope<CouponData[]>>(
+            '/api/me/coupons', { status: 'AVAILABLE' }, context!);
+          const candidates = (response.data ?? []).filter((item) =>
+            (item.expireAt === undefined || new Date(item.expireAt).getTime() > Date.now())
+              && Number(item.minAmount ?? 0) <= (cartTotal.value ?? 0));
+          const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+          return chosen
+            ? { status: 'SUCCESS' as const, success: true, value: chosen }
+            : { status: 'NOOP' as const, success: true, resultCode: 'COUPON_UNAVAILABLE' };
+        });
+        couponId = coupon.value?.id;
+      } else {
+        await this.recordStep(steps, lifecycleId, 'COUPON_SELECT', 'NOOP', true,
+          'NO_COUPON_REQUESTED', options.faultScenarioId);
+      }
+
+      const checkout = await this.runStep(steps, lifecycleId, 'CHECKOUT', options, () =>
+        this.gateway.customerPost<ApiEnvelope<OrderData>>('/api/checkout', {
+          cartId: readyCart.id,
+          cartVersion: readyCart.version,
+          addressId: address!.id,
+          ...(couponId === undefined ? {} : { couponId }),
+          idempotencyKey: `lifecycle-checkout-${lifecycleId}`,
+        }, context!));
+      order = checkout.value?.data;
+      if (!order?.id || order.status !== 'PENDING_PAYMENT') throw new Error('CHECKOUT_NOT_PENDING_PAYMENT');
+      pendingPaymentRetained = true;
+
+      const createdOrder = await this.runStep(steps, lifecycleId, 'QUERY_CREATED_ORDER', options, () =>
+        this.gateway.customerGet<ApiEnvelope<OrderData>>(`/api/orders/${order!.id}`, undefined, context!));
+      if (createdOrder.value?.data?.status !== 'PENDING_PAYMENT') throw new Error('CREATED_ORDER_NOT_PENDING_PAYMENT');
+
+      this.throwIfInterrupted(options.signal);
+      if (Math.random() < config.paymentSuccessRatio) {
+        const intent = await this.runStep(steps, lifecycleId, 'PAYMENT_INTENT', options, () =>
+          this.gateway.customerPost<ApiEnvelope<PaymentData>>(`/api/orders/${order!.id}/payment-intents`, {
+            idempotencyKey: `lifecycle-payment-${lifecycleId}`,
+          }, context!));
+        paymentId = intent.value?.data?.id === undefined ? undefined : String(intent.value.data.id);
+        if (!paymentId) throw new Error('PAYMENT_INTENT_FAILED');
+        const confirmation = await this.runStep(steps, lifecycleId, 'PAYMENT_CONFIRM', options, () =>
+          this.gateway.customerPost<ApiEnvelope<PaymentData>>(`/api/payments/${paymentId}/confirm`, {}, context!));
+        if (confirmation.value?.data?.status !== 'SUCCESS') throw new Error('CUSTOMER_PAYMENT_FAILED');
+        pendingPaymentRetained = false;
+      } else {
+        const beforeCancel = await this.runStep(steps, lifecycleId, 'QUERY_BEFORE_CANCEL', options, () =>
+          this.gateway.customerGet<ApiEnvelope<OrderData>>(`/api/orders/${order!.id}`, undefined, context!));
+        if (beforeCancel.value?.data?.status === 'PENDING_PAYMENT') {
+          const cancelled = await this.runStep(steps, lifecycleId, 'CANCEL_PENDING_ORDER', options, () =>
+            this.gateway.customerPost<ApiEnvelope<OrderData>>(`/api/orders/${order!.id}/cancel`, {}, context!));
+          if (cancelled.value?.data?.status === 'CANCELLED') pendingPaymentRetained = false;
+        } else {
+          await this.recordStep(steps, lifecycleId, 'CANCEL_PENDING_ORDER', 'NOOP', true,
+            `ORDER_${beforeCancel.value?.data?.status ?? 'MISSING'}`, options.faultScenarioId, String(order.id));
+        }
+      }
+
+      const finalOrder = await this.runStep(steps, lifecycleId, 'QUERY_FINAL_ORDER', options, () =>
+        this.gateway.customerGet<ApiEnvelope<OrderData>>(`/api/orders/${order!.id}`, undefined, context!));
+      if (!finalOrder.value?.data) throw new Error('FINAL_ORDER_QUERY_FAILED');
+      return this.finish(lifecycleId, customerId, traceId, steps, 'SUCCESS', finalOrder.value?.data?.status,
+        options.faultScenarioId, Date.now() - startedAt, order, pendingPaymentRetained, paymentId);
+    } catch (error) {
+      const interrupted = error instanceof Error && error.message === 'LIFECYCLE_INTERRUPTED';
+      if (context) {
+        await this.recordStep(steps, lifecycleId, 'LIFECYCLE_INTERRUPTED',
+          interrupted ? 'INTERRUPTED' : 'FAILED', false, errorCode(error), options.faultScenarioId,
+          order?.id === undefined ? undefined : String(order.id));
+      }
+      return this.finish(lifecycleId, customerId, traceId, steps, interrupted ? 'INTERRUPTED' : 'FAILED',
+        undefined, options.faultScenarioId, Date.now() - startedAt, order, pendingPaymentRetained, paymentId,
+        errorCode(error));
+    } finally {
+      if (context) await this.sessions.closeSession(lifecycleId, traceId);
+      this.currentCustomerId = 0;
+      this.currentTrafficRunId = '';
+      this.currentTraceId = '';
+    }
+  }
 
   async execute(
-    action: string,
+    _action: string,
     trafficRunId: string,
-    config: RunnerExecutionConfig = {
-      maxItemQuantity: 3,
-      maxItems: 3,
-      paymentSuccessRatio: 1,
-    },
+    config: RunnerExecutionConfig = { maxItems: 3, maxItemQuantity: 3, paymentSuccessRatio: 1 },
   ): Promise<RunnerActionResult> {
-    const actionId = uuidv4();
-    const traceId = uuidv4().replace(/-/g, '');
-    let customerId = 0;
-    try {
-      customerId = await this.selectCustomer();
-    } catch (error) {
-      return {
-        actionId,
-        customerId,
-        traceId,
-        success: false,
-        status: 'FAILED',
-        errorCode: errorCode(error),
-      };
-    }
-    const context: RunnerRequestContext = {
-      customerId,
-      trafficRunId,
-      action,
-      traceId,
-    };
-
-    try {
-      switch (action as RunnerAction) {
-        case 'BROWSE_PRODUCT':
-          return this.withBase(actionId, customerId, traceId, await this.browse(context));
-        case 'SEARCH_CATALOG':
-          return this.withBase(actionId, customerId, traceId, await this.search(context));
-        case 'ADD_CART_ITEM':
-          return this.withBase(actionId, customerId, traceId, await this.addCartItem(context, config));
-        case 'UPDATE_CART_ITEM':
-          return this.withBase(actionId, customerId, traceId, await this.updateCartItem(context, config));
-        case 'CHECKOUT':
-          return this.withBase(actionId, customerId, traceId, await this.checkout(context, config));
-        case 'PAYMENT_CONFIRM':
-          return this.withBase(actionId, customerId, traceId, await this.confirmPayment(context));
-        case 'CANCEL_PENDING_ORDER':
-          return this.withBase(actionId, customerId, traceId, await this.cancelPendingOrder(context));
-        case 'QUERY_ORDER':
-          return this.withBase(actionId, customerId, traceId, await this.queryOrder(context));
-        case 'QUERY_SHIPMENT':
-          return this.withBase(actionId, customerId, traceId, await this.queryShipment(context));
-        default:
-          return this.withBase(actionId, customerId, traceId, {
-            success: false,
-            status: 'FAILED',
-            errorCode: 'UNSUPPORTED_RUNNER_ACTION',
-          });
-      }
-    } catch (error) {
-      return this.withBase(actionId, customerId, traceId, {
-        success: false,
-        status: 'FAILED',
-        errorCode: errorCode(error),
-      });
-    }
+    return this.executeLifecycle(trafficRunId, config);
   }
 
-  private async selectCustomer(): Promise<number> {
-    const customers = await loadRunnerCustomerIds();
-    return customers[Math.floor(Math.random() * customers.length)];
-  }
-
-  private async browse(context: RunnerRequestContext): Promise<Partial<RunnerActionResult>> {
-    const sku = randomItem(SKUS);
-    const response = await this.gateway.get<ApiEnvelope<unknown>>(`/api/products/${sku}`, undefined, context);
-    return { success: response.data != null, status: response.data != null ? 'SUCCESS' : 'FAILED' };
-  }
-
-  private async search(context: RunnerRequestContext): Promise<Partial<RunnerActionResult>> {
-    const response = await this.gateway.get<ApiEnvelope<unknown>>('/api/products', {
-      category: randomItem(CATEGORIES),
-      page: String(Math.floor(Math.random() * 5)),
-      size: '10',
-    }, context);
-    const data = response.data as { content?: unknown[] } | unknown[] | undefined;
-    const items = Array.isArray(data) ? data : data?.content;
-    return { success: Array.isArray(items), status: Array.isArray(items) ? 'SUCCESS' : 'FAILED' };
-  }
-
-  private async addCartItem(context: RunnerRequestContext, config: RunnerExecutionConfig): Promise<Partial<RunnerActionResult>> {
-    const response = await this.gateway.post<ApiEnvelope<CartData>>('/api/cart/items', {
-      sku: randomItem(SKUS),
-      quantity: randomQuantity(config.maxItemQuantity),
-    }, context);
-    return this.cartResult(response);
-  }
-
-  private async updateCartItem(context: RunnerRequestContext, config: RunnerExecutionConfig): Promise<Partial<RunnerActionResult>> {
-    const cart = await this.gateway.get<ApiEnvelope<CartData>>('/api/cart', undefined, context);
-    const item = cart.data?.items?.[Math.floor(Math.random() * (cart.data.items.length || 1))];
-    if (!item) return { success: true, status: 'NOOP', resultCode: 'CART_EMPTY' };
-    const response = await this.gateway.patch<ApiEnvelope<CartData>>(`/api/cart/items/${item.id}`, {
-      quantity: randomQuantity(config.maxItemQuantity),
-    }, context);
-    return this.cartResult(response);
-  }
-
-  private async checkout(context: RunnerRequestContext, config: RunnerExecutionConfig): Promise<Partial<RunnerActionResult>> {
-    let cartResponse = await this.gateway.get<ApiEnvelope<CartData>>('/api/cart', undefined, context);
-    if (!cartResponse.data?.items?.length) {
-      await this.gateway.post('/api/cart/items', { sku: randomItem(SKUS), quantity: randomQuantity(config.maxItemQuantity) }, context);
-      cartResponse = await this.gateway.get<ApiEnvelope<CartData>>('/api/cart', undefined, context);
-    }
-    const targetItemCount = Math.min(Math.max(Math.floor(config.maxItems), 1), SKUS.length);
-    let attempts = 0;
-    while (cartResponse.data && cartResponse.data.items.length < targetItemCount && attempts < targetItemCount * 2) {
-      const existingSkus = new Set(cartResponse.data.items.map((item) => item.sku));
-      const availableSkus = SKUS.filter((sku) => !existingSkus.has(sku));
-      if (availableSkus.length === 0) break;
-      await this.gateway.post('/api/cart/items', {
-        sku: randomItem(availableSkus),
-        quantity: randomQuantity(config.maxItemQuantity),
+  private async findSellableProducts(
+    orderNo: order?.orderNo, paymentId, pendingPaymentRetained, faultScenarioId, steps,
+    cartVersion: steps.findLast((step) => step.actionType === 'CART_READ_READY')?.cartVersion,
+    signal?: AbortSignal,
+  ): Promise<StepValue<ProductData[]>> {
+    const products: ProductData[] = [];
+    for (let page = 0; page < 3; page++) {
+      this.throwIfInterrupted(signal);
+      const response = await this.gateway.customerGet<ApiEnvelope<ProductPage>>('/api/products', {
+        page: String(page), size: '20', sort: 'latest',
       }, context);
-      cartResponse = await this.gateway.get<ApiEnvelope<CartData>>('/api/cart', undefined, context);
-      attempts++;
+      products.push(...(response.data?.content ?? []));
+      if ((response.data?.content?.length ?? 0) < 20) break;
     }
-    const cart = cartResponse.data;
-    if (!cart?.items?.length) return { success: false, status: 'FAILED', errorCode: 'CART_EMPTY' };
-
-    const addresses = await this.gateway.get<ApiEnvelope<AddressData[]>>('/api/me/addresses', undefined, context);
-    const address = addresses.data?.find((item) => item.isDefault === true || item.isDefault === 1)
-      ?? addresses.data?.[0];
-    if (!address?.id) return { success: false, status: 'FAILED', errorCode: 'ADDRESS_NOT_FOUND' };
-
-    const response = await this.gateway.post<ApiEnvelope<OrderData>>('/api/checkout', {
-      cartId: cart.id,
-      cartVersion: cart.version,
-      addressId: address.id,
-      idempotencyKey: `runner-checkout-${context.trafficRunId}-${uuidv4()}`,
-    }, context);
-    const order = response.data;
-    if (!order?.id || order.status !== 'PENDING_PAYMENT') {
-      return { success: false, status: 'FAILED', errorCode: response.code?.toString() || 'CHECKOUT_FAILED' };
-    }
-    const orderRef: RunnerOrderRef = {
-      customerId: context.customerId,
-      orderId: String(order.id),
-      orderNo: order.orderNo,
-    };
-    await pushPendingOrder(orderRef);
-    await pushRunnerOrder(orderRef);
-    return {
-      success: true,
-      status: 'SUCCESS',
-      orderId: String(order.id),
-      orderNo: order.orderNo,
-      cartVersion: cart.version,
-    };
+    const sellable = products.filter((product) => product.sku
+      && product.status === 1
+      && typeof product.availableQty === 'number'
+      && product.availableQty > 0
+      && Number(product.price) > 0);
+    return sellable.length > 0
+      ? { status: 'SUCCESS', success: true, value: sellable }
+      : { status: 'NOOP', success: true, resultCode: 'NO_SELLABLE_PRODUCT' };
   }
 
-  private async confirmPayment(context: RunnerRequestContext): Promise<Partial<RunnerActionResult>> {
-    const orderRef = await popPendingOrder();
-    if (!orderRef) return { success: true, status: 'NOOP', resultCode: 'NO_PENDING_ORDER' };
-    const orderResponse = await this.gateway.get<ApiEnvelope<OrderData>>(`/api/orders/${orderRef.orderId}`, undefined, contextFor(context, orderRef.customerId));
-    const order = orderResponse.data;
-    if (!order || order.status !== 'PENDING_PAYMENT') {
-      if (order?.status === 'PAID' || order?.status === 'FULFILLING' || order?.status === 'SHIPPED' || order?.status === 'COMPLETED') {
-        await pushPaidOrder({ ...orderRef, orderNo: order.orderNo });
+  private selectProducts(products: ProductData[], cart: CartData, maximum: number): ProductData[] {
+    const existing = new Set(cart.items.map((item) => item.sku));
+    const available = products.filter((product) => !existing.has(product.sku));
+    if (cart.items.length >= maximum || available.length === 0) return [];
+    const count = Math.floor(Math.random() * Math.min(maximum - cart.items.length, available.length)) + 1;
+    return [...available].sort(() => Math.random() - 0.5).slice(0, count);
+  }
+
+  private async estimateCartTotal(
+    cart: CartData,
+    products: ProductData[],
+    context: CustomerRequestContext,
+  ): Promise<number> {
+    const knownPrices = new Map(products.map((product) => [product.sku, Number(product.price)]));
+    let total = 0;
+    for (const item of cart.items) {
+      let price = knownPrices.get(item.sku);
+      if (price === undefined) {
+        const response = await this.gateway.customerGet<ApiEnvelope<ProductData>>(
+          `/api/products/${encodeURIComponent(item.sku)}`, undefined, context);
+        price = Number(response.data?.price);
       }
-      return { customerId: orderRef.customerId, success: true, status: 'NOOP', resultCode: `ORDER_${order?.status || 'MISSING'}` };
+      if (!Number.isFinite(price) || price <= 0) throw new Error('PRODUCT_PRICE_UNAVAILABLE');
+      total += price * item.quantity;
     }
-    const paymentIntent = await this.gateway.post<ApiEnvelope<PaymentData>>(`/api/orders/${order.id}/payment-intents`, {
-      idempotencyKey: `runner-payment-${order.id}`,
-    }, contextFor(context, orderRef.customerId));
-    const payment = paymentIntent.data;
-    if (!payment?.id) {
-      await pushPendingOrder(orderRef);
-      return { success: false, status: 'FAILED', errorCode: 'PAYMENT_INTENT_FAILED', orderId: orderRef.orderId };
+    return total;
+  }
+
+  private async runStep<T>(
+    steps: LifecycleStepResult[],
+    lifecycleId: string,
+    actionType: string,
+    options: LifecycleExecutionOptions,
+    operation: () => Promise<T | StepValue<T>>,
+  ): Promise<StepValue<T>> {
+    const startedAt = Date.now();
+    try {
+      const raw = await operation();
+      const outcome = isStepValue(raw) ? raw : { status: 'SUCCESS' as const, success: true, value: raw };
+      await this.recordStep(steps, lifecycleId, actionType, outcome.status, outcome.success,
+        outcome.resultCode, options.faultScenarioId, undefined, undefined, Date.now() - startedAt,
+        outcome.errorCode);
+      return outcome;
+    } catch (error) {
+      await this.recordStep(steps, lifecycleId, actionType, 'FAILED', false, errorCode(error),
+        options.faultScenarioId, undefined, undefined, Date.now() - startedAt, errorCode(error));
+      throw error;
     }
-    const confirmed = await this.gateway.post<ApiEnvelope<PaymentData>>(`/api/payments/${payment.id}/confirm`, {}, contextFor(context, orderRef.customerId));
-    const result = confirmed.data;
-    const base = {
-      customerId: orderRef.customerId,
-      orderId: orderRef.orderId,
-      orderNo: order.orderNo,
-      paymentId: String(payment.id),
+  }
+
+  private async recordStep(
+    steps: LifecycleStepResult[],
+    lifecycleId: string,
+    actionType: string,
+    status: LifecycleStepResult['status'],
+    success: boolean,
+    resultCode?: string,
+    faultScenarioId?: string,
+    orderId?: string,
+    paymentId?: string,
+    latencyMs = 0,
+    errorCodeValue?: string,
+  ): Promise<void> {
+    const step: LifecycleStepResult = {
+      actionId: uuidv4(), lifecycleId, actionType, status, success, resultCode,
+      errorCode: errorCodeValue, orderId, paymentId, latencyMs, faultScenarioId,
     };
-    if (result?.status === 'SUCCESS') {
-      await pushPaidOrder({ ...orderRef, orderNo: order.orderNo, paymentId: String(payment.id) });
-      return { ...base, success: true, status: 'SUCCESS', resultCode: result.resultCode };
+    steps.push(step);
+    if (this.currentCustomerId > 0) {
+      await this.persistence.recordTrafficAction({
+        trafficRunId: this.currentTrafficRunId, lifecycleId, actionId: step.actionId,
+        customerId: this.currentCustomerId, actionType,
+        status: status === 'INTERRUPTED' ? 'FAILED' : status,
+        orderId, paymentId, resultCode, errorCode: errorCodeValue,
+        faultScenarioId, traceId: this.currentTraceId, latencyMs,
+      }).catch(() => undefined);
     }
-    if (result?.status === 'UNKNOWN') await pushPendingOrder(orderRef);
-    return { ...base, success: result?.status === 'UNKNOWN', status: result?.status === 'UNKNOWN' ? 'NOOP' : 'FAILED', resultCode: result?.resultCode || 'PAYMENT_FAILED' };
   }
 
-  private async cancelPendingOrder(context: RunnerRequestContext): Promise<Partial<RunnerActionResult>> {
-    const orderRef = await popPendingOrder();
-    if (!orderRef) return { success: true, status: 'NOOP', resultCode: 'NO_PENDING_ORDER' };
-    const scopedContext = contextFor(context, orderRef.customerId);
-    const orderResponse = await this.gateway.get<ApiEnvelope<OrderData>>(`/api/orders/${orderRef.orderId}`, undefined, scopedContext);
-    if (orderResponse.data?.status !== 'PENDING_PAYMENT') {
-      if (orderResponse.data && ['PAID', 'FULFILLING', 'SHIPPED', 'COMPLETED'].includes(orderResponse.data.status)) {
-        await pushPaidOrder({ ...orderRef, orderNo: orderResponse.data.orderNo });
-      }
-      return { customerId: orderRef.customerId, success: true, status: 'NOOP', resultCode: `ORDER_${orderResponse.data?.status || 'MISSING'}` };
+  private async finish(
+    lifecycleId: string,
+    customerId: number,
+    traceId: string,
+    steps: LifecycleStepResult[],
+    status: RunnerActionResult['status'],
+    resultCode?: string,
+    faultScenarioId?: string,
+    _latencyMs = 0,
+    order?: OrderData,
+    pendingPaymentRetained = false,
+    paymentId?: string,
+    errorCodeValue?: string,
+  ): Promise<RunnerActionResult> {
+    const result: RunnerActionResult = {
+      actionId: uuidv4(), lifecycleId, customerId, traceId,
+      success: status === 'SUCCESS' || status === 'NOOP', status, resultCode,
+      errorCode: errorCodeValue, orderId: order?.id === undefined ? undefined : String(order.id),
+      orderNo: order?.orderNo, paymentId, pendingPaymentRetained, faultScenarioId, steps,
+      cartVersion: steps.findLast((step) => step.actionType === 'CART_READ_READY')?.cartVersion,
+    };
+    if (customerId > 0) {
+      await this.persistence.recordTrafficLifecycle({
+        trafficRunId: this.currentTrafficRunId, lifecycleId, actionId: result.actionId,
+        customerId, status: status === 'INTERRUPTED' ? 'FAILED' : status,
+        orderId: result.orderId, paymentId, cartVersion: result.cartVersion,
+        resultCode, errorCode: errorCodeValue,
+        faultScenarioId, traceId, latencyMs: _latencyMs,
+      }).catch(() => undefined);
     }
-    const response = await this.gateway.post<ApiEnvelope<OrderData>>(`/api/orders/${orderRef.orderId}/cancel`, {}, scopedContext);
-    return {
-      success: response.data?.status === 'CANCELLED',
-      status: response.data?.status === 'CANCELLED' ? 'SUCCESS' : 'FAILED',
-      customerId: orderRef.customerId,
-      orderId: orderRef.orderId,
-      resultCode: response.data?.status,
-    };
+    return result;
   }
 
-  private async queryOrder(context: RunnerRequestContext): Promise<Partial<RunnerActionResult>> {
-    const orderRef = await popRunnerOrder();
-    if (!orderRef) return { success: true, status: 'NOOP', resultCode: 'NO_RECORDED_ORDER' };
-    await pushRunnerOrder(orderRef);
-    const response = await this.gateway.get<ApiEnvelope<OrderData>>(`/api/orders/${orderRef.orderId}`, undefined, contextFor(context, orderRef.customerId));
-    return {
-      success: response.data != null,
-      status: response.data != null ? 'SUCCESS' : 'FAILED',
-      customerId: orderRef.customerId,
-      orderId: orderRef.orderId,
-      orderNo: response.data?.orderNo,
-    };
-  }
-
-  private async queryShipment(context: RunnerRequestContext): Promise<Partial<RunnerActionResult>> {
-    const orderRef = await popPaidOrder();
-    if (!orderRef) return { success: true, status: 'NOOP', resultCode: 'NO_PAID_ORDER' };
-    await pushPaidOrder(orderRef);
-    const response = await this.gateway.get<ApiEnvelope<unknown>>(`/api/orders/${orderRef.orderId}/shipment`, undefined, contextFor(context, orderRef.customerId));
-    return {
-      success: response.data != null,
-      status: response.data != null ? 'SUCCESS' : 'NOOP',
-      customerId: orderRef.customerId,
-      orderId: orderRef.orderId,
-      resultCode: response.data != null ? undefined : 'SHIPMENT_NOT_READY',
-    };
-  }
-
-  private cartResult(response: ApiEnvelope<CartData>): Partial<RunnerActionResult> {
-    return {
-      success: response.data != null,
-      status: response.data != null ? 'SUCCESS' : 'FAILED',
-      cartVersion: response.data?.version,
-    };
-  }
-
-  private withBase(actionId: string, customerId: number, traceId: string, result: Partial<RunnerActionResult>): RunnerActionResult {
-    return { actionId, customerId, traceId, success: false, status: 'FAILED', ...result };
+  private throwIfInterrupted(signal?: AbortSignal): void {
+    if (signal?.aborted) throw new Error('LIFECYCLE_INTERRUPTED');
   }
 }
 
-function contextFor(context: RunnerRequestContext, customerId: number): RunnerRequestContext {
-  return { ...context, customerId };
-}
-
-function randomItem<T>(items: T[]): T {
-  return items[Math.floor(Math.random() * items.length)];
+function isStepValue<T>(value: T | StepValue<T>): value is StepValue<T> {
+  return Boolean(value && typeof value === 'object' && 'status' in value && 'success' in value);
 }
 
 function randomQuantity(maximum: number): number {
@@ -356,9 +464,6 @@ function randomQuantity(maximum: number): number {
 }
 
 function errorCode(error: unknown): string {
-  if (error instanceof Error) {
-    const match = error.message.match(/failed \(\d+\): .*?"code"\s*:\s*"?([A-Z0-9_]+)/i);
-    return match?.[1] || 'RUNNER_GATEWAY_ERROR';
-  }
-  return 'RUNNER_ACTION_FAILED';
+  if (error instanceof Error && /^[A-Z0-9_]+$/.test(error.message)) return error.message;
+  return 'LIFECYCLE_FAILED';
 }
