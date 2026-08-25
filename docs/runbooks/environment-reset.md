@@ -25,7 +25,8 @@
 2. 停止 Gateway 和全部业务服务。
 
    ```bash
-   docker compose stop gateway-service user-service catalog-service inventory-service \
+    docker compose stop traffic-control-plane shopfront gateway-service user-service catalog-service \
+       cart-service inventory-service \
      order-service payment-service promotion-service risk-service fulfillment-service \
      notification-service
    ```
@@ -39,28 +40,28 @@
 
    若仍有业务容器，先停止它们；不得在有业务连接时删除数据目录。
 
-4. 停止 MySQL 和 Redis。
+4. 停止 Redis。MySQL 会由重置脚本停止并重新启动。
 
    ```bash
-   docker compose stop mysql redis
+   docker compose stop redis
    ```
 
-5. 清除数据目录。此操作不可逆，执行前再次确认当前目录是仓库根目录。
+5. 清除并重新初始化 MySQL。此操作不可逆，脚本要求显式确认，并会清理挂载目录中的全部内容（包括隐藏文件）。
 
    ```bash
-   test "$(basename "$PWD")" = "castrel-chaos"
-   rm -rf data/mysql data/redis
-   mkdir -p data/mysql data/redis
+   ./scripts/mysql-reset.sh --yes
    ```
 
-6. 启动基础设施并等待健康状态。
+   脚本会使用当前版本的 `infra/mysql/init/00-schema-ddl.sql`、`01-seed-dml.sql`、授权脚本和 SkyWalking 初始化脚本完成数据库结构升级和种子数据注入。脚本结束后业务服务仍保持停止状态，Redis 不会被脚本修改。
+
+6. 启动 Redis 并确认基础设施状态。
 
    ```bash
-   docker compose up -d mysql redis
+   docker compose up -d redis
    docker compose ps mysql redis
    ```
 
-   MySQL 首次启动会按文件名顺序执行 `infra/mysql/init/00-schema-ddl.sql`、`01-seed-dml.sql`、授权脚本和 SkyWalking 初始化脚本。若初始化失败，查看日志并修复 Schema 后重新清理数据目录；不要在旧数据目录上假设初始化脚本会重跑。
+   若 MySQL 初始化失败，查看日志并修复 Schema 后重新执行脚本；不要在旧数据目录上假设初始化脚本会重跑。
 
 7. 验证 Schema 版本和关键数据。
 
@@ -95,7 +96,7 @@
 
 ## 故障处理
 
-- MySQL 初始化失败：停止全部服务，清空 `data/mysql`，修复初始化 SQL 后从第 6 步重试。
+- MySQL 初始化失败：保持业务服务停止，查看 `docker compose logs mysql`，修复初始化 SQL 后重新执行 `./scripts/mysql-reset.sh --yes`。
 - Redis 非空：确认没有合法的新环境数据后停止 Redis，清空 `data/redis`，再启动并复核 `DBSIZE`。
 - 服务健康检查失败：保持 worker 停止，先检查服务日志、Schema 版本、数据库连接和生命周期 Secret。
 - 需要保留当前演示数据：停止操作并先完成数据库与 Redis 备份；本 Runbook 不提供在线保留数据迁移。

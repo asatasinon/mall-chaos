@@ -53,6 +53,7 @@ Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、
 | 检查 `shopfront` 类型 / lint / 构建 | `cd shopfront && pnpm typecheck && pnpm lint && pnpm build` |
 | 关闭服务并保留数据卷 | `docker compose down` |
 | 关闭服务并清空数据卷 | `docker compose down -v` |
+| 清空并按最新 SQL 重建 MySQL 和种子数据 | `./scripts/mysql-reset.sh --yes` |
 | 运行混沌验收助手 | `./scripts/chaos/chaos-verify.sh` |
 
 ---
@@ -158,6 +159,7 @@ castrel-chaos/
 │   └── kustomization.yaml
 ├── scripts/
 │   ├── build-all.sh            # Maven 构建 + Docker 镜像打包
+│   ├── mysql-reset.sh          # 清空 MySQL 挂载目录并重新初始化
 │   ├── k8s-deploy.sh           # K8s 一键部署
 │   ├── k8s-teardown.sh         # K8s 清理
 │   └── chaos/
