@@ -2,15 +2,15 @@
 
 ## 用途与边界
 
-本 Runbook 用于清空并重新初始化整套演示环境。它会删除 MySQL 和 Redis 中的全部演示数据、幂等键、冻结令牌和 runner 队列。
+本 Runbook 用于清空并重新初始化整套演示环境。它会删除 MySQL 和 Redis 中的全部演示数据、幂等键和冻结令牌。
 
-它不是 `inventory reset`：库存重置只恢复库存基线，不删除客户、购物车、订单、支付、事件或 Redis 数据，也不能替代本 Runbook。
+库存基线由 worker 的补齐任务维护；本 Runbook 不提供在线库存 reset，也不能用补齐任务替代环境重置。
 
 ## 前置条件
 
 - 已通知演示使用者，确认可以丢弃当前全部演示数据。
 - 已停止外部业务流量、浏览器自动化和压测工具。
-- 已确认没有正在执行的混沌注入或库存重置任务。
+- 已确认没有正在执行的混沌注入或库存/优惠券补齐任务。
 - 已保存需要保留的日志、指标和链路查询结果。
 
 ## 操作步骤
@@ -18,8 +18,8 @@
 1. 停止业务流量来源。
 
    ```bash
-   # 停止控制面 worker，保留控制台进程也可以，但不得恢复 runner
-   docker compose stop traffic-control-plane
+   # 停止控制面 worker，保留控制台进程也可以，但不得恢复生命周期流量
+   docker compose stop traffic-control-plane-worker
    ```
 
 2. 停止 Gateway 和全部业务服务。
@@ -70,7 +70,7 @@
    docker compose exec redis redis-cli DBSIZE
    ```
 
-   预期 `schema_version.version = 1`。Redis 应没有旧 checkout 冻结、幂等键和 runner 队列。
+   预期 `schema_version.version = 1`。Redis 应没有旧 checkout 冻结和幂等键。
 
 8. 启动全部业务服务和 Gateway，等待健康检查通过。
 
@@ -82,10 +82,12 @@
    curl --fail http://localhost:18080/actuator/health
    ```
 
-9. 最后启动控制面并恢复 runner。
+9. 最后配置 Secret、启动控制面和 worker。
 
    ```bash
-   docker compose up -d traffic-control-plane
+   # worker 要求 CASTREL_INTERNAL_SERVICE_KEY 和真实生命周期账号 Secret。
+   # TRAFFIC_LIFECYCLE_LOGIN_ENABLED=false 时 worker 会 fail-closed。
+   docker compose up -d traffic-control-plane traffic-control-plane-worker
    curl --fail http://localhost:13086/internal/traffic/runner/status
    ```
 
@@ -95,7 +97,7 @@
 
 - MySQL 初始化失败：停止全部服务，清空 `data/mysql`，修复初始化 SQL 后从第 6 步重试。
 - Redis 非空：确认没有合法的新环境数据后停止 Redis，清空 `data/redis`，再启动并复核 `DBSIZE`。
-- 服务健康检查失败：保持 runner 停止，先检查服务日志、Schema 版本和数据库连接；不要用 inventory reset 掩盖初始化失败。
+- 服务健康检查失败：保持 worker 停止，先检查服务日志、Schema 版本、数据库连接和生命周期 Secret。
 - 需要保留当前演示数据：停止操作并先完成数据库与 Redis 备份；本 Runbook 不提供在线保留数据迁移。
 
 ## 完成标准
@@ -103,5 +105,5 @@
 - 所有业务服务、Gateway 和控制面健康。
 - `schema_version` 为 Version 1。
 - MySQL 中无重置前订单、支付、事件和审计记录。
-- Redis 中无重置前幂等键、冻结键和 runner 队列。
-- runner 在最后恢复，并能产生新的演示流量。
+- Redis 中无重置前幂等键和冻结键。
+- worker 在最后启动，并能以真实演示客户产生新的串行生命周期流量。

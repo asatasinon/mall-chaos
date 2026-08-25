@@ -98,6 +98,8 @@ export default function RunnerPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [expandedLifecycleId, setExpandedLifecycleId] = useState<string | null>(null);
+  const [lifecycleSteps, setLifecycleSteps] = useState<Record<string, Array<Record<string, unknown>>>>({});
   const [form, setForm] = useState<ConfigForm>({
     lifecycleIntervalSec: '', maxItems: '', maxItemQuantity: '',
     successfulPaymentRatio: '', couponUsageRatio: '',
@@ -164,6 +166,23 @@ export default function RunnerPage() {
       const response = await fetchWithAuth('/internal/traffic/runner/coupon-replenishment/status');
       const json = await response.json();
       if (json.code === 0) setCouponReplenishment(json.data);
+    } catch {}
+  };
+
+  const toggleLifecycle = async (entry: ActivityEntry) => {
+    if (!entry.lifecycleId || !entry.trafficRunId) return;
+    if (expandedLifecycleId === entry.lifecycleId) {
+      setExpandedLifecycleId(null);
+      return;
+    }
+    setExpandedLifecycleId(entry.lifecycleId);
+    if (lifecycleSteps[entry.lifecycleId]) return;
+    try {
+      const response = await fetchWithAuth(
+        `/internal/traffic/runner/activity?trafficRunId=${encodeURIComponent(entry.trafficRunId)}&lifecycleId=${encodeURIComponent(entry.lifecycleId)}`,
+      );
+      const json = await response.json();
+      if (json.code === 0) setLifecycleSteps((current) => ({ ...current, [entry.lifecycleId!]: json.data }));
     } catch {}
   };
 
@@ -322,7 +341,18 @@ export default function RunnerPage() {
         <CardHeader className="flex-row items-center justify-between space-y-0 pb-3"><CardTitle className="text-sm font-medium">Recent lifecycle activity</CardTitle><span className="text-xs text-muted-foreground">{activity.length} records</span></CardHeader>
         <CardContent>
           {activity.length === 0 && <p className="text-sm text-muted-foreground">No lifecycle activity yet.</p>}
-          <div className="space-y-1">{activity.map((entry, index) => <div key={`${entry.ts}-${index}`} className="flex flex-wrap items-center gap-2 text-xs"><span className="w-16 font-mono text-muted-foreground">{new Date(entry.ts).toISOString().slice(11, 19)}</span><Badge variant="outline">{entry.action}</Badge><span className={entry.success ? 'text-primary' : 'text-destructive'}>{entry.success ? <Check /> : 'x'}</span>{entry.customerId && <span className="text-muted-foreground">customer {entry.customerId}</span>}{entry.orderId && <span className="font-mono text-muted-foreground">order {entry.orderId}</span>}{entry.errorCode && <span className="font-mono text-destructive">{entry.errorCode}</span>}</div>)}</div>
+          <div className="space-y-1">{activity.map((entry, index) => <div key={`${entry.ts}-${index}`}>
+            <button type="button" className="flex w-full flex-wrap items-center gap-2 text-left text-xs" onClick={() => void toggleLifecycle(entry)} disabled={!entry.lifecycleId}>
+              <span className="w-16 font-mono text-muted-foreground">{new Date(entry.ts).toISOString().slice(11, 19)}</span>
+              <Badge variant="outline">{entry.action}</Badge>
+              <span className={entry.success ? 'text-primary' : 'text-destructive'}>{entry.success ? <Check /> : 'x'}</span>
+              {entry.customerId && <span className="text-muted-foreground">customer {entry.customerId}</span>}
+              {entry.orderId && <span className="font-mono text-muted-foreground">order {entry.orderId}</span>}
+              {entry.lifecycleId && <span className="font-mono text-muted-foreground">{entry.lifecycleId.slice(0, 8)}</span>}
+              {entry.errorCode && <span className="font-mono text-destructive">{entry.errorCode}</span>}
+            </button>
+            {expandedLifecycleId === entry.lifecycleId && lifecycleSteps[entry.lifecycleId] && <div className="ml-20 mt-1 space-y-1 border-l border-border pl-3">{lifecycleSteps[entry.lifecycleId].map((step, stepIndex) => <div key={`${String(step.action_id)}-${stepIndex}`} className="flex flex-wrap gap-2 text-[11px] text-muted-foreground"><span className="font-mono">{String(step.action_type ?? 'STEP')}</span><span>{String(step.status ?? '—')}</span>{step.result_code && <span className="font-mono">{String(step.result_code)}</span>}{step.error_code && <span className="font-mono text-destructive">{String(step.error_code)}</span>}</div>)}</div>}
+          </div>)}</div>
         </CardContent>
       </Card>
     </div>

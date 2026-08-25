@@ -4,7 +4,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 待实施 |
+| 状态 | 实现完成，待统一验证 |
 | 版本 | 1.0 |
 | 更新时间 | 2026-08-25 CST |
 | 面向对象 | 产品、研发、测试、培训运营人员 |
@@ -78,6 +78,11 @@ runner 使用真实客户登录，意味着它不再以 `TRAFFIC_RUNNER` 服务�
 | 秘密 | 密码、access token、session/refresh token 均不得持久化或展示。 |
 
 ## 5. 流量配置与可观测性
+
+生命周期 runner 使用真实演示客户登录，不使用 runner credential。控制台只允许配置
+`60s`、`30s`、`20s`、`10s` 四档串行间隔、最大商品种类、单 SKU 数量、成功支付比例和优惠券使用比例。
+账号 JSON 仅由服务端环境变量或部署 Secret 注入；`TRAFFIC_LIFECYCLE_LOGIN_ENABLED=false`、账号配置无效或内部服务密钥缺失时 worker fail-closed。
+补券和库存补齐由 worker 启动时及 UTC 每六小时经 Gateway 触发，领域服务独占业务数据写入；常规生命周期不调用 inventory reset。
 
 ### 5.1 配置
 

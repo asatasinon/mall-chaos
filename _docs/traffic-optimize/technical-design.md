@@ -4,7 +4,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 待实施 |
+| 状态 | 实现完成，待统一验证 |
 | 版本 | 1.0 |
 | 更新时间 | 2026-08-25 CST |
 | 范围 | `traffic-control-plane` 生命周期流量 runner |
@@ -283,10 +283,10 @@ Gateway 将请求分发至 `inventory-service`；worker 不读取或写入库存
 
 ## 6. 订单引用与运行态
 
-现有 pending、paid、recent order 队列如保留用于高级背景动作，记录至少包括：
+生命周期不使用跨生命周期 pending、paid 或 recent order 队列。订单引用只保留在当前生命周期的父子活动和服务端订单状态中：
 
 ```ts
-interface RunnerOrderRef {
+interface LifecycleOrderRef {
   lifecycleId: string;
   customerId: number;
   orderId: string;
@@ -296,7 +296,7 @@ interface RunnerOrderRef {
 }
 ```
 
-队列读取后必须使用该 `customerId` 的有效会话重新请求订单；若没有该客户会话或 token 已不可用，则只记录 `NOOP/SESSION_UNAVAILABLE`，不得将订单转交其他账号。主生命周期不依赖跨生命周期队列完成支付或取消。
+所有订单查询、支付和取消都使用创建订单的同一客户会话。中断时允许订单保持 `PENDING_PAYMENT`，交由既有订单到期、库存释放、优惠券释放和补偿路径处理。
 
 runner 不依赖库存 reset；库存保持由六小时补齐任务维护。环境全量重置属于独立运维操作，不属于本流量方案的场景或触发器。
 

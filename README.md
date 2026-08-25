@@ -28,7 +28,7 @@ Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、
 **核心特性：**
 
 - 10 个 Spring Boot 业务/网关服务 + 1 个 `Next.js` traffic control plane
-- traffic control plane 自动产生真实业务流量，支持热更新 QPS、场景编排与控制台操作
+- traffic control plane 使用真实演示客户生成串行购物生命周期，支持四档间隔、场景编排与控制台操作
 - 4 类 Chaos 注入：网络故障 / JVM 内存泄漏 / 慢 SQL / 数据库死锁
 - 所有 Chaos `enable` 接口均支持 `durationSec` 自动关闭（死锁支持 `injectRate`）
 - Prometheus + Grafana + Loki + Tempo 全链路可观测
@@ -196,7 +196,7 @@ Shopfront 初始化时会创建可用于业务流量和故障注入场景的默�
 | `alice@example.com` | `password` | 1 |
 | `bob@example.com` | `password` | 2 |
 
-这两个账号同时位于 Runner 默认客户白名单中。若 MySQL 已经使用旧数据卷启动过，修改初始化 SQL 不会重新执行；需要清空并重新创建 MySQL 数据卷后才会重新导入种子数据。
+这两个账号可作为生命周期 Secret 中的演示账号。实际启用时必须通过部署 Secret 注入账号 JSON；不要把真实密码提交到仓库。
 
 ---
 
@@ -299,7 +299,7 @@ curl http://localhost:18080/api/products
 curl http://localhost:13086/internal/traffic/runner/status
 ```
 
-服务启动后，traffic control plane 会自动以默认 QPS 向系统发送业务流量。
+服务启动后，worker 会先完成补券和库存基线协调，再按配置的生命周期间隔串行执行真实客户流量。登录模式未启用或 Secret 无效时 worker 会 fail-closed。
 
 ### 常用运维命令
 
@@ -601,6 +601,9 @@ curl http://castrel.local/api/products
 | `SPRING_DATA_REDIS_HOST` | `redis` | Redis 主机 |
 | `OTLP_ENDPOINT` | `http://tempo:4318` | Docker Compose 中注入给 Java 服务的 OTLP 端点 |
 | `CHAOS_CONSOLE_GRAFANA_BASE_URL` | `http://localhost:13000` | Grafana 深链基础地址 |
+| `CASTREL_INTERNAL_SERVICE_KEY` | 无默认值 | worker 经 Gateway 调用补券/补库存所需的内部服务密钥；缺失时 worker fail-closed |
+| `TRAFFIC_LIFECYCLE_LOGIN_ENABLED` | `false` | 是否启用真实演示客户生命周期；worker 未启用时 fail-closed |
+| `TRAFFIC_LIFECYCLE_ACCOUNTS` | `[]` | Secret 注入的账号 JSON；包含 `label`、`email`、`password`、`expectedCustomerId`、`enabled`，不进入控制台或活动记录 |
 | `JAVA_TOOL_OPTIONS` / `JAVA_OPTS` | `-Xms256m -Xmx256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 ...` | JVM 参数；Compose 直接注入 `JAVA_TOOL_OPTIONS`，K8s 可继续使用 `JAVA_OPTS` |
 
 ### 数据库
@@ -613,21 +616,24 @@ MySQL 初始化脚本位于 `infra/mysql/init/00-schema.sql`，Docker Compose �
 
 配置文件 `infra/redis/redis.conf`，开启 LRU 淘汰（`maxmemory-policy allkeys-lru`）。
 
-### traffic control plane 配置热更新
+### traffic control plane 生命周期配置
 
 ```bash
 # 查看当前配置
 curl http://localhost:13086/internal/traffic/runner/config
 
-# 更新 QPS（必须带 version 字段，乐观锁保护）
+# 更新串行生命周期配置（必须带 version 字段，乐观锁保护）
 curl -X PUT http://localhost:13086/internal/traffic/runner/config \
   -H 'Content-Type: application/json' \
-  -d '{"baseQps": 20, "version": 1}'
+  -d '{"lifecycleIntervalSec": 30, "successfulPaymentRatio": 1, "couponUsageRatio": 0.5, "version": 1}'
 
-# 动态调速（无需 version）
-curl -X POST http://localhost:13086/internal/traffic/runner/rate \
-  -H 'Content-Type: application/json' \
-  -d '{"multiplier": 2.0}'
+# 查看账号安全摘要（不返回邮箱、密码或 token）
+curl http://localhost:13086/internal/traffic/runner/accounts
+
+# 查看生命周期及补齐状态
+curl http://localhost:13086/internal/traffic/runner/status
+curl http://localhost:13086/internal/traffic/runner/coupon-replenishment/status
+curl http://localhost:13086/internal/traffic/runner/inventory-replenishment/status
 ```
 
 ---
