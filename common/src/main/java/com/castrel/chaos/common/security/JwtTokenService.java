@@ -38,7 +38,6 @@ public class JwtTokenService {
         this.audience = audience;
         this.secret = secret.getBytes(StandardCharsets.UTF_8);
         this.accessTokenTtl = accessTokenTtl;
-        this.expectedRunnerWhitelistVersion = expectedRunnerWhitelistVersion;
     }
 
     public String issueAccessToken(Long userId, List<String> roles) {
