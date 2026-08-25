@@ -13,6 +13,13 @@ export class ShopApiError extends Error {
   }
 }
 
+function redirectToAuthOnSessionExpiry() {
+  if (typeof window !== 'undefined' && window.location.pathname !== '/auth') {
+    window.dispatchEvent(new Event('auth-updated'));
+    window.location.replace('/auth');
+  }
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/${path.replace(/^\//, '')}`, {
     ...init,
@@ -20,10 +27,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     cache: 'no-store',
   });
   const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
-  if (response.headers.get('x-session-expired') === '1' && typeof window !== 'undefined') {
-    window.dispatchEvent(new Event('auth-updated'));
-    window.location.replace('/auth');
-  }
+  if (response.headers.get('x-session-expired') === '1') redirectToAuthOnSessionExpiry();
   if (!response.ok || !payload || payload.code !== 200) {
     throw new ShopApiError(payload?.message ?? '服务暂时不可用，请稍后重试', payload?.code, response.status);
   }
@@ -85,10 +89,7 @@ export const logout = () => api<void>('auth/logout', { method: 'POST' });
 
 export async function getSession(): Promise<AuthSession | null> {
   const response = await fetch('/api/auth/session', { cache: 'no-store' });
-  if (response.headers.get('x-session-expired') === '1' && typeof window !== 'undefined') {
-    window.dispatchEvent(new Event('auth-updated'));
-    window.location.replace('/auth');
-  }
+  if (response.headers.get('x-session-expired') === '1') redirectToAuthOnSessionExpiry();
   if (!response.ok) return null;
   const payload = (await response.json().catch(() => null)) as ApiResponse<AuthSession> | null;
   return payload?.code === 200 ? payload.data : null;
