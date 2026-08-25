@@ -12,20 +12,6 @@ import {
 } from '../lib/runner-persistence';
 import { CustomerSessionManager } from './customer-session-manager';
 
-export const RUNNER_ACTIONS = [
-  'BROWSE_PRODUCT',
-  'SEARCH_CATALOG',
-  'ADD_CART_ITEM',
-  'UPDATE_CART_ITEM',
-  'CHECKOUT',
-  'PAYMENT_CONFIRM',
-  'CANCEL_PENDING_ORDER',
-  'QUERY_ORDER',
-  'QUERY_SHIPMENT',
-] as const;
-
-export type RunnerAction = typeof RUNNER_ACTIONS[number];
-
 export interface RunnerExecutionConfig {
   maxItems: number;
   maxItemQuantity: number;
@@ -304,14 +290,6 @@ export class TrafficActionOrchestrator {
       this.currentTrafficRunId = '';
       this.currentTraceId = '';
     }
-  }
-
-  async execute(
-    _action: string,
-    trafficRunId: string,
-    config: RunnerExecutionConfig = { maxItems: 3, maxItemQuantity: 3, paymentSuccessRatio: 1 },
-  ): Promise<RunnerActionResult> {
-    return this.executeLifecycle(trafficRunId, config);
   }
 
   private async findSellableProducts(

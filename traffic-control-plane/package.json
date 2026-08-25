@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 13086",
     "worker": "tsx src/worker/index.ts",
-    "test:runner": "tsx --test src/worker/runner-contract.test.ts",
+    "test:runner": "tsx --test src/worker/customer-session-manager.test.ts src/worker/gateway-customer-contract.test.ts src/worker/coupon-replenishment.test.ts src/worker/inventory-replenishment.test.ts src/worker/traffic-lifecycle-orchestrator.test.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },

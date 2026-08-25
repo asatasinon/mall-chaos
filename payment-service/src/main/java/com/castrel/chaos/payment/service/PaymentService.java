@@ -108,17 +108,11 @@ public class PaymentService {
 
     @Transactional
     public PaymentDTO confirmIntent(Long id) {
-        return confirmIntent(id, null, null, false);
+        return confirmIntent(id, null, false);
     }
 
     @Transactional
-    public PaymentDTO confirmIntent(Long id, Long customerId, String runnerStrategy) {
-        return confirmIntent(id, customerId, runnerStrategy, false);
-    }
-
-    @Transactional
-    public PaymentDTO confirmIntent(
-            Long id, Long customerId, String runnerStrategy, boolean forceCustomerSuccess) {
+    public PaymentDTO confirmIntent(Long id, Long customerId, boolean forceCustomerSuccess) {
         Payment payment = paymentRepository.findById(id)
                 .orElseThrow(() -> new BizException("PAYMENT_NOT_FOUND", "Payment not found: " + id));
         assertCustomer(payment, customerId);
@@ -126,7 +120,7 @@ public class PaymentService {
             return toDTO(payment);
         }
         return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo(),
-            runnerStrategy, customerSuccessBaseline && forceCustomerSuccess && customerId != null);
+            customerSuccessBaseline && forceCustomerSuccess && customerId != null);
     }
 
     @Transactional
@@ -148,7 +142,7 @@ public class PaymentService {
         payment.setResultCode("RETRYING");
         payment.setUpdatedAt(LocalDateTime.now());
         paymentRepository.save(payment);
-        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo(), null, customerId != null);
+        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo(), customerId != null);
     }
 
     @Transactional
@@ -171,17 +165,14 @@ public class PaymentService {
         return toDTO(paymentRepository.save(payment));
     }
 
-    private PaymentDTO executePayment(
-            Payment payment, String orderNo, String requestedStrategy, boolean customerSuccessBaseline) {
+    private PaymentDTO executePayment(Payment payment, String orderNo, boolean customerSuccessBaseline) {
         attemptCounter.increment();
-        String strategy = requestedStrategy == null ? "" : requestedStrategy.toUpperCase();
         double roll = random.nextDouble();
-        if (customerSuccessBaseline || "SUCCESS".equals(strategy) || (strategy.isBlank() && roll < successRate)) {
+        if (customerSuccessBaseline || roll < successRate) {
             payment.setStatus("SUCCESS");
             payment.setResultCode("SUCCESS");
             successCounter.increment();
-        } else if ("UNKNOWN".equals(strategy)
-            || (strategy.isBlank() && roll < successRate + timeoutRate)) {
+        } else if (roll < successRate + timeoutRate) {
             payment.setStatus("UNKNOWN");
             payment.setResultCode("UNKNOWN");
             timeoutCounter.increment();

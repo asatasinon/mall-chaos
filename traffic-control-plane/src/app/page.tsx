@@ -8,7 +8,8 @@ import { fetchWithAuth } from '@/lib/auth-fetch';
 interface OverviewData {
   runner: {
     running: boolean; paused: boolean;
-    currentQps: number; successRate: number; failRate: number; totalRequests: number;
+    lifecycleIntervalSec: number; lifecycleCompletedCount: number;
+    lifecycleFailedCount: number; lifecycleInterruptedCount: number;
   };
   chaos: Record<string, unknown>;
   timestamp: string;
@@ -33,8 +34,6 @@ export default function OverviewPage() {
     return () => clearInterval(id);
   }, []);
 
-  const successPct = data ? data.runner.successRate * 100 : 0;
-  const failPct    = data ? data.runner.failRate    * 100 : 0;
   const runnerLabel = !data ? 'Unknown'
     : data.runner.paused ? 'Paused'
     : data.runner.running ? 'Running' : 'Stopped';
@@ -64,20 +63,14 @@ export default function OverviewPage() {
 
       {/* KPI row */}
       <div className="grid grid-cols-3 gap-4">
-        <MetricCard title="Throughput" unit="req/s">
-          <span className="metric-value text-primary">{data?.runner.currentQps ?? '—'}</span>
+        <MetricCard title="Lifecycle interval" unit="seconds">
+          <span className="metric-value text-primary">{data?.runner.lifecycleIntervalSec ?? '—'}</span>
         </MetricCard>
-        <MetricCard title="Success Rate">
-          <span className="metric-value text-[oklch(0.62_0.18_155)]">
-            {data ? `${successPct.toFixed(1)}%` : '—'}
-          </span>
-          <ProgressBar value={successPct} variant="success" />
+        <MetricCard title="Completed lifecycles">
+          <span className="metric-value text-[oklch(0.62_0.18_155)]">{data?.runner.lifecycleCompletedCount ?? '—'}</span>
         </MetricCard>
-        <MetricCard title="Error Rate">
-          <span className="metric-value text-destructive">
-            {data ? `${failPct.toFixed(1)}%` : '—'}
-          </span>
-          <ProgressBar value={Math.min(failPct * 4, 100)} variant="danger" />
+        <MetricCard title="Failed / interrupted">
+          <span className="metric-value text-destructive">{data ? `${data.runner.lifecycleFailedCount} / ${data.runner.lifecycleInterruptedCount}` : '—'}</span>
         </MetricCard>
       </div>
 
@@ -96,11 +89,10 @@ export default function OverviewPage() {
           <CardContent className="space-y-2.5">
             <StatRow label="Status"    value={runnerLabel}
               valueClass={data?.runner.running && !data.runner.paused ? 'text-[oklch(0.62_0.18_155)]' : 'text-muted-foreground'} />
-            <StatRow label="QPS"       value={data ? String(data.runner.currentQps) : '—'} />
-            <StatRow label="Success"   value={data ? `${successPct.toFixed(2)}%` : '—'} valueClass="text-[oklch(0.62_0.18_155)]" />
-            <StatRow label="Fail"      value={data ? `${failPct.toFixed(2)}%` : '—'}
-              valueClass={failPct > 5 ? 'text-destructive' : ''} />
-            <StatRow label="Total req" value={data ? data.runner.totalRequests.toLocaleString() : '—'} />
+            <StatRow label="Interval" value={data ? `${data.runner.lifecycleIntervalSec}s` : '—'} />
+            <StatRow label="Completed" value={data ? String(data.runner.lifecycleCompletedCount) : '—'} valueClass="text-[oklch(0.62_0.18_155)]" />
+            <StatRow label="Failed" value={data ? String(data.runner.lifecycleFailedCount) : '—'} valueClass="text-destructive" />
+            <StatRow label="Interrupted" value={data ? String(data.runner.lifecycleInterruptedCount) : '—'} />
             <StatRow label="Last sync" value={data ? new Date(data.timestamp).toISOString().slice(11, 19) + 'Z' : '—'} />
           </CardContent>
         </Card>

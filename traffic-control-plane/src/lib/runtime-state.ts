@@ -1,26 +1,39 @@
 import { getRedis } from './redis';
-import type { RunnerOrderRef } from './runner-persistence';
 
 const CONTROL_KEY = 'traffic-control-plane:runner:control';
 const STATUS_KEY = 'traffic-control-plane:runner:status';
 const INVENTORY_REPLENISHMENT_STATUS_KEY = 'traffic-control-plane:replenishment:inventory:status';
+const COUPON_REPLENISHMENT_STATUS_KEY = 'traffic-control-plane:replenishment:coupon:status';
 
 export interface RunnerControlState {
   paused: boolean;
-  rateMultiplier: number;
 }
 
 export interface RunnerStatusState {
   running: boolean;
   enabled: boolean;
   paused: boolean;
-  currentQps: number;
-  successRate: number;
-  failRate: number;
-  totalRequests: number;
-  windowSeconds: number;
-  rateMultiplier: number;
+  trafficMode: 'CUSTOMER_LIFECYCLE';
+  lifecycleIntervalSec: number;
   configVersion: number;
+  trafficRunId: string | null;
+  currentLifecycleId: string | null;
+  lastLifecycleStartedAt: string | null;
+  lastLifecycleCompletedAt: string | null;
+  lifecycleStartedCount: number;
+  lifecycleCompletedCount: number;
+  lifecycleNoopCount: number;
+  lifecycleFailedCount: number;
+  lifecycleInterruptedCount: number;
+  averageIntervalSec: number | null;
+  paymentSuccessCount: number;
+  cancelCount: number;
+  couponRequestedCount: number;
+  couponAppliedCount: number;
+  addressCreatedCount: number;
+  cartReusedCount: number;
+  pendingPaymentRetainedCount: number;
+  faultScenarioCount: number;
   updatedAt: string;
 }
 
@@ -30,7 +43,6 @@ export async function getRunnerControlState(): Promise<RunnerControlState> {
   const data = await redis.hgetall(CONTROL_KEY);
   return {
     paused: data.paused === 'true',
-    rateMultiplier: data.rateMultiplier ? Number(data.rateMultiplier) : 1.0,
   };
 }
 
@@ -40,12 +52,6 @@ export async function setRunnerPaused(paused: boolean): Promise<void> {
   await redis.hset(CONTROL_KEY, 'paused', paused ? 'true' : 'false');
 }
 
-export async function setRunnerRateMultiplier(multiplier: number): Promise<void> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  await redis.hset(CONTROL_KEY, 'rateMultiplier', String(multiplier));
-}
-
 export async function setRunnerStatus(status: RunnerStatusState): Promise<void> {
   const redis = getRedis();
   await redis.connect().catch(() => undefined);
@@ -53,13 +59,27 @@ export async function setRunnerStatus(status: RunnerStatusState): Promise<void> 
     running: status.running ? 'true' : 'false',
     enabled: status.enabled ? 'true' : 'false',
     paused: status.paused ? 'true' : 'false',
-    currentQps: String(status.currentQps),
-    successRate: String(status.successRate),
-    failRate: String(status.failRate),
-    totalRequests: String(status.totalRequests),
-    windowSeconds: String(status.windowSeconds),
-    rateMultiplier: String(status.rateMultiplier),
+    trafficMode: status.trafficMode,
+    lifecycleIntervalSec: String(status.lifecycleIntervalSec),
     configVersion: String(status.configVersion),
+    trafficRunId: status.trafficRunId ?? '',
+    currentLifecycleId: status.currentLifecycleId ?? '',
+    lastLifecycleStartedAt: status.lastLifecycleStartedAt ?? '',
+    lastLifecycleCompletedAt: status.lastLifecycleCompletedAt ?? '',
+    lifecycleStartedCount: String(status.lifecycleStartedCount),
+    lifecycleCompletedCount: String(status.lifecycleCompletedCount),
+    lifecycleNoopCount: String(status.lifecycleNoopCount),
+    lifecycleFailedCount: String(status.lifecycleFailedCount),
+    lifecycleInterruptedCount: String(status.lifecycleInterruptedCount),
+    averageIntervalSec: status.averageIntervalSec === null ? '' : String(status.averageIntervalSec),
+    paymentSuccessCount: String(status.paymentSuccessCount),
+    cancelCount: String(status.cancelCount),
+    couponRequestedCount: String(status.couponRequestedCount),
+    couponAppliedCount: String(status.couponAppliedCount),
+    addressCreatedCount: String(status.addressCreatedCount),
+    cartReusedCount: String(status.cartReusedCount),
+    pendingPaymentRetainedCount: String(status.pendingPaymentRetainedCount),
+    faultScenarioCount: String(status.faultScenarioCount),
     updatedAt: status.updatedAt,
   });
   await redis.expire(STATUS_KEY, 30);
@@ -76,13 +96,27 @@ export async function getRunnerStatus(): Promise<RunnerStatusState | null> {
     running: data.running === 'true',
     enabled: data.enabled !== 'false',
     paused: data.paused === 'true',
-    currentQps: Number(data.currentQps || 0),
-    successRate: Number(data.successRate || 0),
-    failRate: Number(data.failRate || 0),
-    totalRequests: Number(data.totalRequests || 0),
-    windowSeconds: Number(data.windowSeconds || 60),
-    rateMultiplier: Number(data.rateMultiplier || 1),
+    trafficMode: 'CUSTOMER_LIFECYCLE',
+    lifecycleIntervalSec: Number(data.lifecycleIntervalSec || 60),
     configVersion: Number(data.configVersion || 0),
+    trafficRunId: data.trafficRunId || null,
+    currentLifecycleId: data.currentLifecycleId || null,
+    lastLifecycleStartedAt: data.lastLifecycleStartedAt || null,
+    lastLifecycleCompletedAt: data.lastLifecycleCompletedAt || null,
+    lifecycleStartedCount: Number(data.lifecycleStartedCount || 0),
+    lifecycleCompletedCount: Number(data.lifecycleCompletedCount || 0),
+    lifecycleNoopCount: Number(data.lifecycleNoopCount || 0),
+    lifecycleFailedCount: Number(data.lifecycleFailedCount || 0),
+    lifecycleInterruptedCount: Number(data.lifecycleInterruptedCount || 0),
+    averageIntervalSec: data.averageIntervalSec ? Number(data.averageIntervalSec) : null,
+    paymentSuccessCount: Number(data.paymentSuccessCount || 0),
+    cancelCount: Number(data.cancelCount || 0),
+    couponRequestedCount: Number(data.couponRequestedCount || 0),
+    couponAppliedCount: Number(data.couponAppliedCount || 0),
+    addressCreatedCount: Number(data.addressCreatedCount || 0),
+    cartReusedCount: Number(data.cartReusedCount || 0),
+    pendingPaymentRetainedCount: Number(data.pendingPaymentRetainedCount || 0),
+    faultScenarioCount: Number(data.faultScenarioCount || 0),
     updatedAt: data.updatedAt,
   };
 }
@@ -119,6 +153,35 @@ export async function getInventoryReplenishmentStatus(): Promise<InventoryReplen
   }
 }
 
+export interface CouponReplenishmentStatusState {
+  running: boolean;
+  lastWindowId: string | null;
+  lastResult: 'COMPLETED' | 'FAILED' | 'SKIPPED' | null;
+  lastAttemptAt: string | null;
+  nextExecutionAt: string | null;
+  retryCount: number;
+}
+
+export async function setCouponReplenishmentStatus(
+  status: CouponReplenishmentStatusState,
+): Promise<void> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  await redis.set(COUPON_REPLENISHMENT_STATUS_KEY, JSON.stringify(status), 'EX', 30);
+}
+
+export async function getCouponReplenishmentStatus(): Promise<CouponReplenishmentStatusState | null> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  const value = await redis.get(COUPON_REPLENISHMENT_STATUS_KEY);
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as CouponReplenishmentStatusState;
+  } catch {
+    return null;
+  }
+}
+
 // ── Activity feed (written by worker, read by API route via Redis list) ──
 
 export interface ActivityEntry {
@@ -132,7 +195,9 @@ export interface ActivityEntry {
   paymentId?: string;
   traceId?: string;
   faultScenarioId?: string;
-  status?: 'SUCCESS' | 'FAILED' | 'NOOP';
+  lifecycleId?: string;
+  pendingPaymentRetained?: boolean;
+  status?: 'SUCCESS' | 'FAILED' | 'NOOP' | 'INTERRUPTED';
   errorCode?: string;
 }
 
@@ -153,76 +218,3 @@ export async function getRunnerActivity(limit = 20): Promise<ActivityEntry[]> {
   return items.map((s) => JSON.parse(s) as ActivityEntry);
 }
 
-// ── Recent order IDs (used by CANCEL_ORDER action to cancel real orders) ──
-
-const RECENT_ORDERS_KEY = 'traffic-control-plane:runner:recent-orders';
-const RECENT_ORDERS_MAX = 100;
-
-const PENDING_ORDERS_KEY = 'traffic-control-plane:runner:pending-orders';
-const PAID_ORDERS_KEY = 'traffic-control-plane:runner:paid-orders';
-const RUNNER_ORDERS_KEY = 'traffic-control-plane:runner:orders';
-const ORDER_QUEUE_MAX = 100;
-
-export async function pushRecentOrderId(orderId: string): Promise<void> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  await redis.lpush(RECENT_ORDERS_KEY, orderId);
-  await redis.ltrim(RECENT_ORDERS_KEY, 0, RECENT_ORDERS_MAX - 1);
-}
-
-export async function popRecentOrderId(): Promise<string | null> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  return redis.rpop(RECENT_ORDERS_KEY);
-}
-
-export async function pushPendingOrder(order: RunnerOrderRef): Promise<void> {
-  await pushOrder(PENDING_ORDERS_KEY, order);
-}
-
-export async function popPendingOrder(): Promise<RunnerOrderRef | null> {
-  return popOrder(PENDING_ORDERS_KEY);
-}
-
-export async function pushPaidOrder(order: RunnerOrderRef): Promise<void> {
-  await pushOrder(PAID_ORDERS_KEY, order);
-}
-
-export async function popPaidOrder(): Promise<RunnerOrderRef | null> {
-  return popOrder(PAID_ORDERS_KEY);
-}
-
-export async function pushRunnerOrder(order: RunnerOrderRef): Promise<void> {
-  await pushOrder(RUNNER_ORDERS_KEY, order);
-}
-
-export async function popRunnerOrder(): Promise<RunnerOrderRef | null> {
-  return popOrder(RUNNER_ORDERS_KEY);
-}
-
-export async function clearRunnerOrderQueues(): Promise<void> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  await redis.del(RECENT_ORDERS_KEY, PENDING_ORDERS_KEY, PAID_ORDERS_KEY, RUNNER_ORDERS_KEY);
-}
-
-async function pushOrder(key: string, order: RunnerOrderRef): Promise<void> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  await redis.lpush(key, JSON.stringify(order));
-  await redis.ltrim(key, 0, ORDER_QUEUE_MAX - 1);
-}
-
-async function popOrder(key: string): Promise<RunnerOrderRef | null> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  const value = await redis.rpop(key);
-  if (!value) return null;
-  try {
-    const order = JSON.parse(value) as Partial<RunnerOrderRef>;
-    if (typeof order.customerId !== 'number' || typeof order.orderId !== 'string') return null;
-    return order as RunnerOrderRef;
-  } catch {
-    return null;
-  }
-}

@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-control-plane-worker
+  namespace: castrel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traffic-control-plane-worker
+  template:
+    metadata:
+      labels:
+        app: traffic-control-plane-worker
+    spec:
+      containers:
+        - name: traffic-control-plane-worker
+          image: castrel/traffic-control-plane:latest
+          imagePullPolicy: IfNotPresent
+          command: ["node", "node_modules/tsx/dist/cli.mjs", "src/worker/index.ts"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secret
+            - secretRef:
+                name: traffic-lifecycle-secret
+          env:
+            - name: GATEWAY_BASE_URL
+              value: "http://gateway-service:8080"
+            - name: NODE_ENV
+              value: "production"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      restartPolicy: Always

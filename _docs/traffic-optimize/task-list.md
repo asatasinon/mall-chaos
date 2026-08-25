@@ -26,7 +26,7 @@
 | A | 契约、Schema 与安全边界 | 已完成 | 5 / 5 | 无 |
 | B | 优惠券和库存基线补齐 | 已完成 | 4 / 4 | A |
 | C | 真实登录客户生命周期 | 已完成 | 5 / 5 | A、B |
-| D | Worker 串行调度与可观测性 | 待开始 | 0 / 5 | B、C |
+| D | Worker 串行调度与可观测性 | 已完成 | 5 / 5 | B、C |
 | E | 控制台与发布准备 | 待开始 | 0 / 2 | A 至 D |
 | F | 统一验证与验收 | 待开始 | 0 / 23 | A 至 E |
 
@@ -163,42 +163,42 @@
 
 ## Phase D：Worker 串行调度与可观测性
 
-**阶段进度：0 / 5**
+**阶段进度：5 / 5**
 
 目标：用四档固定间隔调度完整生命周期，准确展示真实执行节奏、活动和补齐状态。
 
 ### D1. RunnerEngine 串行间隔调度
 
-- [ ] 将主模式 action pick 替换为 `CUSTOMER_LIFECYCLE` 执行。
-- [ ] 一条生命周期完成后等待 `lifecycle_interval_sec` 再开始下一条；慢生命周期绝不重叠。
-- [ ] 停止时停止下一次调度，并把未完成生命周期安全标记为中断；在 run 完成前等待必要的持久化 drain。
+- [x] 将主模式 action pick 替换为 `CUSTOMER_LIFECYCLE` 执行。
+- [x] 一条生命周期完成后等待 `lifecycle_interval_sec` 再开始下一条；慢生命周期绝不重叠。
+- [x] 停止时停止下一次调度，并把未完成生命周期安全标记为中断；在 run 完成前等待必要的持久化 drain。
 
 ### D2. 父子活动与持久化
 
-- [ ] 每条生命周期写父活动记录及登录、浏览、加购、地址、选券、checkout、创建后查单、支付/取消、最终查单子记录。
-- [ ] 持久化 lifecycle/step ID、trace、账号标签或客户 ID、订单/支付/券关联、购物车与地址摘要、状态、稳定错误码、耗时和中断原因。
-- [ ] Redis recent activity 保留非敏感近期状态；MySQL 保存可审计历史；停止前不丢失已完成子步骤。
-- [ ] 保持 token、密码、邮箱、原始认证头不落盘。
+- [x] 每条生命周期写父活动记录及登录、浏览、加购、地址、选券、checkout、创建后查单、支付/取消、最终查单子记录。
+- [x] 持久化 lifecycle/step ID、trace、账号标签或客户 ID、订单/支付/券关联、购物车与地址摘要、状态、稳定错误码、耗时和中断原因。
+- [x] Redis recent activity 保留非敏感近期状态；MySQL 保存可审计历史；停止前不丢失已完成子步骤。
+- [x] 保持 token、密码、邮箱、原始认证头不落盘。
 
 ### D3. 状态与指标
 
-- [ ] 状态 API 返回选定间隔、当前 lifecycle、上次开始/完成时间、累计开始/完成/NOOP/失败/中断数和实际平均间隔。
-- [ ] 输出目标与实际支付/取消/用券比例、地址自动创建数、购物车复用数、待支付保留数。
-- [ ] 输出优惠券与库存补齐的下次执行、上次结果、窗口 ID、重试次数、补充/跳过/失败数。
-- [ ] 将常规生命周期与 `faultScenarioId` 故障注入结果拆分指标、日志和活动过滤条件。
+- [x] 状态 API 返回选定间隔、当前 lifecycle、上次开始/完成时间、累计开始/完成/NOOP/失败/中断数和实际平均间隔。
+- [x] 输出目标与实际支付/取消/用券比例、地址自动创建数、购物车复用数、待支付保留数。
+- [x] 输出优惠券与库存补齐的下次执行、上次结果、窗口 ID、重试次数、补充/跳过/失败数。
+- [x] 将常规生命周期与 `faultScenarioId` 故障注入结果拆分指标、日志和活动过滤条件。
 
 ### D4. 删除旧流量实现
 
-- [ ] 删除旧 action-mix 调度、QPS/峰值/周期/抖动计算、runner credential 请求构造、支付策略注入和 inventory reset scheduler 的源文件、导出、启动注册与调用点。
-- [ ] 删除旧 runner API 路由、请求/响应 DTO、运行时状态字段、Redis key、活动类型和只服务于旧流量的数据库查询。
-- [ ] 删除旧 runner 页面控件、状态展示、表单校验、文案、测试夹具和端到端用例；不保留隐藏控件或 feature flag 分支。
-- [ ] 删除旧环境变量、Compose/Kubernetes 配置、样例配置和文档，避免部署环境继续注入已删除的运行参数。
+- [x] 删除旧 action-mix 调度、QPS/峰值/周期/抖动计算、runner credential 请求构造、支付策略注入和 inventory reset scheduler 的源文件、导出、启动注册与调用点。
+- [x] 删除旧 runner API 路由、请求/响应 DTO、运行时状态字段、Redis key、活动类型和只服务于旧流量的数据库查询。
+- [x] 删除旧 runner 页面控件、状态展示、表单校验、文案、测试夹具和端到端用例；不保留隐藏控件或 feature flag 分支。
+- [x] 删除旧环境变量、Compose/Kubernetes 配置、样例配置和文档，避免部署环境继续注入已删除的运行参数。
 
 ### D5. 新部署配置
 
-- [ ] 新建仅供生命周期模式使用的环境变量、Secret 和 ConfigMap，声明演示账号 Secret、内部服务认证和安全默认值。
-- [ ] 更新 Compose 与 Kubernetes 部署，使 worker 仅启动 Customer Lifecycle、补券和补库存组件。
-- [ ] 以缺失 Secret、错误 Secret 或未启用登录模式作为 fail-closed 启动条件。
+- [x] 新建仅供生命周期模式使用的环境变量、Secret 和 ConfigMap，声明演示账号 Secret、内部服务认证和安全默认值。
+- [x] 更新 Compose 与 Kubernetes 部署，使 worker 仅启动 Customer Lifecycle、补券和补库存组件。
+- [x] 以缺失 Secret、错误 Secret 或未启用登录模式作为 fail-closed 启动条件。
 
 ---
 

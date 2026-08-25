@@ -27,12 +27,8 @@ public class PaymentController {
     @PostMapping("/api/payments/{id}/confirm")
     public ApiResponse<PaymentDTO> confirm(
             @PathVariable Long id,
-            @RequestHeader("X-User-Id") Long customerId,
-            @RequestHeader(value = "X-Auth-Actor", defaultValue = "CUSTOMER") String actor,
-            @RequestHeader(value = "X-Traffic-Runner-Payment-Strategy", required = false) String strategy) {
-        return ApiResponse.ok(paymentService.confirmIntent(
-            id, customerId, "TRAFFIC_RUNNER".equals(actor) ? strategy : null,
-            !"TRAFFIC_RUNNER".equals(actor)));
+            @RequestHeader("X-User-Id") Long customerId) {
+        return ApiResponse.ok(paymentService.confirmIntent(id, customerId, true));
     }
 
     @PostMapping("/api/payments/{id}/retry")

@@ -4,6 +4,7 @@ import pino from 'pino';
 import { getGatewayClient, GatewayClient } from '../lib/gateway-client';
 import { getRedis } from '../lib/redis';
 import { recordReplenishmentRun } from '../lib/runner-persistence';
+import { setCouponReplenishmentStatus } from '../lib/runtime-state';
 
 const log = pino({ name: 'coupon-replenishment' });
 const CRON_EXPRESSION = '0 0 */6 * * *';
@@ -63,6 +64,7 @@ export class CouponReplenishmentScheduler {
     if (this.running) return;
     this.running = true;
     this.status = { ...this.status, running: true };
+    await this.publishStatus();
     await this.executeCurrentWindow();
     this.scheduleNext();
     log.info({ status: this.status }, 'Coupon replenishment scheduler started');
@@ -75,6 +77,7 @@ export class CouponReplenishmentScheduler {
       this.timer = null;
     }
     this.status = { ...this.status, running: false, nextExecutionAt: null };
+    void this.publishStatus();
     log.info({ status: this.status }, 'Coupon replenishment scheduler stopped');
   }
 
@@ -97,6 +100,7 @@ export class CouponReplenishmentScheduler {
     await this.redis.connect().catch(() => undefined);
     if (await this.redis.get(completedKey)) {
       this.status = { ...this.status, lastResult: 'COMPLETED' };
+      await this.publishStatus();
       return this.getStatus();
     }
 
@@ -104,6 +108,7 @@ export class CouponReplenishmentScheduler {
     const acquired = await this.redis.set(lockKey, lockToken, 'EX', LOCK_TTL_SECONDS, 'NX');
     if (!acquired) {
       this.status = { ...this.status, lastResult: 'SKIPPED' };
+      await this.publishStatus();
       log.info({ windowId }, 'Coupon replenishment skipped because another worker holds the lock');
       return this.getStatus();
     }
@@ -121,6 +126,7 @@ export class CouponReplenishmentScheduler {
           }
           await this.redis.set(completedKey, 'completed', 'EX', COMPLETION_TTL_SECONDS);
           this.status = { ...this.status, lastResult: 'COMPLETED' };
+          await this.publishStatus();
           await this.persistStatus(windowId, correlationId, startedAt, 'COMPLETED', attempt - 1, 'completed');
           return this.getStatus();
         } catch (error) {
@@ -131,6 +137,7 @@ export class CouponReplenishmentScheduler {
         }
       }
       this.status = { ...this.status, lastResult: 'FAILED', retryCount: MAX_ATTEMPTS - 1 };
+      await this.publishStatus();
       await this.persistStatus(windowId, correlationId, startedAt, 'FAILED', MAX_ATTEMPTS - 1, 'failed');
       log.error({ windowId, error: safeErrorMessage(lastError) }, 'Coupon replenishment failed');
       return this.getStatus();
@@ -145,6 +152,7 @@ export class CouponReplenishmentScheduler {
       const interval = CronExpressionParser.parse(CRON_EXPRESSION, { tz: TIME_ZONE });
       const next = interval.next().toDate();
       this.status = { ...this.status, nextExecutionAt: next.toISOString() };
+      void this.publishStatus();
       this.timer = setTimeout(async () => {
         if (!this.running) return;
         await this.executeCurrentWindow();
@@ -153,6 +161,10 @@ export class CouponReplenishmentScheduler {
     } catch (error) {
       log.error({ error: safeErrorMessage(error) }, 'Failed to schedule coupon replenishment');
     }
+  }
+
+  private async publishStatus(): Promise<void> {
+    await setCouponReplenishmentStatus(this.getStatus());
   }
 
   private inCurrentWindow(windowId: string): boolean {

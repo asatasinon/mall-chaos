@@ -26,14 +26,11 @@ public class JwtTokenService {
     private final String audience;
     private final byte[] secret;
     private final Duration accessTokenTtl;
-    private final long expectedRunnerWhitelistVersion;
-
     public JwtTokenService(
             @Value("${castrel.security.jwt.issuer:castrel-user-service}") String issuer,
             @Value("${castrel.security.jwt.audience:castrel-gateway}") String audience,
             @Value("${CASTREL_JWT_SECRET:change-me-in-development-only-32-bytes}") String secret,
-            @Value("${castrel.security.jwt.access-ttl:PT15M}") Duration accessTokenTtl,
-            @Value("${castrel.security.runner.whitelist-version:1}") long expectedRunnerWhitelistVersion) {
+            @Value("${castrel.security.jwt.access-ttl:PT15M}") Duration accessTokenTtl) {
         if (secret.getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalArgumentException("CASTREL_JWT_SECRET must be at least 32 bytes");
         }
@@ -141,35 +138,6 @@ public class JwtTokenService {
         }
     }
 
-    public RunnerPrincipal verifyRunnerCredential(String token) {
-        try {
-            SignedJWT jwt = (SignedJWT) JWTParser.parse(token);
-            if (!jwt.verify(new MACVerifier(secret))) {
-                throw new IllegalArgumentException("Invalid runner signature");
-            }
-            JWTClaimsSet claims = jwt.getJWTClaimsSet();
-            Instant now = Instant.now();
-            if (!issuer.equals(claims.getIssuer())
-                    || !claims.getAudience().contains("castrel-gateway-service")
-                    || !"TRAFFIC_RUNNER".equals(claims.getStringClaim("actor"))
-                    || claims.getJWTID() == null
-                    || claims.getExpirationTime() == null
-                    || !claims.getExpirationTime().toInstant().isAfter(now)
-                    || claims.getLongClaim("customerId") == null
-                    || claims.getLongClaim("whitelistVersion") == null
-                    || claims.getLongClaim("whitelistVersion") != expectedRunnerWhitelistVersion) {
-                throw new IllegalArgumentException("Invalid runner claims");
-            }
-            Object scopesClaim = claims.getClaim("scope");
-            List<String> scopes = scopesClaim instanceof List<?> values
-                    ? values.stream().map(String::valueOf).toList()
-                    : scopesClaim instanceof String scope ? List.of(scope.split(" ")) : List.of();
-            return new RunnerPrincipal(claims.getLongClaim("customerId"), scopes, claims.getJWTID());
-        } catch (Exception exception) {
-            throw new IllegalArgumentException("Invalid runner credential", exception);
-        }
-    }
-
     public record JwtPrincipal(Long userId, List<String> roles, String tokenId) {
     }
 
@@ -177,6 +145,4 @@ public class JwtTokenService {
                                       String tokenId) {
     }
 
-    public record RunnerPrincipal(Long customerId, List<String> scopes, String tokenId) {
-    }
 }

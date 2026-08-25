@@ -2,7 +2,7 @@ import { getRunnerEngine } from './runner-engine';
 import { getDataWarmupService } from './data-warmup';
 import { env } from '../lib/env';
 import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
-import { setInventoryReplenishmentStatus } from '../lib/runtime-state';
+import { setCouponReplenishmentStatus, setInventoryReplenishmentStatus } from '../lib/runtime-state';
 import { getCouponReplenishmentScheduler } from './coupon-replenishment';
 import { getInventoryReplenishmentScheduler } from './inventory-replenishment';
 import pino from 'pino';
@@ -12,9 +12,13 @@ const log = pino({ name: 'worker' });
 async function main() {
   log.info('Starting traffic-control-plane worker...');
 
-  if (env.TRAFFIC_LIFECYCLE_LOGIN_ENABLED) {
-    loadLifecycleAccounts();
+  if (!env.CASTREL_INTERNAL_SERVICE_KEY.trim()) {
+    throw new Error('INTERNAL_SERVICE_KEY_REQUIRED');
   }
+  if (!env.TRAFFIC_LIFECYCLE_LOGIN_ENABLED) {
+    throw new Error('LIFECYCLE_LOGIN_REQUIRED');
+  }
+  loadLifecycleAccounts();
 
   const engine = getRunnerEngine();
   await engine.loadConfigFromDb();
@@ -24,8 +28,10 @@ async function main() {
   await inventoryReplenishmentScheduler.start();
   const inventoryStatusTimer = setInterval(() => {
     void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
+    void setCouponReplenishmentStatus(couponReplenishmentScheduler.getStatus());
   }, 1000);
   await setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
+  await setCouponReplenishmentStatus(couponReplenishmentScheduler.getStatus());
   engine.start();
 
   if (env.DATA_WARMUP_ENABLED) {
@@ -37,25 +43,19 @@ async function main() {
 
   log.info('Worker is running. Press Ctrl+C to stop.');
 
-  process.on('SIGINT', () => {
+  const shutdown = async () => {
     log.info('Shutting down worker...');
     clearInterval(inventoryStatusTimer);
     inventoryReplenishmentScheduler.stop();
     void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
     couponReplenishmentScheduler.stop();
-    engine.stop();
+    void setCouponReplenishmentStatus(couponReplenishmentScheduler.getStatus());
+    await engine.stop();
     process.exit(0);
-  });
+  };
 
-  process.on('SIGTERM', () => {
-    log.info('Shutting down worker...');
-    clearInterval(inventoryStatusTimer);
-    inventoryReplenishmentScheduler.stop();
-    void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
-    couponReplenishmentScheduler.stop();
-    engine.stop();
-    process.exit(0);
-  });
+  process.on('SIGINT', () => { void shutdown(); });
+  process.on('SIGTERM', () => { void shutdown(); });
 }
 
 main().catch((err) => {

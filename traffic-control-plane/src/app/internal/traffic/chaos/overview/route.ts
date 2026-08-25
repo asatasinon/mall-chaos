@@ -1,16 +1,15 @@
 import { getGatewayClient } from '@/lib/gateway-client';
 import { getOrCreateTraceId } from '@/lib/trace';
 import { jsonOk } from '@/lib/api-response';
-import { getRunnerStatus, getRunnerControlState } from '@/lib/runtime-state';
+import { getRunnerStatus } from '@/lib/runtime-state';
 import { loadRunnerConfigFromDb } from '@/lib/runner-config';
 import { NextRequest } from 'next/server';
 
 export async function GET(request: NextRequest) {
   const traceId = getOrCreateTraceId(request.headers);
   const gateway = getGatewayClient();
-  const [runnerStatus, controlState, config] = await Promise.all([
+  const [runnerStatus, config] = await Promise.all([
     getRunnerStatus(),
-    getRunnerControlState(),
     loadRunnerConfigFromDb(),
   ]);
 
@@ -39,14 +38,29 @@ export async function GET(request: NextRequest) {
     runner:
       runnerStatus ?? {
         running: false,
-        paused: controlState.paused,
-        currentQps: 0,
-        successRate: 1,
-        failRate: 0,
-        totalRequests: 0,
-        windowSeconds: 60,
-        rateMultiplier: controlState.rateMultiplier,
+        enabled: config.enabled,
+        paused: false,
+        trafficMode: config.trafficMode,
+        lifecycleIntervalSec: config.lifecycleIntervalSec,
         configVersion: config.version,
+        trafficRunId: null,
+        currentLifecycleId: null,
+        lastLifecycleStartedAt: null,
+        lastLifecycleCompletedAt: null,
+        lifecycleStartedCount: 0,
+        lifecycleCompletedCount: 0,
+        lifecycleNoopCount: 0,
+        lifecycleFailedCount: 0,
+        lifecycleInterruptedCount: 0,
+        averageIntervalSec: null,
+        paymentSuccessCount: 0,
+        cancelCount: 0,
+        couponRequestedCount: 0,
+        couponAppliedCount: 0,
+        addressCreatedCount: 0,
+        cartReusedCount: 0,
+        pendingPaymentRetainedCount: 0,
+        faultScenarioCount: 0,
         updatedAt: null,
       },
     chaos: {

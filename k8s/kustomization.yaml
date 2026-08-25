@@ -12,6 +12,7 @@ resources:
   - configmap/mysql-config.yaml
   - configmap/prometheus-alert-rules.yaml
   - secrets/db-secret.yaml
+  - secrets/traffic-lifecycle-secret.yaml
 
   # Infrastructure
   - infra/mysql.yaml
@@ -30,6 +31,7 @@ resources:
   - services/order/deployment.yaml
   - services/payment/deployment.yaml
   - services/traffic-control-plane/deployment.yaml
+  - services/traffic-control-plane/worker-deployment.yaml
   - services/promotion/deployment.yaml
   - services/risk/deployment.yaml
   - services/fulfillment/deployment.yaml

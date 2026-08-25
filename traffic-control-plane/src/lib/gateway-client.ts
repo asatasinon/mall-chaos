@@ -14,13 +14,13 @@ export class GatewayClient {
   async post<T = unknown>(
     path: string,
     body: unknown,
-    options?: string | GatewayRequestOptions | RunnerRequestContext,
+    options?: string | GatewayRequestOptions,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const requestOptions = normalizeOptions(options);
     const res = await fetch(url, withTrace({
       method: 'POST',
-      headers: this.headers('application/json', requestOptions.runner),
+      headers: this.headers('application/json'),
       body: JSON.stringify(body),
     }, requestOptions.traceId));
     if (!res.ok) {
@@ -92,14 +92,14 @@ export class GatewayClient {
   async get<T = unknown>(
     path: string,
     params?: Record<string, string>,
-    options?: string | GatewayRequestOptions | RunnerRequestContext,
+    options?: string | GatewayRequestOptions,
   ): Promise<T> {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
     const url = `${this.baseUrl}${path}${qs}`;
     const requestOptions = normalizeOptions(options);
     const res = await fetch(url, withTrace({
       method: 'GET',
-      headers: this.headers(undefined, requestOptions.runner),
+      headers: this.headers(undefined),
     }, requestOptions.traceId));
     if (!res.ok) {
       const text = await res.text();
@@ -111,13 +111,13 @@ export class GatewayClient {
   async patch<T = unknown>(
     path: string,
     body: unknown,
-    options?: string | GatewayRequestOptions | RunnerRequestContext,
+    options?: string | GatewayRequestOptions,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const requestOptions = normalizeOptions(options);
     const res = await fetch(url, withTrace({
       method: 'PATCH',
-      headers: this.headers('application/json', requestOptions.runner),
+      headers: this.headers('application/json'),
       body: JSON.stringify(body),
     }, requestOptions.traceId));
     if (!res.ok) {
@@ -127,12 +127,12 @@ export class GatewayClient {
     return res.json();
   }
 
-  async delete<T = unknown>(path: string, options?: string | GatewayRequestOptions | RunnerRequestContext): Promise<T> {
+  async delete<T = unknown>(path: string, options?: string | GatewayRequestOptions): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const requestOptions = normalizeOptions(options);
     const res = await fetch(url, withTrace({
       method: 'DELETE',
-      headers: this.headers(undefined, requestOptions.runner),
+      headers: this.headers(undefined),
     }, requestOptions.traceId));
     if (!res.ok) {
       const text = await res.text();
@@ -141,17 +141,9 @@ export class GatewayClient {
     return res.json();
   }
 
-  private headers(contentType?: string, runner?: RunnerRequestContext): Record<string, string> {
+  private headers(contentType?: string): Record<string, string> {
     return {
       ...(contentType ? { 'Content-Type': contentType } : {}),
-      ...(env.TRAFFIC_RUNNER_CREDENTIAL
-        ? { 'X-Traffic-Runner-Credential': env.TRAFFIC_RUNNER_CREDENTIAL }
-        : {}),
-      ...(runner ? {
-        'X-Traffic-Runner-Customer-Id': String(runner.customerId),
-        'X-Traffic-Run-Id': runner.trafficRunId,
-        'X-Traffic-Runner-Action': runner.action,
-      } : {}),
     };
   }
 
@@ -283,23 +275,14 @@ function shouldRefresh(expiresAt: Date, now: number): boolean {
   return expiresAt.getTime() - now <= 60_000;
 }
 
-export interface RunnerRequestContext {
-  customerId: number;
-  trafficRunId: string;
-  action: string;
-  traceId: string;
-}
-
 export interface GatewayRequestOptions {
   traceId?: string;
-  runner?: RunnerRequestContext;
 }
 
 function normalizeOptions(
-  options?: string | GatewayRequestOptions | RunnerRequestContext,
+  options?: string | GatewayRequestOptions,
 ): GatewayRequestOptions {
   if (typeof options === 'string') return { traceId: options };
-  if (options && 'customerId' in options) return { runner: options, traceId: options.traceId };
   return options ?? {};
 }
 

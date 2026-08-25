@@ -20,10 +20,10 @@ class PaymentControllerContractTest {
     private PaymentController controller;
 
     @Test
-    void customerConfirmationIgnoresRunnerPaymentStrategy() {
-        controller.confirm(10L, 7L, "CUSTOMER", "FAILED");
+    void customerConfirmationUsesTheCustomerSuccessBaseline() {
+        controller.confirm(10L, 7L);
 
-        verify(paymentService).confirmIntent(10L, 7L, null, true);
+        verify(paymentService).confirmIntent(10L, 7L, true);
         verifyNoMoreInteractions(paymentService);
     }
 }

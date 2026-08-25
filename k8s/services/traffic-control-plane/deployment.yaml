@@ -26,6 +26,8 @@ spec:
                 name: app-config
             - secretRef:
                 name: db-secret
+            - secretRef:
+                name: traffic-lifecycle-secret
           env:
             - name: GATEWAY_BASE_URL
               value: "http://gateway-service:8080"

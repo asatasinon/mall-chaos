@@ -1,35 +1,43 @@
 import pino from 'pino';
 import { v4 as uuidv4 } from 'uuid';
 import { loadRunnerConfigFromDb, RunnerConfig } from '../lib/runner-config';
-import { completeTrafficRun, ensureTrafficRun, recordTrafficAction } from '../lib/runner-persistence';
+import { completeTrafficRun, ensureTrafficRun } from '../lib/runner-persistence';
 import { getRunnerControlState, pushActivity, setRunnerStatus } from '../lib/runtime-state';
 import {
-  RunnerAction,
   RunnerActionResult,
   TrafficActionOrchestrator,
 } from './traffic-action-orchestrator';
 
 const log = pino({ name: 'runner-engine' });
 
-interface SlidingEntry {
-  ts: number;
-  success: boolean;
-}
-
-const WINDOW_SECONDS = 60;
-
 export class RunnerEngine {
   private config: RunnerConfig;
-  private rateMultiplier = 1.0;
   private paused = false;
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private window: SlidingEntry[] = [];
-  private totalRequests = 0;
   private lastConfigCheckAt = 0;
   private trafficRunId: string | null = null;
   private trafficRunPersistence: Promise<void> | null = null;
   private lifecycleAbortController: AbortController | null = null;
+  private lifecyclePromise: Promise<void> | null = null;
+  private currentLifecycleId: string | null = null;
+  private lastLifecycleStartedAt: number | null = null;
+  private lastLifecycleCompletedAt: number | null = null;
+  private lifecycleStartedCount = 0;
+  private lifecycleCompletedCount = 0;
+  private lifecycleNoopCount = 0;
+  private lifecycleFailedCount = 0;
+  private lifecycleInterruptedCount = 0;
+  private intervalSamples: number[] = [];
+  private previousLifecycleStartedAt: number | null = null;
+  private paymentSuccessCount = 0;
+  private cancelCount = 0;
+  private couponRequestedCount = 0;
+  private couponAppliedCount = 0;
+  private addressCreatedCount = 0;
+  private cartReusedCount = 0;
+  private pendingPaymentRetainedCount = 0;
+  private faultScenarioCount = 0;
   private readonly orchestrator = new TrafficActionOrchestrator();
 
   constructor() {
@@ -63,20 +71,22 @@ export class RunnerEngine {
     log.info({ trafficRunId }, 'Runner engine started');
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.running = false;
     this.lifecycleAbortController?.abort();
-    this.lifecycleAbortController = null;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
     const trafficRunId = this.trafficRunId;
     this.trafficRunId = null;
+    const lifecycleDrain = this.lifecyclePromise ?? Promise.resolve();
+    await lifecycleDrain;
     if (trafficRunId) {
-      void (this.trafficRunPersistence ?? Promise.resolve()).then(() => completeTrafficRun(trafficRunId)).catch((error) => {
-          log.error({ error, trafficRunId }, 'Failed to persist runner stop');
-        });
+      await (this.trafficRunPersistence ?? Promise.resolve());
+      await completeTrafficRun(trafficRunId).catch((error) => {
+        log.error({ error, trafficRunId }, 'Failed to persist runner stop');
+      });
     }
     this.trafficRunPersistence = null;
     log.info({ trafficRunId }, 'Runner engine stopped');
@@ -92,31 +102,36 @@ export class RunnerEngine {
     log.info('Runner resumed');
   }
 
-  setRateMultiplier(multiplier: number): void {
-    this.rateMultiplier = multiplier;
-    log.info({ multiplier }, 'Rate multiplier updated');
-  }
-
   getStatus() {
-    const now = Date.now();
-    const cutoff = now - WINDOW_SECONDS * 1000;
-    this.window = this.window.filter((e) => e.ts >= cutoff);
-    const windowTotal = this.window.length;
-    const windowSuccess = this.window.filter((e) => e.success).length;
-    const windowFail = windowTotal - windowSuccess;
-
     return {
       running: this.running && this.config.enabled && !this.paused,
       enabled: this.config.enabled,
       paused: this.paused,
-      currentQps: windowTotal > 0 ? +(windowTotal / WINDOW_SECONDS).toFixed(2) : 0,
-      successRate: windowTotal > 0 ? +(windowSuccess / windowTotal).toFixed(4) : 1,
-      failRate: windowTotal > 0 ? +(windowFail / windowTotal).toFixed(4) : 0,
-      totalRequests: this.totalRequests,
-      windowSeconds: WINDOW_SECONDS,
-      rateMultiplier: this.rateMultiplier,
+      trafficMode: this.config.trafficMode,
+      lifecycleIntervalSec: this.config.lifecycleIntervalSec,
       configVersion: this.config.version,
       trafficRunId: this.trafficRunId,
+      currentLifecycleId: this.currentLifecycleId,
+      lastLifecycleStartedAt: this.lastLifecycleStartedAt
+        ? new Date(this.lastLifecycleStartedAt).toISOString() : null,
+      lastLifecycleCompletedAt: this.lastLifecycleCompletedAt
+        ? new Date(this.lastLifecycleCompletedAt).toISOString() : null,
+      lifecycleStartedCount: this.lifecycleStartedCount,
+      lifecycleCompletedCount: this.lifecycleCompletedCount,
+      lifecycleNoopCount: this.lifecycleNoopCount,
+      lifecycleFailedCount: this.lifecycleFailedCount,
+      lifecycleInterruptedCount: this.lifecycleInterruptedCount,
+      averageIntervalSec: this.intervalSamples.length > 0
+        ? +(this.intervalSamples.reduce((sum, value) => sum + value, 0) / this.intervalSamples.length).toFixed(2)
+        : null,
+      paymentSuccessCount: this.paymentSuccessCount,
+      cancelCount: this.cancelCount,
+      couponRequestedCount: this.couponRequestedCount,
+      couponAppliedCount: this.couponAppliedCount,
+      addressCreatedCount: this.addressCreatedCount,
+      cartReusedCount: this.cartReusedCount,
+      pendingPaymentRetainedCount: this.pendingPaymentRetainedCount,
+      faultScenarioCount: this.faultScenarioCount,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -143,30 +158,33 @@ export class RunnerEngine {
 
     if (!this.config.enabled || this.paused) return;
     if (!this.trafficRunId) return;
-    const action: RunnerAction = 'BROWSE_PRODUCT';
     const t0 = Date.now();
     const trafficRunId = this.trafficRunId;
     if (this.trafficRunPersistence) await this.trafficRunPersistence;
     const lifecycleAbortController = new AbortController();
     this.lifecycleAbortController = lifecycleAbortController;
-    const result = await this.orchestrator.executeLifecycle(trafficRunId, {
-      maxItems: this.config.maxItems,
-      maxItemQuantity: this.config.maxItemQuantity,
-      paymentSuccessRatio: this.config.successfulPaymentRatio,
-      couponUsageRatio: this.config.couponUsageRatio,
-    }, { signal: lifecycleAbortController.signal });
-    if (this.lifecycleAbortController === lifecycleAbortController) {
-      this.lifecycleAbortController = null;
-    }
+    this.lifecycleStartedCount++;
+    this.lastLifecycleStartedAt = t0;
+    this.currentLifecycleId = null;
+    this.lifecyclePromise = this.orchestrator.executeLifecycle(trafficRunId, {
+        maxItems: this.config.maxItems,
+        maxItemQuantity: this.config.maxItemQuantity,
+        paymentSuccessRatio: this.config.successfulPaymentRatio,
+        couponUsageRatio: this.config.couponUsageRatio,
+      }, { signal: lifecycleAbortController.signal })
+      .then((result) => this.finishLifecycle(result, t0))
+      .finally(() => {
+        if (this.lifecycleAbortController === lifecycleAbortController) {
+          this.lifecycleAbortController = null;
+        }
+        this.lifecyclePromise = null;
+      });
+    await this.lifecyclePromise;
+    const result = this.lastLifecycleResult!;
     const latencyMs = Date.now() - t0;
-    this.totalRequests++;
-    this.window.push({ ts: t0, success: result.success });
-    if (!result.lifecycleId) {
-      void this.persistAction(result, action, latencyMs, trafficRunId);
-    }
     void pushActivity({
       ts: t0,
-      action: result.lifecycleId ? 'CUSTOMER_LIFECYCLE' : action,
+      action: 'CUSTOMER_LIFECYCLE',
       success: result.success,
       latencyMs,
       trafficRunId,
@@ -174,43 +192,46 @@ export class RunnerEngine {
       orderId: result.orderId,
       paymentId: result.paymentId,
       traceId: result.traceId,
+      lifecycleId: result.lifecycleId,
+      pendingPaymentRetained: result.pendingPaymentRetained,
       status: result.status,
       errorCode: result.errorCode,
+      faultScenarioId: result.faultScenarioId,
     });
     await this.publishStatus();
   }
 
-  private async persistAction(
-    result: RunnerActionResult,
-    action: RunnerAction,
-    latencyMs: number,
-    trafficRunId: string,
-  ): Promise<void> {
-    if (result.customerId <= 0) return;
-    try {
-      await recordTrafficAction({
-        trafficRunId,
-        actionId: result.actionId,
-        customerId: result.customerId,
-        actionType: action,
-        status: result.status,
-        orderId: result.orderId,
-        paymentId: result.paymentId,
-        cartVersion: result.cartVersion,
-        resultCode: result.resultCode,
-        errorCode: result.errorCode,
-        traceId: result.traceId,
-        latencyMs,
-      });
-    } catch (error) {
-      log.error({ error, actionId: result.actionId }, 'Failed to persist runner action');
+  private lastLifecycleResult: RunnerActionResult | null = null;
+
+  private finishLifecycle(result: RunnerActionResult, startedAt: number): void {
+    this.lastLifecycleResult = result;
+    this.currentLifecycleId = result.lifecycleId ?? null;
+    this.lastLifecycleCompletedAt = Date.now();
+    if (this.previousLifecycleStartedAt !== null) {
+      this.intervalSamples.push((startedAt - this.previousLifecycleStartedAt) / 1000);
+      this.intervalSamples = this.intervalSamples.slice(-100);
     }
+    this.previousLifecycleStartedAt = startedAt;
+    if (result.status === 'SUCCESS') this.lifecycleCompletedCount++;
+    else if (result.status === 'NOOP') this.lifecycleNoopCount++;
+    else if (result.status === 'INTERRUPTED') this.lifecycleInterruptedCount++;
+    else this.lifecycleFailedCount++;
+    const steps = result.steps ?? [];
+    if (steps.some((step) => step.actionType === 'PAYMENT_CONFIRM' && step.success)) this.paymentSuccessCount++;
+    if (steps.some((step) => step.actionType === 'CANCEL_PENDING_ORDER' && step.success)) this.cancelCount++;
+    if (steps.some((step) => step.actionType === 'COUPON_SELECT'
+      && step.resultCode !== 'NO_COUPON_REQUESTED')) this.couponRequestedCount++;
+    if (steps.some((step) => step.actionType === 'COUPON_SELECT' && step.success
+      && step.resultCode !== 'COUPON_UNAVAILABLE' && step.resultCode !== 'NO_COUPON_REQUESTED')) this.couponAppliedCount++;
+    if (steps.some((step) => step.actionType === 'ADDRESS_CREATE' && step.success)) this.addressCreatedCount++;
+    if (steps.some((step) => step.actionType === 'CART_REUSED')) this.cartReusedCount++;
+    if (result.pendingPaymentRetained) this.pendingPaymentRetainedCount++;
+    if (result.faultScenarioId) this.faultScenarioCount++;
   }
 
   private async refreshControlState(): Promise<void> {
     const state = await getRunnerControlState();
     this.paused = state.paused;
-    this.rateMultiplier = state.rateMultiplier;
   }
 
   private async refreshConfigIfNeeded(): Promise<void> {

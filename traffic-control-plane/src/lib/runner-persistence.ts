@@ -1,12 +1,5 @@
 import { getPool } from './db';
 
-export interface RunnerOrderRef {
-  customerId: number;
-  orderId: string;
-  orderNo?: string;
-  paymentId?: string;
-}
-
 export interface TrafficActionRecord {
   trafficRunId: string;
   actionId: string;
@@ -37,21 +30,6 @@ export interface ReplenishmentRunRecord {
   retryCount: number;
   resultSummary?: string;
   correlationId: string;
-}
-
-export async function loadRunnerCustomerIds(): Promise<number[]> {
-  const [rows] = await getPool().query(
-    `SELECT w.customer_id
-     FROM runner_customer_whitelist w
-     INNER JOIN users u ON u.id = w.customer_id
-     WHERE w.enabled = 1 AND u.status = 1
-     ORDER BY w.customer_id`,
-  );
-  const customerIds = (rows as Array<{ customer_id: number }>).map((row) => Number(row.customer_id));
-  if (customerIds.length === 0) {
-    throw new Error('RUNNER_CUSTOMER_WHITELIST_EMPTY');
-  }
-  return customerIds;
 }
 
 export async function ensureTrafficRun(trafficRunId: string, configVersion: number): Promise<void> {
