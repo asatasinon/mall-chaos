@@ -25,7 +25,7 @@
 | --- | --- | --- | --- | --- |
 | A | 契约、Schema 与安全边界 | 已完成 | 5 / 5 | 无 |
 | B | 优惠券和库存基线补齐 | 已完成 | 4 / 4 | A |
-| C | 真实登录客户生命周期 | 待开始 | 0 / 5 | A、B |
+| C | 真实登录客户生命周期 | 进行中 | 1 / 5 | A、B |
 | D | Worker 串行调度与可观测性 | 待开始 | 0 / 5 | B、C |
 | E | 控制台与发布准备 | 待开始 | 0 / 2 | A 至 D |
 | F | 统一验证与验收 | 待开始 | 0 / 23 | A 至 E |
@@ -118,16 +118,16 @@
 
 ## Phase C：真实登录客户生命周期
 
-**阶段进度：0 / 5**
+**阶段进度：1 / 5**
 
 目标：一次串行生命周期用同一真实客户会话完成浏览、续加购、地址、优惠券、结算、查单与支付/取消。
 
 ### C1. GatewayClient 客户认证模式
 
-- [ ] 扩展 GatewayClient 的登录、刷新、登出和 bearer-authenticated `GET`/`POST`/`PATCH`/`DELETE` 能力。
-- [ ] 登录/刷新/登出与客户请求均携带 trace；客户模式不得附加任何 `X-Traffic-Runner-*` 或 runner credential 头。
-- [ ] 首次 `401` 或临期 token 时最多 refresh 一次并重试；失败后结束生命周期并清除内存 session。
-- [ ] 对错误消息、Pino 日志与活动 DTO 进行 token/password 脱敏。
+- [x] 扩展 GatewayClient 的登录、刷新、登出和 bearer-authenticated `GET`/`POST`/`PATCH`/`DELETE` 能力。
+- [x] 登录/刷新/登出与客户请求均携带 trace；客户模式不得附加任何 `X-Traffic-Runner-*` 或 runner credential 头。
+- [x] 首次 `401` 或临期 token 时最多 refresh 一次并重试；失败后结束生命周期并清除内存 session。
+- [x] 对错误消息、Pino 日志与活动 DTO 进行 token/password 脱敏。
 
 ### C2. CustomerSessionManager
 

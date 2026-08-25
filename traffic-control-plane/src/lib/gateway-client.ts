@@ -47,6 +47,48 @@ export class GatewayClient {
     return res.json();
   }
 
+  async login(email: string, password: string, traceId?: string): Promise<CustomerAuthResponse> {
+    return this.authRequest('/api/auth/login', { email, password }, undefined, traceId);
+  }
+
+  async refresh(sessionToken: string, traceId?: string): Promise<CustomerAuthResponse> {
+    return this.authRequest('/api/auth/refresh', undefined, sessionToken, traceId);
+  }
+
+  async logout(sessionToken: string, traceId?: string): Promise<void> {
+    await this.request('/api/auth/logout', 'POST', undefined, {
+      'X-Session-Token': sessionToken,
+    }, traceId);
+  }
+
+  async customerGet<T = unknown>(
+    path: string,
+    params: Record<string, string> | undefined,
+    context: CustomerRequestContext,
+  ): Promise<T> {
+    return this.customerRequest<T>('GET', path, params, context);
+  }
+
+  async customerPost<T = unknown>(
+    path: string,
+    body: unknown,
+    context: CustomerRequestContext,
+  ): Promise<T> {
+    return this.customerRequest<T>('POST', path, body, context);
+  }
+
+  async customerPatch<T = unknown>(
+    path: string,
+    body: unknown,
+    context: CustomerRequestContext,
+  ): Promise<T> {
+    return this.customerRequest<T>('PATCH', path, body, context);
+  }
+
+  async customerDelete<T = unknown>(path: string, context: CustomerRequestContext): Promise<T> {
+    return this.customerRequest<T>('DELETE', path, undefined, context);
+  }
+
   async get<T = unknown>(
     path: string,
     params?: Record<string, string>,
@@ -112,6 +154,133 @@ export class GatewayClient {
       } : {}),
     };
   }
+
+  private async authRequest(
+    path: string,
+    body: unknown,
+    sessionToken: string | undefined,
+    traceId?: string,
+  ): Promise<CustomerAuthResponse> {
+    const response = await this.request<ApiEnvelope<CustomerAuthResponse>>(
+      path,
+      'POST',
+      body,
+      sessionToken ? { 'X-Session-Token': sessionToken } : undefined,
+      traceId,
+    );
+    if (!response?.data || !Number.isInteger(response.data.userId)
+        || typeof response.data.accessToken !== 'string'
+        || typeof response.data.sessionToken !== 'string') {
+      throw new Error('CUSTOMER_AUTH_RESPONSE_INVALID');
+    }
+    return response.data;
+  }
+
+  private async customerRequest<T>(
+    method: CustomerHttpMethod,
+    path: string,
+    payload: unknown,
+    context: CustomerRequestContext,
+  ): Promise<T> {
+    let refreshed = false;
+    if (shouldRefresh(context.session.expiresAt, Date.now())) {
+      await this.refreshCustomerSession(context);
+      refreshed = true;
+    }
+
+    let response = await this.rawCustomerRequest<T>(method, path, payload, context);
+    if (response.response.status === 401 && !refreshed) {
+      await this.refreshCustomerSession(context);
+      response = await this.rawCustomerRequest<T>(method, path, payload, context);
+    }
+    if (!response.response.ok) {
+      throw new Error(`Gateway customer ${method} ${path} failed (${response.response.status})`);
+    }
+    return response.body as T;
+  }
+
+  private async rawCustomerRequest<T>(
+    method: CustomerHttpMethod,
+    path: string,
+    payload: unknown,
+    context: CustomerRequestContext,
+  ): Promise<{ response: Response; body?: T }> {
+    const isGet = method === 'GET';
+    const qs = isGet && payload ? '?' + new URLSearchParams(payload as Record<string, string>).toString() : '';
+    const response = await fetch(`${this.baseUrl}${path}${qs}`, withTrace({
+      method,
+      headers: {
+        ...(isGet ? {} : { 'Content-Type': 'application/json' }),
+        Authorization: `Bearer ${context.session.accessToken}`,
+      },
+      ...(!isGet && payload !== undefined ? { body: JSON.stringify(payload) } : {}),
+    }, context.traceId));
+    if (!response.ok) return { response };
+    return { response, body: await response.json() as T };
+  }
+
+  private async refreshCustomerSession(context: CustomerRequestContext): Promise<void> {
+    try {
+      await context.refresh();
+    } catch {
+      throw new Error('CUSTOMER_SESSION_REFRESH_FAILED');
+    }
+  }
+
+  private async request<T = unknown>(
+    path: string,
+    method: CustomerHttpMethod,
+    body?: unknown,
+    extraHeaders?: Record<string, string>,
+    traceId?: string,
+  ): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, withTrace({
+      method,
+      headers: {
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(extraHeaders ?? {}),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }, traceId));
+    if (!response.ok) {
+      throw new Error(`Gateway ${method} ${path} failed (${response.status})`);
+    }
+    return response.json();
+  }
+}
+
+type CustomerHttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+
+export interface CustomerAuthResponse {
+  userId: number;
+  accessToken: string;
+  sessionToken: string;
+  expiresAt: string;
+  roles: string[];
+}
+
+export interface CustomerSession {
+  accountLabel: string;
+  customerId: number;
+  accessToken: string;
+  sessionToken: string;
+  expiresAt: Date;
+}
+
+export interface CustomerRequestContext {
+  trafficRunId: string;
+  lifecycleId: string;
+  traceId: string;
+  session: CustomerSession;
+  refresh: () => Promise<void>;
+}
+
+interface ApiEnvelope<T> {
+  data?: T;
+}
+
+function shouldRefresh(expiresAt: Date, now: number): boolean {
+  return expiresAt.getTime() - now <= 60_000;
 }
 
 export interface RunnerRequestContext {
