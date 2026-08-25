@@ -232,7 +232,7 @@ sequenceDiagram
 
 ## 5. 持久化与全新数据库初始化
 
-数据库按全新环境初始化：清空数据卷后，由 `infra/mysql/init/00-schema.sql` 创建全部 Version 1 表、索引、约束、种子商品和演示客户。Version 1 不提供对历史数据库的版本化升级、数据回填或迁移 runner；后续需要保留真实业务数据时，再单独设计迁移策略。
+数据库按全新环境初始化：清空数据卷后，依次执行 `infra/mysql/init/00-schema-ddl.sql` 和 `infra/mysql/init/01-seed-dml.sql`，分别创建全部 Version 1 表、索引、约束并写入种子商品和演示客户。Version 1 不提供对历史数据库的版本化升级、数据回填或迁移 runner；后续需要保留真实业务数据时，再单独设计迁移策略。
 
 | 表 | 所有者 | 用途 |
 | --- | --- | --- |
@@ -351,4 +351,4 @@ runner 的 `RunnerEngine` 相应改造为状态化流程编排器：维护演示
 | 前端/流量/回归 | Playwright 注册至物流流程；runner 覆盖完整交易链路并验证各动作；`scripts/chaos/chaos-verify.sh` 可用；不提供旧单 SKU 接口 |
 | 可观测性 | 可查询结算、支付、同步履约和发货链路、指标和结构化日志 |
 
-主要实现锚点：`order-service` 的 `OrderService.java`、`DownstreamClients.java`；`gateway-service/src/main/resources/application.yml`；各业务服务源码；`common`；`infra/mysql/init/00-schema.sql`；`docker-compose.yml`；`k8s/` 和 `scripts/build-all.sh`。
+主要实现锚点：`order-service` 的 `OrderService.java`、`DownstreamClients.java`；`gateway-service/src/main/resources/application.yml`；各业务服务源码；`common`；`infra/mysql/init/00-schema-ddl.sql`、`01-seed-dml.sql`；`docker-compose.yml`；`k8s/` 和 `scripts/build-all.sh`。

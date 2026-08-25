@@ -43,7 +43,7 @@
 
 复核产品规格、技术设计和当前实现后，确认以下差异需要按任务依赖顺序处理：
 
-1. **Schema 与数据初始化**：当前 `infra/mysql/init/00-schema.sql` 仍是旧单商品模型，缺少 `schema_version`、多商品订单明细、购物车、会话/角色、支付尝试、履约时间线、客户通知、runner 活动和运营审计等 Version 1 契约；需要由 T0.3 统一重写。
+1. **Schema 与数据初始化**：当前初始化脚本仍是旧单商品模型，缺少 `schema_version`、多商品订单明细、购物车、会话/角色、支付尝试、履约时间线、客户通知、runner 活动和运营审计等 Version 1 契约；需要由 T0.3 统一重写。
 2. **测试基线**：当前仓库未发现 Java、Next.js 或 Playwright 测试文件，也没有统一测试 Profile/命令；需要由 T0.2 建立并确保普通测试不启用故障注入。
 3. **Schema 版本校验**：当前服务没有启动期 Schema 版本验证；需要由 T0.5 在就绪和业务流量入口前拒绝缺失或不匹配版本。
 4. **身份与访问边界**：`user-service` 目前只有按路径读取用户/地址的旧接口，未实现注册登录、令牌撤销、角色和地址 CRUD；Gateway 目前仅配置旧订单/商品路由，未实现认证、身份头清洗、客户归属和内部服务认证。按 T1.1-T1.6 完成。
@@ -59,14 +59,15 @@
 
 - [x] T0.1 复核 [product.md](product.md) 和 [technical-design.md](technical-design.md)，将所有现有实现与目标契约的差异记录为实现 backlog；不在本阶段修改业务行为。
 - [x] T0.2 建立本地测试分层与命令：Java 单元测试、MySQL/Redis 集成测试、Next.js 类型检查/lint；测试 Profile 默认禁用故障注入。Playwright 和服务器验收另列为 T0.6。
-- [x] T0.3 重写 `infra/mysql/init/00-schema.sql` 为 Version 1 全新 Schema 的唯一来源，并新增 `schema_version` 与启动期版本校验约定。
+- [x] T0.3 重写 `infra/mysql/init/00-schema-ddl.sql` 和 `01-seed-dml.sql`，作为 Version 1 全新 Schema 与初始化数据的唯一来源，并新增 `schema_version` 与启动期版本校验约定。
 - [-] T0.4 编写运维重置 Runbook：运维手工停止全部业务服务、Gateway、worker 和外部流量，清除 MySQL/Redis 数据目录，重新启动、初始化、健康检查，最后恢复 runner；明确它与 inventory reset 的区别。
 - [x] T0.5 在 `common` 实现 schema version verifier，各服务在健康就绪和流量处理前校验期望版本；补充版本正确、缺失和不匹配三组集成测试，版本错误时拒绝就绪和流量。
 - [ ] T0.6 执行 Phase 0 测试与环境验收：Playwright 基线、完整重置演练、全栈健康检查、Redis/runner 队列清理和服务器部署验证。
 
 **涉及文件**：
 
-- `infra/mysql/init/00-schema.sql`
+- `infra/mysql/init/00-schema-ddl.sql`
+- `infra/mysql/init/01-seed-dml.sql`
 - `docker-compose.yml`
 - `scripts/compose-down.sh`
 - `scripts/compose-up.sh`
@@ -204,7 +205,8 @@
 - `cart-service/`（计划新增 Maven 模块）
 - `catalog-service/src/main/java/com/castrel/chaos/catalog/`
 - `inventory-service/src/main/java/com/castrel/chaos/inventory/`
-- `infra/mysql/init/00-schema.sql`
+- `infra/mysql/init/00-schema-ddl.sql`
+- `infra/mysql/init/01-seed-dml.sql`
 - `gateway-service/src/main/resources/application.yml`
 - `docker-compose.yml`
 - `k8s/services/`、`k8s/kustomization.yaml`
@@ -251,7 +253,8 @@
 - `risk-service/src/main/java/com/castrel/chaos/risk/`
 - `catalog-service/src/main/java/com/castrel/chaos/catalog/`
 - `cart-service/`（计划新增模块）
-- `infra/mysql/init/00-schema.sql`
+- `infra/mysql/init/00-schema-ddl.sql`
+- `infra/mysql/init/01-seed-dml.sql`
 - `gateway-service/src/main/resources/application.yml`
 - `traffic-control-plane/src/app/internal/`
 
@@ -298,7 +301,8 @@
 - `inventory-service/src/main/java/com/castrel/chaos/inventory/`
 - `promotion-service/src/main/java/com/castrel/chaos/promotion/`
 - `common/src/main/java/com/castrel/chaos/common/`
-- `infra/mysql/init/00-schema.sql`
+- `infra/mysql/init/00-schema-ddl.sql`
+- `infra/mysql/init/01-seed-dml.sql`
 - `gateway-service/src/main/java/com/castrel/chaos/gateway/`
 - `gateway-service/src/main/resources/application.yml`
 
@@ -353,7 +357,8 @@
 - `traffic-control-plane/src/app/runner/`
 - `traffic-control-plane/src/app/internal/traffic/`
 - `traffic-control-plane/src/components/`
-- `infra/mysql/init/00-schema.sql`
+- `infra/mysql/init/00-schema-ddl.sql`
+- `infra/mysql/init/01-seed-dml.sql`
 
 ### 阶段验收条件
 

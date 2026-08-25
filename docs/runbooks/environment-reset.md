@@ -60,7 +60,7 @@
    docker compose ps mysql redis
    ```
 
-   MySQL 首次启动会执行 `infra/mysql/init/00-schema.sql`。若初始化失败，查看日志并修复 Schema 后重新清理数据目录；不要在旧数据目录上假设初始化脚本会重跑。
+   MySQL 首次启动会按文件名顺序执行 `infra/mysql/init/00-schema-ddl.sql`、`01-seed-dml.sql`、授权脚本和 SkyWalking 初始化脚本。若初始化失败，查看日志并修复 Schema 后重新清理数据目录；不要在旧数据目录上假设初始化脚本会重跑。
 
 7. 验证 Schema 版本和关键数据。
 

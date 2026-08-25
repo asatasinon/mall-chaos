@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | python3 -c \"import sys,json; inp=json.load(sys.stdin); path=inp.get('file_path',''); exit(0 if 'infra/mysql/init/00-schema.sql' not in path else 1)\" 2>/dev/null; then exit 0; fi; echo '[WARN] 00-schema.sql 仅在首次容器启动时执行。修改后须运行 docker compose down -v 再重建才能生效。确定继续？按 Ctrl-C 取消，或等待 5 秒继续。' >&2; sleep 5"
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | python3 -c \"import sys,json; inp=json.load(sys.stdin); path=inp.get('file_path',''); exit(0 if not any(name in path for name in ('infra/mysql/init/00-schema-ddl.sql', 'infra/mysql/init/01-seed-dml.sql')) else 1)\" 2>/dev/null; then exit 0; fi; echo '[WARN] MySQL 初始化脚本仅在首次容器启动时执行。修改后须运行 docker compose down -v 再重建才能生效。确定继续？按 Ctrl-C 取消，或等待 5 秒继续。' >&2; sleep 5"
           }
         ]
       }

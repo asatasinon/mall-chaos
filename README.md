@@ -138,7 +138,7 @@ castrel-chaos/
 ├── infra/
 │   ├── mysql/
 │   │   ├── my.cnf              # 慢查询日志配置
-│   │   └── init/00-schema.sql  # 数据库初始化脚本
+│   │   └── init/                  # MySQL 初始化脚本（00 DDL、01 DML）
 │   ├── redis/redis.conf
 │   ├── prometheus/prometheus.yml
 │   ├── grafana/
@@ -608,7 +608,7 @@ curl http://castrel.local/api/products
 
 ### 数据库
 
-MySQL 初始化脚本位于 `infra/mysql/init/00-schema.sql`，Docker Compose 首次启动自动执行。
+MySQL 初始化脚本位于 `infra/mysql/init/`：`00-schema-ddl.sql` 创建表结构，`01-seed-dml.sql` 写入初始数据；Docker Compose 首次启动时按文件名顺序自动执行。
 
 慢查询日志配置见 `infra/mysql/my.cnf`（阈值 1s，写入 `/var/lib/mysql/slow.log`）。
 
