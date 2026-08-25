@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVICE_URL="${SCHEMA_VERSION_SERVICE_URL:-http://localhost:18081}"
+SERVICE_URL="${SCHEMA_VERSION_SERVICE_URL:-http://localhost:8081}"
 MYSQL_SERVICE="${MYSQL_SERVICE:-mysql}"
 
 mysql_exec() {

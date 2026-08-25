@@ -11,7 +11,7 @@
 set -euo pipefail
 
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:18080}"
-CONTROL_PLANE_URL="${CONTROL_PLANE_URL:-http://localhost:18086}"
+CONTROL_PLANE_URL="${CONTROL_PLANE_URL:-http://localhost:13086}"
 SCENARIO="${SCENARIO:-}"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -242,7 +242,7 @@ print_usage() {
   echo ""
   echo "Options:"
   echo "  --gateway <url>      Gateway base URL (default: http://localhost:18080)"
-  echo "  CONTROL_PLANE_URL    Control-plane base URL (default: http://localhost:18086)"
+  echo "  CONTROL_PLANE_URL    Control-plane base URL (default: http://localhost:13086)"
   echo "  --scenario <1-7>     Run a specific scenario (default: interactive menu)"
   echo "  --global             Run global acceptance checklist only"
   echo ""

@@ -64,19 +64,20 @@ docker compose logs --tail=300 --no-log-prefix order-service payment-service | g
 
 ## 服务容器名映射
 
-| 服务 | 容器名 | 宿主机端口 |
-|---|---|---|
-| gateway-service | gateway-service | 18080 |
-| order-service | order-service | 18084 |
-| payment-service | payment-service | 18085 |
-| inventory-service | inventory-service | 18083 |
-| catalog-service | catalog-service | 18082 |
-| user-service | user-service | 18081 |
-| promotion-service | promotion-service | 18087 |
-| risk-service | risk-service | 18088 |
-| fulfillment-service | fulfillment-service | 18089 |
-| notification-service | notification-service | 18090 |
-| traffic-control-plane | traffic-control-plane | 18086 |
+| 服务 | 容器名 | 容器内端口 |
+|---|---|---:|
+| gateway-service | gateway-service | 8080 |
+| order-service | order-service | 8084 |
+| payment-service | payment-service | 8085 |
+| inventory-service | inventory-service | 8083 |
+| catalog-service | catalog-service | 8082 |
+| user-service | user-service | 8081 |
+| cart-service | cart-service | 8091 |
+| promotion-service | promotion-service | 8087 |
+| risk-service | risk-service | 8088 |
+| fulfillment-service | fulfillment-service | 8089 |
+| notification-service | notification-service | 8090 |
+| traffic-control-plane | traffic-control-plane | 3086 |
 
 ## MySQL 诊断命令（配合 chaos 分析）
 

@@ -43,13 +43,13 @@ public class DownstreamClients {
     @Value("${services.payment-url:http://localhost:8085}")
     private String paymentUrl;
 
-    @Value("${services.risk-url:http://localhost:18088}")
+    @Value("${services.risk-url:http://localhost:8088}")
     private String riskUrl;
 
-    @Value("${services.notification-url:http://localhost:18090}")
+    @Value("${services.notification-url:http://localhost:8090}")
     private String notificationUrl;
 
-    @Value("${services.promotion-url:http://localhost:18087}")
+    @Value("${services.promotion-url:http://localhost:8087}")
     private String promotionUrl;
 
     @Value("${services.cart-url:http://cart-service:8091}")

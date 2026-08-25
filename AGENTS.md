@@ -11,7 +11,7 @@ Current architecture and chaos design: [`_docs/plans/chaos-v2.md`](_docs/plans/c
 ## Architecture
 
 - **12 Maven modules**: `common` + 11 Spring Boot microservices
-- **1 Next.js app**: `traffic-control-plane` (port 3086) — runner + chaos console
+- **1 Next.js app**: `traffic-control-plane` (local port 13086, container port 3086) — runner + chaos console
 - **Local dev**: Docker Compose
 - **Production**: Kubernetes + Chaos Mesh
 

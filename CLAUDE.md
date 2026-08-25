@@ -32,7 +32,7 @@ docker compose up -d --no-build
 # traffic-control-plane (Next.js) — local dev only
 cd traffic-control-plane
 pnpm install
-pnpm dev        # Next.js web on :3086
+pnpm dev        # Next.js web on :13086
 pnpm worker     # Runner worker process
 pnpm lint
 ```
@@ -40,7 +40,7 @@ pnpm lint
 ## Architecture
 
 ```
-Browser → traffic-control-plane :18086 (Next.js UI + Route Handlers)
+Browser → traffic-control-plane :13086 (Next.js UI + Route Handlers)
         → gateway-service :18080
 
 traffic-control-plane → gateway-service → all business services
@@ -101,21 +101,23 @@ logging:
 - `docker` — container networking (used in Compose and K8s)
 - `chaos` — kept for compatibility; **v2 does not use this to gate chaos endpoints**
 
-## Service Ports (host:container)
+## Service Ports
 
-| Service | Host Port | Container Port |
+| Service | Host Port (Compose) | Container Port |
 |---|---|---|
 | gateway-service | 18080 | 8080 |
-| user-service | 18081 | 8081 |
-| catalog-service | 18082 | 8082 |
-| inventory-service | 18083 | 8083 |
-| order-service | 18084 | 8084 |
-| payment-service | 18085 | 8085 |
-| traffic-control-plane | 18086 | 3086 |
-| promotion-service | 18087 | 8087 |
-| risk-service | 18088 | 8088 |
-| fulfillment-service | 18089 | 8089 |
-| notification-service | 18090 | 8090 |
+| user-service | not published (container network only) | 8081 |
+| cart-service | not published (container network only) | 8091 |
+| catalog-service | not published (container network only) | 8082 |
+| inventory-service | not published (container network only) | 8083 |
+| order-service | not published (container network only) | 8084 |
+| payment-service | not published (container network only) | 8085 |
+| traffic-control-plane | 13086 | 3086 |
+| promotion-service | not published (container network only) | 8087 |
+| risk-service | not published (container network only) | 8088 |
+| fulfillment-service | not published (container network only) | 8089 |
+| notification-service | not published (container network only) | 8090 |
+| shopfront | 13090 | 3090 |
 | MySQL | 13306 | 3306 |
 | Redis | 16379 | 6379 |
 | Grafana | 13000 | 3000 |
@@ -136,7 +138,7 @@ All logs are structured JSON with `traceId`, collected by Promtail → Loki.
 ```bash
 # Health check after startup
 curl http://localhost:18080/actuator/health
-curl http://localhost:18086/internal/traffic/runner/status   # should show running=true
+curl http://localhost:13086/internal/traffic/runner/status   # should show running=true
 
 # Run the 7-scenario interactive chaos verification
 ./scripts/chaos/chaos-verify.sh

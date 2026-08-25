@@ -58,7 +58,7 @@ export default function AlertsPage() {
       const result = await response.json();
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       setConfig(result.data);
-    } catch (cause) { setError(cause instanceof TypeError && cause.message.toLowerCase().includes('fetch') ? '控制台接口不可达，请先启动 traffic-control-plane（localhost:18086）' : cause instanceof Error ? cause.message : '加载失败'); }
+    } catch (cause) { setError(cause instanceof TypeError && cause.message.toLowerCase().includes('fetch') ? '控制台接口不可达，请先启动 traffic-control-plane（localhost:13086）' : cause instanceof Error ? cause.message : '加载失败'); }
   };
   const loadSource = async (kind: SourceKind) => {
     setSourceLoading(true); setError('');

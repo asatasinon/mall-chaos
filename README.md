@@ -61,45 +61,46 @@ Castrel Chaos 是一个完整的电商微服务系统，包含下单、支付、
 
 ```text
 Browser
-  -> shopfront :18091 (消费者 UI + BFF)
+  -> shopfront :13090 (消费者 UI + BFF)
   -> gateway-service :18080 (业务 API 唯一公开入口)
 
 Operator browser
-  -> traffic-control-plane :18086 (运营控制台 + Route Handlers)
+  -> traffic-control-plane :13086 (运营控制台 + Route Handlers)
 
 traffic-control-plane
   -> Runner Worker
   -> gateway-service
 
 gateway-service
-  -> user-service         :18081
-  -> catalog-service      :18082
-  -> inventory-service    :18083
-  -> order-service        :18084
-  -> payment-service      :18085
-  -> promotion-service    :18087
-  -> risk-service         :18088
-  -> fulfillment-service  :18089
-  -> notification-service :18090
+  -> user-service         :8081
+  -> catalog-service      :8082
+  -> inventory-service    :8083
+  -> order-service        :8084
+  -> payment-service      :8085
+  -> promotion-service    :8087
+  -> risk-service         :8088
+  -> fulfillment-service  :8089
+  -> notification-service :8090
   -> toxiproxy / infra proxy
 ```
 
-| 服务 | 宿主机访问端口 | 职责 |
-|---|---|---|
-| gateway-service | 18080 | 统一入口、路由转发、traceId 注入、traffic 控制分发 |
-| user-service | 18081 | 用户资料、收货地址 |
-| catalog-service | 18082 | 商品查询、SKU 价格 |
-| inventory-service | 18083 | 库存预占/释放/重置 |
-| order-service | 18084 | 下单编排、状态机、3 类 Chaos |
-| payment-service | 18085 | 支付模拟、3 类 Chaos |
-| shopfront | 18091 | 消费者前台、服务端 BFF |
-| traffic-control-plane | 18086 | Next.js 控制台、Route Handlers、Runner worker |
-| promotion-service | 18087 | 优惠券计算、慢 SQL Chaos |
-| risk-service | 18088 | 前置风控、支付后复核 |
-| fulfillment-service | 18089 | 履约单、发货状态流转 |
-| notification-service | 18090 | 事件驱动通知、结构化日志 |
+| 服务 | 容器内端口 | 宿主机访问端口 | 职责 |
+|---|---|---|---|
+| gateway-service | 8080 | 18080 | 统一入口、路由转发、traceId 注入、traffic 控制分发 |
+| user-service | 8081 | 不发布（仅容器网络） | 用户资料、收货地址 |
+| catalog-service | 8082 | 不发布（仅容器网络） | 商品查询、SKU 价格 |
+| inventory-service | 8083 | 不发布（仅容器网络） | 库存预占/释放/重置 |
+| order-service | 8084 | 不发布（仅容器网络） | 下单编排、状态机、3 类 Chaos |
+| payment-service | 8085 | 不发布（仅容器网络） | 支付模拟、3 类 Chaos |
+| promotion-service | 8087 | 不发布（仅容器网络） | 优惠券计算、慢 SQL Chaos |
+| risk-service | 8088 | 不发布（仅容器网络） | 前置风控、支付后复核 |
+| fulfillment-service | 8089 | 不发布（仅容器网络） | 履约单、发货状态流转 |
+| notification-service | 8090 | 不发布（仅容器网络） | 事件驱动通知、结构化日志 |
+| cart-service | 8091 | 不发布（仅容器网络） | 购物车 |
+| shopfront | 3090 | 13090 | 消费者前台、服务端 BFF |
+| traffic-control-plane | 3086 | 13086 | Next.js 控制台、Route Handlers、Runner worker |
 
-说明：上表列的是宿主机访问端口；容器内部端口仍分别使用 `8080` 到 `8090`，`traffic-control-plane` 容器内部端口为 `3086`。
+说明：Compose 只向宿主机发布网关、Shopfront 和控制面；业务服务通过 `service-name:container-port` 在 `castrel-net` 内部通信。宿主机上的业务请求统一进入 `localhost:18080` 网关。
 
 ---
 
@@ -186,7 +187,7 @@ traffic-control-plane/
 └── next.config.* 
 ```
 
-`shopfront/` 是独立的消费者入口，容器端口为 `3090`，Compose 宿主机端口为 `18091`。浏览器只请求 Shopfront 的 `/api/*` BFF；BFF 仅允许产品、购物车、结算、订单、支付、履约、通知、认证和账户资源，并在服务端转发到 `GATEWAY_BASE_URL`，`/internal/**` 永远返回 404。`/auth` 提供注册、登录、刷新会话和登出；access token、session token 和用户 ID 只由服务端写入 HttpOnly Cookie，生产环境启用 `Secure`，本地 HTTP 开发环境关闭 `Secure` 以便浏览器发送 Cookie。`SHOPFRONT_ACCESS_TOKEN` 仍可用于无浏览器的本地演示环境。
+`shopfront/` 是独立的消费者入口，容器端口为 `3090`，Compose 宿主机端口为 `13090`。浏览器只请求 Shopfront 的 `/api/*` BFF；BFF 仅允许产品、购物车、结算、订单、支付、履约、通知、认证和账户资源，并在服务端转发到 `GATEWAY_BASE_URL`，`/internal/**` 永远返回 404。`/auth` 提供注册、登录、刷新会话和登出；access token、session token 和用户 ID 只由服务端写入 HttpOnly Cookie，生产环境启用 `Secure`，本地 HTTP 开发环境关闭 `Secure` 以便浏览器发送 Cookie。`SHOPFRONT_ACCESS_TOKEN` 仍可用于无浏览器的本地演示环境。
 
 Shopfront 初始化时会创建可用于业务流量和故障注入场景的默认客户账号：
 
@@ -295,7 +296,7 @@ curl http://localhost:18080/actuator/health
 curl http://localhost:18080/api/products
 
 # 查看 Runner 状态（应为 running=true）
-curl http://localhost:18086/internal/traffic/runner/status
+curl http://localhost:13086/internal/traffic/runner/status
 ```
 
 服务启动后，traffic control plane 会自动以默认 QPS 向系统发送业务流量。
@@ -555,16 +556,18 @@ curl http://castrel.local/api/products
 | 组件 | 宿主机端口 | 容器内端口 |
 |---|---|---|
 | gateway-service | `18080` | `8080` |
-| user-service | `18081` | `8081` |
-| catalog-service | `18082` | `8082` |
-| inventory-service | `18083` | `8083` |
-| order-service | `18084` | `8084` |
-| payment-service | `18085` | `8085` |
-| traffic-control-plane | `18086` | `3086` |
-| promotion-service | `18087` | `8087` |
-| risk-service | `18088` | `8088` |
-| fulfillment-service | `18089` | `8089` |
-| notification-service | `18090` | `8090` |
+| user-service | 不发布（仅容器网络） | `8081` |
+| catalog-service | 不发布（仅容器网络） | `8082` |
+| inventory-service | 不发布（仅容器网络） | `8083` |
+| order-service | 不发布（仅容器网络） | `8084` |
+| payment-service | 不发布（仅容器网络） | `8085` |
+| traffic-control-plane | `13086` | `3086` |
+| promotion-service | 不发布（仅容器网络） | `8087` |
+| risk-service | 不发布（仅容器网络） | `8088` |
+| fulfillment-service | 不发布（仅容器网络） | `8089` |
+| notification-service | 不发布（仅容器网络） | `8090` |
+| cart-service | 不发布（仅容器网络） | `8091` |
+| shopfront | `13090` | `3090` |
 | MySQL | `13306` | `3306` |
 | Redis | `16379` | `6379` |
 | Grafana | `13000` | `3000` |
@@ -614,15 +617,15 @@ MySQL 初始化脚本位于 `infra/mysql/init/00-schema.sql`，Docker Compose �
 
 ```bash
 # 查看当前配置
-curl http://localhost:18086/internal/traffic/runner/config
+curl http://localhost:13086/internal/traffic/runner/config
 
 # 更新 QPS（必须带 version 字段，乐观锁保护）
-curl -X PUT http://localhost:18086/internal/traffic/runner/config \
+curl -X PUT http://localhost:13086/internal/traffic/runner/config \
   -H 'Content-Type: application/json' \
   -d '{"baseQps": 20, "version": 1}'
 
 # 动态调速（无需 version）
-curl -X POST http://localhost:18086/internal/traffic/runner/rate \
+curl -X POST http://localhost:13086/internal/traffic/runner/rate \
   -H 'Content-Type: application/json' \
   -d '{"multiplier": 2.0}'
 ```
@@ -639,7 +642,7 @@ curl -X POST http://localhost:18086/internal/traffic/runner/rate \
 
 ```bash
 # 启动后访问
-http://localhost:18086/
+http://localhost:13086/
 ```
 
 控制台特性：
@@ -669,12 +672,12 @@ http://localhost:18086/
 
 ```bash
 # 通过 traffic 控制面开启 v2 慢 SQL（JOIN user_behavior_log，持续 3 分钟后自动关闭）
-curl -X POST http://localhost:18086/internal/traffic/chaos/slow-sql/enable \
+curl -X POST http://localhost:13086/internal/traffic/chaos/slow-sql/enable \
   -H 'Content-Type: application/json' \
   -d '{"targets":["payment-service"],"joinTable":"user_behavior_log","durationSec":180}'
 
 # 手动关闭
-curl -X POST http://localhost:18086/internal/traffic/chaos/slow-sql/disable \
+curl -X POST http://localhost:13086/internal/traffic/chaos/slow-sql/disable \
   -H 'Content-Type: application/json' \
   -d '{"targets":["payment-service"]}'
 ```
@@ -685,17 +688,17 @@ curl -X POST http://localhost:18086/internal/traffic/chaos/slow-sql/disable \
 
 ```bash
 # 开始泄漏（每 300ms 分配 1MB，上限 350MB，持续 3 分钟）
-curl -X POST http://localhost:18086/internal/traffic/chaos/memory-leak/enable \
+curl -X POST http://localhost:13086/internal/traffic/chaos/memory-leak/enable \
   -H 'Content-Type: application/json' \
   -d '{"targets":["order-service"],"chunkSizeKb":1024,"intervalMs":300,"maxMb":350,"durationSec":180}'
 
 # 停止分配（已持有内存不释放）
-curl -X POST http://localhost:18086/internal/traffic/chaos/memory-leak/disable \
+curl -X POST http://localhost:13086/internal/traffic/chaos/memory-leak/disable \
   -H 'Content-Type: application/json' \
   -d '{"targets":["order-service"]}'
 
 # 释放所有持有内存
-curl -X POST http://localhost:18086/internal/traffic/chaos/memory-leak/cleanup \
+curl -X POST http://localhost:13086/internal/traffic/chaos/memory-leak/cleanup \
   -H 'Content-Type: application/json' \
   -d '{"targets":["order-service"]}'
 ```
@@ -706,12 +709,12 @@ curl -X POST http://localhost:18086/internal/traffic/chaos/memory-leak/cleanup \
 
 ```bash
 # 开启死锁注入（40% 概率，3 分钟后自动停止）
-curl -X POST http://localhost:18086/internal/traffic/chaos/deadlock/enable \
+curl -X POST http://localhost:13086/internal/traffic/chaos/deadlock/enable \
   -H 'Content-Type: application/json' \
   -d '{"targets":["order-service"],"injectRate":0.4,"scope":"ALL","durationSec":180}'
 
 # 手动关闭
-curl -X POST http://localhost:18086/internal/traffic/chaos/deadlock/disable \
+curl -X POST http://localhost:13086/internal/traffic/chaos/deadlock/disable \
   -H 'Content-Type: application/json' \
   -d '{"targets":["order-service"]}'
 ```
@@ -720,15 +723,15 @@ curl -X POST http://localhost:18086/internal/traffic/chaos/deadlock/disable \
 
 ```bash
 # 向 order→payment 注入 3s 延迟（自动 120s 后移除）
-curl -X POST http://localhost:18086/internal/traffic/chaos/network-delay/enable \
+curl -X POST http://localhost:13086/internal/traffic/chaos/network-delay/enable \
   -H 'Content-Type: application/json' \
   -d '{"proxyName":"order-to-payment","latencyMs":3000,"jitterMs":1000,"durationSec":120}'
 
 # 查看网络故障状态
-curl "http://localhost:18086/internal/traffic/chaos/network-delay/status?proxyName=order-to-payment"
+curl "http://localhost:13086/internal/traffic/chaos/network-delay/status?proxyName=order-to-payment"
 
 # 移除网络延迟
-curl -X POST http://localhost:18086/internal/traffic/chaos/network-delay/disable \
+curl -X POST http://localhost:13086/internal/traffic/chaos/network-delay/disable \
   -H 'Content-Type: application/json' \
   -d '{"proxyName":"order-to-payment"}'
 ```
@@ -769,7 +772,7 @@ curl -X POST http://localhost:18080/internal/gateway/inventory-reset \
   -d '{"expectedVersion": 1}'
 
 # 通过 traffic-control-plane 触发（带分布式锁保护）
-curl -X POST http://localhost:18086/internal/traffic/runner/inventory-reset/trigger
+curl -X POST http://localhost:13086/internal/traffic/runner/inventory-reset/trigger
 ```
 
 ---

@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3090",
+    "dev": "next dev -p 13090",
     "build": "next build",
-    "start": "next start -p 3090",
+    "start": "next start -p 13090",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test"

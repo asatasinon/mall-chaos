@@ -68,10 +68,10 @@ public class RiskService {
 
     private final RestTemplate client;
 
-    @Value("${services.fulfillment-url:http://localhost:18089}")
+    @Value("${services.fulfillment-url:http://localhost:8089}")
     private String fulfillmentUrl;
 
-    @Value("${services.order-url:http://localhost:18084}")
+    @Value("${services.order-url:http://localhost:8084}")
     private String orderUrl;
 
     @Value("${CASTREL_INTERNAL_SERVICE_KEY:}")

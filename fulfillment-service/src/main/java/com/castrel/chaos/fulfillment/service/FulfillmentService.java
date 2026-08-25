@@ -58,7 +58,7 @@ public class FulfillmentService {
 
     private final RestTemplate client;
 
-    @Value("${services.notification-url:http://localhost:18090}")
+    @Value("${services.notification-url:http://localhost:8090}")
     private String notificationUrl;
 
     @Value("${CASTREL_INTERNAL_SERVICE_KEY:}")

@@ -21,19 +21,21 @@
 
 ## 服务基础信息 & 部署拓扑
 
-| 服务名称 | 开发语言 / 框架 | 容器端口 | 宿主机端口 | 部署 IP |
+| 服务名称 | 开发语言 / 框架 | 容器端口 | 宿主机端口（Compose） | 部署 IP |
 |---|---|---|---|---|
 | `gateway-service` | Java / Spring Cloud Gateway (WebFlux) | 8080 | 18080 | 10.106.2.78 |
-| `user-service` | Java / Spring Boot Web + JPA | 8081 | 18081 | 10.106.2.78 |
-| `catalog-service` | Java / Spring Boot Web + JPA + Redis | 8082 | 18082 | 10.106.2.78 |
-| `inventory-service` | Java / Spring Boot Web + JPA + Redis | 8083 | 18083 | 10.106.2.78 |
-| `order-service` | Java / Spring Boot Web + JPA + Redis | 8084 | 18084 | 10.106.2.78 |
-| `payment-service` | Java / Spring Boot Web + JPA + Redis | 8085 | 18085 | 10.106.2.78 |
-| `traffic-control-plane` | Next.js + TypeScript worker | 3086 | 18086 | 10.106.2.78 |
-| `promotion-service` | Java / Spring Boot Web + JPA + Redis | 8087 | 18087 | 10.106.2.78 |
-| `risk-service` | Java / Spring Boot Web + JPA + Redis | 8088 | 18088 | 10.106.2.78 |
-| `fulfillment-service` | Java / Spring Boot Web + JPA + Redis | 8089 | 18089 | 10.106.2.78 |
-| `notification-service` | Java / Spring Boot Web + JPA + Redis | 8090 | 18090 | 10.106.2.78 |
+| `user-service` | Java / Spring Boot Web + JPA | 8081 | 不发布（仅容器网络） | 10.106.2.78 |
+| `cart-service` | Java / Spring Boot Web + JPA + Redis | 8091 | 不发布（仅容器网络） | 10.106.2.78 |
+| `catalog-service` | Java / Spring Boot Web + JPA + Redis | 8082 | 不发布（仅容器网络） | 10.106.2.78 |
+| `inventory-service` | Java / Spring Boot Web + JPA + Redis | 8083 | 不发布（仅容器网络） | 10.106.2.78 |
+| `order-service` | Java / Spring Boot Web + JPA + Redis | 8084 | 不发布（仅容器网络） | 10.106.2.78 |
+| `payment-service` | Java / Spring Boot Web + JPA + Redis | 8085 | 不发布（仅容器网络） | 10.106.2.78 |
+| `traffic-control-plane` | Next.js + TypeScript worker | 3086 | 13086 | 10.106.2.78 |
+| `promotion-service` | Java / Spring Boot Web + JPA + Redis | 8087 | 不发布（仅容器网络） | 10.106.2.78 |
+| `risk-service` | Java / Spring Boot Web + JPA + Redis | 8088 | 不发布（仅容器网络） | 10.106.2.78 |
+| `fulfillment-service` | Java / Spring Boot Web + JPA + Redis | 8089 | 不发布（仅容器网络） | 10.106.2.78 |
+| `notification-service` | Java / Spring Boot Web + JPA + Redis | 8090 | 不发布（仅容器网络） | 10.106.2.78 |
+| `shopfront` | Next.js | 3090 | 13090 | 10.106.2.78 |
 
 ---
 

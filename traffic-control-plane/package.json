@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3086",
+    "dev": "next dev -p 13086",
     "build": "next build",
-    "start": "next start -p 3086",
+    "start": "next start -p 13086",
     "worker": "tsx src/worker/index.ts",
     "test:runner": "tsx --test src/worker/runner-contract.test.ts",
     "lint": "eslint .",

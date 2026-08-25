@@ -484,7 +484,7 @@ services:
     # for a non-root user.
     user: "${CONTROL_PLANE_UID:-0}:${CONTROL_PLANE_GID:-0}"
     ports:
-      - "18086:3086"
+      - "13086:3086"
     volumes:
       - ./data/traffic-control-plane:/app/data
       - ./data/prometheus-rules:/app/alert-data/prometheus-rules
@@ -568,7 +568,7 @@ services:
     container_name: castrel-shopfront
     <<: *service-defaults
     ports:
-      - "18091:3090"
+      - "13090:3090"
     environment:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0

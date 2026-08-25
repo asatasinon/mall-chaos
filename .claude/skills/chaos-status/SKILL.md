@@ -21,7 +21,7 @@ disable-model-invocation: true
 ```bash
 #!/usr/bin/env bash
 # 查询全部服务当前 chaos 状态（通过 traffic-control-plane 汇总接口）
-BASE="http://localhost:18086/internal/traffic/chaos"
+BASE="http://localhost:13086/internal/traffic/chaos"
 SERVICES=(catalog-service inventory-service order-service payment-service promotion-service risk-service fulfillment-service notification-service)
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

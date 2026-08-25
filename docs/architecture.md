@@ -59,7 +59,7 @@ Castrel-Chaos 是一个面向 SRE 培训的**混沌工程演练平台**，采用
 │  │  └──────────────────────────┬──────────────────────────────┘  │   │
 │  │                             │ HTTP (内部服务名寻址)             │   │
 │  │  ┌──────────────────────────▼──────────────────────────────┐  │   │
-│  │  │  [业务层]  (11 个微服务，:18081 ~ :18090)                 │  │   │
+│  │  │  [业务层] 业务微服务使用容器端口 :8081 ~ :8091          │  │   │
 │  │  │  user  catalog  inventory  order  payment               │  │   │
 │  │  │  promotion  risk  fulfillment  notification             │  │   │
 │  │  │  traffic-control-plane                                  │  │   │
@@ -92,7 +92,9 @@ Castrel-Chaos 是一个面向 SRE 培训的**混沌工程演练平台**，采用
 | 宿主端口 | 容器内端口 | 服务 | 用途 |
 |---|---|---|---|
 | 18080 | 8080 | gateway-service | 业务请求入口 |
-| 18081–18090 | 8081–8090 | 各业务微服务 | 直接调试 |
+| — | 8081–8091 | 各业务微服务 | 仅容器网络，通过 gateway-service 访问 |
+| 13086 | 3086 | traffic-control-plane | 运营控制台与 Runner |
+| 13090 | 3090 | shopfront | 消费者 UI 与 BFF |
 | 13306 | 3306 | mysql | 数据库调试 |
 | 16379 | 6379 | redis | Redis 调试 |
 | 13000 | 3000 | grafana | 可观测仪表盘 |
@@ -165,17 +167,17 @@ flowchart TB
         end
 
         subgraph BIZ["业务层 (castrel-net)"]
-            GW["gateway-service\n:18080"]
-            RUNNER["traffic-control-plane\n:18086"]
-            USER["user-service\n:18081"]
-            CATALOG["catalog-service\n:18082"]
-            ORDER["order-service\n:18084"]
-            PAYMENT["payment-service\n:18085"]
-            PROMO["promotion-service\n:18087"]
-            RISK["risk-service\n:18088"]
-            INVEN["inventory-service\n:18083"]
-            FULFILL["fulfillment-service\n:18089"]
-            NOTIFY["notification-service\n:18090"]
+            GW["gateway-service\n:8080 (host:18080)"]
+            RUNNER["traffic-control-plane\n:3086 (host:13086)"]
+            USER["user-service\n:8081"]
+            CATALOG["catalog-service\n:8082"]
+            ORDER["order-service\n:8084"]
+            PAYMENT["payment-service\n:8085"]
+            PROMO["promotion-service\n:8087"]
+            RISK["risk-service\n:8088"]
+            INVEN["inventory-service\n:8083"]
+            FULFILL["fulfillment-service\n:8089"]
+            NOTIFY["notification-service\n:8090"]
         end
 
         subgraph CHAOS["混沌注入层"]

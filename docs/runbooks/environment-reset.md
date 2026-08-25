@@ -86,7 +86,7 @@
 
    ```bash
    docker compose up -d traffic-control-plane
-   curl --fail http://localhost:18086/internal/traffic/runner/status
+   curl --fail http://localhost:13086/internal/traffic/runner/status
    ```
 
    只有服务健康、Schema 版本正确、种子数据可读且没有残留 Redis 状态时，才允许恢复 runner。

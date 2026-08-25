@@ -18,7 +18,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 public class OrderPaymentResultClient {
     private final RestTemplate client;
 
-    @Value("${services.order-url:http://localhost:18084}")
+    @Value("${services.order-url:http://localhost:8084}")
     private String orderUrl;
 
     public OrderPaymentResultClient(RestTemplateBuilder builder) {
