@@ -351,7 +351,7 @@ export default function RunnerPage() {
               {entry.lifecycleId && <span className="font-mono text-muted-foreground">{entry.lifecycleId.slice(0, 8)}</span>}
               {entry.errorCode && <span className="font-mono text-destructive">{entry.errorCode}</span>}
             </button>
-            {expandedLifecycleId === entry.lifecycleId && lifecycleSteps[entry.lifecycleId] && <div className="ml-20 mt-1 space-y-1 border-l border-border pl-3">{lifecycleSteps[entry.lifecycleId].map((step, stepIndex) => <div key={`${String(step.action_id)}-${stepIndex}`} className="flex flex-wrap gap-2 text-[11px] text-muted-foreground"><span className="font-mono">{String(step.action_type ?? 'STEP')}</span><span>{String(step.status ?? '—')}</span>{step.result_code && <span className="font-mono">{String(step.result_code)}</span>}{step.error_code && <span className="font-mono text-destructive">{String(step.error_code)}</span>}</div>)}</div>}
+            {expandedLifecycleId === entry.lifecycleId && lifecycleSteps[entry.lifecycleId] && <div className="ml-20 mt-1 space-y-1 border-l border-border pl-3">{lifecycleSteps[entry.lifecycleId].map((step, stepIndex) => <div key={`${String(step.action_id)}-${stepIndex}`} className="flex flex-wrap gap-2 text-[11px] text-muted-foreground"><span className="font-mono">{String(step.action_type ?? 'STEP')}</span><span>{String(step.status ?? '—')}</span>{step.result_code != null && <span className="font-mono">{String(step.result_code)}</span>}{step.error_code != null && <span className="font-mono text-destructive">{String(step.error_code)}</span>}</div>)}</div>}
           </div>)}</div>
         </CardContent>
       </Card>
