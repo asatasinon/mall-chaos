@@ -29,6 +29,12 @@ interface ActivityEntry {
   trafficRunId?: string; customerId?: number; orderId?: string; paymentId?: string;
   traceId?: string; status?: string; errorCode?: string;
 }
+interface LifecycleAccountSummary {
+  loginEnabled: boolean;
+  count: number;
+  enabledCount: number;
+  accounts: Array<{ label: string; enabled: boolean; expectedCustomerId?: number }>;
+}
 interface WarmupProgress {
   priceHistoryCount: number; priceHistoryTarget: number;
   behaviorLogCount: number;  behaviorLogTarget: number;
@@ -71,6 +77,7 @@ export default function RunnerPage() {
   const [mixMsg, setMixMsg]         = useState<{ ok: boolean; text: string } | null>(null);
 
   const [activity, setActivity]   = useState<ActivityEntry[]>([]);
+  const [accountSummary, setAccountSummary] = useState<LifecycleAccountSummary | null>(null);
 
   const [warmup, setWarmup]         = useState<WarmupProgress | null>(null);
   const warmupIntervalRef           = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -116,6 +123,14 @@ export default function RunnerPage() {
     } catch {}
   };
 
+  const loadAccountSummary = async () => {
+    try {
+      const res = await fetchWithAuth('/internal/traffic/runner/accounts');
+      const json = await res.json();
+      if (json.code === 0) setAccountSummary(json.data);
+    } catch {}
+  };
+
   const loadResetPolicy = async () => {
     try {
       const res  = await fetchWithAuth('/internal/traffic/runner/inventory-reset/schedule');
@@ -144,6 +159,7 @@ export default function RunnerPage() {
     void Promise.resolve().then(() => loadConfig()).catch(() => {});
     void Promise.resolve().then(() => loadStatus());
     void Promise.resolve().then(() => loadActivity());
+    void Promise.resolve().then(() => loadAccountSummary());
     void Promise.resolve().then(() => loadResetPolicy());
     void Promise.resolve().then(() => loadWarmup());
     const id1 = setInterval(loadStatus, 3000);
@@ -319,6 +335,33 @@ export default function RunnerPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Runner</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Traffic generation · rate management</p>
       </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center justify-between">
+            Lifecycle accounts
+            {accountSummary && (
+              <Badge variant="secondary" className="text-[10px]">
+                {accountSummary.loginEnabled ? `${accountSummary.enabledCount}/${accountSummary.count} enabled` : 'login disabled'}
+              </Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!accountSummary && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {accountSummary && (
+            <div className="flex flex-wrap gap-2">
+              {accountSummary.accounts.map((account) => (
+                <Badge key={account.label} variant="outline" className="gap-1.5">
+                  <span className={`status-dot ${account.enabled ? 'status-dot-green' : 'status-dot-off'}`} />
+                  {account.label}
+                  {account.expectedCustomerId !== undefined && ` · customer ${account.expectedCustomerId}`}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* KPI row */}
       <div className="grid grid-cols-5 gap-3">

@@ -1,12 +1,17 @@
 import { getRunnerEngine } from './runner-engine';
 import { getDataWarmupService } from './data-warmup';
 import { env } from '../lib/env';
+import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
 import pino from 'pino';
 
 const log = pino({ name: 'worker' });
 
 async function main() {
   log.info('Starting traffic-control-plane worker...');
+
+  if (env.TRAFFIC_LIFECYCLE_LOGIN_ENABLED) {
+    loadLifecycleAccounts();
+  }
 
   const engine = getRunnerEngine();
   await engine.loadConfigFromDb();

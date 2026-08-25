@@ -23,7 +23,7 @@
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
-| A | 契约、Schema 与安全边界 | 进行中 | 4 / 5 | 无 |
+| A | 契约、Schema 与安全边界 | 已完成 | 5 / 5 | 无 |
 | B | 优惠券和库存基线补齐 | 待开始 | 0 / 4 | A |
 | C | 真实登录客户生命周期 | 待开始 | 0 / 5 | A、B |
 | D | Worker 串行调度与可观测性 | 待开始 | 0 / 5 | B、C |
@@ -34,7 +34,7 @@
 
 ## Phase A：契约、Schema 与安全边界
 
-**阶段进度：1 / 5**
+**阶段进度：5 / 5**
 
 目标：先建立可路由、可鉴权、可持久化的契约，禁止 runner 为获得客户资源绕开 Gateway 或猜测数据。
 
@@ -70,10 +70,10 @@
 
 ### A5. 演示账号与支付成功基线
 
-- [ ] 在 traffic-control-plane 增加 server-only 生命周期账号配置，解析 `TRAFFIC_LIFECYCLE_LOGIN_ENABLED` 和 Secret 注入的账号 JSON。
-- [ ] 配置校验账号标签/邮箱唯一、账号启用、预期 customer ID 与登录响应一致；控制台只显示安全摘要。
-- [ ] 为训练环境的真实 CUSTOMER 支付定义固定成功基线，且不依赖 `X-Traffic-Runner-Payment-Strategy`。
-- [ ] 将支付失败/未知、库存耗尽、商品下架、价格变化、券争用和下游异常明确转入 `faultScenarioId` 故障注入验证路径。
+- [x] 在 traffic-control-plane 增加 server-only 生命周期账号配置，解析 `TRAFFIC_LIFECYCLE_LOGIN_ENABLED` 和 Secret 注入的账号 JSON。
+- [x] 配置校验账号标签/邮箱唯一、账号启用、预期 customer ID 与登录响应一致；控制台只显示安全摘要。
+- [x] 为训练环境的真实 CUSTOMER 支付定义固定成功基线，且不依赖 `X-Traffic-Runner-Payment-Strategy`。
+- [x] 将支付失败/未知、库存耗尽、商品下架、价格变化、券争用和下游异常明确转入 `faultScenarioId` 故障注入验证路径。
 
 ---
 

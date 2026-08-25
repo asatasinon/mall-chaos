@@ -61,6 +61,9 @@ public class PaymentService {
     @Value("${payment.timeout-rate:0.0}")
     private double timeoutRate;
 
+    @Value("${payment.customer-success-baseline:true}")
+    private boolean customerSuccessBaseline;
+
     private Counter successCounter;
     private Counter failCounter;
     private Counter timeoutCounter;
@@ -105,18 +108,25 @@ public class PaymentService {
 
     @Transactional
     public PaymentDTO confirmIntent(Long id) {
-        return confirmIntent(id, null, null);
+        return confirmIntent(id, null, null, false);
     }
 
     @Transactional
     public PaymentDTO confirmIntent(Long id, Long customerId, String runnerStrategy) {
+        return confirmIntent(id, customerId, runnerStrategy, false);
+    }
+
+    @Transactional
+    public PaymentDTO confirmIntent(
+            Long id, Long customerId, String runnerStrategy, boolean forceCustomerSuccess) {
         Payment payment = paymentRepository.findById(id)
                 .orElseThrow(() -> new BizException("PAYMENT_NOT_FOUND", "Payment not found: " + id));
         assertCustomer(payment, customerId);
         if (!"CREATED".equals(payment.getStatus()) && !"PROCESSING".equals(payment.getStatus())) {
             return toDTO(payment);
         }
-        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo(), runnerStrategy);
+        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo(),
+            runnerStrategy, customerSuccessBaseline && forceCustomerSuccess && customerId != null);
     }
 
     @Transactional
@@ -138,7 +148,7 @@ public class PaymentService {
         payment.setResultCode("RETRYING");
         payment.setUpdatedAt(LocalDateTime.now());
         paymentRepository.save(payment);
-        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo(), null);
+        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo(), null, customerId != null);
     }
 
     @Transactional
@@ -161,11 +171,12 @@ public class PaymentService {
         return toDTO(paymentRepository.save(payment));
     }
 
-    private PaymentDTO executePayment(Payment payment, String orderNo, String requestedStrategy) {
+    private PaymentDTO executePayment(
+            Payment payment, String orderNo, String requestedStrategy, boolean customerSuccessBaseline) {
         attemptCounter.increment();
         String strategy = requestedStrategy == null ? "" : requestedStrategy.toUpperCase();
         double roll = random.nextDouble();
-        if ("SUCCESS".equals(strategy) || (strategy.isBlank() && roll < successRate)) {
+        if (customerSuccessBaseline || "SUCCESS".equals(strategy) || (strategy.isBlank() && roll < successRate)) {
             payment.setStatus("SUCCESS");
             payment.setResultCode("SUCCESS");
             successCounter.increment();

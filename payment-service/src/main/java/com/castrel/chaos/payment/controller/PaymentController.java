@@ -31,7 +31,8 @@ public class PaymentController {
             @RequestHeader(value = "X-Auth-Actor", defaultValue = "CUSTOMER") String actor,
             @RequestHeader(value = "X-Traffic-Runner-Payment-Strategy", required = false) String strategy) {
         return ApiResponse.ok(paymentService.confirmIntent(
-                id, customerId, "TRAFFIC_RUNNER".equals(actor) ? strategy : null));
+            id, customerId, "TRAFFIC_RUNNER".equals(actor) ? strategy : null,
+            !"TRAFFIC_RUNNER".equals(actor)));
     }
 
     @PostMapping("/api/payments/{id}/retry")

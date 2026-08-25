@@ -98,6 +98,7 @@ export interface ActivityEntry {
   orderId?: string;
   paymentId?: string;
   traceId?: string;
+  faultScenarioId?: string;
   status?: 'SUCCESS' | 'FAILED' | 'NOOP';
   errorCode?: string;
 }

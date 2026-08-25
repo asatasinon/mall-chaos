@@ -21,6 +21,7 @@ spring:
 payment:
   success-rate: 1.0
   timeout-rate: 0.0
+  customer-success-baseline: true
 
 services:
   order-url: ${ORDER_SERVICE_URL:http://localhost:8084}
