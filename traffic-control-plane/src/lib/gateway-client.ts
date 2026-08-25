@@ -30,6 +30,23 @@ export class GatewayClient {
     return res.json();
   }
 
+  async postInternal<T = unknown>(path: string, body: unknown, traceId?: string): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const res = await fetch(url, withTrace({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Service-Key': env.CASTREL_INTERNAL_SERVICE_KEY,
+      },
+      body: JSON.stringify(body),
+    }, traceId));
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Gateway internal POST ${path} failed (${res.status}): ${text}`);
+    }
+    return res.json();
+  }
+
   async get<T = unknown>(
     path: string,
     params?: Record<string, string>,
