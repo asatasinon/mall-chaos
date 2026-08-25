@@ -13,6 +13,12 @@ public interface InventoryRepository extends JpaRepository<Inventory, Long> {
     Optional<Inventory> findBySku(String sku);
 
     @Modifying
+    @Query("UPDATE Inventory i SET i.availableQty = :targetQty, i.version = i.version + 1 "
+           + "WHERE i.sku = :sku AND i.availableQty < :targetQty AND i.version = :version")
+    int replenishToTarget(@Param("sku") String sku, @Param("targetQty") int targetQty,
+                          @Param("version") int version);
+
+    @Modifying
     @Query("UPDATE Inventory i SET i.availableQty = i.availableQty - :qty, " +
            "i.reservedQty = i.reservedQty + :qty, i.version = i.version + 1 " +
            "WHERE i.sku = :sku AND i.availableQty >= :qty AND i.version = :version")

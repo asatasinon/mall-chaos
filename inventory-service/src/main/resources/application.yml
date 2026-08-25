@@ -18,6 +18,12 @@ spring:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:16379}
 
+inventory:
+  demo-baseline:
+    enabled: ${INVENTORY_DEMO_BASELINE_ENABLED:true}
+    skus: ${INVENTORY_DEMO_BASELINE_SKUS:SKU-001,SKU-002}
+    target-available-qty: ${INVENTORY_DEMO_BASELINE_TARGET_AVAILABLE_QTY:100}
+
 management:
   endpoint:
     health:

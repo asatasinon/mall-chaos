@@ -634,6 +634,17 @@ CREATE TABLE IF NOT EXISTS inventory_reservations (
   INDEX idx_inventory_order (order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS inventory_replenishment_batches (
+  id          BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  window_id   VARCHAR(64) NOT NULL,
+  sku         VARCHAR(32) NOT NULL,
+  status      VARCHAR(16) NOT NULL DEFAULT 'COMPLETED',
+  created_at  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_inventory_replenishment_batch (window_id, sku),
+  INDEX idx_inventory_replenishment_status (window_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS shipments (
   id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
   order_id    BIGINT       NOT NULL,

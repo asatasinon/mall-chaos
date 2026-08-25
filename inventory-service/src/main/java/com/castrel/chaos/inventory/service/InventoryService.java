@@ -2,8 +2,11 @@ package com.castrel.chaos.inventory.service;
 
 import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.DistributedLockService;
+import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
 import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
+import com.castrel.chaos.inventory.config.DemoInventoryBaselineProperties;
+import com.castrel.chaos.inventory.dto.DemoInventoryReplenishmentResult;
 import com.castrel.chaos.inventory.dto.ResetRequest;
 import com.castrel.chaos.inventory.entity.Inventory;
 import com.castrel.chaos.inventory.entity.InventoryBaselineSnapshot;
@@ -33,6 +36,9 @@ public class InventoryService {
 
     @Autowired
     private InventoryRepository inventoryRepository;
+
+    @Autowired
+    private DemoInventoryBaselineProperties demoInventoryBaselineProperties;
 
     @Autowired
     private InventoryReservationRepository reservationRepository;
@@ -182,6 +188,119 @@ public class InventoryService {
                 .orElseThrow(() -> new BizException("SKU_NOT_FOUND", "SKU not found: " + sku));
         return Map.of("sku", sku, "availableQty", inv.getAvailableQty(),
                 "reservedQty", inv.getReservedQty(), "version", inv.getVersion());
+    }
+
+    @Transactional
+    public DemoInventoryReplenishmentResult replenishDemoInventory() {
+        validateDemoInventoryConfiguration();
+        String windowId = currentReplenishmentWindowId();
+        String correlationId = TraceContext.getTraceId() == null
+                ? "stock-replenish-" + windowId : TraceContext.getTraceId();
+        LocalDateTime startedAt = LocalDateTime.now();
+        writeReplenishmentRun(windowId, correlationId, "RUNNING", startedAt, null, 0, "started");
+
+        int addedQuantity = 0;
+        int skippedCount = 0;
+        int failedCount = 0;
+        try {
+            if (!demoInventoryBaselineProperties.isEnabled()) {
+                DemoInventoryReplenishmentResult disabled = new DemoInventoryReplenishmentResult(
+                        windowId, correlationId, demoInventoryBaselineProperties.getSkus().size(),
+                        0, 0, 0);
+                writeReplenishmentRun(windowId, correlationId, "COMPLETED", startedAt,
+                        LocalDateTime.now(), 0, "disabled");
+                return disabled;
+            }
+
+            LocalDateTime now = LocalDateTime.now();
+            for (String sku : demoInventoryBaselineProperties.getSkus()) {
+                if (!claimReplenishmentBatch(windowId, sku, now)) {
+                    skippedCount++;
+                    continue;
+                }
+                Inventory inventory = inventoryRepository.findBySku(sku).orElse(null);
+                if (inventory == null) {
+                    failedCount++;
+                    markReplenishmentBatch(windowId, sku, "FAILED", now);
+                    continue;
+                }
+                int currentAvailable = inventory.getAvailableQty() == null ? 0 : inventory.getAvailableQty();
+                if (currentAvailable >= demoInventoryBaselineProperties.getTargetAvailableQty()) {
+                    skippedCount++;
+                    markReplenishmentBatch(windowId, sku, "COMPLETED", now);
+                    continue;
+                }
+                int missing = demoInventoryBaselineProperties.getTargetAvailableQty() - currentAvailable;
+                int updated = inventoryRepository.replenishToTarget(
+                        sku, demoInventoryBaselineProperties.getTargetAvailableQty(), inventory.getVersion());
+                if (updated != 1) {
+                    failedCount++;
+                    markReplenishmentBatch(windowId, sku, "FAILED", now);
+                    continue;
+                }
+                addedQuantity += missing;
+                markReplenishmentBatch(windowId, sku, "COMPLETED", now);
+            }
+
+            DemoInventoryReplenishmentResult result = new DemoInventoryReplenishmentResult(
+                    windowId, correlationId, demoInventoryBaselineProperties.getSkus().size(),
+                    addedQuantity, skippedCount, failedCount);
+            writeReplenishmentRun(windowId, correlationId, "COMPLETED", startedAt,
+                    LocalDateTime.now(), 0, replenishmentSummary(result));
+            return result;
+        } catch (RuntimeException exception) {
+            writeReplenishmentRun(windowId, correlationId, "FAILED", startedAt,
+                    LocalDateTime.now(), 0, "failed");
+            throw exception;
+        }
+    }
+
+    private boolean claimReplenishmentBatch(String windowId, String sku, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "INSERT IGNORE INTO inventory_replenishment_batches "
+                        + "(window_id, sku, status, created_at, updated_at) "
+                        + "VALUES (?, ?, 'RUNNING', ?, ?)",
+                windowId, sku, now, now) == 1;
+    }
+
+    private void markReplenishmentBatch(String windowId, String sku, String status, LocalDateTime now) {
+        jdbcTemplate.update(
+                "UPDATE inventory_replenishment_batches SET status = ?, updated_at = ? "
+                        + "WHERE window_id = ? AND sku = ?",
+                status, now, windowId, sku);
+    }
+
+    private void validateDemoInventoryConfiguration() {
+        if (demoInventoryBaselineProperties.getSkus() == null
+                || demoInventoryBaselineProperties.getSkus().isEmpty()
+                || demoInventoryBaselineProperties.getSkus().stream()
+                    .anyMatch(sku -> sku == null || sku.isBlank())
+                || demoInventoryBaselineProperties.getTargetAvailableQty() < 1) {
+            throw new BizException("DEMO_INVENTORY_CONFIG_INVALID",
+                    "Demo inventory baseline configuration is invalid");
+        }
+    }
+
+    private String currentReplenishmentWindowId() {
+        return "UTC-6H-" + Instant.now().getEpochSecond() / (6 * 60 * 60);
+    }
+
+    private void writeReplenishmentRun(
+            String windowId, String correlationId, String status, LocalDateTime startedAt,
+            LocalDateTime completedAt, int retryCount, String resultSummary) {
+        jdbcTemplate.update(
+                "INSERT INTO traffic_replenishment_runs "
+                        + "(window_id, operation_type, status, started_at, completed_at, retry_count, "
+                        + "result_summary, correlation_id) VALUES (?, 'DEMO_STOCK_REPLENISH', ?, ?, ?, ?, ?, ?) "
+                        + "ON DUPLICATE KEY UPDATE status = VALUES(status), completed_at = VALUES(completed_at), "
+                        + "retry_count = VALUES(retry_count), result_summary = VALUES(result_summary), "
+                        + "correlation_id = VALUES(correlation_id)",
+                windowId, status, startedAt, completedAt, retryCount, resultSummary, correlationId);
+    }
+
+    private String replenishmentSummary(DemoInventoryReplenishmentResult result) {
+        return "skus=" + result.skuCount() + ",added=" + result.addedQuantity()
+                + ",skipped=" + result.skippedCount() + ",failed=" + result.failedCount();
     }
 
     private void enrichQueryIfNeeded(String sku) {
