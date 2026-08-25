@@ -28,7 +28,12 @@ class JwtTokenServiceTest {
     @Test
     void rejectsTamperedToken() {
         String token = service.issueAccessToken(42L, List.of("CUSTOMER"));
-        String tampered = token.substring(0, token.length() - 1) + "x";
+        int signatureStart = token.lastIndexOf('.') + 1;
+        char originalSignatureCharacter = token.charAt(signatureStart);
+        char replacementSignatureCharacter = originalSignatureCharacter == 'A' ? 'B' : 'A';
+        String tampered = token.substring(0, signatureStart)
+            + replacementSignatureCharacter
+            + token.substring(signatureStart + 1);
 
         assertThatThrownBy(() -> service.verifyAccessToken(tampered))
                 .isInstanceOf(IllegalArgumentException.class);
