@@ -43,13 +43,13 @@
 
 复核产品规格、技术设计和当前实现后，确认以下差异需要按任务依赖顺序处理：
 
-1. **Schema 与数据初始化**：当前 `infra/mysql/init/00-schema.sql` 仍是旧单商品模型，缺少 `schema_version`、多商品订单明细、购物车、会话/角色、支付尝试、Outbox/Inbox、履约时间线、客户通知、runner 活动和运营审计等 Version 1 契约；需要由 T0.3 统一重写。
+1. **Schema 与数据初始化**：当前 `infra/mysql/init/00-schema.sql` 仍是旧单商品模型，缺少 `schema_version`、多商品订单明细、购物车、会话/角色、支付尝试、履约时间线、客户通知、runner 活动和运营审计等 Version 1 契约；需要由 T0.3 统一重写。
 2. **测试基线**：当前仓库未发现 Java、Next.js 或 Playwright 测试文件，也没有统一测试 Profile/命令；需要由 T0.2 建立并确保普通测试不启用故障注入。
 3. **Schema 版本校验**：当前服务没有启动期 Schema 版本验证；需要由 T0.5 在就绪和业务流量入口前拒绝缺失或不匹配版本。
 4. **身份与访问边界**：`user-service` 目前只有按路径读取用户/地址的旧接口，未实现注册登录、令牌撤销、角色和地址 CRUD；Gateway 目前仅配置旧订单/商品路由，未实现认证、身份头清洗、客户归属和内部服务认证。按 T1.1-T1.6 完成。
 5. **购物车与商品读模型**：仓库没有 `cart-service` 模块；catalog 仍需扩展搜索、分页、媒体元数据和可售库存投影。按 T2.2-T2.5 完成。
 6. **Checkout 与订单状态机**：订单服务仍接受客户端 `userId`、单个 `sku/qty`，并在同步请求中直接扣款；需要改为服务端归属的多商品 `CheckoutCommand`、购物车冻结、预占补偿、`PENDING_PAYMENT` 和版本条件状态转换。按 T3.1-T3.6 完成。
-7. **支付后可靠事件链**：当前订单/支付模型没有按服务隔离的 Outbox/Inbox 和统一事件信封；需要按 T4.1-T4.7 实现支付结果、支付后风控、履约和通知链路。
+7. **支付后同步链路**：支付结果、支付后风控、履约和通知需要通过同步 HTTP 调用完成，并使用业务唯一键保证幂等。
 8. **Runner 与消费者链路**：runner 已按 T5.1-T5.4 改为经 Gateway 的客户白名单、服务凭据和完整购物流程编排；跨服务运行态验收仍归入 T5.5。
 9. **独立 Shopfront 与部署验收**：当前没有 `shopfront` 应用；需要按 T6.1-T6.4 新建消费者 BFF/UI，隔离入口和端口，并补齐端到端、安全、恢复和可观测性验收。
 
@@ -77,7 +77,7 @@
 
 ### T0.3 验收结果
 
-已在唯一初始化入口加入 `schema_version` Version 1 记录，并补齐购物车、多商品订单明细/地址快照、身份会话、支付尝试、库存/优惠券预留、按服务 Outbox/Inbox、履约、通知、runner 活动和运营审计表。真实 MySQL 全新目录初始化已通过：Schema 版本为 1，演示凭据/角色/购物车均有 2 条，Outbox/Inbox 各 5 张，Redis 初始键数为 0。订单商品与数量仅由 `order_items` 记录，结算统一使用多商品 checkout 流程。
+已在唯一初始化入口加入 `schema_version` Version 1 记录，并补齐购物车、多商品订单明细/地址快照、身份会话、支付尝试、库存/优惠券预留、履约、通知、runner 活动和运营审计表。真实 MySQL 全新目录初始化已通过：Schema 版本为 1，演示凭据/角色/购物车均有 2 条，未创建 Outbox/Inbox 表，Redis 初始键数为 0。订单商品与数量仅由 `order_items` 记录，结算统一使用多商品 checkout 流程。
 
 ### T0.4 当前进展
 
@@ -275,18 +275,18 @@
 
 **阶段进度**：7 / 8
 
-**目标**：以服务私有 Outbox/Inbox 完成支付后的可靠事件链，确保风控通过后才履约。
+**目标**：以同步 HTTP 调用完成支付后的风控、履约与通知链路，确保风控通过后才履约。
 
 ### 子任务
 
-- [x] T4.1 为 order、payment、risk、fulfillment、notification 服务创建各自 `*_outbox_events` 与 `*_inbox_events` 表、发布器、Inbox 去重和租约/重试机制；任何服务不得读写其他服务的事件表。
-- [x] T4.2 实现 `payment-service -> PAYMENT_RESULT -> order-service`：支付状态与 `payment_outbox_events` 同事务写入；订单 Inbox 去重后裁决订单、库存和优惠券，并发布 `ORDER_PAID` 或 `ORDER_PAYMENT_FAILED`。
-- [x] T4.3 实现支付后风控事件链：`risk-service` 只消费 `ORDER_PAID`，发布 `POST_PAYMENT_RISK_PASSED` 或 `POST_PAYMENT_RISK_REJECTED`；拒绝结果触发订单规定补偿和客户通知。
-- [x] T4.4 实现履约和物流：`fulfillment-service` 只消费 `POST_PAYMENT_RISK_PASSED` 创建发货单和时间线，发布 `SHIPMENT_UPDATED`；实现演示发货、客户确认签收以及 `FULFILLING -> SHIPPED -> COMPLETED` 的幂等状态转换，不得直接消费支付成功事件。
+- [x] T4.1 移除 order、payment、risk、fulfillment、notification 服务的 Outbox/Inbox 表、实体、仓储和发布器，统一使用同步 HTTP 调用。
+- [x] T4.2 实现 `payment-service -> order-service` 同步提交支付结果：订单裁决订单、库存和优惠券状态，并返回 `ORDER_PAID` 或 `ORDER_PAYMENT_FAILED` 结果。
+- [x] T4.3 实现同步支付后风控链：`order-service` 调用 `risk-service`；风控通过后调用履约，拒绝结果触发订单补偿和客户通知。
+- [x] T4.4 实现同步履约和物流：`fulfillment-service` 创建发货单并推进 `FULFILLING -> SHIPPED`，客户确认签收后进入 `COMPLETED`，通知服务同步接收物流通知。
 - [x] T4.5 定义并实现统一版本化事件信封：`eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId`、`trafficRunId`；缺字段拒绝消费，重放保留原始信封。
 - [x] T4.6 实现通知偏好、客户通知记录、`GET/PATCH /api/notifications` 分页/已读 API 和事件订阅；通过 Gateway 强制客户归属。
-- [x] T4.7 实现业务可观测性和隐私安全：`checkout_total`、结算耗时、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、Outbox 延迟/失败、`fulfillment_transition_total`、`customer_api_error_total`；统一关联 ID、稳定错误码和日志/指标/链路中的 PII、令牌、密码及模拟支付密钥脱敏。
-- [ ] T4.8 编写并执行 Phase 4 可靠性与隐私测试：Outbox/Inbox 重复投递、租约恢复、死信重放、事件版本兼容、风控门禁、通知归属、指标/链路关联和敏感信息脱敏。
+- [x] T4.7 实现业务可观测性和隐私安全：`checkout_total`、结算耗时、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、同步下游调用耗时、`fulfillment_transition_total`、`customer_api_error_total`；统一关联 ID、稳定错误码和日志/指标/链路中的 PII、令牌、密码及模拟支付密钥脱敏。
+- [ ] T4.8 编写并执行 Phase 4 同步链路与隐私测试：重复请求幂等、下游失败补偿、事件信封版本兼容、风控门禁、通知归属、指标/链路关联和敏感信息脱敏。
 
 **涉及文件**：
 
@@ -304,23 +304,22 @@
 
 ### 阶段验收条件
 
-- 每项跨服务副作用有唯一发布者、唯一的本地 Outbox 所有者与幂等消费者。
-- 支付成功不能绕过支付后风控创建履约；重复投递不会创建重复履约或通知。
-- 在 payment/order/risk/fulfillment 任一服务短暂不可用后，事件可恢复投递并在 Tempo 中关联原交易链路。
-- 死信重放使用原 `eventId`，不会产生重复业务副作用。
-- 事件信封缺字段会被拒绝，版本可识别且重放保持原始事件标识和关联上下文。
+- 每项跨服务副作用由唯一的同步调用方触发，并由业务唯一键保证幂等。
+- 支付成功不能绕过支付后风控创建履约；重复请求不会创建重复履约或通知。
+- payment/order/risk/fulfillment 任一服务不可用时，当前请求返回明确失败，并执行已获得资源的补偿。
+- 事件信封缺字段会被拒绝，版本可识别且同步调用保留原始关联上下文。
 - 演示签收可使订单幂等进入 `COMPLETED`，重复签收不重复写时间线或通知。
 - Prometheus 可查询所有规定业务指标；日志、指标和链路中不包含邮箱、电话、地址、令牌、密码或支付模拟密钥。
 
 ### T4.5 当前进展
 
-已新增公共 `EventEnvelopeCodec`，Outbox 发布器在投递前重建并校验事件信封；`PAYMENT_RESULT -> order-service`、`ORDER_PAID` 风控链路、风险通过/拒绝下游链路、支付结果通知和发货通知均已改为发送完整 `EventEnvelope<JsonNode>`，消费者校验信封和 `eventType` 后再转换业务 payload。通知 Outbox 按当前同步 HTTP 架构推进本地可靠状态；实现项已完成，运行态信封兼容性和重放检查归入 T4.8。
+已新增公共 `EventEnvelopeCodec`，同步 HTTP 调用在发送前构造并校验事件信封；支付结果、支付后风控、风险通过/拒绝、支付结果通知和发货通知均发送完整 `EventEnvelope<JsonNode>`，接收端校验信封和 `eventType` 后再转换业务 payload。运行态信封兼容性和重复请求检查归入 T4.8。
 
 ### T4.1、T4.6、T4.7 当前进展
 
-- T4.1：实现已完成。order、payment、risk、fulfillment、notification 的 Outbox publisher 均支持条件式 claim、到期 FAILED/PROCESSING lease 重试、有限退避和 DEAD_LETTER；各服务仍只访问自己的事件表，跨服务事件投递均传递完整 envelope。运行态检查统一归入 T4.8。
-- T4.6：notification-service 已接入 `notification_preferences` 实体和 Repository，提供客户归属的偏好 GET/PATCH API；`in_app=false` 时跳过站内通知副作用并完成 Inbox 状态。
-- T4.7：实现已完成。已补齐 `checkout.total`、`checkout_duration`、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、`fulfillment_transition_total`、`customer_api_error_total`，并为五个 Outbox publisher 增加按服务区分的 `outbox.publish.latency`；异步 HTTP publisher 会传播持久化事件的 `traceId`，同时保留 published/failed 计数与现有脱敏日志。`customer_api_error_total` 现已覆盖 Gateway 认证/授权拒绝、下游客户 API 4xx/5xx 及转发异常。运行态指标和隐私检查统一归入 T4.8。
+- T4.1：实现已完成。order、payment、risk、fulfillment、notification 已移除 Outbox/Inbox 持久化设施和调度器，跨服务同步 HTTP 调用均传递完整 envelope，并由业务键保证幂等。运行态检查统一归入 T4.8。
+- T4.6：notification-service 已接入 `notification_preferences` 实体和 Repository，提供客户归属的偏好 GET/PATCH API；`in_app=false` 时跳过站内通知副作用，重复 eventId 请求直接幂等返回。
+- T4.7：实现已完成。已补齐 `checkout.total`、`checkout_duration`、`cart_item_mutation_total`、`inventory_reservation_total`、`payment_attempt_total`、`fulfillment_transition_total`、`customer_api_error_total` 和同步下游调用链路；同步 HTTP 调用传播当前 `traceId`，同时保留现有脱敏日志。`customer_api_error_total` 现已覆盖 Gateway 认证/授权拒绝、下游客户 API 4xx/5xx 及转发异常。运行态指标和隐私检查统一归入 T4.8。
 
 ### 问题与解决方案
 
@@ -393,7 +392,7 @@
 - [x] T6.1 新建独立 `shopfront` Next.js 应用及 BFF：实现注册、登录、刷新、登出、HttpOnly Cookie 会话、强类型网关客户端、商品列表/详情、购物车、结算、支付结果、账户资料、地址、订单、物流和通知路由。
 - [x] T6.2 实现消费者界面状态：商品不可售、购物车版本冲突、库存不足、价格/优惠券变化、支付失败/未知、风控拒绝、履约进度和可恢复故障提示；不得暴露内部服务地址或敏感错误细节。
 - [x] T6.3 更新 Docker Compose、镜像构建、Kubernetes、Ingress 和 README：独立部署 `shopfront` 与 `traffic-control-plane`，只公开 Gateway/前台入口，业务服务端口保持私有；Compose 配置和 Kustomize 渲染已通过。
-- [-] T6.4 建立跨模块自动化验收套件：已加入 Shopfront Playwright smoke、BFF 内部路径拒绝检查和前端构建验证；后端集成、身份/归属越权、支付竞争、Outbox/Inbox 恢复、runner 全链路和 `scripts/chaos/chaos-verify.sh` 仍待完整环境执行。
+- [-] T6.4 建立跨模块自动化验收套件：已加入 Shopfront Playwright smoke、BFF 内部路径拒绝检查和前端构建验证；后端集成、身份/归属越权、支付竞争、同步下游失败补偿、runner 全链路和 `scripts/chaos/chaos-verify.sh` 仍待完整环境执行。
 - [-] T6.5 执行 Phase 6 发布验收：注册至订单签收完成、资料/默认地址、通知已读、退款越权/幂等、指标/链路/脱敏、部署隔离和恢复流程；认证代码已实现，完整全栈发布验收仍待部署环境。
 
 **涉及文件**：
@@ -418,5 +417,5 @@
 | 编号 | 日期 | 问题 | 影响任务 | 解决方案 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | P6-001 | 2026-08-24 | Shopfront Playwright smoke 已定义，但本机缺少 Playwright Chromium 可执行文件，执行 `cd shopfront && pnpm test:e2e` 时无法启动浏览器。 | T6.4 | 已通过独立开发服务和 ego-browser 完成首页渲染、Gateway 不可达时的可恢复错误状态及 `/api/internal/**` 返回 404 验证；待安装浏览器后重跑 Playwright。 | 未关闭 |
-| P6-002 | 2026-08-24 | 当前本地没有完整 Gateway、业务服务和有效演示凭据，无法宣称从注册/登录到签收、Outbox/Inbox、指标链路和混沌恢复已完成发布验收。 | T6.4、T6.5 | 保留实现任务与配置验证结果；待完整 Compose 或部署服务器可用后执行跨服务验收。认证 UI、Token 签发接入和 Cookie 生命周期代码已完成。 | 未关闭 |
+| P6-002 | 2026-08-24 | 当前本地没有完整 Gateway、业务服务和有效演示凭据，无法宣称从注册/登录到签收、同步调用、指标链路和混沌恢复已完成发布验收。 | T6.4、T6.5 | 保留实现任务与配置验证结果；待完整 Compose 或部署服务器可用后执行跨服务验收。认证 UI、Token 签发接入和 Cookie 生命周期代码已完成。 | 未关闭 |
 *** End Patch

@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CustomerNotificationRepository extends JpaRepository<CustomerNotification, Long> {
     Page<CustomerNotification> findByCustomerIdOrderByCreatedAtDesc(Long customerId, Pageable pageable);
+
+    boolean existsByCustomerIdAndEventId(Long customerId, String eventId);
 }

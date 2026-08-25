@@ -10,18 +10,24 @@ import com.castrel.chaos.fulfillment.dto.FulfillmentDTO;
 import com.castrel.chaos.fulfillment.entity.Fulfillment;
 import com.castrel.chaos.fulfillment.repository.FulfillmentRepository;
 import com.castrel.chaos.fulfillment.repository.ShipmentTimelineRepository;
-import com.castrel.chaos.fulfillment.repository.FulfillmentOutboxRepository;
-import com.castrel.chaos.fulfillment.entity.FulfillmentOutboxEvent;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.castrel.chaos.fulfillment.entity.ShipmentTimelineEvent;
+import com.castrel.chaos.common.event.EventEnvelope;
+import com.castrel.chaos.common.event.EventEnvelopeCodec;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -34,9 +40,6 @@ public class FulfillmentService {
 
     @Autowired
     private ShipmentTimelineRepository timelineRepository;
-
-    @Autowired
-    private FulfillmentOutboxRepository outboxRepository;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -52,6 +55,18 @@ public class FulfillmentService {
 
     @Autowired
     private MeterRegistry meterRegistry;
+
+    private final RestTemplate client;
+
+    @Value("${services.notification-url:http://localhost:18090}")
+    private String notificationUrl;
+
+    @Value("${CASTREL_INTERNAL_SERVICE_KEY:}")
+    private String serviceKey;
+
+    public FulfillmentService(RestTemplateBuilder builder) {
+        this.client = builder.build();
+    }
 
     private Counter createCounter;
     private Counter cancelCounter;
@@ -84,23 +99,15 @@ public class FulfillmentService {
                     fulfillmentRepository.save(f);
                     appendTimeline(f.getId(), "FULFILLING", "Shipment created");
                     createCounter.increment();
-                    advanceStatusAsync(f.getOrderId());
+                    advanceStatus(f.getOrderId());
                     FulfillmentDTO result = toDTO(f);
                     localQueryCacheManager.cacheIfNeeded("fulfillment:" + f.getOrderNo(), result);
                     return result;
                 });
     }
 
-    @Async
-    public void advanceStatusAsync(Long orderId) {
-        sleep(5_000);
-        updateStatus(orderId, "PICKING", null, null);
-
-        sleep(10_000);
+    public void advanceStatus(Long orderId) {
         updateStatus(orderId, "SHIPPED", LocalDateTime.now(), null);
-
-        sleep(30_000);
-        updateStatus(orderId, "DELIVERED", null, LocalDateTime.now());
     }
 
     @Transactional
@@ -140,23 +147,17 @@ public class FulfillmentService {
     }
 
     private void appendShipmentEvent(Fulfillment fulfillment) {
-        try {
-            FulfillmentOutboxEvent event = new FulfillmentOutboxEvent();
-            event.setEventId(UUID.randomUUID().toString());
-            event.setEventType("SHIPMENT_UPDATED");
-            event.setAggregateId(fulfillment.getOrderNo());
-            event.setAggregateVersion(1);
-            event.setPayload(objectMapper.writeValueAsString(toDTO(fulfillment)));
-            event.setOccurredAt(LocalDateTime.now());
-            event.setSchemaVersion(1);
-            event.setTraceId(TraceContext.getTraceId());
-            event.setStatus("PENDING");
-            event.setAttempts(0);
-            event.setCreatedAt(LocalDateTime.now());
-            outboxRepository.save(event);
-        } catch (Exception exception) {
-            throw new IllegalStateException("Unable to append shipment outbox event", exception);
+        FulfillmentDTO dto = toDTO(fulfillment);
+        EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.create(objectMapper,
+                UUID.randomUUID().toString(), "SHIPMENT_UPDATED", fulfillment.getOrderNo(),
+                1, dto, TraceContext.getTraceId(), null);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        if (serviceKey != null && !serviceKey.isBlank()) {
+            headers.set("X-Internal-Service-Key", serviceKey);
         }
+        client.postForEntity(notificationUrl + "/internal/notifications/shipping-created",
+                new HttpEntity<>(envelope, headers), Void.class);
     }
 
     private void appendTimeline(Long shipmentId, String status, String message) {
@@ -255,11 +256,4 @@ public class FulfillmentService {
         return dto;
     }
 
-    private void sleep(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
 }

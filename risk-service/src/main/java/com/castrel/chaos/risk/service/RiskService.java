@@ -10,21 +10,29 @@ import com.castrel.chaos.risk.entity.RiskEvent;
 import com.castrel.chaos.risk.entity.RiskRule;
 import com.castrel.chaos.risk.repository.RiskEventRepository;
 import com.castrel.chaos.risk.repository.RiskRuleRepository;
-import com.castrel.chaos.risk.repository.RiskOutboxRepository;
-import com.castrel.chaos.risk.entity.RiskOutboxEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.castrel.chaos.common.event.EventEnvelope;
+import com.castrel.chaos.common.event.EventEnvelopeCodec;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import org.springframework.web.client.RestTemplate;
 
 @Service
 public class RiskService {
@@ -36,9 +44,6 @@ public class RiskService {
 
     @Autowired
     private RiskRuleRepository riskRuleRepository;
-
-    @Autowired
-    private RiskOutboxRepository outboxRepository;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -60,6 +65,21 @@ public class RiskService {
 
     @Autowired
     private MeterRegistry meterRegistry;
+
+    private final RestTemplate client;
+
+    @Value("${services.fulfillment-url:http://localhost:18089}")
+    private String fulfillmentUrl;
+
+    @Value("${services.order-url:http://localhost:18084}")
+    private String orderUrl;
+
+    @Value("${CASTREL_INTERNAL_SERVICE_KEY:}")
+    private String serviceKey;
+
+    public RiskService(RestTemplateBuilder builder) {
+        this.client = builder.build();
+    }
 
     private Counter passCounter;
     private Counter rejectCounter;
@@ -136,37 +156,37 @@ public class RiskService {
             dto.setPass(false);
             dto.setAction("FREEZE");
             dto.setReason("HIGH_AMOUNT_REVIEW");
-            appendRiskEvent(req, dto, "POST_PAYMENT_RISK_REJECTED");
+            deliverRiskResult(req, dto, "POST_PAYMENT_RISK_REJECTED");
             return dto;
         }
 
         RiskResultDTO dto = new RiskResultDTO();
         dto.setPass(true);
-        appendRiskEvent(req, dto, "POST_PAYMENT_RISK_PASSED");
+        deliverRiskResult(req, dto, "POST_PAYMENT_RISK_PASSED");
         return dto;
     }
 
-    private void appendRiskEvent(PostPayCheckRequest request, RiskResultDTO result, String type) {
-        try {
-            RiskOutboxEvent event = new RiskOutboxEvent();
-            event.setEventId(java.util.UUID.randomUUID().toString());
-            event.setEventType(type);
-            event.setAggregateId(request.getOrderNo());
-            event.setAggregateVersion(1);
-                event.setPayload(objectMapper.writeValueAsString(java.util.Map.of(
-                    "orderId", request.getOrderId(), "userId", request.getUserId(), "orderNo", request.getOrderNo(),
-                    "paymentId", request.getPaymentId(), "amount", request.getAmount(),
-                    "result", result)));
-            event.setOccurredAt(java.time.LocalDateTime.now());
-            event.setSchemaVersion(1);
-            event.setTraceId(com.castrel.chaos.common.TraceContext.getTraceId());
-            event.setStatus("PENDING");
-            event.setAttempts(0);
-            event.setCreatedAt(java.time.LocalDateTime.now());
-            outboxRepository.save(event);
-        } catch (Exception exception) {
-            throw new IllegalStateException("Unable to append risk outbox event", exception);
+    private void deliverRiskResult(PostPayCheckRequest request, RiskResultDTO result, String type) {
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("orderId", request.getOrderId());
+        payload.put("userId", request.getUserId());
+        payload.put("orderNo", request.getOrderNo());
+        payload.put("paymentId", request.getPaymentId());
+        payload.put("amount", request.getAmount());
+        payload.put("result", result);
+        payload.put("reason", result.getReason());
+        EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.create(objectMapper,
+                UUID.randomUUID().toString(), type, request.getOrderNo(), 1, payload,
+                TraceContext.getTraceId(), null);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        if (serviceKey != null && !serviceKey.isBlank()) {
+            headers.set("X-Internal-Service-Key", serviceKey);
         }
+        String target = "POST_PAYMENT_RISK_PASSED".equals(type)
+                ? fulfillmentUrl + "/internal/fulfillments/events/risk-passed"
+                : orderUrl + "/internal/orders/risk-rejected";
+        client.postForEntity(target, new HttpEntity<>(envelope, headers), Void.class);
     }
 
     private void enrichQueryIfNeeded(Long userId) {

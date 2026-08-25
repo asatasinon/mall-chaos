@@ -7,11 +7,7 @@ import com.castrel.chaos.common.observability.SensitiveDataSanitizer;
 import com.castrel.chaos.notification.dto.PaymentResultRequest;
 import com.castrel.chaos.notification.dto.ShippingCreatedRequest;
 import com.castrel.chaos.notification.repository.CustomerNotificationRepository;
-import com.castrel.chaos.notification.repository.NotificationInboxRepository;
-import com.castrel.chaos.notification.repository.NotificationOutboxRepository;
 import com.castrel.chaos.notification.repository.NotificationPreferenceRepository;
-import com.castrel.chaos.notification.entity.NotificationInboxEvent;
-import com.castrel.chaos.notification.entity.NotificationOutboxEvent;
 import com.castrel.chaos.notification.entity.CustomerNotification;
 import com.castrel.chaos.notification.entity.NotificationPreference;
 import com.castrel.chaos.notification.dto.CustomerNotificationDTO;
@@ -30,10 +26,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -58,16 +51,7 @@ public class NotificationService {
     private CustomerNotificationRepository customerNotificationRepository;
 
     @Autowired
-    private NotificationInboxRepository inboxRepository;
-
-    @Autowired
-    private NotificationOutboxRepository outboxRepository;
-
-    @Autowired
     private NotificationPreferenceRepository preferenceRepository;
-
-    @Autowired
-    private ObjectMapper objectMapper;
 
     @Autowired
     private MeterRegistry meterRegistry;
@@ -85,41 +69,30 @@ public class NotificationService {
                 .register(meterRegistry);
     }
 
+    @Transactional
     public void notifyPaymentResult(PaymentResultRequest req) {
         BigDecimal amount = req.getAmount() != null ? req.getAmount() : req.getTotalAmount();
         String message = req.isSuccess()
             ? String.format("【支付成功】订单 %s 支付 ¥%.2f 成功", req.getOrderNo(), amount)
                 : String.format("【支付失败】订单 %s 支付失败，请重试", req.getOrderNo());
         String eventType = req.isSuccess() ? "PAYMENT_SUCCESS" : "PAYMENT_FAILED";
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("orderNo", req.getOrderNo());
-        payload.put("success", req.isSuccess());
-        payload.put("amount", amount);
-        send(req.getEventId(), req.getUserId(), req.getOrderNo(), eventType, message, payload);
-    }
-
-    public void notifyShippingCreated(ShippingCreatedRequest req) {
-        String message = String.format("【已发货】您的订单已由 %s 发出，单号：%s",
-                req.getCarrier(), req.getTrackingNo());
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("orderNo", req.getOrderNo());
-        payload.put("trackingNo", req.getTrackingNo());
-        payload.put("carrier", req.getCarrier());
-        send(req.getEventId(), req.getUserId(), req.getOrderNo(), "SHIPPING", message, payload);
+        send(req.getEventId(), req.getUserId(), req.getOrderNo(), eventType, message);
     }
 
     @Transactional
+    public void notifyShippingCreated(ShippingCreatedRequest req) {
+        String message = String.format("【已发货】您的订单已由 %s 发出，单号：%s",
+                req.getCarrier(), req.getTrackingNo());
+        send(req.getEventId(), req.getUserId(), req.getOrderNo(), "SHIPPING", message);
+    }
+
     private void send(String incomingEventId, Long userId, String orderNo, String eventType,
-                      String message, Map<String, Object> payload) {
+                      String message) {
         String eventId = incomingEventId == null || incomingEventId.isBlank()
                 ? UUID.randomUUID().toString() : incomingEventId;
-        if (inboxRepository.existsById(eventId)) return;
-        NotificationInboxEvent inbox = new NotificationInboxEvent();
-        inbox.setEventId(eventId);
-        inbox.setEventType(eventType);
-        inbox.setReceivedAt(LocalDateTime.now());
-        inbox.setStatus("RECEIVED");
-        inboxRepository.save(inbox);
+        if (customerNotificationRepository.existsByCustomerIdAndEventId(userId, eventId)) {
+            return;
+        }
         enrichQueryIfNeeded(userId, orderNo);
         NotificationPreference preference = preferenceRepository.findById(userId).orElseGet(() -> {
             NotificationPreference created = new NotificationPreference();
@@ -129,9 +102,6 @@ public class NotificationService {
             return preferenceRepository.save(created);
         });
         if (!Boolean.TRUE.equals(preference.getInApp())) {
-            inbox.setStatus("PROCESSED");
-            inbox.setProcessedAt(LocalDateTime.now());
-            inboxRepository.save(inbox);
             return;
         }
         boolean failed = Math.random() < failRate;
@@ -146,29 +116,6 @@ public class NotificationService {
         notification.setRead(false);
         notification.setCreatedAt(LocalDateTime.now());
         customerNotificationRepository.save(notification);
-        try {
-            NotificationOutboxEvent outbox = new NotificationOutboxEvent();
-            outbox.setEventId(UUID.randomUUID().toString());
-            outbox.setEventType("CUSTOMER_NOTIFICATION_CREATED");
-            outbox.setAggregateId(eventId);
-            outbox.setAggregateVersion(1);
-            outbox.setPayload(objectMapper.writeValueAsString(payload));
-            outbox.setOccurredAt(LocalDateTime.now());
-            outbox.setSchemaVersion(1);
-            outbox.setTraceId(TraceContext.getTraceId());
-            outbox.setStatus("PENDING");
-            outbox.setAttempts(0);
-            outbox.setCreatedAt(LocalDateTime.now());
-            outboxRepository.save(outbox);
-        } catch (Exception exception) {
-            inbox.setStatus("FAILED");
-            inbox.setFailureReason(exception.getMessage());
-            inboxRepository.save(inbox);
-            throw new IllegalStateException("Unable to append notification outbox event", exception);
-        }
-        inbox.setStatus("PROCESSED");
-        inbox.setProcessedAt(LocalDateTime.now());
-        inboxRepository.save(inbox);
         localQueryCacheManager.cacheIfNeeded("notification:" + orderNo, notification);
 
         if (failed) {

@@ -11,9 +11,10 @@ import com.castrel.chaos.payment.client.OrderPaymentResultClient;
 import com.castrel.chaos.payment.client.OrderClient;
 import com.castrel.chaos.payment.entity.Payment;
 import com.castrel.chaos.payment.repository.PaymentRepository;
-import com.castrel.chaos.payment.repository.PaymentOutboxRepository;
-import com.castrel.chaos.payment.entity.PaymentOutboxEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.castrel.chaos.common.event.EventEnvelope;
+import com.castrel.chaos.common.event.EventEnvelopeCodec;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -32,9 +33,6 @@ public class PaymentService {
 
     @Autowired
     private PaymentRepository paymentRepository;
-
-    @Autowired
-    private PaymentOutboxRepository outboxRepository;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -66,7 +64,6 @@ public class PaymentService {
     private Counter successCounter;
     private Counter failCounter;
     private Counter timeoutCounter;
-    private Counter outboxCounter;
     private Counter attemptCounter;
     private final Random random = new Random();
 
@@ -75,7 +72,6 @@ public class PaymentService {
         successCounter = Counter.builder("payment.charge.success.count").register(meterRegistry);
         failCounter = Counter.builder("payment.charge.fail.count").register(meterRegistry);
         timeoutCounter = Counter.builder("payment.charge.timeout.count").register(meterRegistry);
-        outboxCounter = Counter.builder("payment.outbox.append.count").register(meterRegistry);
         attemptCounter = Counter.builder("payment_attempt_total").register(meterRegistry);
     }
 
@@ -186,30 +182,16 @@ public class PaymentService {
         payment.setUpdatedAt(LocalDateTime.now());
         PaymentDTO result = toDTO(paymentRepository.save(payment));
         result.setOrderNo(orderNo);
-        appendPaymentResultEvent(result, orderNo);
+        deliverPaymentResult(result, orderNo);
         return result;
     }
 
-    private void appendPaymentResultEvent(PaymentDTO payment, String orderNo) {
-        try {
-            payment.setEventId(UUID.randomUUID().toString());
-            PaymentOutboxEvent event = new PaymentOutboxEvent();
-            event.setEventId(payment.getEventId());
-            event.setEventType("PAYMENT_RESULT");
-            event.setAggregateId(orderNo);
-            event.setAggregateVersion(1);
-            event.setPayload(objectMapper.writeValueAsString(payment));
-            event.setOccurredAt(LocalDateTime.now());
-            event.setSchemaVersion(1);
-            event.setTraceId(TraceContext.getTraceId());
-            event.setStatus("PENDING");
-            event.setAttempts(0);
-            event.setCreatedAt(LocalDateTime.now());
-            outboxRepository.save(event);
-            outboxCounter.increment();
-        } catch (Exception exception) {
-            throw new IllegalStateException("Unable to append payment outbox event", exception);
-        }
+    private void deliverPaymentResult(PaymentDTO payment, String orderNo) {
+        payment.setEventId(UUID.randomUUID().toString());
+        EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.create(objectMapper,
+                payment.getEventId(), "PAYMENT_RESULT", orderNo, 1, payment,
+                TraceContext.getTraceId(), null);
+        orderPaymentResultClient.publish(envelope);
     }
 
     public PaymentDTO getPayment(Long id) {

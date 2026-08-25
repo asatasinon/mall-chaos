@@ -10,6 +10,29 @@ public final class EventEnvelopeCodec {
     private EventEnvelopeCodec() {
     }
 
+    public static EventEnvelope<JsonNode> create(
+            ObjectMapper mapper,
+            String eventId,
+            String eventType,
+            String aggregateId,
+            long aggregateVersion,
+            Object payload,
+            String traceId,
+            String trafficRunId) {
+        EventEnvelope<JsonNode> envelope = new EventEnvelope<>();
+        envelope.setEventId(eventId);
+        envelope.setEventType(eventType);
+        envelope.setAggregateId(aggregateId);
+        envelope.setAggregateVersion(aggregateVersion);
+        envelope.setOccurredAt(java.time.Instant.now());
+        envelope.setSchemaVersion(1);
+        envelope.setTraceId(traceId);
+        envelope.setTrafficRunId(trafficRunId);
+        envelope.setPayload(mapper.valueToTree(payload));
+        EventEnvelopeValidator.validate(envelope);
+        return envelope;
+    }
+
     public static EventEnvelope<JsonNode> decode(
             ObjectMapper mapper,
             String eventId,

@@ -26,8 +26,8 @@ mysql_query() {
 
 [[ "$(mysql_query 'SELECT version FROM schema_version WHERE id = 1;')" == "1" ]]
 [[ "$(mysql_query 'SELECT COUNT(*) FROM carts;')" -ge 2 ]]
-[[ "$(mysql_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${MYSQL_DATABASE}' AND table_name LIKE '%_outbox_events';")" -eq 5 ]]
-[[ "$(mysql_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${MYSQL_DATABASE}' AND table_name LIKE '%_inbox_events';")" -eq 5 ]]
+[[ "$(mysql_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${MYSQL_DATABASE}' AND table_name LIKE '%_outbox_events';")" -eq 0 ]]
+[[ "$(mysql_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${MYSQL_DATABASE}' AND table_name LIKE '%_inbox_events';")" -eq 0 ]]
 if [[ "$(docker compose exec -T redis redis-cli ping)" != "PONG" ]]; then
   echo "redis did not respond with PONG" >&2
   exit 1

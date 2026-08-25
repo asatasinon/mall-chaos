@@ -4,6 +4,9 @@ import com.castrel.chaos.common.ApiResponse;
 import com.castrel.chaos.common.TraceContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.castrel.chaos.common.event.EventEnvelope;
+import com.castrel.chaos.common.event.EventEnvelopeCodec;
+import com.castrel.chaos.order.dto.OrderDTO;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -18,6 +21,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import com.castrel.chaos.order.dto.CheckoutFreeze;
 import com.castrel.chaos.order.dto.CheckoutCommand;
 
@@ -42,11 +46,17 @@ public class DownstreamClients {
     @Value("${services.risk-url:http://localhost:18088}")
     private String riskUrl;
 
+    @Value("${services.notification-url:http://localhost:18090}")
+    private String notificationUrl;
+
     @Value("${services.promotion-url:http://localhost:18087}")
     private String promotionUrl;
 
     @Value("${services.cart-url:http://cart-service:8091}")
     private String cartUrl;
+
+    @Value("${CASTREL_INTERNAL_SERVICE_KEY:}")
+    private String serviceKey;
 
     public DownstreamClients(RestTemplateBuilder builder) {
         this.client = builder.build();
@@ -70,6 +80,9 @@ public class DownstreamClients {
             if (userId != null && !userId.isBlank()) {
                 headers.set("X-User-Id", userId);
             }
+        }
+        if (serviceKey != null && !serviceKey.isBlank()) {
+            headers.set("X-Internal-Service-Key", serviceKey);
         }
         return headers;
     }
@@ -190,6 +203,33 @@ public class DownstreamClients {
                 HttpMethod.POST, body, Map.class);
             return (Map<String, Object>) ((Map<?, ?>) response).get("data");
     }
+
+            public void postPaymentRisk(OrderDTO order) {
+            Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("orderId", order.getId());
+            payload.put("userId", order.getUserId());
+            payload.put("orderNo", order.getOrderNo());
+            payload.put("paymentId", order.getPaymentId());
+            payload.put("amount", order.getTotalAmount());
+            EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.create(mapper,
+                UUID.randomUUID().toString(), "ORDER_PAID", order.getOrderNo(),
+                order.getVersion(), payload, TraceContext.getTraceId(), null);
+            exchange(riskUrl + "/internal/risk/events/order-paid", HttpMethod.POST, envelope, Map.class);
+            }
+
+            public void notifyPaymentResult(OrderDTO order, String eventId) {
+            Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("userId", order.getUserId());
+            payload.put("orderNo", order.getOrderNo());
+            payload.put("success", "PAID".equals(order.getStatus()));
+            payload.put("amount", order.getTotalAmount());
+            EventEnvelope<JsonNode> envelope = EventEnvelopeCodec.create(mapper,
+                eventId == null || eventId.isBlank() ? UUID.randomUUID().toString() : eventId,
+                "PAID".equals(order.getStatus()) ? "ORDER_PAID" : "ORDER_PAYMENT_FAILED",
+                order.getOrderNo(), order.getVersion(), payload, TraceContext.getTraceId(), null);
+            exchange(notificationUrl + "/internal/notifications/payment-result", HttpMethod.POST,
+                envelope, Map.class);
+            }
 
                 public Map<String, Object> calculatePromotion(Long userId, String orderNo, Long couponId,
                                                           List<Map<String, Object>> items) {

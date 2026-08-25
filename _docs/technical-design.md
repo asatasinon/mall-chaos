@@ -47,7 +47,7 @@ flowchart LR
 | `catalog-service` | 商品搜索/详情，以及内部批量校验/价格查询 |
 | `cart-service` | 客户持久化购物车、商品变更和重校验 |
 | `inventory-service` | 原子 SKU 预占/释放和可售库存投影 |
-| `order-service` | 结算命令、订单/明细快照、状态机、取消和 Outbox 发布 |
+| `order-service` | 结算命令、订单/明细快照、状态机、取消和同步编排 |
 | `promotion-service` | 优惠券资格、报价、预留、确认/释放 |
 | `risk-service` | 结算前检查和订单事件驱动的支付后检查 |
 | `payment-service` | 模拟支付意图、确认、状态、重试和退款生命周期 |
@@ -107,7 +107,7 @@ flowchart LR
 
 ### 4.1.1 Checkout 同步服务拓扑
 
-`CHECKOUT` 只创建 `PENDING_PAYMENT` 订单，不执行支付确认、支付后风控、履约或通知。后续阶段见“事务性 Outbox”。
+`CHECKOUT` 只创建 `PENDING_PAYMENT` 订单；支付确认及其后的风控、履约和通知均由后续同步请求完成。
 
 ```mermaid
 flowchart LR
@@ -134,7 +134,7 @@ flowchart LR
   Order -->|支付前检查| Risk
   Order -->|按订单预占每个 SKU| Inventory
 
-  Order -->|本地事务：orders、order_items、地址快照、order_outbox_events| MySQL
+  Order -->|本地事务：orders、order_items、地址快照| MySQL
   Order -->|成功后消费匹配版本购物车行| Cart
   Order -->|返回 PENDING_PAYMENT 订单| Gateway
   Gateway --> Client
@@ -150,12 +150,12 @@ flowchart LR
 2. `cart-service` 使用 Redis 原子冻结指定版本的购物车；版本或归属不匹配时直接拒绝结算。
 3. `order-service` 基于冻结明细调用 `catalog-service`、`promotion-service`、`risk-service` 和 `inventory-service`；客户端不提供权威价格或商品明细。
 4. 商品校验、优惠券预留、风控或库存预占任一步失败，按已获取资源的逆序执行幂等补偿，并释放 Redis 冻结。
-5. 所有同步校验和预占成功后，`order-service` 在本地 MySQL 事务中创建 `PENDING_PAYMENT` 订单、`order_items`、地址快照和 `order_outbox_events`。
+5. 所有同步校验和预占成功后，`order-service` 在本地 MySQL 事务中创建 `PENDING_PAYMENT` 订单、`order_items` 和地址快照。
 6. 订单提交成功后才消费冻结版本对应的购物车行；无法消费时记录可重试任务，不回滚已成功创建的订单。
 
 ### 4.2 runner 完整交易流程
 
-runner 在 `traffic-control-plane` 内通过 `TrafficActionOrchestrator` 编排动作；每一步经网关复用消费者同一领域服务、同一结算命令、同一支付状态机和同一 Outbox 消费者。编排器只负责选择预置演示客户、生成幂等键和安排动作，不能实现第二套下单逻辑。
+runner 在 `traffic-control-plane` 内通过 `TrafficActionOrchestrator` 编排动作；每一步经网关复用消费者同一领域服务、同一结算命令和同一支付状态机。编排器只负责选择预置演示客户、生成幂等键和安排动作，不能实现第二套下单逻辑。
 
 #### 完整流量生成流程
 
@@ -174,22 +174,15 @@ flowchart TD
   Browse -->|BROWSE_PRODUCT / SEARCH_CATALOG| Catalog[Catalog Service]
   Browse -->|ADD_CART_ITEM / UPDATE_CART_ITEM| Cart[Cart Service]
   Browse -->|CHECKOUT| Freeze[Cart Service 在 Redis 冻结购物车快照]
-  Freeze --> Order[Order Service 创建 PENDING_PAYMENT 订单、订单明细和 Outbox]
+  Freeze --> Order[Order Service 创建 PENDING_PAYMENT 订单和订单明细]
   Browse -->|PAYMENT_CONFIRM| Payment[Payment Service 确认模拟支付]
-  Payment --> PaymentOutbox[Payment Service 写 PAYMENT_RESULT Outbox]
-  PaymentOutbox --> OrderInbox[Order Service Inbox 去重并裁决订单终态]
-  OrderInbox -->|已支付| OrderPaid[Order Service 写 ORDER_PAID Outbox]
-  OrderInbox -->|失败/取消/到期| Compensate[确认或释放库存和优惠券预占]
-  OrderPaid --> Risk[Risk Service 支付后风控]
-  Risk -->|通过| RiskPassed[Risk Service 写 POST_PAYMENT_RISK_PASSED]
-  Risk -->|拒绝| RiskRejected[Risk Service 写 POST_PAYMENT_RISK_REJECTED]
-  RiskPassed --> Fulfillment[Fulfillment Service 创建发货单]
-  Fulfillment --> Shipment[发布 SHIPMENT_UPDATED]
-  RiskRejected --> Compensate
-  OrderPaid --> Notify[Notification Service]
-  OrderInbox --> Notify
-  Risk --> Notify
-  Shipment --> Notify
+  Payment --> OrderResult[Order Service 同步裁决订单终态]
+  OrderResult -->|已支付| Risk[Risk Service 支付后风控]
+  OrderResult -->|失败/取消/到期| Compensate[确认或释放库存和优惠券预占]
+  Risk -->|通过| Fulfillment[Fulfillment Service 创建发货单]
+  Risk -->|拒绝| Compensate
+  Fulfillment --> Shipment[Notification Service 同步发送物流通知]
+  OrderResult --> Notify[Notification Service 同步发送支付通知]
 
   Catalog --> Result[Gateway 返回动作结果]
   Cart --> Result
@@ -201,7 +194,7 @@ flowchart TD
   State --> Next[调度下一次 tick]
 ```
 
-图中的同步箭头代表 runner 当前动作的网关调用；Outbox、Inbox、风控、履约与通知为异步可靠投递链路。`CANCEL_PENDING_ORDER`、`QUERY_ORDER` 和 `QUERY_SHIPMENT` 同样经 GatewayClient 调用对应客户 API：取消只从 runner 已记录且仍为 `PENDING_PAYMENT` 的订单队列取值，物流查询只从已支付订单队列取值。
+图中的调用均在当前请求内同步完成；下游失败直接返回当前操作的失败结果。`CANCEL_PENDING_ORDER`、`QUERY_ORDER` 和 `QUERY_SHIPMENT` 同样经 GatewayClient 调用对应客户 API：取消只从 runner 已记录且仍为 `PENDING_PAYMENT` 的订单队列取值，物流查询只从已支付订单队列取值。
 
 ```mermaid
 sequenceDiagram
@@ -218,8 +211,8 @@ sequenceDiagram
   O-->>Runner: PENDING_PAYMENT 订单
   Runner->>G: 创建并确认模拟支付
   G->>Pay: 执行标准支付生命周期
-  Pay->>O: 支付终态事件
-  O->>F: Outbox 异步履约和通知
+  Pay->>O: 同步提交支付终态
+  O->>F: 同步风控、履约和通知
 ```
 
 流量规则至少支持以下动作：`BROWSE_PRODUCT`、`SEARCH_CATALOG`、`ADD_CART_ITEM`、`UPDATE_CART_ITEM`、`CHECKOUT`、`PAYMENT_CONFIRM`、`CANCEL_PENDING_ORDER`、`QUERY_ORDER` 和 `QUERY_SHIPMENT`。每个动作记录独立结果和延迟；支付确认可按配置产生成功、失败或超时。
@@ -232,7 +225,6 @@ sequenceDiagram
 | 支付尝试 | `CREATED`、`PROCESSING`、`SUCCESS`、`FAILED`、`UNKNOWN`、`REFUNDED` |
 | 库存预占 | `RESERVED`、`RELEASED`、`CONFIRMED`、`EXPIRED` |
 | 优惠券使用 | `AVAILABLE`、`RESERVED`、`USED`、`RELEASED` |
-| Outbox 事件 | `PENDING`、`PROCESSING`、`PUBLISHED`、`FAILED`、`DEAD_LETTER` |
 
 状态转换在服务代码中校验且必须幂等。新代码不得复用 `PENDING` 表达多种业务语义。`FAILED` 为明确不可重试的失败并释放预占；`UNKNOWN` 表示超时/未知结果，必须先对账，不立即释放。可重试支付只能复用仍有效的预占；预占到期后必须在支付前重新原子预占全部 SKU 和优惠券。
 
@@ -249,11 +241,6 @@ sequenceDiagram
 | `inventory_reservations` | inventory-service | 按订单、SKU 的预占生命周期和到期时间 |
 | `payment_attempts` | payment-service | 每订单多次幂等模拟支付尝试 |
 | `coupon_reservations` | promotion-service | 优惠券预留、确认、释放记录 |
-| `order_outbox_events`、`order_inbox_events` | order-service | 订单发布与消费去重 |
-| `payment_outbox_events`、`payment_inbox_events` | payment-service | 支付发布与消费去重 |
-| `risk_outbox_events`、`risk_inbox_events` | risk-service | 风控发布与消费去重 |
-| `fulfillment_outbox_events`、`fulfillment_inbox_events` | fulfillment-service | 履约发布与消费去重 |
-| `notification_outbox_events`、`notification_inbox_events` | notification-service | 通知发布与消费去重 |
 | `traffic_runs`、`traffic_actions` | traffic-control-plane | 流量运行、动作、演示客户、订单/支付关联及结果 |
 | `operator_audit_logs` | traffic-control-plane | 运营变更审计 |
 | `shipments`、`shipment_timeline_events` | fulfillment-service | 演示发货状态和物流追踪 |
@@ -266,7 +253,7 @@ sequenceDiagram
 
 环境重置不是业务服务能力，也不由 `traffic-control-plane` 创建 reset job。运维人员手工执行：先停止全部业务服务、Gateway、`traffic-control-plane` worker 和外部业务流量；确认没有服务进程仍连接 MySQL/Redis 后，清除 MySQL 与 Redis 数据目录；再启动基础设施和全部服务，由初始化 SQL 创建 Schema 与种子数据，完成健康检查后最后恢复 runner。
 
-环境重置与 `inventory reset` 是不同操作：前者删除整个演示环境数据，后者只恢复业务库存基线。运维重置与结算、库存重置、Outbox 投递和混沌场景互斥；禁止任何业务服务 HTTP API 删除数据卷。
+环境重置与 `inventory reset` 是不同操作：前者删除整个演示环境数据，后者只恢复业务库存基线。运维重置与结算、库存重置和混沌场景互斥；禁止任何业务服务 HTTP API 删除数据卷。
 
 ## 6. 结算和支付处理
 
@@ -286,34 +273,24 @@ sequenceDiagram
     O->>P: 报价并预留优惠券
     O->>R: 支付前风控检查
     O->>I: 预占每个 SKU
-    O->>O: 原子保存订单、明细、地址和 Outbox
+    O->>O: 原子保存订单、明细和地址
     O-->>S: 返回 PENDING_PAYMENT
     S->>G: 确认模拟支付
     G->>Pay: 客户归属支付操作
-    Pay->>O: 支付终态事件
-    O->>O: 更新订单并保存 Outbox
+    Pay->>O: 同步提交支付终态
+    O->>O: 更新订单并同步调用后续服务
     O->>I: 确认或释放库存预占
 ```
 
-事务规则：先声明结算幂等权；冻结指定版本购物车；按 SKU 获取权威商品数据；用服务端数据计算金额；按订单关联标识预留优惠券与库存；在单个本地事务中保存订单、快照和 Outbox；持久化前失败时补偿已获得预留；支付成功时经订单条件更新恰好一次确认预占；明确不可重试失败、取消或到期时经同一条件更新恰好一次释放预占；未知支付结果先对账。
+事务规则：先声明结算幂等权；冻结指定版本购物车；按 SKU 获取权威商品数据；用服务端数据计算金额；按订单关联标识预留优惠券与库存；在单个本地事务中保存订单和快照；持久化前失败时补偿已获得预留；支付成功时经订单条件更新恰好一次确认预占；明确不可重试失败、取消或到期时经同一条件更新恰好一次释放预占；未知支付结果先对账。
 
 初版可在结算阶段使用同步服务调用，但支付成功事务不得依赖履约或通知完成。
 
-## 7. 事务性 Outbox
+## 7. 同步跨服务调用
 
-支付、订单和所有产生跨服务副作用的服务均在本地状态变更事务中保存自身 Outbox 事件。每个服务只读写自己的 `*_outbox_events` 和 `*_inbox_events`；定时发布器认领本服务待处理事件、调用下游并记录尝试/结果，支持至少一次投递。消费者在本地事务中先写入自身 Inbox 的 `eventId` 唯一记录，再执行业务状态更新与后续 Outbox 写入。
+支付确认在当前请求内更新支付状态并调用订单服务；订单服务裁决订单、确认或释放库存和优惠券，然后同步调用支付后风控和支付通知。风控通过后同步调用履约服务，履约服务保存发货单和时间线后同步调用通知服务。各调用都通过内部 HTTP 接口传播 traceId，并将下游错误直接返回给当前请求；系统不持久化跨服务事件，不运行发布器、消费者、重试队列或 Outbox/Inbox 表。
 
-| 事件 | 消费端动作 |
-| --- | --- |
-| `PAYMENT_RESULT` | payment-service 发布；order-service 裁决订单终态、库存和优惠券 |
-| `ORDER_PAID` | order-service 发布；risk-service 执行支付后风控，notification-service 发送支付通知 |
-| `ORDER_PAYMENT_FAILED` | order-service 发布；notification-service 发送失败通知与补偿审计 |
-| `POST_PAYMENT_RISK_PASSED` | risk-service 发布；fulfillment-service 创建履约单 |
-| `POST_PAYMENT_RISK_REJECTED` | risk-service 发布；order-service 执行规定补偿，notification-service 发送结果通知 |
-| `ORDER_CANCELLED` | order-service 发布；notification-service 发送通知；必要时 fulfillment-service 取消履约 |
-| `SHIPMENT_UPDATED` | fulfillment-service 发布；notification-service 发送客户通知 |
-
-支付服务提交支付终态时写入 `PAYMENT_RESULT` Outbox；订单服务通过 Inbox 去重后裁决订单、库存和优惠券，并发布 `ORDER_PAID` 或 `ORDER_PAYMENT_FAILED`。风险服务只消费 `ORDER_PAID`，并发布 `POST_PAYMENT_RISK_PASSED` 或 `POST_PAYMENT_RISK_REJECTED`；履约服务只消费 `POST_PAYMENT_RISK_PASSED`，不得直接消费支付成功事件。事件统一包含 `eventId`、`eventType`、`aggregateId`、`aggregateVersion`、`occurredAt`、schema version、`traceparent` / `traceId` 和 `trafficRunId`。发布器恢复原始链路上下文并向消费者传播。失败事件以有界指数退避重试，最终进入 `DEAD_LETTER`；人工重放复用原 `eventId`，不能生成新事件。
+幂等性由各领域服务自己的业务唯一键和条件更新保证：结算使用客户幂等键，支付使用支付幂等键，履约使用订单唯一约束，通知使用当前请求生成的事件标识保存关联信息。同步调用失败时由当前服务执行已获得库存、优惠券和购物车冻结的补偿。
 
 ## 8. 客户 API
 
@@ -357,7 +334,7 @@ sequenceDiagram
 
 复用 `TraceContext` 和现有网关/客户端链路传递。`shopfront` 创建或转发关联 ID；该 ID 出现在结构化日志和可安全给客户的错误响应中。禁止在指标、链路和日志中记录原始邮箱、电话、完整地址、访问/刷新令牌、密码或支付模拟密钥。
 
-必需指标包括：`checkout_total{outcome}` 与结算耗时、`cart_item_mutation_total{action,outcome}`、`inventory_reservation_total{outcome}`、`payment_attempt_total{outcome}`、`order_outbox_pending`、`fulfillment_transition_total{status}`、`customer_api_error_total{route,error_code}`。
+必需指标包括：`checkout_total{outcome}` 与结算耗时、`cart_item_mutation_total{action,outcome}`、`inventory_reservation_total{outcome}`、`payment_attempt_total{outcome}`、同步下游调用耗时、`fulfillment_transition_total{status}`、`customer_api_error_total{route,error_code}`。
 
 使用稳定错误码：`UNAUTHENTICATED`、`FORBIDDEN`、`CART_ITEM_UNAVAILABLE`、`INSUFFICIENT_STOCK`、`PRICE_CHANGED`、`COUPON_INELIGIBLE`、`CHECKOUT_PROCESSING`、`PAYMENT_FAILED`、`ORDER_NOT_CANCELLABLE`。非预期下游错误仅返回可重试通用提示和关联 ID，详细原因保留在日志/链路中。
 
@@ -370,8 +347,8 @@ runner 的 `RunnerEngine` 相应改造为状态化流程编排器：维护演示
 | 数据库初始化 | 停流并清除 MySQL/Redis 后，初始化 SQL 可创建完整 Schema、索引、演示客户和商品种子数据；服务校验 schema version 后恢复 runner |
 | 安全 | 清除伪造身份头；拒绝直连业务服务；客户不能跨用户读取资源；消费者入口阻止 `/internal/**`；未认证运营/runner 服务调用被拒绝并记录审计 |
 | 购物车/结算 | 持久化、版本并发更新、非法 SKU/库存、多商品金额、价格冻结、优惠券、幂等、补偿；结算只消费冻结快照行 |
-| 支付/异步 | 成功、明确失败、未知结果对账、重试、重复确认；支付成功/取消/到期竞争裁决；跨服务 Outbox/Inbox 重试、重复投递、死信和链路恢复 |
+| 支付/同步调用 | 成功、明确失败、未知结果对账、重试、重复确认；支付成功/取消/到期竞争裁决；跨服务调用失败和补偿 |
 | 前端/流量/回归 | Playwright 注册至物流流程；runner 覆盖完整交易链路并验证各动作；`scripts/chaos/chaos-verify.sh` 可用；不提供旧单 SKU 接口 |
-| 可观测性 | 可查询结算、支付、Outbox、发货链路、指标和结构化日志 |
+| 可观测性 | 可查询结算、支付、同步履约和发货链路、指标和结构化日志 |
 
 主要实现锚点：`order-service` 的 `OrderService.java`、`DownstreamClients.java`；`gateway-service/src/main/resources/application.yml`；各业务服务源码；`common`；`infra/mysql/init/00-schema.sql`；`docker-compose.yml`；`k8s/` 和 `scripts/build-all.sh`。
