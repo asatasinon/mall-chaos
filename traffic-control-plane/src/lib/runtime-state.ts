@@ -3,6 +3,7 @@ import type { RunnerOrderRef } from './runner-persistence';
 
 const CONTROL_KEY = 'traffic-control-plane:runner:control';
 const STATUS_KEY = 'traffic-control-plane:runner:status';
+const INVENTORY_REPLENISHMENT_STATUS_KEY = 'traffic-control-plane:replenishment:inventory:status';
 
 export interface RunnerControlState {
   paused: boolean;
@@ -84,6 +85,38 @@ export async function getRunnerStatus(): Promise<RunnerStatusState | null> {
     configVersion: Number(data.configVersion || 0),
     updatedAt: data.updatedAt,
   };
+}
+
+export interface InventoryReplenishmentStatusState {
+  running: boolean;
+  lastWindowId: string | null;
+  lastResult: 'COMPLETED' | 'FAILED' | 'SKIPPED' | null;
+  lastAttemptAt: string | null;
+  nextExecutionAt: string | null;
+  retryCount: number;
+  lastAddedQuantity: number;
+  lastSkippedCount: number;
+  lastFailedCount: number;
+}
+
+export async function setInventoryReplenishmentStatus(
+  status: InventoryReplenishmentStatusState,
+): Promise<void> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  await redis.set(INVENTORY_REPLENISHMENT_STATUS_KEY, JSON.stringify(status), 'EX', 30);
+}
+
+export async function getInventoryReplenishmentStatus(): Promise<InventoryReplenishmentStatusState | null> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  const value = await redis.get(INVENTORY_REPLENISHMENT_STATUS_KEY);
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as InventoryReplenishmentStatusState;
+  } catch {
+    return null;
+  }
 }
 
 // ── Activity feed (written by worker, read by API route via Redis list) ──

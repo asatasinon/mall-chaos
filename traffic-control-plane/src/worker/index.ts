@@ -2,7 +2,9 @@ import { getRunnerEngine } from './runner-engine';
 import { getDataWarmupService } from './data-warmup';
 import { env } from '../lib/env';
 import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
+import { setInventoryReplenishmentStatus } from '../lib/runtime-state';
 import { getCouponReplenishmentScheduler } from './coupon-replenishment';
+import { getInventoryReplenishmentScheduler } from './inventory-replenishment';
 import pino from 'pino';
 
 const log = pino({ name: 'worker' });
@@ -17,7 +19,13 @@ async function main() {
   const engine = getRunnerEngine();
   await engine.loadConfigFromDb();
   const couponReplenishmentScheduler = getCouponReplenishmentScheduler();
+  const inventoryReplenishmentScheduler = getInventoryReplenishmentScheduler();
   await couponReplenishmentScheduler.start();
+  await inventoryReplenishmentScheduler.start();
+  const inventoryStatusTimer = setInterval(() => {
+    void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
+  }, 1000);
+  await setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
   engine.start();
 
   if (env.DATA_WARMUP_ENABLED) {
@@ -31,6 +39,9 @@ async function main() {
 
   process.on('SIGINT', () => {
     log.info('Shutting down worker...');
+    clearInterval(inventoryStatusTimer);
+    inventoryReplenishmentScheduler.stop();
+    void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
     couponReplenishmentScheduler.stop();
     engine.stop();
     process.exit(0);
@@ -38,6 +49,9 @@ async function main() {
 
   process.on('SIGTERM', () => {
     log.info('Shutting down worker...');
+    clearInterval(inventoryStatusTimer);
+    inventoryReplenishmentScheduler.stop();
+    void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
     couponReplenishmentScheduler.stop();
     engine.stop();
     process.exit(0);

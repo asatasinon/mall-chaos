@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Pause, Pencil, Save, X, Check, Zap, Power, PowerOff } from 'lucide-react';
+import { Play, Pause, Pencil, Save, X, Check, Power, PowerOff } from 'lucide-react';
 import { fetchWithAuth } from '@/lib/auth-fetch';
 
 interface RunnerStatus {
@@ -40,11 +40,13 @@ interface WarmupProgress {
   behaviorLogCount: number;  behaviorLogTarget: number;
   completed: boolean; status: string;
 }
-interface ResetPolicy {
-  id: number; enabled: boolean; cronExpr: string; timezone: string;
-  allowedWindow: string; resetScope: string; baselineVersion: number; version: number;
+interface InventoryReplenishmentStatus {
+  running: boolean; lastWindowId: string | null;
+  lastResult: 'COMPLETED' | 'FAILED' | 'SKIPPED' | null;
+  lastAttemptAt: string | null; nextExecutionAt: string | null;
+  retryCount: number; lastAddedQuantity: number;
+  lastSkippedCount: number; lastFailedCount: number;
 }
-interface ResetPolicyForm { cronExpr: string; allowedWindow: string; resetScope: string; }
 
 const ACTION_LABELS: Record<string, string> = {
   BROWSE_PRODUCT: 'Browse',
@@ -82,12 +84,7 @@ export default function RunnerPage() {
   const [warmup, setWarmup]         = useState<WarmupProgress | null>(null);
   const warmupIntervalRef           = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [resetPolicy, setResetPolicy]   = useState<ResetPolicy | null>(null);
-  const [resetEditing, setResetEditing] = useState(false);
-  const [resetForm, setResetForm]       = useState<ResetPolicyForm>({ cronExpr: '', allowedWindow: '', resetScope: '' });
-  const [resetSaving, setResetSaving]   = useState(false);
-  const [resetMsg, setResetMsg]         = useState<{ ok: boolean; text: string } | null>(null);
-  const [triggerMsg, setTriggerMsg]     = useState<{ ok: boolean; text: string } | null>(null);
+  const [inventoryReplenishment, setInventoryReplenishment] = useState<InventoryReplenishmentStatus | null>(null);
 
   const loadConfig = async () => {
     const res  = await fetchWithAuth('/internal/traffic/runner/config');
@@ -131,14 +128,11 @@ export default function RunnerPage() {
     } catch {}
   };
 
-  const loadResetPolicy = async () => {
+  const loadInventoryReplenishment = async () => {
     try {
-      const res  = await fetchWithAuth('/internal/traffic/runner/inventory-reset/schedule');
+      const res  = await fetchWithAuth('/internal/traffic/runner/inventory-replenishment/status');
       const json = await res.json();
-      if (json.code === 0 && json.data) {
-        setResetPolicy(json.data);
-        setResetForm({ cronExpr: json.data.cronExpr, allowedWindow: json.data.allowedWindow, resetScope: json.data.resetScope });
-      }
+      if (json.code === 0 && json.data) setInventoryReplenishment(json.data);
     } catch {}
   };
 
@@ -160,11 +154,12 @@ export default function RunnerPage() {
     void Promise.resolve().then(() => loadStatus());
     void Promise.resolve().then(() => loadActivity());
     void Promise.resolve().then(() => loadAccountSummary());
-    void Promise.resolve().then(() => loadResetPolicy());
+    void Promise.resolve().then(() => loadInventoryReplenishment());
     void Promise.resolve().then(() => loadWarmup());
     const id1 = setInterval(loadStatus, 3000);
     const id2 = setInterval(loadActivity, 5000);
-    return () => { clearInterval(id1); clearInterval(id2); };
+    const id3 = setInterval(loadInventoryReplenishment, 5000);
+    return () => { clearInterval(id1); clearInterval(id2); clearInterval(id3); };
   }, []);
 
   useEffect(() => {
@@ -275,44 +270,6 @@ export default function RunnerPage() {
   const cancelMix = () => {
     setMixEditing(false); setMixMsg(null);
     setMixForm(config?.mixRules ?? []);
-  };
-
-  const saveResetPolicy = async () => {
-    if (!resetPolicy) return;
-    setResetSaving(true); setResetMsg(null);
-    try {
-      const res  = await fetchWithAuth('/internal/traffic/runner/inventory-reset/schedule', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ version: resetPolicy.version, ...resetForm }),
-      });
-      const json = await res.json();
-      if (json.code === 0) {
-        setResetMsg({ ok: true, text: `Saved · v${json.data.version}` });
-        setResetEditing(false);
-        await loadResetPolicy();
-      } else {
-        setResetMsg({ ok: false, text: json.message || 'Save failed' });
-      }
-    } catch (e: unknown) {
-      setResetMsg({ ok: false, text: e instanceof Error ? e.message : 'error' });
-    } finally { setResetSaving(false); }
-  };
-
-  const cancelResetEdit = () => {
-    setResetEditing(false); setResetMsg(null);
-    if (resetPolicy) setResetForm({ cronExpr: resetPolicy.cronExpr, allowedWindow: resetPolicy.allowedWindow, resetScope: resetPolicy.resetScope });
-  };
-
-  const triggerReset = async () => {
-    setTriggerMsg(null);
-    try {
-      const res  = await fetchWithAuth('/internal/traffic/runner/inventory-reset/trigger', { method: 'POST' });
-      const json = await res.json();
-      setTriggerMsg(json.code === 0 ? { ok: true, text: 'Reset triggered' } : { ok: false, text: json.message || 'Failed' });
-    } catch (e: unknown) {
-      setTriggerMsg({ ok: false, text: e instanceof Error ? e.message : 'error' });
-    }
   };
 
   const successPct = status ? status.successRate * 100 : 0;
@@ -633,58 +590,26 @@ export default function RunnerPage() {
         </CardContent>
       </Card>
 
-      {/* Inventory Reset card */}
+      {/* Inventory replenishment status */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium flex items-center justify-between">
-            <span className="flex items-center gap-2">
-              Inventory Reset
-              {resetPolicy && <Badge variant="secondary" className="text-[10px] font-mono">v{resetPolicy.version}</Badge>}
-              {resetPolicy && (
-                <Badge variant="secondary" className={`text-[10px] ${resetPolicy.enabled ? 'bg-[oklch(0.55_0.15_155)]/10 text-[oklch(0.55_0.15_155)]' : 'bg-muted text-muted-foreground'}`}>
-                  {resetPolicy.enabled ? 'enabled' : 'disabled'}
-                </Badge>
-              )}
-            </span>
-            <div className="flex items-center gap-2">
-              {triggerMsg && <span className={`text-xs ${triggerMsg.ok ? 'text-[oklch(0.55_0.15_155)]' : 'text-destructive'}`}>{triggerMsg.text}</span>}
-              {!resetEditing ? (
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={triggerReset}>
-                    <Zap className="h-3.5 w-3.5" />Trigger Now
-                  </Button>
-                  <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => { setResetEditing(true); setResetMsg(null); }}>
-                    <Pencil />Edit
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  {resetMsg && <span className={`text-xs ${resetMsg.ok ? 'text-[oklch(0.55_0.15_155)]' : 'text-destructive'}`}>{resetMsg.text}</span>}
-                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={saveResetPolicy} disabled={resetSaving}>
-                    <Save />{resetSaving ? 'Saving…' : 'Save'}
-                  </Button>
-                  <Button size="sm" variant="ghost" className="text-xs h-7" onClick={cancelResetEdit}>
-                    <X />Cancel
-                  </Button>
-                </div>
-              )}
-            </div>
+            Inventory replenishment
+            {inventoryReplenishment && (
+              <Badge variant="secondary" className="text-[10px]">
+                {inventoryReplenishment.lastResult ?? 'pending'}
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {!resetPolicy && <p className="text-sm text-muted-foreground">Loading…</p>}
-          {resetPolicy && !resetEditing && (
-            <div className="grid grid-cols-3 gap-3">
-              <KVTile label="Cron"           value={resetPolicy.cronExpr} />
-              <KVTile label="Allowed window" value={resetPolicy.allowedWindow} />
-              <KVTile label="Scope"          value={resetPolicy.resetScope} />
-            </div>
-          )}
-          {resetPolicy && resetEditing && (
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Cron expr"      hint="e.g. 0 */4 * * *"    value={resetForm.cronExpr}      onChange={(v) => setResetForm((f) => ({ ...f, cronExpr: v }))} />
-              <Field label="Allowed window" hint="e.g. 00:00-06:00"    value={resetForm.allowedWindow} onChange={(v) => setResetForm((f) => ({ ...f, allowedWindow: v }))} />
-              <Field label="Scope"          hint="e.g. ALL or service" value={resetForm.resetScope}    onChange={(v) => setResetForm((f) => ({ ...f, resetScope: v }))} />
+          {!inventoryReplenishment && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {inventoryReplenishment && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <KVTile label="Window" value={inventoryReplenishment.lastWindowId ?? '—'} />
+              <KVTile label="Next run" value={formatTimestamp(inventoryReplenishment.nextExecutionAt)} />
+              <KVTile label="Added" value={String(inventoryReplenishment.lastAddedQuantity)} />
+              <KVTile label="Retries" value={String(inventoryReplenishment.retryCount)} />
             </div>
           )}
         </CardContent>
@@ -700,6 +625,10 @@ function KVTile({ label, value }: { label: string; value: string }) {
       <p className="text-xl font-semibold tabular-nums text-foreground">{value}</p>
     </div>
   );
+}
+
+function formatTimestamp(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : '—';
 }
 
 function Field({ label, hint, value, onChange, type, min, max, step }: {
