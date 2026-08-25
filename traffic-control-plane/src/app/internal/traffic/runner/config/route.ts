@@ -9,7 +9,8 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   const body = await request.json();
-  if (!Number.isInteger(body?.version) || body.version < 1) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+      || !Number.isInteger(body.version) || body.version < 1) {
     return jsonError(400, 'version is required', 400);
   }
   try {
@@ -22,7 +23,7 @@ export async function PUT(request: NextRequest) {
     if (message === 'VERSION_CONFLICT') {
       return jsonError(409, 'Config version conflict', 409);
     }
-    if (message === 'INVALID_RUNNER_CONFIG' || message === 'INVALID_RUNNER_MIX_RULES') {
+    if (message === 'INVALID_RUNNER_CONFIG') {
       return jsonError(400, 'Invalid runner configuration', 400);
     }
     return jsonError(500, message, 500);

@@ -39,7 +39,7 @@
 
 ### A1. 生命周期配置与活动 Schema
 
-- [ ] 新建生命周期配置模型，包含 `traffic_mode`、`lifecycle_interval_sec`、`successful_payment_ratio` 和 `coupon_usage_ratio`。
+- [-] 新建生命周期配置模型，包含 `traffic_mode`、`lifecycle_interval_sec`、`successful_payment_ratio` 和 `coupon_usage_ratio`。
 - [ ] `lifecycle_interval_sec` 仅接受 `60`、`30`、`20`、`10`，保留配置 `version` 乐观锁。
 - [ ] 为 `traffic_actions` 增加 nullable `lifecycle_id`，为 `(traffic_run_id, lifecycle_id, created_at)` 建索引；父记录使用 `CUSTOMER_LIFECYCLE`，子步骤保留稳定动作类型。
 - [ ] 增加运行补齐状态持久化或等价可查询记录：窗口 ID、操作类型、状态、开始/完成时间、重试次数、结果摘要和关联 ID；禁止保存秘密。

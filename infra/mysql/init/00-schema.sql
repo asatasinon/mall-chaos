@@ -247,43 +247,26 @@ CREATE TABLE IF NOT EXISTS orders (
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS runner_profile (
-    id               BIGINT  NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    enabled          TINYINT NOT NULL DEFAULT 1,
-    base_qps         INT     NOT NULL DEFAULT 5,
-    peak_multiplier  FLOAT   NOT NULL DEFAULT 2.0,
-    cycle_minutes    INT     NOT NULL DEFAULT 10,
-    jitter_pct       FLOAT   NOT NULL DEFAULT 0.1,
-  max_items        TINYINT NOT NULL DEFAULT 3,
-  max_item_quantity TINYINT NOT NULL DEFAULT 3,
-  payment_success_ratio DECIMAL(5,4) NOT NULL DEFAULT 1.0000,
-  payment_failure_ratio  DECIMAL(5,4) NOT NULL DEFAULT 0.0000,
-  payment_unknown_ratio  DECIMAL(5,4) NOT NULL DEFAULT 0.0000,
-    version          INT     NOT NULL DEFAULT 1
+    id                       BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    enabled                  TINYINT NOT NULL DEFAULT 1,
+    traffic_mode             VARCHAR(32) NOT NULL DEFAULT 'CUSTOMER_LIFECYCLE',
+    lifecycle_interval_sec   TINYINT NOT NULL DEFAULT 60,
+    max_items                TINYINT NOT NULL DEFAULT 3,
+    max_item_quantity        TINYINT NOT NULL DEFAULT 3,
+    successful_payment_ratio DECIMAL(5,4) NOT NULL DEFAULT 1.0000,
+    coupon_usage_ratio       DECIMAL(5,4) NOT NULL DEFAULT 0.0000,
+    background_actions_enabled TINYINT NOT NULL DEFAULT 0,
+    version                  INT NOT NULL DEFAULT 1,
+    CONSTRAINT chk_runner_profile_mode CHECK (traffic_mode = 'CUSTOMER_LIFECYCLE'),
+    CONSTRAINT chk_runner_profile_interval CHECK (lifecycle_interval_sec IN (60, 30, 20, 10)),
+    CONSTRAINT chk_runner_profile_payment_ratio CHECK (successful_payment_ratio BETWEEN 0 AND 1),
+    CONSTRAINT chk_runner_profile_coupon_ratio CHECK (coupon_usage_ratio BETWEEN 0 AND 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO runner_profile
-  (enabled, base_qps, peak_multiplier, cycle_minutes, jitter_pct, max_items,
-  max_item_quantity, payment_success_ratio, payment_failure_ratio,
-  payment_unknown_ratio, version)
-VALUES (1, 5, 2.0, 10, 0.1, 3, 3, 1.0000, 0.0000, 0.0000, 1);
-
-CREATE TABLE IF NOT EXISTS runner_mix_rule (
-    id           BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    action_type  VARCHAR(32) NOT NULL COMMENT 'BROWSE_PRODUCT/SEARCH_CATALOG/ADD_CART_ITEM/UPDATE_CART_ITEM/CHECKOUT/PAYMENT_CONFIRM/CANCEL_PENDING_ORDER/QUERY_ORDER/QUERY_SHIPMENT',
-    ratio        FLOAT       NOT NULL,
-    version      INT         NOT NULL DEFAULT 1
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-INSERT INTO runner_mix_rule (action_type, ratio, version) VALUES
-  ('BROWSE_PRODUCT',      0.20, 1),
-  ('SEARCH_CATALOG',      0.10, 1),
-  ('ADD_CART_ITEM',       0.18, 1),
-  ('UPDATE_CART_ITEM',    0.08, 1),
-  ('CHECKOUT',            0.12, 1),
-  ('PAYMENT_CONFIRM',     0.12, 1),
-  ('CANCEL_PENDING_ORDER',0.05, 1),
-  ('QUERY_ORDER',         0.10, 1),
-  ('QUERY_SHIPMENT',      0.05, 1);
+  (enabled, traffic_mode, lifecycle_interval_sec, max_items, max_item_quantity,
+   successful_payment_ratio, coupon_usage_ratio, background_actions_enabled, version)
+VALUES (1, 'CUSTOMER_LIFECYCLE', 60, 3, 3, 1.0000, 0.0000, 0, 1);
 
 CREATE TABLE IF NOT EXISTS runner_customer_whitelist (
     customer_id BIGINT  NOT NULL PRIMARY KEY,
@@ -720,6 +703,7 @@ CREATE TABLE IF NOT EXISTS traffic_runs (
 CREATE TABLE IF NOT EXISTS traffic_actions (
   id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
   traffic_run_id VARCHAR(64)  NOT NULL,
+  lifecycle_id   CHAR(36),
   action_id      VARCHAR(64)  NOT NULL,
   customer_id    BIGINT,
   action_type    VARCHAR(64)  NOT NULL,
@@ -729,12 +713,26 @@ CREATE TABLE IF NOT EXISTS traffic_actions (
   cart_version   INT,
   result_code    VARCHAR(64),
   error_code     VARCHAR(64),
-  payment_strategy VARCHAR(16),
   trace_id       VARCHAR(64),
   latency_ms     BIGINT,
   created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_traffic_action_id (action_id),
-  INDEX idx_traffic_actions_run (traffic_run_id, created_at)
+  INDEX idx_traffic_actions_run (traffic_run_id, created_at),
+  INDEX idx_traffic_actions_lifecycle (traffic_run_id, lifecycle_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS traffic_replenishment_runs (
+  id             BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  window_id      VARCHAR(64)  NOT NULL,
+  operation_type VARCHAR(40)  NOT NULL,
+  status         VARCHAR(16)  NOT NULL,
+  started_at     DATETIME     NOT NULL,
+  completed_at   DATETIME,
+  retry_count    INT          NOT NULL DEFAULT 0,
+  result_summary VARCHAR(512),
+  correlation_id VARCHAR(64)  NOT NULL,
+  UNIQUE KEY uq_replenishment_window (window_id, operation_type),
+  INDEX idx_replenishment_status (operation_type, status, started_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS operator_audit_logs (

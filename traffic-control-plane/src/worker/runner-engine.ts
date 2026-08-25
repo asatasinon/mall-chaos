@@ -5,7 +5,6 @@ import { completeTrafficRun, ensureTrafficRun, recordTrafficAction } from '../li
 import { getRunnerControlState, pushActivity, setRunnerStatus } from '../lib/runtime-state';
 import {
   RunnerAction,
-  RUNNER_ACTIONS,
   RunnerActionResult,
   TrafficActionOrchestrator,
 } from './traffic-action-orchestrator';
@@ -36,16 +35,13 @@ export class RunnerEngine {
     this.config = {
       version: 1,
       enabled: true,
-      baseQps: 5,
-      peakMultiplier: 2.0,
-      cycleMinutes: 10,
-      jitterPct: 0.1,
+      trafficMode: 'CUSTOMER_LIFECYCLE',
+      lifecycleIntervalSec: 60,
       maxItems: 3,
       maxItemQuantity: 3,
-      paymentSuccessRatio: 1,
-      paymentFailureRatio: 0,
-      paymentUnknownRatio: 0,
-      mixRules: [{ actionType: 'BROWSE_PRODUCT', ratio: 1 }],
+      successfulPaymentRatio: 1,
+      couponUsageRatio: 0,
+      backgroundActionsEnabled: false,
     };
   }
 
@@ -124,19 +120,9 @@ export class RunnerEngine {
 
   // ── Private ──
 
-  private effectiveQps(): number {
-    const { baseQps, peakMultiplier, cycleMinutes, jitterPct } = this.config;
-    const cycleSec = Math.max(cycleMinutes * 60, 1);
-    const phase = ((Date.now() / 1000) % cycleSec) / cycleSec;
-    const wave = 1 + (peakMultiplier - 1) * Math.sin(phase * Math.PI * 2);
-    const jitter = 1 + (Math.random() * 2 - 1) * jitterPct;
-    return baseQps * wave * jitter * this.rateMultiplier;
-  }
-
   private scheduleTick(): void {
     if (!this.running) return;
-    const qps = Math.max(this.effectiveQps(), 0.1);
-    const delayMs = 1000 / qps;
+    const delayMs = Math.max(this.config.lifecycleIntervalSec * 1000, 1000);
     this.timer = setTimeout(async () => {
       try {
         await this.tick();
@@ -154,16 +140,14 @@ export class RunnerEngine {
 
     if (!this.config.enabled || this.paused) return;
     if (!this.trafficRunId) return;
-    const action = this.pickAction();
+    const action: RunnerAction = 'BROWSE_PRODUCT';
     const t0 = Date.now();
     const trafficRunId = this.trafficRunId;
     if (this.trafficRunPersistence) await this.trafficRunPersistence;
     const result = await this.orchestrator.execute(action, trafficRunId, {
       maxItems: this.config.maxItems,
       maxItemQuantity: this.config.maxItemQuantity,
-      paymentSuccessRatio: this.config.paymentSuccessRatio,
-      paymentFailureRatio: this.config.paymentFailureRatio,
-      paymentUnknownRatio: this.config.paymentUnknownRatio,
+      paymentSuccessRatio: this.config.successfulPaymentRatio,
     });
     const latencyMs = Date.now() - t0;
     this.totalRequests++;
@@ -185,18 +169,6 @@ export class RunnerEngine {
     await this.publishStatus();
   }
 
-  private pickAction(): RunnerAction {
-    const random = Math.random();
-    let cumulative = 0;
-    for (const rule of this.config.mixRules) {
-      cumulative += rule.ratio;
-      if (random <= cumulative && RUNNER_ACTIONS.includes(rule.actionType as RunnerAction)) {
-        return rule.actionType as RunnerAction;
-      }
-    }
-    return 'BROWSE_PRODUCT';
-  }
-
   private async persistAction(
     result: RunnerActionResult,
     action: RunnerAction,
@@ -216,7 +188,6 @@ export class RunnerEngine {
         cartVersion: result.cartVersion,
         resultCode: result.resultCode,
         errorCode: result.errorCode,
-        paymentStrategy: result.paymentStrategy,
         traceId: result.traceId,
         latencyMs,
       });

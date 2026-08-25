@@ -26,14 +26,11 @@ export const RUNNER_ACTIONS = [
 ] as const;
 
 export type RunnerAction = typeof RUNNER_ACTIONS[number];
-export type PaymentStrategy = 'SUCCESS' | 'FAILED' | 'UNKNOWN';
 
 export interface RunnerExecutionConfig {
   maxItems: number;
   maxItemQuantity: number;
   paymentSuccessRatio: number;
-  paymentFailureRatio: number;
-  paymentUnknownRatio: number;
 }
 
 export interface RunnerActionResult {
@@ -48,7 +45,6 @@ export interface RunnerActionResult {
   orderNo?: string;
   paymentId?: string;
   cartVersion?: number;
-  paymentStrategy?: PaymentStrategy;
 }
 
 interface ApiEnvelope<T> {
@@ -97,8 +93,6 @@ export class TrafficActionOrchestrator {
       maxItemQuantity: 3,
       maxItems: 3,
       paymentSuccessRatio: 1,
-      paymentFailureRatio: 0,
-      paymentUnknownRatio: 0,
     },
   ): Promise<RunnerActionResult> {
     const actionId = uuidv4();
@@ -121,7 +115,6 @@ export class TrafficActionOrchestrator {
       trafficRunId,
       action,
       traceId,
-      paymentStrategy: action === 'PAYMENT_CONFIRM' ? choosePaymentStrategy(config) : undefined,
     };
 
     try {
@@ -279,7 +272,6 @@ export class TrafficActionOrchestrator {
       orderId: orderRef.orderId,
       orderNo: order.orderNo,
       paymentId: String(payment.id),
-      paymentStrategy: result?.status === 'SUCCESS' ? 'SUCCESS' : result?.status === 'UNKNOWN' ? 'UNKNOWN' : 'FAILED' as PaymentStrategy,
     };
     if (result?.status === 'SUCCESS') {
       await pushPaidOrder({ ...orderRef, orderNo: order.orderNo, paymentId: String(payment.id) });
@@ -361,14 +353,6 @@ function randomItem<T>(items: T[]): T {
 
 function randomQuantity(maximum: number): number {
   return Math.floor(Math.random() * Math.max(maximum, 1)) + 1;
-}
-
-export function choosePaymentStrategy(config: RunnerExecutionConfig): PaymentStrategy {
-  const total = Math.max(config.paymentSuccessRatio + config.paymentFailureRatio + config.paymentUnknownRatio, 0.0001);
-  const roll = Math.random() * total;
-  if (roll < config.paymentSuccessRatio) return 'SUCCESS';
-  if (roll < config.paymentSuccessRatio + config.paymentFailureRatio) return 'FAILED';
-  return 'UNKNOWN';
 }
 
 function errorCode(error: unknown): string {

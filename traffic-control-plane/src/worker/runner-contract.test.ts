@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { GatewayClient } from '../lib/gateway-client';
-import {
-  choosePaymentStrategy,
-  RUNNER_ACTIONS,
-  RunnerExecutionConfig,
-} from './traffic-action-orchestrator';
+import { LIFECYCLE_INTERVALS, RunnerConfig, RunnerConfigUpdate, validateRunnerConfigUpdate } from '../lib/runner-config';
+import { RUNNER_ACTIONS } from './traffic-action-orchestrator';
 
 test('runner exposes the complete customer action contract', () => {
   assert.deepEqual([...RUNNER_ACTIONS], [
@@ -21,44 +18,39 @@ test('runner exposes the complete customer action contract', () => {
   ]);
 });
 
-test('runner payment strategy follows configured buckets', () => {
-  const config: RunnerExecutionConfig = {
-    maxItems: 3,
-    maxItemQuantity: 3,
-    paymentSuccessRatio: 0.6,
-    paymentFailureRatio: 0.2,
-    paymentUnknownRatio: 0.2,
-  };
-  const originalRandom = Math.random;
-  try {
-    Math.random = () => 0.1;
-    assert.equal(choosePaymentStrategy(config), 'SUCCESS');
-    Math.random = () => 0.7;
-    assert.equal(choosePaymentStrategy(config), 'FAILED');
-    Math.random = () => 0.95;
-    assert.equal(choosePaymentStrategy(config), 'UNKNOWN');
-  } finally {
-    Math.random = originalRandom;
-  }
+test('lifecycle interval contract only exposes supported values', () => {
+  assert.deepEqual([...LIFECYCLE_INTERVALS], [60, 30, 20, 10]);
 });
 
-test('runner payment strategy is always successful without failure injection', () => {
-  const config: RunnerExecutionConfig = {
+test('lifecycle config rejects invalid values and legacy fields', () => {
+  const current: RunnerConfig = {
+    version: 1,
+    enabled: true,
+    trafficMode: 'CUSTOMER_LIFECYCLE',
+    lifecycleIntervalSec: 60,
     maxItems: 3,
     maxItemQuantity: 3,
-    paymentSuccessRatio: 1,
-    paymentFailureRatio: 0,
-    paymentUnknownRatio: 0,
+    successfulPaymentRatio: 1,
+    couponUsageRatio: 0,
+    backgroundActionsEnabled: false,
   };
-  const originalRandom = Math.random;
-  try {
-    Math.random = () => 0;
-    assert.equal(choosePaymentStrategy(config), 'SUCCESS');
-    Math.random = () => 0.999999;
-    assert.equal(choosePaymentStrategy(config), 'SUCCESS');
-  } finally {
-    Math.random = originalRandom;
-  }
+
+  assert.throws(
+    () => validateRunnerConfigUpdate({ version: 1, lifecycleIntervalSec: 15 }, current),
+    /INVALID_RUNNER_CONFIG/,
+  );
+  assert.throws(
+    () => validateRunnerConfigUpdate({ version: 1, successfulPaymentRatio: 1.1 }, current),
+    /INVALID_RUNNER_CONFIG/,
+  );
+  assert.throws(
+    () => validateRunnerConfigUpdate({ version: 1, enabled: 'true' } as unknown as RunnerConfigUpdate, current),
+    /INVALID_RUNNER_CONFIG/,
+  );
+  assert.throws(
+    () => validateRunnerConfigUpdate({ version: 1, baseQps: 5 } as unknown as RunnerConfigUpdate, current),
+    /INVALID_RUNNER_CONFIG/,
+  );
 });
 
 test('GatewayClient sends runner customer and correlation context', async () => {

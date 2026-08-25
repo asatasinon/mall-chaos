@@ -92,7 +92,6 @@ export class GatewayClient {
         'X-Traffic-Runner-Customer-Id': String(runner.customerId),
         'X-Traffic-Run-Id': runner.trafficRunId,
         'X-Traffic-Runner-Action': runner.action,
-        ...(runner.paymentStrategy ? { 'X-Traffic-Runner-Payment-Strategy': runner.paymentStrategy } : {}),
       } : {}),
     };
   }
@@ -103,7 +102,6 @@ export interface RunnerRequestContext {
   trafficRunId: string;
   action: string;
   traceId: string;
-  paymentStrategy?: 'SUCCESS' | 'FAILED' | 'UNKNOWN';
 }
 
 export interface GatewayRequestOptions {

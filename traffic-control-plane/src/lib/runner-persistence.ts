@@ -10,6 +10,7 @@ export interface RunnerOrderRef {
 export interface TrafficActionRecord {
   trafficRunId: string;
   actionId: string;
+  lifecycleId?: string;
   customerId: number;
   actionType: string;
   status: 'SUCCESS' | 'FAILED' | 'NOOP';
@@ -18,9 +19,19 @@ export interface TrafficActionRecord {
   cartVersion?: number;
   resultCode?: string;
   errorCode?: string;
-  paymentStrategy?: string;
   traceId: string;
   latencyMs: number;
+}
+
+export interface ReplenishmentRunRecord {
+  windowId: string;
+  operationType: 'DEMO_COUPON_REPLENISH' | 'DEMO_STOCK_REPLENISH';
+  status: 'RUNNING' | 'COMPLETED' | 'FAILED';
+  startedAt: Date;
+  completedAt?: Date;
+  retryCount: number;
+  resultSummary?: string;
+  correlationId: string;
 }
 
 export async function loadRunnerCustomerIds(): Promise<number[]> {
@@ -59,12 +70,12 @@ export async function completeTrafficRun(trafficRunId: string): Promise<void> {
 export async function recordTrafficAction(record: TrafficActionRecord): Promise<void> {
   await getPool().query(
     `INSERT INTO traffic_actions
-      (traffic_run_id, action_id, customer_id, action_type, status, order_id,
-       payment_id, cart_version, result_code, error_code, payment_strategy,
-       trace_id, latency_ms)
+      (traffic_run_id, lifecycle_id, action_id, customer_id, action_type, status,
+       order_id, payment_id, cart_version, result_code, error_code, trace_id, latency_ms)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       record.trafficRunId,
+      record.lifecycleId ?? null,
       record.actionId,
       record.customerId,
       record.actionType,
@@ -74,9 +85,29 @@ export async function recordTrafficAction(record: TrafficActionRecord): Promise<
       record.cartVersion ?? null,
       record.resultCode ?? null,
       record.errorCode ?? null,
-      record.paymentStrategy ?? null,
       record.traceId,
       record.latencyMs,
+    ],
+  );
+}
+
+export async function recordReplenishmentRun(record: ReplenishmentRunRecord): Promise<void> {
+  await getPool().query(
+    `INSERT INTO traffic_replenishment_runs
+      (window_id, operation_type, status, started_at, completed_at, retry_count,
+       result_summary, correlation_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE status = VALUES(status), completed_at = VALUES(completed_at),
+       retry_count = VALUES(retry_count), result_summary = VALUES(result_summary)`,
+    [
+      record.windowId,
+      record.operationType,
+      record.status,
+      record.startedAt,
+      record.completedAt ?? null,
+      record.retryCount,
+      record.resultSummary ?? null,
+      record.correlationId,
     ],
   );
 }
