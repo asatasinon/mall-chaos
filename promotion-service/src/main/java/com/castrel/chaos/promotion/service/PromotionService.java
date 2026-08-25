@@ -21,6 +21,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -335,6 +336,10 @@ public class PromotionService {
         CouponReservation reservation = reservationRepository.findByOrderIdAndCouponIdForUpdate(orderId, couponId)
                 .orElseThrow(() -> new BizException("COUPON_RESERVATION_NOT_FOUND", "Coupon reservation not found"));
         if ("RESERVED".equals(reservation.getStatus())) {
+            if (reservation.getExpiresAt() != null
+                    && !reservation.getExpiresAt().isAfter(LocalDateTime.now())) {
+                throw new BizException("COUPON_RESERVATION_EXPIRED", "Coupon reservation has expired");
+            }
             couponRepository.findByIdForUpdate(couponId).ifPresent(coupon -> {
                 coupon.setStatus(2);
                 coupon.setUsedAt(LocalDateTime.now());
@@ -342,6 +347,24 @@ public class PromotionService {
             });
             reservation.setStatus("USED");
             reservation.setUpdatedAt(LocalDateTime.now());
+            reservationRepository.save(reservation);
+        }
+    }
+
+    @Scheduled(fixedDelayString = "${promotion.coupon-reservation-cleanup-delay-ms:60000}")
+    @Transactional
+    public void releaseExpiredReservations() {
+        LocalDateTime now = LocalDateTime.now();
+        for (CouponReservation reservation : reservationRepository.findExpiredForUpdate(now)) {
+            couponRepository.findByIdForUpdate(reservation.getCouponId()).ifPresent(coupon -> {
+                if (coupon.getStatus() == 1) {
+                    coupon.setStatus(0);
+                    coupon.setUsedAt(null);
+                    couponRepository.save(coupon);
+                }
+            });
+            reservation.setStatus("RELEASED");
+            reservation.setUpdatedAt(now);
             reservationRepository.save(reservation);
         }
     }

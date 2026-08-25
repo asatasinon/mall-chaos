@@ -23,7 +23,7 @@
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
-| A | 契约、Schema 与安全边界 | 进行中 | 1 / 5 | 无 |
+| A | 契约、Schema 与安全边界 | 进行中 | 4 / 5 | 无 |
 | B | 优惠券和库存基线补齐 | 待开始 | 0 / 4 | A |
 | C | 真实登录客户生命周期 | 待开始 | 0 / 5 | A、B |
 | D | Worker 串行调度与可观测性 | 待开始 | 0 / 5 | B、C |
@@ -49,24 +49,24 @@
 
 ### A2. Gateway 路由与权限矩阵
 
-- [ ] 增加 `/api/me/coupons/** -> promotion-service` 的精确路由，沿用 CUSTOMER bearer token 验证、身份头清洗和可信下游主体声明。
-- [ ] 增加 `/internal/gateway/promotions/demo-coupons/replenish -> promotion-service` 和 `/internal/gateway/inventory/demo-stock/replenish -> inventory-service` 的内部调度路由。
-- [ ] 内部调度路由只接受 traffic-control-plane 的内部服务认证；拒绝 CUSTOMER token、浏览器请求、Shopfront、公开 Ingress 和任何自定义客户/SKU/数量参数。
-- [ ] 确认路由优先级不会被通用 `/api/**` 或 `/internal/**` 路由遮蔽。
+- [x] 增加 `/api/me/coupons/** -> promotion-service` 的精确路由，沿用 CUSTOMER bearer token 验证、身份头清洗和可信下游主体声明。
+- [x] 增加 `/internal/gateway/promotions/demo-coupons/replenish -> promotion-service` 和 `/internal/gateway/inventory/demo-stock/replenish -> inventory-service` 的内部调度路由。
+- [x] 内部调度路由只接受 traffic-control-plane 的内部服务认证；拒绝 CUSTOMER token、浏览器请求、Shopfront、公开 Ingress 和任何自定义客户/SKU/数量参数。
+- [x] 确认路由优先级不会被通用 `/api/**` 或 `/internal/**` 路由遮蔽。
 ### A3. 客户优惠券查询 API
 
-- [ ] 在 promotion-service 增加 `GET /api/me/coupons?status=AVAILABLE`，仅从可信主体获取 customer ID。
-- [ ] 定义稳定 Coupon DTO：`id`、promotion 类型、名称、最低金额、折扣/减免、过期时间和可用状态；不得返回其他客户数据。
-- [ ] 过滤已使用、已预留、已过期或关联促销失效的券；列表只作为候选，checkout 保持最终校验权威性。
-- [ ] 实现 `couponId == null` 为明确无券：不得自动选择、预留或消耗第一张可用券。
-- [ ] 修正 COUPON 满减与 DISCOUNT 折扣的金额计算，并保证最低应付金额规则不变。
+- [x] 在 promotion-service 增加 `GET /api/me/coupons?status=AVAILABLE`，仅从可信主体获取 customer ID。
+- [x] 定义稳定 Coupon DTO：`id`、promotion 类型、名称、最低金额、折扣/减免、过期时间和可用状态；不得返回其他客户数据。
+- [x] 过滤已使用、已预留、已过期或关联促销失效的券；列表只作为候选，checkout 保持最终校验权威性。
+- [x] 实现 `couponId == null` 为明确无券：不得自动选择、预留或消耗第一张可用券。
+- [x] 修正 COUPON 满减与 DISCOUNT 折扣的金额计算，并保证最低应付金额规则不变。
 
 ### A4. 优惠券原子预留与释放
 
-- [ ] 将非空 `couponId` 的检查、归属校验、过期校验、促销启用/门槛校验和 `AVAILABLE -> RESERVED` 状态转换做成单一原子操作。
-- [ ] 使用条件更新或悲观锁保证同一券并发 checkout 最多一个成功；定义稳定错误码 `COUPON_INELIGIBLE`、`COUPON_ALREADY_RESERVED`。
-- [ ] 支付成功确认 `RESERVED -> USED`；checkout 失败、取消、风控拒绝、订单到期恰好一次释放并恢复可用。
-- [ ] 实现过期 reservation 的受控清理或将其接入已有订单到期补偿路径，拒绝过期券及过期 reservation。
+- [x] 将非空 `couponId` 的检查、归属校验、过期校验、促销启用/门槛校验和 `AVAILABLE -> RESERVED` 状态转换做成单一原子操作。
+- [x] 使用条件更新或悲观锁保证同一券并发 checkout 最多一个成功；定义稳定错误码 `COUPON_INELIGIBLE`、`COUPON_ALREADY_RESERVED`。
+- [x] 支付成功确认 `RESERVED -> USED`；checkout 失败、取消、风控拒绝、订单到期恰好一次释放并恢复可用。
+- [x] 实现过期 reservation 的受控清理或将其接入已有订单到期补偿路径，拒绝过期券及过期 reservation。
 
 ### A5. 演示账号与支付成功基线
 

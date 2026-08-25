@@ -7,6 +7,7 @@ import com.castrel.chaos.promotion.dto.CouponCandidateDTO;
 import com.castrel.chaos.promotion.entity.Coupon;
 import com.castrel.chaos.promotion.entity.Promotion;
 import com.castrel.chaos.promotion.repository.CouponRepository;
+import com.castrel.chaos.promotion.repository.CouponReservationRepository;
 import com.castrel.chaos.promotion.repository.PromotionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,6 +34,9 @@ class PromotionServiceContractTest {
 
     @Mock
     private CouponRepository couponRepository;
+
+    @Mock
+    private CouponReservationRepository reservationRepository;
 
     @InjectMocks
     private PromotionService promotionService;
@@ -96,6 +100,26 @@ class PromotionServiceContractTest {
         assertThatThrownBy(() -> controller.coupons("AVAILABLE", null))
                 .isInstanceOf(BizException.class)
                 .hasMessage("Customer principal is required");
+    }
+
+    @Test
+    void expiredReservationIsReleasedExactlyOnce() {
+        var reservation = new com.castrel.chaos.promotion.entity.CouponReservation();
+        reservation.setCouponId(11L);
+        reservation.setStatus("RESERVED");
+        reservation.setExpiresAt(LocalDateTime.now().minusMinutes(1));
+        when(reservationRepository.findExpiredForUpdate(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(reservation));
+        Coupon coupon = coupon(11L, 7L, 1L, LocalDateTime.now().plusDays(1));
+        coupon.setStatus(1);
+        when(couponRepository.findByIdForUpdate(11L)).thenReturn(java.util.Optional.of(coupon));
+
+        promotionService.releaseExpiredReservations();
+
+        assertThat(coupon.getStatus()).isZero();
+        assertThat(reservation.getStatus()).isEqualTo("RELEASED");
+        verify(couponRepository).save(coupon);
+        verify(reservationRepository).save(reservation);
     }
 
     private Promotion promotion(Long id, String type, BigDecimal minAmount,
