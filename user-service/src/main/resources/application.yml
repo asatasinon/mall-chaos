@@ -23,7 +23,7 @@ castrel:
     jwt:
       issuer: ${CASTREL_JWT_ISSUER:castrel-user-service}
       audience: ${CASTREL_JWT_AUDIENCE:castrel-gateway}
-      access-ttl: ${CASTREL_JWT_ACCESS_TTL:PT15M}
+      access-ttl: ${CASTREL_JWT_ACCESS_TTL:P7D}
 
 management:
   endpoint:
