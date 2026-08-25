@@ -23,7 +23,7 @@
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
-| A | 契约、Schema 与安全边界 | 待开始 | 0 / 5 | 无 |
+| A | 契约、Schema 与安全边界 | 进行中 | 1 / 5 | 无 |
 | B | 优惠券和库存基线补齐 | 待开始 | 0 / 4 | A |
 | C | 真实登录客户生命周期 | 待开始 | 0 / 5 | A、B |
 | D | Worker 串行调度与可观测性 | 待开始 | 0 / 5 | B、C |
@@ -34,18 +34,18 @@
 
 ## Phase A：契约、Schema 与安全边界
 
-**阶段进度：0 / 5**
+**阶段进度：1 / 5**
 
 目标：先建立可路由、可鉴权、可持久化的契约，禁止 runner 为获得客户资源绕开 Gateway 或猜测数据。
 
 ### A1. 生命周期配置与活动 Schema
 
-- [-] 新建生命周期配置模型，包含 `traffic_mode`、`lifecycle_interval_sec`、`successful_payment_ratio` 和 `coupon_usage_ratio`。
-- [ ] `lifecycle_interval_sec` 仅接受 `60`、`30`、`20`、`10`，保留配置 `version` 乐观锁。
-- [ ] 为 `traffic_actions` 增加 nullable `lifecycle_id`，为 `(traffic_run_id, lifecycle_id, created_at)` 建索引；父记录使用 `CUSTOMER_LIFECYCLE`，子步骤保留稳定动作类型。
-- [ ] 增加运行补齐状态持久化或等价可查询记录：窗口 ID、操作类型、状态、开始/完成时间、重试次数、结果摘要和关联 ID；禁止保存秘密。
-- [ ] 新建初始化 SQL、数据访问层和配置 DTO，不读取、写入或迁移旧 runner 配置字段。
-- [ ] 删除旧 runner 配置表字段、旧 DTO 字段、旧持久化查询和相关初始化数据；新 Schema 不包含 QPS、峰值、周期、抖动、action mix、支付策略或 reset 配置。
+- [x] 新建生命周期配置模型，包含 `traffic_mode`、`lifecycle_interval_sec`、`successful_payment_ratio` 和 `coupon_usage_ratio`。
+- [x] `lifecycle_interval_sec` 仅接受 `60`、`30`、`20`、`10`，保留配置 `version` 乐观锁。
+- [x] 为 `traffic_actions` 增加 nullable `lifecycle_id`，为 `(traffic_run_id, lifecycle_id, created_at)` 建索引；父记录使用 `CUSTOMER_LIFECYCLE`，子步骤保留稳定动作类型。
+- [x] 增加运行补齐状态持久化或等价可查询记录：窗口 ID、操作类型、状态、开始/完成时间、重试次数、结果摘要和关联 ID；禁止保存秘密。
+- [x] 新建初始化 SQL、数据访问层和配置 DTO，不读取、写入或迁移旧 runner 配置字段。
+- [x] 删除旧 runner 配置表字段、旧 DTO 字段、旧持久化查询和相关初始化数据；新 Schema 不包含 QPS、峰值、周期、抖动、action mix、支付策略或 reset 配置。
 
 ### A2. Gateway 路由与权限矩阵
 

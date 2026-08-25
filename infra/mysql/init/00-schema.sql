@@ -282,29 +282,6 @@ INSERT INTO runner_customer_whitelist (customer_id, enabled, version) VALUES
   (2, 1, 1)
 ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), version = VALUES(version);
 
-CREATE TABLE IF NOT EXISTS runner_time_window (
-    id          BIGINT  NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    start_time  TIME    NOT NULL,
-    end_time    TIME    NOT NULL,
-    multiplier  FLOAT   NOT NULL DEFAULT 1.0,
-    version     INT     NOT NULL DEFAULT 1
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS runner_inventory_reset_policy (
-    id               BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    enabled          TINYINT     NOT NULL DEFAULT 1,
-    cron_expr        VARCHAR(64) NOT NULL DEFAULT '0 */30 * * * *',
-    timezone         VARCHAR(64) NOT NULL DEFAULT 'Asia/Shanghai',
-    allowed_window   VARCHAR(32) NOT NULL DEFAULT '00:00-06:00',
-    reset_scope      VARCHAR(16) NOT NULL DEFAULT 'ALL',
-    baseline_version INT         NOT NULL DEFAULT 1,
-    version          INT         NOT NULL DEFAULT 1
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-INSERT INTO runner_inventory_reset_policy
-  (enabled, cron_expr, timezone, allowed_window, reset_scope, baseline_version, version)
-VALUES (1, '0 */30 * * * *', 'Asia/Shanghai', '00:00-06:00', 'ALL', 1, 1);
-
 -- Alert configuration is managed by traffic-control-plane and rendered to
 -- Prometheus/Alertmanager files after each successful update.
 CREATE TABLE IF NOT EXISTS alert_config_meta (

@@ -354,7 +354,7 @@ Promtail 通过挂载 `/var/run/docker.sock` 和 `/var/lib/docker/containers` �
 ```
 chaos_policy         — Chaos 注入策略（service, scenario, scope, inject_rate, duration_sec, auto_disable_at）
 chaos_event_log      — Chaos 事件记录（service, scenario, trace_id, started_at, ended_at, result, error）
-runner_profile       — 流量生成器配置（base_qps, peak_multiplier, cycle_minutes, version）
+runner_profile       — 生命周期流量配置（traffic_mode, lifecycle_interval_sec, successful_payment_ratio, version）
 inventory_baseline   — 库存基线快照（sku, baseline_qty, baseline_version）
 ```
 

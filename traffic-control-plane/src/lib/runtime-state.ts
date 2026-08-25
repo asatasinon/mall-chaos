@@ -3,8 +3,6 @@ import type { RunnerOrderRef } from './runner-persistence';
 
 const CONTROL_KEY = 'traffic-control-plane:runner:control';
 const STATUS_KEY = 'traffic-control-plane:runner:status';
-const POLICY_RELOAD_KEY = 'traffic-control-plane:inventory-reset:reload';
-const TRIGGER_RESET_KEY = 'traffic-control-plane:inventory-reset:trigger';
 
 export interface RunnerControlState {
   paused: boolean;
@@ -86,40 +84,6 @@ export async function getRunnerStatus(): Promise<RunnerStatusState | null> {
     configVersion: Number(data.configVersion || 0),
     updatedAt: data.updatedAt,
   };
-}
-
-export async function signalInventoryPolicyReload(): Promise<void> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  await redis.set(POLICY_RELOAD_KEY, String(Date.now()), 'EX', 60);
-}
-
-export async function consumeInventoryPolicyReload(): Promise<boolean> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  const value = await redis.get(POLICY_RELOAD_KEY);
-  if (!value) {
-    return false;
-  }
-  await redis.del(POLICY_RELOAD_KEY);
-  return true;
-}
-
-export async function signalInventoryResetTrigger(): Promise<void> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  await redis.set(TRIGGER_RESET_KEY, String(Date.now()), 'EX', 60);
-}
-
-export async function consumeInventoryResetTrigger(): Promise<boolean> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  const value = await redis.get(TRIGGER_RESET_KEY);
-  if (!value) {
-    return false;
-  }
-  await redis.del(TRIGGER_RESET_KEY);
-  return true;
 }
 
 // ── Activity feed (written by worker, read by API route via Redis list) ──

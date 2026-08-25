@@ -23,6 +23,10 @@ export interface TrafficActionRecord {
   latencyMs: number;
 }
 
+export type TrafficLifecycleRecord = Omit<TrafficActionRecord, 'actionType' | 'lifecycleId'> & {
+  lifecycleId: string;
+};
+
 export interface ReplenishmentRunRecord {
   windowId: string;
   operationType: 'DEMO_COUPON_REPLENISH' | 'DEMO_STOCK_REPLENISH';
@@ -89,6 +93,25 @@ export async function recordTrafficAction(record: TrafficActionRecord): Promise<
       record.latencyMs,
     ],
   );
+}
+
+export async function recordTrafficLifecycle(record: TrafficLifecycleRecord): Promise<void> {
+  await recordTrafficAction({ ...record, actionType: 'CUSTOMER_LIFECYCLE' });
+}
+
+export async function loadTrafficActionsByLifecycleId(
+  trafficRunId: string,
+  lifecycleId: string,
+): Promise<Array<Record<string, unknown>>> {
+  const [rows] = await getPool().query(
+    `SELECT action_id, lifecycle_id, customer_id, action_type, status, order_id,
+            payment_id, cart_version, result_code, error_code, trace_id, latency_ms, created_at
+     FROM traffic_actions
+     WHERE traffic_run_id = ? AND lifecycle_id = ?
+     ORDER BY created_at, id`,
+    [trafficRunId, lifecycleId],
+  );
+  return rows as Array<Record<string, unknown>>;
 }
 
 export async function recordReplenishmentRun(record: ReplenishmentRunRecord): Promise<void> {
