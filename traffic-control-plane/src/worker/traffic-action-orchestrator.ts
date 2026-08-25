@@ -222,7 +222,7 @@ export class TrafficActionOrchestrator {
     const cart = cartResponse.data;
     if (!cart?.items?.length) return { success: false, status: 'FAILED', errorCode: 'CART_EMPTY' };
 
-    const addresses = await this.gateway.get<ApiEnvelope<AddressData[]>>('/api/addresses', undefined, context);
+    const addresses = await this.gateway.get<ApiEnvelope<AddressData[]>>('/api/me/addresses', undefined, context);
     const address = addresses.data?.find((item) => item.isDefault === true || item.isDefault === 1)
       ?? addresses.data?.[0];
     if (!address?.id) return { success: false, status: 'FAILED', errorCode: 'ADDRESS_NOT_FOUND' };
@@ -264,9 +264,7 @@ export class TrafficActionOrchestrator {
       }
       return { customerId: orderRef.customerId, success: true, status: 'NOOP', resultCode: `ORDER_${order?.status || 'MISSING'}` };
     }
-    const paymentIntent = await this.gateway.post<ApiEnvelope<PaymentData>>('/api/payments/intents', {
-      orderNo: order.orderNo,
-      amount: order.totalAmount ?? order.amount,
+    const paymentIntent = await this.gateway.post<ApiEnvelope<PaymentData>>(`/api/orders/${order.id}/payment-intents`, {
       idempotencyKey: `runner-payment-${order.id}`,
     }, contextFor(context, orderRef.customerId));
     const payment = paymentIntent.data;
@@ -330,7 +328,7 @@ export class TrafficActionOrchestrator {
     const orderRef = await popPaidOrder();
     if (!orderRef) return { success: true, status: 'NOOP', resultCode: 'NO_PAID_ORDER' };
     await pushPaidOrder(orderRef);
-    const response = await this.gateway.get<ApiEnvelope<unknown>>(`/api/fulfillments/${orderRef.orderId}`, undefined, contextFor(context, orderRef.customerId));
+    const response = await this.gateway.get<ApiEnvelope<unknown>>(`/api/orders/${orderRef.orderId}/shipment`, undefined, contextFor(context, orderRef.customerId));
     return {
       success: response.data != null,
       status: response.data != null ? 'SUCCESS' : 'NOOP',

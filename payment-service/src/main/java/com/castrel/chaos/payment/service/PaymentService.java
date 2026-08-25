@@ -4,11 +4,11 @@ import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
 import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
-import com.castrel.chaos.payment.dto.ChargeRequest;
 import com.castrel.chaos.payment.dto.PaymentDTO;
 import com.castrel.chaos.payment.dto.PaymentIntentRequest;
 import com.castrel.chaos.payment.dto.RefundRequest;
 import com.castrel.chaos.payment.client.OrderPaymentResultClient;
+import com.castrel.chaos.payment.client.OrderClient;
 import com.castrel.chaos.payment.entity.Payment;
 import com.castrel.chaos.payment.repository.PaymentRepository;
 import com.castrel.chaos.payment.repository.PaymentOutboxRepository;
@@ -41,6 +41,9 @@ public class PaymentService {
 
     @Autowired
     private OrderPaymentResultClient orderPaymentResultClient;
+
+    @Autowired
+    private OrderClient orderClient;
 
     @Autowired
     private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
@@ -77,24 +80,25 @@ public class PaymentService {
     }
 
     @Transactional
-    public PaymentDTO charge(ChargeRequest req) {
-        // Idempotency: return existing result for same orderNo
-        return paymentRepository.findByOrderNo(req.getOrderNo())
-                .map(this::toDTO)
-                .orElseGet(() -> executeCharge(req));
-    }
-
-    @Transactional
     public PaymentDTO createIntent(PaymentIntentRequest req) {
-        return paymentRepository.findByOrderNo(req.getOrderNo())
+        if (req.getOrderId() == null || req.getUserId() == null
+                || req.getIdempotencyKey() == null || req.getIdempotencyKey().isBlank()) {
+            throw new BizException("INVALID_PAYMENT_INTENT", "orderId and idempotencyKey are required");
+        }
+        OrderClient.OrderData order = orderClient.getOrder(req.getOrderId());
+        if (!req.getUserId().equals(order.userId())) {
+            throw new BizException("PAYMENT_FORBIDDEN", "Payment does not belong to customer");
+        }
+        return paymentRepository.findByOrderIdAndIdempotencyKey(req.getOrderId(), req.getIdempotencyKey())
                 .map(this::toDTO)
                 .orElseGet(() -> {
                     Payment payment = new Payment();
                     payment.setPaymentNo("PAY-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase());
-                    payment.setOrderNo(req.getOrderNo());
-                    payment.setUserId(req.getUserId());
-                    payment.setAmount(req.getAmount());
-                    payment.setStatus("PROCESSING");
+                    payment.setOrderId(req.getOrderId());
+                    payment.setCustomerId(req.getUserId());
+                    payment.setIdempotencyKey(req.getIdempotencyKey());
+                    payment.setAmount(order.totalAmount());
+                    payment.setStatus("CREATED");
                     payment.setResultCode("CREATED");
                     payment.setTraceId(TraceContext.getTraceId());
                     payment.setCreatedAt(LocalDateTime.now());
@@ -105,21 +109,30 @@ public class PaymentService {
 
     @Transactional
     public PaymentDTO confirmIntent(Long id) {
-        return confirmIntent(id, null);
+        return confirmIntent(id, null, null);
     }
 
     @Transactional
-    public PaymentDTO confirmIntent(Long id, String runnerStrategy) {
+    public PaymentDTO confirmIntent(Long id, Long customerId, String runnerStrategy) {
         Payment payment = paymentRepository.findById(id)
                 .orElseThrow(() -> new BizException("PAYMENT_NOT_FOUND", "Payment not found: " + id));
-        if (!"PROCESSING".equals(payment.getStatus())) return toDTO(payment);
-        return executePayment(payment, runnerStrategy);
+        assertCustomer(payment, customerId);
+        if (!"CREATED".equals(payment.getStatus()) && !"PROCESSING".equals(payment.getStatus())) {
+            return toDTO(payment);
+        }
+        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo(), runnerStrategy);
     }
 
     @Transactional
     public PaymentDTO retryIntent(Long id) {
+        return retryIntent(id, null);
+    }
+
+    @Transactional
+    public PaymentDTO retryIntent(Long id, Long customerId) {
         Payment payment = paymentRepository.findById(id)
                 .orElseThrow(() -> new BizException("PAYMENT_NOT_FOUND", "Payment not found: " + id));
+        assertCustomer(payment, customerId);
         if ("SUCCESS".equals(payment.getStatus()) || "FAILED".equals(payment.getStatus())
                 || "REFUNDED".equals(payment.getStatus())) return toDTO(payment);
         if (!"UNKNOWN".equals(payment.getStatus())) {
@@ -129,7 +142,7 @@ public class PaymentService {
         payment.setResultCode("RETRYING");
         payment.setUpdatedAt(LocalDateTime.now());
         paymentRepository.save(payment);
-        return executePayment(payment);
+        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo(), null);
     }
 
     @Transactional
@@ -148,16 +161,11 @@ public class PaymentService {
         }
         payment.setStatus("REFUNDED");
         payment.setResultCode("REFUNDED");
-        payment.setFailReason("Refunded by " + actor + ": " + request.getIdempotencyKey());
         payment.setUpdatedAt(LocalDateTime.now());
         return toDTO(paymentRepository.save(payment));
     }
 
-    private PaymentDTO executePayment(Payment payment) {
-        return executePayment(payment, null);
-    }
-
-    private PaymentDTO executePayment(Payment payment, String requestedStrategy) {
+    private PaymentDTO executePayment(Payment payment, String orderNo, String requestedStrategy) {
         attemptCounter.increment();
         String strategy = requestedStrategy == null ? "" : requestedStrategy.toUpperCase();
         double roll = random.nextDouble();
@@ -169,27 +177,26 @@ public class PaymentService {
             || (strategy.isBlank() && roll < successRate + timeoutRate)) {
             payment.setStatus("UNKNOWN");
             payment.setResultCode("UNKNOWN");
-            payment.setFailReason("Payment gateway result unknown");
             timeoutCounter.increment();
         } else {
             payment.setStatus("FAILED");
             payment.setResultCode("INSUFFICIENT_BALANCE");
-            payment.setFailReason("Insufficient balance");
             failCounter.increment();
         }
         payment.setUpdatedAt(LocalDateTime.now());
         PaymentDTO result = toDTO(paymentRepository.save(payment));
-        appendPaymentResultEvent(result);
+        result.setOrderNo(orderNo);
+        appendPaymentResultEvent(result, orderNo);
         return result;
     }
 
-    private void appendPaymentResultEvent(PaymentDTO payment) {
+    private void appendPaymentResultEvent(PaymentDTO payment, String orderNo) {
         try {
             payment.setEventId(UUID.randomUUID().toString());
             PaymentOutboxEvent event = new PaymentOutboxEvent();
             event.setEventId(payment.getEventId());
             event.setEventType("PAYMENT_RESULT");
-            event.setAggregateId(payment.getOrderNo());
+            event.setAggregateId(orderNo);
             event.setAggregateVersion(1);
             event.setPayload(objectMapper.writeValueAsString(payment));
             event.setOccurredAt(LocalDateTime.now());
@@ -203,44 +210,6 @@ public class PaymentService {
         } catch (Exception exception) {
             throw new IllegalStateException("Unable to append payment outbox event", exception);
         }
-    }
-
-    private PaymentDTO executeCharge(ChargeRequest req) {
-        attemptCounter.increment();
-        enrichQueryIfNeeded(req.getOrderNo());
-
-        Payment payment = new Payment();
-        payment.setPaymentNo("PAY-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase());
-        payment.setOrderNo(req.getOrderNo());
-        payment.setUserId(req.getUserId());
-        payment.setAmount(req.getAmount());
-        payment.setTraceId(TraceContext.getTraceId());
-        payment.setCreatedAt(LocalDateTime.now());
-        payment.setUpdatedAt(LocalDateTime.now());
-
-        double roll = random.nextDouble();
-        if (roll < successRate) {
-            payment.setStatus("SUCCESS");
-            payment.setResultCode("SUCCESS");
-            successCounter.increment();
-        } else if (roll < successRate + timeoutRate) {
-            // Simulate timeout: sleep 5s
-            try { Thread.sleep(5000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            payment.setStatus("TIMEOUT");
-            payment.setResultCode("TIMEOUT");
-            payment.setFailReason("Payment gateway timeout");
-            timeoutCounter.increment();
-        } else {
-            payment.setStatus("FAILED");
-            payment.setResultCode("INSUFFICIENT_BALANCE");
-            payment.setFailReason("Insufficient balance");
-            failCounter.increment();
-        }
-
-        paymentRepository.save(payment);
-        PaymentDTO result = toDTO(payment);
-        localQueryCacheManager.cacheIfNeeded("payment:" + payment.getPaymentNo(), result);
-        return result;
     }
 
     public PaymentDTO getPayment(Long id) {
@@ -261,8 +230,8 @@ public class PaymentService {
             jdbcTemplate.queryForList(
                     "SELECT s.* FROM (" +
                     " SELECT p.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
-                    " FROM payments p" +
-                    " JOIN user_behavior_log ubl ON ubl.user_id = p.user_id" +
+                    " FROM payment_attempts p" +
+                    " JOIN user_behavior_log ubl ON ubl.user_id = p.customer_id" +
                     " ORDER BY ubl.created_at DESC, p.id DESC" +
                     " LIMIT " + limitRows + " OFFSET " + offsetRows +
                     ") s" +
@@ -273,8 +242,9 @@ public class PaymentService {
             jdbcTemplate.queryForList(
                     "SELECT s.* FROM (" +
                     " SELECT p.*, pph.effective_at AS __pph_effective_at" +
-                    " FROM payments p" +
-                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = p.order_no" +
+                    " FROM payment_attempts p" +
+                    " JOIN orders o ON o.id = p.order_id" +
+                    " JOIN product_price_history pph ON EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.sku = pph.sku)" +
                     " ORDER BY pph.effective_at DESC, p.id DESC" +
                     " LIMIT " + limitRows + " OFFSET " + offsetRows +
                     ") s" +
@@ -288,11 +258,18 @@ public class PaymentService {
         PaymentDTO dto = new PaymentDTO();
         dto.setId(p.getId());
         dto.setPaymentNo(p.getPaymentNo());
-        dto.setOrderNo(p.getOrderNo());
+        dto.setOrderId(p.getOrderId());
+        dto.setCustomerId(p.getCustomerId());
         dto.setAmount(p.getAmount());
         dto.setStatus(p.getStatus());
         dto.setResultCode(p.getResultCode());
-        dto.setFailReason(p.getFailReason());
+        dto.setFailReason("FAILED".equals(p.getStatus()) ? p.getResultCode() : null);
         return dto;
+    }
+
+    private void assertCustomer(Payment payment, Long customerId) {
+        if (customerId != null && !customerId.equals(payment.getCustomerId())) {
+            throw new BizException("PAYMENT_FORBIDDEN", "Payment does not belong to customer");
+        }
     }
 }

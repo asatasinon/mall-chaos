@@ -5,7 +5,6 @@ import com.castrel.chaos.common.event.EventEnvelope;
 import com.castrel.chaos.common.event.EventEnvelopeValidator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.castrel.chaos.notification.dto.OrderCreatedRequest;
 import com.castrel.chaos.notification.dto.PaymentResultRequest;
 import com.castrel.chaos.notification.dto.ShippingCreatedRequest;
 import com.castrel.chaos.notification.service.NotificationService;
@@ -53,12 +52,6 @@ public class NotificationController {
         return ApiResponse.ok(notificationService.updatePreferences(customerId, request));
     }
 
-    @PostMapping("/internal/notifications/order-created")
-    public ApiResponse<Void> orderCreated(@RequestBody OrderCreatedRequest req) {
-        notificationService.notifyOrderCreated(req);
-        return ApiResponse.ok();
-    }
-
     @PostMapping("/internal/notifications/payment-result")
     public ApiResponse<Void> paymentResult(@RequestBody EventEnvelope<JsonNode> envelope) {
         EventEnvelopeValidator.validate(envelope);
@@ -68,6 +61,7 @@ public class NotificationController {
         }
         PaymentResultRequest req = toRequest(envelope, PaymentResultRequest.class);
         req.setEventId(envelope.getEventId());
+        req.setSuccess("ORDER_PAID".equals(envelope.getEventType()));
         notificationService.notifyPaymentResult(req);
         return ApiResponse.ok();
     }

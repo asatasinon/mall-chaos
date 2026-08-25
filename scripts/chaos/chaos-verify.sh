@@ -11,6 +11,7 @@
 set -euo pipefail
 
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:18080}"
+CONTROL_PLANE_URL="${CONTROL_PLANE_URL:-http://localhost:18086}"
 SCENARIO="${SCENARIO:-}"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -25,11 +26,11 @@ step()  { echo ""; echo -e "${CYAN}──── $* ────${NC}"; }
 
 check_runner_running() {
   local status
-  status=$(curl -sf "$GATEWAY_URL/internal/runner/status" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('running','false'))" 2>/dev/null || echo "false")
+  status=$(curl -sf "$CONTROL_PLANE_URL/internal/traffic/runner/status" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('running','false'))" 2>/dev/null || echo "false")
   if [[ "$status" == "true" ]]; then
     pass "Runner is running"
   else
-    fail "Runner is NOT running — start it first: POST $GATEWAY_URL/internal/runner/start"
+    fail "Runner is NOT running — start it first: POST $CONTROL_PLANE_URL/internal/traffic/runner/resume"
     return 1
   fi
 }
@@ -54,7 +55,7 @@ scenario_1() {
   echo ""
   check_runner_running
   info "Runner status:"
-  curl -sf "$GATEWAY_URL/internal/runner/status" | python3 -m json.tool || true
+  curl -sf "$CONTROL_PLANE_URL/internal/traffic/runner/status" | python3 -m json.tool || true
   echo ""
   warn "Manual step: Monitor Grafana for 30 minutes."
   warn "Acceptance: Success rate > 95%, P95 < 500ms, all chaos status endpoints remain inactive"
@@ -150,10 +151,10 @@ scenario_6() {
   check_runner_running
   echo ""
   info "Step 1: Check current inventory plan..."
-  curl -sf -X POST "$GATEWAY_URL/ops/chaos/inventory/internal/inventory/reset/plan" | python3 -m json.tool || true
+  curl -sf -X POST "$GATEWAY_URL/internal/gateway/inventory-reset/plan" | python3 -m json.tool || true
   echo ""
   info "Step 2: Trigger immediate reset..."
-  chaos_post "$GATEWAY_URL/internal/runner/inventory-reset/trigger" '{}'
+  chaos_post "$CONTROL_PLANE_URL/internal/traffic/runner/inventory-reset/trigger" '{}'
   echo ""
   warn "Acceptance: plan returns diff < 0 (stock consumed); reset restores baseline"
   echo ""
@@ -162,7 +163,7 @@ scenario_6() {
   echo ""
   info "Step 4: Update schedule to every 1 minute..."
   local schedule_json schedule_version schedule_enabled schedule_timezone schedule_window schedule_scope
-  schedule_json=$(curl -sf "$GATEWAY_URL/internal/runner/inventory-reset/schedule")
+  schedule_json=$(curl -sf "$CONTROL_PLANE_URL/internal/traffic/runner/inventory-reset/schedule")
   schedule_version=$(echo "$schedule_json" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("version",""))')
   schedule_enabled=$(echo "$schedule_json" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("enabled",1))')
   schedule_timezone=$(echo "$schedule_json" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("timezone","Asia/Shanghai"))')
@@ -170,12 +171,12 @@ scenario_6() {
   schedule_scope=$(echo "$schedule_json" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("data",{}).get("resetScope","ALL"))')
 
   if [[ -z "$schedule_version" ]]; then
-    fail "Cannot read current schedule version from /internal/runner/inventory-reset/schedule"
+    fail "Cannot read current schedule version from /internal/traffic/runner/inventory-reset/schedule"
     return 1
   fi
 
-  chaos_put "$GATEWAY_URL/internal/runner/inventory-reset/schedule" \
-    "{\"version\":${schedule_version},\"enabled\":${schedule_enabled},\"cron\":\"0 */1 * * * *\",\"timezone\":\"${schedule_timezone}\",\"allowedWindow\":\"${schedule_window}\",\"resetScope\":\"${schedule_scope}\"}"
+  chaos_put "$CONTROL_PLANE_URL/internal/traffic/runner/inventory-reset/schedule" \
+    "{\"version\":${schedule_version},\"cronExpr\":\"0 */1 * * * *\",\"timezone\":\"${schedule_timezone}\",\"allowedWindow\":\"${schedule_window}\",\"resetScope\":\"${schedule_scope}\"}"
   echo ""
   warn "Observe next auto-trigger in ~1 minute. Then restore original cron."
 }
@@ -221,7 +222,7 @@ global_checks() {
   step "Global Acceptance Checklist"
   echo ""
   info "Runner status:"
-  curl -sf "$GATEWAY_URL/internal/runner/status" | python3 -m json.tool || true
+  curl -sf "$CONTROL_PLANE_URL/internal/traffic/runner/status" | python3 -m json.tool || true
   echo ""
   echo "Manual checklist:"
   echo "  [ ] All Chaos enables support durationSec (deadlock supports injectRate)"
@@ -241,6 +242,7 @@ print_usage() {
   echo ""
   echo "Options:"
   echo "  --gateway <url>      Gateway base URL (default: http://localhost:18080)"
+  echo "  CONTROL_PLANE_URL    Control-plane base URL (default: http://localhost:18086)"
   echo "  --scenario <1-7>     Run a specific scenario (default: interactive menu)"
   echo "  --global             Run global acceptance checklist only"
   echo ""

@@ -7,6 +7,4 @@ public class CreateFulfillmentRequest {
     private Long orderId;
     private String orderNo;
     private Long userId;
-    private String sku;
-    private int qty;
 }

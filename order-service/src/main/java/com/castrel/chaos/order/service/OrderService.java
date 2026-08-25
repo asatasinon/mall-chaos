@@ -122,8 +122,9 @@ public class OrderService {
                 subtotal = subtotal.add(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
             }
             List<Map<String, Object>> promotionItems = freeze.getItems().stream().map(item -> Map.<String, Object>of(
-                    "sku", item.getSku(), "qty", item.getQuantity(), "price", item.getUnitPrice())).toList();
-                Map<String, Object> promotion = clients.calculatePromotion(customerId, orderNo, promotionItems);
+                    "sku", item.getSku(), "quantity", item.getQuantity())).toList();
+                Map<String, Object> promotion = clients.calculatePromotion(customerId, orderNo,
+                        command.getCouponId(), promotionItems);
                 BigDecimal discount = promotion == null || promotion.get("discountAmount") == null
                     ? BigDecimal.ZERO : new BigDecimal(String.valueOf(promotion.get("discountAmount")));
                 BigDecimal total = promotion == null || promotion.get("finalAmount") == null
@@ -131,9 +132,10 @@ public class OrderService {
                 if (promotion != null && promotion.get("usedCouponId") != null) {
                     reservedCouponId = Long.valueOf(String.valueOf(promotion.get("usedCouponId")));
                 }
-            CheckoutItem riskItem = freeze.getItems().get(0);
+                List<Map<String, Object>> riskItems = freeze.getItems().stream().map(item -> Map.<String, Object>of(
+                    "sku", item.getSku(), "quantity", item.getQuantity())).toList();
             Map<String, Object> risk = clients.preCheckRisk(customerId, orderNo,
-                    total, riskItem.getSku(), riskItem.getQuantity());
+                    total, riskItems);
             if (risk != null && Boolean.FALSE.equals(risk.get("passed"))) {
                 throw new BizException("RISK_REJECTED", String.valueOf(risk.getOrDefault("reason", "Risk rejected")));
             }
@@ -150,7 +152,6 @@ public class OrderService {
             order.setSubtotal(subtotal);
             order.setDiscountAmount(discount);
             order.setTotalAmount(total);
-            order.setAmount(total);
             order.setAddressId(command.getAddressId());
             order.setCouponId(reservedCouponId);
             order.setTraceId(TraceContext.getTraceId());
@@ -473,7 +474,6 @@ public class OrderService {
         dto.setId(o.getId());
         dto.setOrderNo(o.getOrderNo());
         dto.setUserId(o.getUserId());
-        dto.setAmount(o.getAmount());
         dto.setStatus(o.getStatus());
         dto.setPaymentId(o.getPaymentId());
         dto.setFailReason(o.getFailReason());

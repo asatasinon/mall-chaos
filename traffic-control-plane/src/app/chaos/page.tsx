@@ -15,9 +15,9 @@ const STORAGE_GROWTH_TARGETS = ['catalog-service','risk-service','notification-s
 const TABLE_LOCK_SERVICES = ['order-service','payment-service','fulfillment-service','notification-service'];
 const TABLES_PER_SERVICE: Record<string, string[]> = {
   'order-service':        ['orders','order_items'],
-  'payment-service':      ['payments'],
-  'fulfillment-service':  ['fulfillments'],
-  'notification-service': ['notifications'],
+  'payment-service':      ['payment_attempts'],
+  'fulfillment-service':  ['shipments'],
+  'notification-service': ['customer_notifications'],
 };
 const PROXY_NAMES = ['order-to-payment','order-to-inventory','gateway-to-order'];
 

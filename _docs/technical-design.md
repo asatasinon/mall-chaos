@@ -72,7 +72,7 @@ flowchart LR
 | `/api/auth/**`、`/api/products/**` | 公开 | 身份和商品读取 |
 | `/api/cart/**`、`/api/checkout` | `CUSTOMER` | 购物车和多商品结算 |
 | `/api/orders/**`、`/api/payments/**` | `CUSTOMER` | 归属订单和支付 |
-| `/api/fulfillments/**`、`/api/notifications/**` | `CUSTOMER` | 归属物流和通知 |
+| `/api/orders/*/shipment/**`、`/api/notifications/**` | `CUSTOMER` | 归属物流和通知 |
 | `/internal/**` | `OPERATOR` 且私有入口 | `shopfront` 永不可达 |
 
 身份签发链唯一且不可互换：`user-service` 签发 `CUSTOMER` / `OPERATOR` 用户访问令牌；`traffic-control-plane` 仅持有注册的 `TRAFFIC_RUNNER` 服务凭据，不能签发或伪造客户主体令牌。控制面从演示客户白名单选择客户 ID 后，以服务凭据和受控客户 ID 调用网关；网关校验服务凭据、客户白名单版本、`aud=gateway-service`、动作 scope 和短期有效期，再由网关签发仅下游可验的主体声明 `{actor=RUNNER, customerId, trafficRunId, allowedActions, exp}`。该声明不授予 `/internal/**` 或运营权限。
@@ -334,7 +334,7 @@ sequenceDiagram
 | `POST` | `/api/orders/{id}/cancel` | 取消符合条件订单 |
 | `POST` | `/api/orders/{id}/payment-intents` | 创建/获取支付意图 |
 | `POST` | `/api/payments/{id}/confirm` | 确认模拟支付 |
-| `GET` | `/api/payments/{id}`、`/api/orders/{id}/shipment` | 查询支付与物流 |
+| `GET` | `/api/orders/{id}/shipment` | 查询物流 |
 | `GET/PATCH` | `/api/notifications` | 查询/已读个人通知 |
 
 具体 REST 路径可微调，但用户身份、资源归属、幂等和只经网关访问不可变。不提供私有 runner action HTTP API；runner 仅在 `traffic-control-plane` 进程内编排，并以受限服务凭据调用下列公开客户路由。其订单、支付和事件必须通过 `trafficRunId` 与普通客户交易区分。
@@ -348,7 +348,7 @@ sequenceDiagram
 | `/api/cart/**` | cart-service | `CUSTOMER` 或受限 `TRAFFIC_RUNNER` 主体 |
 | `/api/checkout`、`/api/orders/**` | order-service | `CUSTOMER` 或受限 `TRAFFIC_RUNNER` 主体 |
 | `/api/payments/**` | payment-service | `CUSTOMER` 或受限 `TRAFFIC_RUNNER` 主体 |
-| `/api/fulfillments/**` | fulfillment-service | `CUSTOMER` 或受限 `TRAFFIC_RUNNER` 主体 |
+| `/api/orders/*/shipment/**` | fulfillment-service | `CUSTOMER` 或受限 `TRAFFIC_RUNNER` 主体 |
 | `/api/notifications/**` | notification-service | `CUSTOMER` 或受限 `TRAFFIC_RUNNER` 主体 |
 
 网关是这些公开路径的唯一入口。业务服务之间只能通过受认证的 `/internal/**` 调用；`TRAFFIC_RUNNER` 仅能使用矩阵中列出的客户路径和动作 scope，不能访问任意内部或运营路径。
@@ -371,7 +371,7 @@ runner 的 `RunnerEngine` 相应改造为状态化流程编排器：维护演示
 | 安全 | 清除伪造身份头；拒绝直连业务服务；客户不能跨用户读取资源；消费者入口阻止 `/internal/**`；未认证运营/runner 服务调用被拒绝并记录审计 |
 | 购物车/结算 | 持久化、版本并发更新、非法 SKU/库存、多商品金额、价格冻结、优惠券、幂等、补偿；结算只消费冻结快照行 |
 | 支付/异步 | 成功、明确失败、未知结果对账、重试、重复确认；支付成功/取消/到期竞争裁决；跨服务 Outbox/Inbox 重试、重复投递、死信和链路恢复 |
-| 前端/流量/回归 | Playwright 注册至物流流程；runner 覆盖完整交易链路并验证各动作；`scripts/chaos/chaos-verify.sh` 可用；旧单 SKU 接口仅做 API 行为回归验证 |
+| 前端/流量/回归 | Playwright 注册至物流流程；runner 覆盖完整交易链路并验证各动作；`scripts/chaos/chaos-verify.sh` 可用；不提供旧单 SKU 接口 |
 | 可观测性 | 可查询结算、支付、Outbox、发货链路、指标和结构化日志 |
 
 主要实现锚点：`order-service` 的 `OrderService.java`、`DownstreamClients.java`；`gateway-service/src/main/resources/application.yml`；各业务服务源码；`common`；`infra/mysql/init/00-schema.sql`；`docker-compose.yml`；`k8s/` 和 `scripts/build-all.sh`。

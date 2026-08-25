@@ -41,24 +41,17 @@ public class UserController {
         return ApiResponse.ok();
     }
 
-    @GetMapping("/api/users/{id}")
+    @GetMapping("/api/me")
     public ApiResponse<UserDTO> getUser(
-            @RequestHeader("X-User-Id") Long authenticatedUserId, @PathVariable Long id) {
-        if (!authenticatedUserId.equals(id)) {
-            throw new com.castrel.chaos.common.BizException("USER_NOT_FOUND", "User not found: " + id);
-        }
-        return ApiResponse.ok(userService.getUser(id));
+            @RequestHeader("X-User-Id") Long authenticatedUserId) {
+        return ApiResponse.ok(userService.getUser(authenticatedUserId));
     }
 
-    @PatchMapping("/api/users/{id}")
+    @PatchMapping("/api/me")
     public ApiResponse<UserDTO> updateProfile(
             @RequestHeader("X-User-Id") Long authenticatedUserId,
-            @PathVariable Long id,
             @RequestBody UserProfileRequest request) {
-        if (!authenticatedUserId.equals(id)) {
-            throw new com.castrel.chaos.common.BizException("USER_NOT_FOUND", "User not found: " + id);
-        }
-        return ApiResponse.ok(userService.updateProfile(id, request));
+        return ApiResponse.ok(userService.updateProfile(authenticatedUserId, request));
     }
 
     @GetMapping("/internal/users/{id}")
@@ -82,18 +75,18 @@ public class UserController {
         return ApiResponse.ok(userService.getAddress(id, addressId));
     }
 
-    @GetMapping("/api/addresses")
+    @GetMapping("/api/me/addresses")
     public ApiResponse<List<UserAddressDTO>> listAddresses(@RequestHeader("X-User-Id") Long userId) {
         return ApiResponse.ok(userService.listAddresses(userId));
     }
 
-    @PostMapping("/api/addresses")
+    @PostMapping("/api/me/addresses")
     public ApiResponse<UserAddressDTO> addAddress(
             @RequestHeader("X-User-Id") Long userId, @RequestBody UserAddressRequest request) {
         return ApiResponse.ok(userService.addAddress(userId, request));
     }
 
-    @PutMapping("/api/addresses/{id}")
+    @PatchMapping("/api/me/addresses/{id}")
     public ApiResponse<UserAddressDTO> updateAddress(
             @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long id,
@@ -101,7 +94,7 @@ public class UserController {
         return ApiResponse.ok(userService.updateAddress(userId, id, request));
     }
 
-    @DeleteMapping("/api/addresses/{id}")
+    @DeleteMapping("/api/me/addresses/{id}")
     public ApiResponse<Void> deleteAddress(
             @RequestHeader("X-User-Id") Long userId, @PathVariable Long id) {
         userService.deleteAddress(userId, id);

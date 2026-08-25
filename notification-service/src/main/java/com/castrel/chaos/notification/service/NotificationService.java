@@ -4,11 +4,8 @@ import com.castrel.chaos.common.cache.LocalQueryCacheManager;
 import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.observability.SensitiveDataSanitizer;
-import com.castrel.chaos.notification.dto.OrderCreatedRequest;
 import com.castrel.chaos.notification.dto.PaymentResultRequest;
 import com.castrel.chaos.notification.dto.ShippingCreatedRequest;
-import com.castrel.chaos.notification.entity.NotificationLog;
-import com.castrel.chaos.notification.repository.NotificationLogRepository;
 import com.castrel.chaos.notification.repository.CustomerNotificationRepository;
 import com.castrel.chaos.notification.repository.NotificationInboxRepository;
 import com.castrel.chaos.notification.repository.NotificationOutboxRepository;
@@ -58,9 +55,6 @@ public class NotificationService {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
-    private NotificationLogRepository notificationLogRepository;
-
-    @Autowired
     private CustomerNotificationRepository customerNotificationRepository;
 
     @Autowired
@@ -89,16 +83,6 @@ public class NotificationService {
                 .register(meterRegistry);
         failCounter = Counter.builder("notification.fail.count")
                 .register(meterRegistry);
-    }
-
-    public void notifyOrderCreated(OrderCreatedRequest req) {
-        String message = String.format("【下单成功】您的订单 %s 已创建，金额 ¥%.2f",
-                req.getOrderNo(), req.getAmount());
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("orderNo", req.getOrderNo());
-        payload.put("amount", req.getAmount());
-        payload.put("sku", req.getSku());
-        send(req.getEventId(), req.getUserId(), req.getOrderNo(), "ORDER_CREATED", message, payload);
     }
 
     public void notifyPaymentResult(PaymentResultRequest req) {
@@ -153,15 +137,6 @@ public class NotificationService {
         boolean failed = Math.random() < failRate;
         String status = failed ? "FAILED" : "SENT";
 
-        NotificationLog notifLog = new NotificationLog();
-        notifLog.setUserId(userId);
-        notifLog.setOrderNo(orderNo);
-        notifLog.setEventType(eventType);
-        notifLog.setChannel("MOCK");
-        notifLog.setStatus(status);
-        notifLog.setPayload(payload);
-        notifLog.setTraceId(TraceContext.getTraceId());
-        notificationLogRepository.save(notifLog);
         CustomerNotification notification = new CustomerNotification();
         notification.setCustomerId(userId);
         notification.setEventId(eventId);
@@ -194,7 +169,7 @@ public class NotificationService {
         inbox.setStatus("PROCESSED");
         inbox.setProcessedAt(LocalDateTime.now());
         inboxRepository.save(inbox);
-        localQueryCacheManager.cacheIfNeeded("notification:" + orderNo, notifLog);
+        localQueryCacheManager.cacheIfNeeded("notification:" + orderNo, notification);
 
         if (failed) {
             log.warn("traceId={} Notification FAILED event={} userId={} orderNo={}", 
@@ -269,8 +244,8 @@ public class NotificationService {
             jdbcTemplate.queryForList(
                     "SELECT s.* FROM (" +
                     " SELECT n.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
-                    " FROM notification_logs n" +
-                    " JOIN user_behavior_log ubl ON ubl.user_id = n.user_id" +
+                    " FROM customer_notifications n" +
+                    " JOIN user_behavior_log ubl ON ubl.user_id = n.customer_id" +
                     " ORDER BY ubl.created_at DESC, n.id DESC" +
                     " LIMIT " + limitRows + " OFFSET " + offsetRows +
                     ") s" +
@@ -281,7 +256,7 @@ public class NotificationService {
             jdbcTemplate.queryForList(
                     "SELECT s.* FROM (" +
                     " SELECT n.*, pph.effective_at AS __pph_effective_at" +
-                    " FROM notification_logs n" +
+                    " FROM customer_notifications n" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = n.order_no" +
                     " ORDER BY pph.effective_at DESC, n.id DESC" +
                     " LIMIT " + limitRows + " OFFSET " + offsetRows +

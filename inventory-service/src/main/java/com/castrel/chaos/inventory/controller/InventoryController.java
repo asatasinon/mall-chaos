@@ -3,6 +3,7 @@ package com.castrel.chaos.inventory.controller;
 import com.castrel.chaos.common.ApiResponse;
 import com.castrel.chaos.inventory.dto.ReserveRequest;
 import com.castrel.chaos.inventory.dto.ResetRequest;
+import com.castrel.chaos.inventory.dto.InventoryOperationRequest;
 import com.castrel.chaos.inventory.service.InventoryService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -18,25 +19,25 @@ public class InventoryController {
 
     @PostMapping("/internal/inventory/reserve")
     public ApiResponse<Map<String, Object>> reserve(@RequestBody ReserveRequest req) {
-        return ApiResponse.ok(inventoryService.reserve(req.getOrderId(), req.getSku(), req.getQty()));
+        return ApiResponse.ok(inventoryService.reserve(req.getOrderId(), req.getSku(), req.getQty(),
+            req.getReservationId(), req.getOperationId()));
     }
 
     @PostMapping("/internal/inventory/release")
-    public ApiResponse<Void> release(@RequestBody ReserveRequest req) {
-        inventoryService.release(req.getOrderId(), req.getSku(), req.getQty(),
-                req.getReservationId() == null ? req.getOrderId() + ":" + req.getSku() : req.getReservationId());
+    public ApiResponse<Void> release(@RequestBody InventoryOperationRequest req) {
+        inventoryService.release(req.getOrderId(), req.getSku(), req.getReservationId(), req.getOperationId());
         return ApiResponse.ok();
     }
 
     @PostMapping("/internal/inventory/confirm")
-    public ApiResponse<Void> confirm(@RequestBody ReserveRequest req) {
-        inventoryService.confirm(req.getOrderId(), req.getSku(), req.getReservationId());
+    public ApiResponse<Void> confirm(@RequestBody InventoryOperationRequest req) {
+        inventoryService.confirm(req.getOrderId(), req.getSku(), req.getReservationId(), req.getOperationId());
         return ApiResponse.ok();
     }
 
     @PostMapping("/internal/inventory/expire")
-    public ApiResponse<Void> expire(@RequestBody ReserveRequest req) {
-        inventoryService.expire(req.getReservationId(), req.getSku());
+    public ApiResponse<Void> expire(@RequestBody InventoryOperationRequest req) {
+        inventoryService.expire(req.getReservationId(), req.getSku(), req.getOperationId());
         return ApiResponse.ok();
     }
 

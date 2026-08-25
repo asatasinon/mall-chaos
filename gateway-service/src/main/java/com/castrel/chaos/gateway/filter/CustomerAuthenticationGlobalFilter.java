@@ -25,15 +25,14 @@ import org.springframework.beans.factory.annotation.Value;
 public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered {
 
     private static final Set<String> PROTECTED_PREFIXES = Set.of(
-            "/api/users", "/api/addresses", "/api/cart", "/api/checkout", "/api/orders",
-            "/api/payments", "/api/fulfillments", "/api/notifications");
+            "/api/me", "/api/cart", "/api/checkout", "/api/orders",
+            "/api/payments", "/api/notifications");
         private static final Map<String, Set<String>> RUNNER_ACTIONS_BY_PREFIX = Map.of(
             "/api/products", Set.of("BROWSE_PRODUCT", "SEARCH_CATALOG"),
             "/api/cart", Set.of("ADD_CART_ITEM", "UPDATE_CART_ITEM", "CHECKOUT"),
             "/api/checkout", Set.of("CHECKOUT"),
-            "/api/orders", Set.of("PAYMENT_CONFIRM", "CANCEL_PENDING_ORDER", "QUERY_ORDER"),
-            "/api/payments", Set.of("PAYMENT_CONFIRM"),
-            "/api/fulfillments", Set.of("QUERY_SHIPMENT"));
+            "/api/orders", Set.of("PAYMENT_CONFIRM", "CANCEL_PENDING_ORDER", "QUERY_ORDER", "QUERY_SHIPMENT"),
+            "/api/payments", Set.of("PAYMENT_CONFIRM"));
 
     private final JwtTokenService jwtTokenService;
     private final Counter customerApiErrorCounter;

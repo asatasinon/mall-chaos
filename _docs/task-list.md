@@ -365,7 +365,7 @@
 ### T5.1-T5.4 当前进展
 
 - T5.1：已完成。`TrafficActionOrchestrator` 从 `runner_customer_whitelist` 读取启用客户，经 `GatewayClient` 发送 runner credential、客户、动作、run 和 trace 上下文；checkout/payment 使用独立幂等键和受控支付策略。
-- T5.2：已完成。`RunnerEngine` 支持九类公开客户动作，tick 串行执行；pending/paid/order typed Redis queues 分离，取消前重新读取订单状态，物流查询只消费 paid queue，并通过真实 `/api/fulfillments/{orderId}` 路由。
+- T5.2：已完成。`TrafficActionOrchestrator` 支持九类公开客户动作，tick 串行执行；pending/paid/order typed Redis queues 分离，取消前重新读取订单状态，物流查询只消费 paid queue，并通过 Gateway 的 `/api/orders/{orderId}/shipment` 路由。
 - T5.3：已完成。clean-install Schema 增加客户白名单、runner profile、九类 mix rules、`traffic_runs` 和 `traffic_actions`；run 建立与结束、动作结果和 Redis activity 均保存关联客户、订单/支付、trace、状态、错误和延迟。
 - T5.4：已完成。控制台支持九类动作、商品数量、支付结果比例、运行状态和关联活动字段；配置更新保留 version 乐观锁，输入校验在事务写入前执行，变更继续使用既有 OPERATOR middleware 和 audit route。
 

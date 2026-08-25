@@ -6,7 +6,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "fulfillments")
+@Table(name = "shipments")
 @Data
 public class Fulfillment {
 
@@ -17,10 +17,10 @@ public class Fulfillment {
     @Column(name = "order_id", nullable = false, unique = true)
     private Long orderId;
 
-    @Column(name = "customer_id")
+    @Column(name = "customer_id", nullable = false)
     private Long customerId;
 
-    @Column(name = "order_no", length = 32, nullable = false)
+    @Column(name = "order_no", nullable = false, length = 32)
     private String orderNo;
 
     @Column(length = 16, nullable = false)
@@ -32,16 +32,16 @@ public class Fulfillment {
     @Column(length = 32)
     private String carrier = "MockExpress";
 
-    @Column(name = "shipped_at")
+    @Transient
     private LocalDateTime shippedAt;
 
-    @Column(name = "delivered_at")
+    @Transient
     private LocalDateTime deliveredAt;
 
-    @Column(name = "cancel_reason", length = 256)
+    @Transient
     private String cancelReason;
 
-    @Column(name = "trace_id", length = 64)
+    @Transient
     private String traceId;
 
     @Column(name = "created_at")

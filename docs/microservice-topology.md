@@ -29,7 +29,7 @@
 | `inventory-service` | Java / Spring Boot Web + JPA + Redis | 8083 | 18083 | 10.106.2.78 |
 | `order-service` | Java / Spring Boot Web + JPA + Redis | 8084 | 18084 | 10.106.2.78 |
 | `payment-service` | Java / Spring Boot Web + JPA + Redis | 8085 | 18085 | 10.106.2.78 |
-| `traffic-runner-service` | Java / Spring Boot Web + JPA + Redis | 8086 | 18086 | 10.106.2.78 |
+| `traffic-control-plane` | Next.js + TypeScript worker | 3086 | 18086 | 10.106.2.78 |
 | `promotion-service` | Java / Spring Boot Web + JPA + Redis | 8087 | 18087 | 10.106.2.78 |
 | `risk-service` | Java / Spring Boot Web + JPA + Redis | 8088 | 18088 | 10.106.2.78 |
 | `fulfillment-service` | Java / Spring Boot Web + JPA + Redis | 8089 | 18089 | 10.106.2.78 |
@@ -105,11 +105,11 @@
 
 ---
 
-### traffic-runner-service
+### traffic-control-plane
 
 | 指标名称 | 类型 | 说明 |
 |---|---|---|
-| `runner.request.total` | Counter | 流量生成器发出的总请求数 |
+| `runner.request.total` | Counter | 控制面流量编排器发出的总请求数 |
 | `runner.request.success` | Counter | 成功请求数（订单状态为 PAID） |
 | `runner.request.fail` | Counter | 失败请求数 |
 | `runner.qps` | Gauge | 当前实际 QPS（60s 滑动窗口） |
@@ -163,7 +163,7 @@
 | `inventory-service` | ✓ | — | — | — |
 | `order-service` | ✓ | ✓ | ✓ | Deadlock 需激活 `chaos` profile |
 | `payment-service` | ✓ | ✓ | ✓ | Deadlock 需激活 `chaos` profile |
-| `traffic-runner-service` | — | — | — | 流量生成器本身无故障注入 |
+| `traffic-control-plane` | — | — | — | 控制面本身不注入业务故障 |
 | `promotion-service` | ✓ | — | — | — |
 | `risk-service` | ✓ | — | — | — |
 | `fulfillment-service` | ✓ | — | — | — |

@@ -255,7 +255,7 @@ public class ChaosService {
         if (!deadlockInFlight.compareAndSet(false, true)) return;
 
         try {
-            triggerCoordinatedDeadlock("orders", "payments");
+            triggerCoordinatedDeadlock("orders", "payment_attempts");
         } catch (Exception e) {
             log.warn("opsCategory=consistency-drill event=dispatch_failed service={} message={}",
                     serviceName, e.getMessage(), e);

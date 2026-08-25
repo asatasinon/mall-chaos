@@ -230,7 +230,6 @@ CREATE TABLE IF NOT EXISTS orders (
     id          BIGINT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
     order_no    VARCHAR(32)    NOT NULL,
     user_id     BIGINT         NOT NULL,
-    amount      DECIMAL(10,2)  NOT NULL,
     status      VARCHAR(16)    NOT NULL DEFAULT 'PENDING'
                 COMMENT 'PENDING/PAID/FAILED/CANCELLED/COMPLETED',
     payment_id  VARCHAR(64),
@@ -241,27 +240,6 @@ CREATE TABLE IF NOT EXISTS orders (
     UNIQUE KEY uq_order_no (order_no),
     INDEX idx_user_id (user_id),
     INDEX idx_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- =============================================================================
--- payment-service  (Task 08)
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS payments (
-    id          BIGINT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    payment_no  VARCHAR(32)    NOT NULL,
-    order_no    VARCHAR(32)    NOT NULL,
-    user_id     BIGINT         NOT NULL,
-    amount      DECIMAL(10,2)  NOT NULL,
-    status      VARCHAR(16)    NOT NULL DEFAULT 'PROCESSING'
-                COMMENT 'PROCESSING/SUCCESS/FAILED/TIMEOUT',
-    result_code VARCHAR(32)    COMMENT 'SUCCESS/INSUFFICIENT_BALANCE/TIMEOUT/ERROR',
-    fail_reason VARCHAR(256),
-    trace_id    VARCHAR(64),
-    created_at  DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_payment_no (payment_no),
-    INDEX idx_order_no (order_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =============================================================================
@@ -495,41 +473,6 @@ CREATE TABLE IF NOT EXISTS risk_events (
 INSERT INTO risk_rules (rule_type, threshold, window_sec, enabled, description) VALUES
   ('FREQ_LIMIT',   10,   60, 1, '同用户60秒内最多10单'),
   ('AMOUNT_LIMIT', 5000, NULL, 1, '单笔最高5000元');
-
--- fulfillment-service (Task 12)
-CREATE TABLE IF NOT EXISTS fulfillments (
-    id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    order_id        BIGINT       NOT NULL,
-    order_no        VARCHAR(32)  NOT NULL,
-    status          VARCHAR(16)  NOT NULL DEFAULT 'CREATED'
-                    COMMENT 'CREATED / PICKING / SHIPPED / DELIVERED / CANCELLED',
-    tracking_no     VARCHAR(64),
-    carrier         VARCHAR(32)  DEFAULT 'MockExpress',
-    shipped_at      DATETIME,
-    delivered_at    DATETIME,
-    cancel_reason   VARCHAR(256),
-    trace_id        VARCHAR(64),
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_order_id (order_id),
-    INDEX idx_order_no (order_no)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- notification-service (Task 13)
-CREATE TABLE IF NOT EXISTS notification_logs (
-    id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    event_type    VARCHAR(32)  NOT NULL COMMENT 'ORDER_CREATED / PAYMENT_SUCCESS / PAYMENT_FAILED / SHIPPING',
-    user_id       BIGINT       NOT NULL,
-    order_no      VARCHAR(32),
-    channel       VARCHAR(16)  NOT NULL DEFAULT 'MOCK',
-    status        VARCHAR(16)  NOT NULL DEFAULT 'SENT' COMMENT 'SENT / FAILED',
-    payload       JSON,
-    trace_id      VARCHAR(64),
-    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_user_id (user_id),
-    INDEX idx_event_type (event_type),
-    INDEX idx_order_no (order_no)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =============================================================================
 -- 商品价格变更历史
@@ -872,6 +815,7 @@ CREATE TABLE IF NOT EXISTS notification_inbox_events (
 CREATE TABLE IF NOT EXISTS shipments (
   id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
   order_id    BIGINT       NOT NULL,
+  order_no    VARCHAR(32)  NOT NULL,
   customer_id BIGINT       NOT NULL,
   status      VARCHAR(16)  NOT NULL DEFAULT 'FULFILLING',
   tracking_no VARCHAR(64),
@@ -881,8 +825,6 @@ CREATE TABLE IF NOT EXISTS shipments (
   UNIQUE KEY uq_shipment_order (order_id),
   INDEX idx_shipment_customer (customer_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-ALTER TABLE fulfillments ADD COLUMN customer_id BIGINT;
 
 CREATE TABLE IF NOT EXISTS shipment_timeline_events (
   id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,

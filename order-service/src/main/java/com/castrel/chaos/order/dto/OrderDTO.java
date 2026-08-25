@@ -10,7 +10,6 @@ public class OrderDTO {
     private Long id;
     private String orderNo;
     private Long userId;
-    private BigDecimal amount;
     private String status;
     private String paymentId;
     private String failReason;

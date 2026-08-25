@@ -56,17 +56,17 @@ export const getOrders = (page = 0) => api<Page<Order>>(`orders?page=${page}&siz
 export const getOrder = (id: string | number) => api<Order>(`orders/${id}`);
 export const cancelOrder = (id: number) => api<Order>(`orders/${id}/cancel`, { method: 'POST' });
 export const retryPayment = (id: number) => api<{ paymentId?: number; payment?: Payment }>(`orders/${id}/payment-retry`, { method: 'POST' });
-export const createPaymentIntent = (orderNo: string, amount: number, idempotencyKey: string) =>
-  api<Payment>('payments/intents', { method: 'POST', body: JSON.stringify({ orderNo, amount, idempotencyKey }) });
+export const createPaymentIntent = (orderId: number, idempotencyKey: string) =>
+  api<Payment>(`orders/${orderId}/payment-intents`, { method: 'POST', body: JSON.stringify({ idempotencyKey }) });
 export const confirmPayment = (id: string | number) => api<Payment>(`payments/${id}/confirm`, { method: 'POST' });
 export const retryPaymentIntent = (id: string | number) => api<Payment>(`payments/${id}/retry`, { method: 'POST' });
 export const checkout = (payload: { cartId: number; cartVersion: number; addressId: number; couponId?: number; idempotencyKey: string }) =>
   api<Order>('checkout', { method: 'POST', body: JSON.stringify(payload) });
-export const getFulfillment = (orderId: string | number) => api<Fulfillment>(`fulfillments/${orderId}`);
-export const confirmDelivery = (orderId: number) => api<Fulfillment>(`fulfillments/${orderId}/confirm-delivery`, { method: 'POST' });
+export const getFulfillment = (orderId: string | number) => api<Fulfillment>(`orders/${orderId}/shipment`);
+export const confirmDelivery = (orderId: number) => api<Fulfillment>(`orders/${orderId}/shipment/confirm-delivery`, { method: 'POST' });
 export const getNotifications = (page = 0) => api<Page<Notification>>(`notifications?page=${page}&size=20`);
 export const markNotificationRead = (id: number) => api<Notification>(`notifications/${id}/read`, { method: 'PATCH' });
-export const getAddresses = () => api<Address[]>('addresses');
+export const getAddresses = () => api<Address[]>('me/addresses');
 
 export function money(value: number | string | undefined | null) {
   return `¥${Number(value ?? 0).toFixed(2)}`;

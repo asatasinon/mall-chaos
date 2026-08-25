@@ -62,7 +62,7 @@ Castrel-Chaos 是一个面向 SRE 培训的**混沌工程演练平台**，采用
 │  │  │  [业务层]  (11 个微服务，:18081 ~ :18090)                 │  │   │
 │  │  │  user  catalog  inventory  order  payment               │  │   │
 │  │  │  promotion  risk  fulfillment  notification             │  │   │
-│  │  │  traffic-runner                                         │  │   │
+│  │  │  traffic-control-plane                                  │  │   │
 │  │  └─────────────┬────────────────────┬────────────────────┐ │  │   │
 │  │                │ JDBC/TCP           │ Redis Resp         │ │  │   │
 │  │  ┌─────────────▼──────┐  ┌──────────▼──────┐            │ │  │   │
@@ -118,7 +118,7 @@ Castrel-Chaos 是一个面向 SRE 培训的**混沌工程演练平台**，采用
 | `castrel-inventory` | 8083 | 库存预占/释放/重置 | 慢 SQL |
 | `castrel-order` | 8084 | 订单编排状态机、幂等控制 | 慢 SQL、内存泄漏、死锁 |
 | `castrel-payment` | 8085 | 支付扣款模拟 | 慢 SQL、内存泄漏、死锁 |
-| `castrel-runner` | 8086 | 持续流量生成器，支持动态 QPS 调速 | — |
+| `castrel-control-plane` | 3086 | 流量编排、Chaos 控制和动态 QPS 调速 | — |
 | `castrel-promotion` | 8087 | 优惠券与促销规则计算 | 慢 SQL |
 | `castrel-risk` | 8088 | 前置风控与支付后复核 | 慢 SQL |
 | `castrel-fulfillment` | 8089 | 履约单创建与物流跟踪 | 慢 SQL |
@@ -166,7 +166,7 @@ flowchart TB
 
         subgraph BIZ["业务层 (castrel-net)"]
             GW["gateway-service\n:18080"]
-            RUNNER["traffic-runner-service\n:18086"]
+            RUNNER["traffic-control-plane\n:18086"]
             USER["user-service\n:18081"]
             CATALOG["catalog-service\n:18082"]
             ORDER["order-service\n:18084"]
@@ -230,7 +230,7 @@ flowchart TB
     PAYMENT --> NOTIFY
     FULFILL --> INVEN
     FULFILL --> NOTIFY
-    RUNNER -->|"定时库存重置"| INVEN
+    RUNNER -->|"经 Gateway 定时库存重置"| GW
 
     %% 数据存储
     USER & CATALOG & PROMO & RISK & INVEN & ORDER & PAYMENT & FULFILL & NOTIFY -.->|"JDBC"| MYSQL
@@ -610,7 +610,7 @@ AI Sub-agent 通过以下接口与系统控制面交互：
 | `POST http://obs-auth-proxy:13100/loki/api/v1/query_range` | Loki 日志查询 | Basic Auth |
 | `GET http://obs-auth-proxy:13200/api/traces/{traceId}` | Tempo Trace 查询 | Basic Auth |
 | `POST http://gateway-service:8080/internal/chaos/*/disable` | 停止 Chaos 注入 | 内部鉴权 |
-| `POST http://gateway-service:8080/internal/runner/pause` | 暂停流量生成器 | 内部鉴权 |
+| `POST http://traffic-control-plane:3086/internal/traffic/runner/pause` | 暂停流量生成器 | 运营鉴权 |
 | `GET http://gateway-service:8080/internal/chaos/*/status` | 查询当前注入状态 | 内部鉴权 |
 
 ### 10.4 知识库结构

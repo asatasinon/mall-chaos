@@ -25,6 +25,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -73,7 +74,7 @@ public class PromotionService {
     public PromotionResultDTO preview(PromotionRequest req) {
         enrichQueryIfNeeded();
         BigDecimal original = calcOriginal(req.getSkus());
-        return applyPromotions(req.getUserId(), original, false, null, req.getOrderId());
+        return applyPromotions(req.getUserId(), original, false, null, req.getOrderId(), req.getCouponId());
     }
 
     @Transactional
@@ -88,12 +89,13 @@ public class PromotionService {
             // Already calculated — return a consistent preview result (idempotent response)
             enrichQueryIfNeeded();
             BigDecimal original = calcOriginal(req.getSkus());
-            return applyPromotions(req.getUserId(), original, false, null, req.getOrderId());
+            return applyPromotions(req.getUserId(), original, false, null, req.getOrderId(), req.getCouponId());
         }
 
         enrichQueryIfNeeded();
         BigDecimal original = calcOriginal(req.getSkus());
-        PromotionResultDTO result = applyPromotions(req.getUserId(), original, true, req.getUserId(), req.getOrderId());
+        PromotionResultDTO result = applyPromotions(req.getUserId(), original, true, req.getUserId(),
+            req.getOrderId(), req.getCouponId());
 
         calculateCounter.increment();
         discountTotalCounter.increment(result.getDiscountAmount().doubleValue());
@@ -136,13 +138,34 @@ public class PromotionService {
     }
 
     private BigDecimal calcOriginal(List<SkuItem> skus) {
+        if (skus == null || skus.isEmpty()) {
+            throw new BizException("INVALID_PROMOTION_ITEMS", "At least one SKU is required");
+        }
+        Map<String, BigDecimal> prices = jdbcTemplate.query(
+                "SELECT sku, price FROM products WHERE sku IN (" +
+                        String.join(",", skus.stream().map(item -> "?").toList()) + ") AND status = 1",
+                skus.stream().map(SkuItem::getSku).toArray(),
+                resultSet -> {
+                    Map<String, BigDecimal> result = new java.util.HashMap<>();
+                    while (resultSet.next()) {
+                        result.put(resultSet.getString("sku"), resultSet.getBigDecimal("price"));
+                    }
+                    return result;
+                });
         return skus.stream()
-                .map(s -> s.getPrice().multiply(BigDecimal.valueOf(s.getQty())))
+                .map(item -> {
+                    BigDecimal price = prices.get(item.getSku());
+                    if (price == null || item.getQuantity() <= 0) {
+                        throw new BizException("PRODUCT_UNAVAILABLE", "Product unavailable: " + item.getSku());
+                    }
+                    return price.multiply(BigDecimal.valueOf(item.getQuantity()));
+                })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private PromotionResultDTO applyPromotions(Long userId, BigDecimal original,
-                                                boolean lockCoupon, Long lockUserId, String orderId) {
+                                                boolean lockCoupon, Long lockUserId, String orderId,
+                                                Long requestedCouponId) {
         List<Promotion> active = promotionRepository
                 .findByEnabledAndEndAtAfterOrEndAtIsNull(1, LocalDateTime.now());
 
@@ -171,6 +194,7 @@ public class PromotionService {
         if (userId != null) {
             List<Coupon> userCoupons = couponRepository.findByUserIdAndStatus(userId, 0);
             for (Coupon coupon : userCoupons) {
+                if (requestedCouponId != null && !requestedCouponId.equals(coupon.getId())) continue;
                 Optional<Promotion> promoOpt = active.stream()
                         .filter(p -> p.getId().equals(coupon.getPromotionId()))
                         .filter(p -> "DISCOUNT".equals(p.getType()) || "COUPON".equals(p.getType()))
@@ -206,6 +230,9 @@ public class PromotionService {
                     applied.add(ap);
                     break; // only one coupon
                 }
+            }
+            if (requestedCouponId != null && usedCouponId == null) {
+                throw new BizException("COUPON_INELIGIBLE", "Coupon is not eligible for this order");
             }
         }
 

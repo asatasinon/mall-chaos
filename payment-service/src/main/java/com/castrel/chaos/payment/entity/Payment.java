@@ -7,7 +7,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "payments")
+@Table(name = "payment_attempts")
 @Data
 public class Payment {
 
@@ -18,21 +18,21 @@ public class Payment {
     @Column(name = "payment_no")
     private String paymentNo;
 
-    @Column(name = "order_no")
-    private String orderNo;
+    @Column(name = "order_id", nullable = false)
+    private Long orderId;
 
-    @Column(name = "user_id")
-    private Long userId;
+    @Column(name = "customer_id", nullable = false)
+    private Long customerId;
 
     private BigDecimal amount;
 
-    private String status; // PROCESSING / SUCCESS / FAILED / TIMEOUT
+    private String status; // CREATED / PROCESSING / SUCCESS / FAILED / UNKNOWN
 
     @Column(name = "result_code")
     private String resultCode;
 
-    @Column(name = "fail_reason")
-    private String failReason;
+    @Column(name = "idempotency_key", nullable = false)
+    private String idempotencyKey;
 
     @Column(name = "trace_id")
     private String traceId;

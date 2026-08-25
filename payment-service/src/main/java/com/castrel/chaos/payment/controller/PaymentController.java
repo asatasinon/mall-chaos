@@ -1,7 +1,6 @@
 package com.castrel.chaos.payment.controller;
 
 import com.castrel.chaos.common.ApiResponse;
-import com.castrel.chaos.payment.dto.ChargeRequest;
 import com.castrel.chaos.payment.dto.PaymentDTO;
 import com.castrel.chaos.payment.dto.PaymentIntentRequest;
 import com.castrel.chaos.payment.dto.RefundRequest;
@@ -15,10 +14,12 @@ public class PaymentController {
     @Autowired
     private PaymentService paymentService;
 
-    @PostMapping("/api/payments/intents")
+    @PostMapping("/api/orders/{orderId}/payment-intents")
     public ApiResponse<PaymentDTO> createIntent(
             @RequestHeader("X-User-Id") Long customerId,
+            @PathVariable Long orderId,
             @RequestBody PaymentIntentRequest request) {
+        request.setOrderId(orderId);
         request.setUserId(customerId);
         return ApiResponse.ok(paymentService.createIntent(request));
     }
@@ -26,15 +27,17 @@ public class PaymentController {
     @PostMapping("/api/payments/{id}/confirm")
     public ApiResponse<PaymentDTO> confirm(
             @PathVariable Long id,
+            @RequestHeader("X-User-Id") Long customerId,
             @RequestHeader(value = "X-Auth-Actor", defaultValue = "CUSTOMER") String actor,
             @RequestHeader(value = "X-Traffic-Runner-Payment-Strategy", required = false) String strategy) {
         return ApiResponse.ok(paymentService.confirmIntent(
-                id, "TRAFFIC_RUNNER".equals(actor) ? strategy : null));
+                id, customerId, "TRAFFIC_RUNNER".equals(actor) ? strategy : null));
     }
 
     @PostMapping("/api/payments/{id}/retry")
-    public ApiResponse<PaymentDTO> retry(@PathVariable Long id) {
-        return ApiResponse.ok(paymentService.retryIntent(id));
+    public ApiResponse<PaymentDTO> retry(
+            @RequestHeader("X-User-Id") Long customerId, @PathVariable Long id) {
+        return ApiResponse.ok(paymentService.retryIntent(id, customerId));
     }
 
     @PostMapping("/internal/payments/{id}/retry")
@@ -48,11 +51,6 @@ public class PaymentController {
             @RequestHeader("X-Auth-Actor") String actor,
             @RequestBody RefundRequest request) {
         return ApiResponse.ok(paymentService.refund(id, request, actor));
-    }
-
-    @PostMapping("/internal/payments/charge")
-    public ApiResponse<PaymentDTO> charge(@RequestBody ChargeRequest req) {
-        return ApiResponse.ok(paymentService.charge(req));
     }
 
     @GetMapping("/internal/payments/{id}")

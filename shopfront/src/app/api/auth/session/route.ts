@@ -18,7 +18,7 @@ export async function GET() {
   }
 
   const baseUrl = process.env.GATEWAY_BASE_URL ?? 'http://localhost:18080';
-  const profileResponse = await fetch(`${baseUrl.replace(/\/$/, '')}/api/users/${encodeURIComponent(userId)}`, {
+  const profileResponse = await fetch(`${baseUrl.replace(/\/$/, '')}/api/me`, {
     headers: { authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
   }).catch(() => null);

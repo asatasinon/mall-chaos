@@ -24,7 +24,7 @@ export default function CheckoutPage() {
     setBusy(true); setError('');
     try {
       const order = await checkout({ cartId: cart.id, cartVersion: cart.version, addressId: Number(addressId), ...(couponId ? { couponId: Number(couponId) } : {}), idempotencyKey: createClientRequestId('shopfront-checkout') });
-      const payment = await createPaymentIntent(order.orderNo, Number(order.totalAmount ?? order.amount ?? subtotal), `shopfront-payment-${order.orderNo}`);
+      const payment = await createPaymentIntent(order.id, `shopfront-payment-${order.orderNo}`);
       localStorage.setItem(`shopfront-payment:${payment.id}`, JSON.stringify({ payment, order }));
       router.push(`/payment/${payment.id}`);
     } catch (e) { setError(e instanceof Error ? e.message : '结算暂时失败，请稍后重试'); } finally { setBusy(false); }

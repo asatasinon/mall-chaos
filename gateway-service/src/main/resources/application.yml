@@ -33,11 +33,15 @@ spring:
         - id: user-addresses
           uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:
-            - Path=/api/addresses/**
+            - Path=/api/me/addresses/**
         - id: user-profile
           uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:
-            - Path=/api/users/**
+            - Path=/api/me
+        - id: payment-intents
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/orders/*/payment-intents
         - id: orders
           uri: ${ORDER_SERVICE_URL:http://localhost:8084}
           predicates:
@@ -57,7 +61,7 @@ spring:
         - id: fulfillments
           uri: ${FULFILLMENT_SERVICE_URL:http://localhost:8089}
           predicates:
-            - Path=/api/fulfillments/**
+            - Path=/api/orders/*/shipment/**
         - id: products
           uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
           predicates:

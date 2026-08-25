@@ -77,12 +77,12 @@ public class FulfillmentService {
                     f.setOrderId(req.getOrderId());
                     f.setCustomerId(req.getUserId());
                     f.setOrderNo(req.getOrderNo());
-                    f.setStatus("CREATED");
+                    f.setStatus("FULFILLING");
                     f.setTrackingNo("TRACK-" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase());
                     f.setCarrier("MockExpress");
                     f.setTraceId(TraceContext.getTraceId());
                     fulfillmentRepository.save(f);
-                    appendTimeline(f.getId(), "CREATED", "Shipment created");
+                    appendTimeline(f.getId(), "FULFILLING", "Shipment created");
                     createCounter.increment();
                     advanceStatusAsync(f.getOrderId());
                     FulfillmentDTO result = toDTO(f);
@@ -176,7 +176,7 @@ public class FulfillmentService {
                 .orElseThrow(() -> new BizException("FULFILLMENT_NOT_FOUND",
                         "Fulfillment not found for orderId: " + req.getOrderId()));
 
-        if (!"CREATED".equals(f.getStatus()) && !"PICKING".equals(f.getStatus())) {
+        if (!"FULFILLING".equals(f.getStatus())) {
             throw new BizException("FULFILLMENT_CANNOT_CANCEL",
                     "Cannot cancel fulfillment in status: " + f.getStatus());
         }
@@ -205,7 +205,7 @@ public class FulfillmentService {
             jdbcTemplate.queryForList(
                     "SELECT s.* FROM (" +
                     " SELECT f.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
-                    " FROM fulfillments f" +
+                    " FROM shipments f" +
                     " JOIN user_behavior_log ubl ON TRUE" +
                     " ORDER BY ubl.created_at DESC, f.id DESC" +
                     " LIMIT " + limitRows + " OFFSET " + offsetRows +
@@ -217,7 +217,7 @@ public class FulfillmentService {
             jdbcTemplate.queryForList(
                     "SELECT s.* FROM (" +
                     " SELECT f.*, pph.effective_at AS __pph_effective_at" +
-                    " FROM fulfillments f" +
+                    " FROM shipments f" +
                     " JOIN product_price_history pph ON CONCAT(pph.sku, '') = f.order_no" +
                     " ORDER BY pph.effective_at DESC, f.id DESC" +
                     " LIMIT " + limitRows + " OFFSET " + offsetRows +
@@ -237,10 +237,19 @@ public class FulfillmentService {
         dto.setStatus(f.getStatus());
         dto.setTrackingNo(f.getTrackingNo());
         dto.setCarrier(f.getCarrier());
-        dto.setShippedAt(f.getShippedAt());
-        dto.setDeliveredAt(f.getDeliveredAt());
         dto.setCreatedAt(f.getCreatedAt());
-        dto.setTimeline(timelineRepository.findByShipmentIdOrderByOccurredAtAsc(f.getId()).stream()
+        java.util.List<ShipmentTimelineEvent> timeline = timelineRepository.findByShipmentIdOrderByOccurredAtAsc(f.getId());
+        dto.setShippedAt(timeline.stream()
+            .filter(event -> "SHIPPED".equals(event.getStatus()))
+            .map(ShipmentTimelineEvent::getOccurredAt)
+            .findFirst()
+            .orElse(f.getShippedAt()));
+        dto.setDeliveredAt(timeline.stream()
+            .filter(event -> "DELIVERED".equals(event.getStatus()) || "COMPLETED".equals(event.getStatus()))
+            .map(ShipmentTimelineEvent::getOccurredAt)
+            .findFirst()
+            .orElse(f.getDeliveredAt()));
+        dto.setTimeline(timeline.stream()
             .map(event -> new FulfillmentDTO.TimelineDTO(event.getStatus(), event.getMessage(), event.getOccurredAt()))
             .toList());
         return dto;

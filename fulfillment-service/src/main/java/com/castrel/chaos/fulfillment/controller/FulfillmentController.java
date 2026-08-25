@@ -22,12 +22,12 @@ public class FulfillmentController {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @GetMapping("/api/fulfillments/{orderId}")
+    @GetMapping("/api/orders/{orderId}/shipment")
     public ApiResponse<FulfillmentDTO> getByOrderId(@PathVariable Long orderId) {
         return ApiResponse.ok(fulfillmentService.getByOrderId(orderId));
     }
 
-    @PostMapping("/api/fulfillments/{orderId}/confirm-delivery")
+    @PostMapping("/api/orders/{orderId}/shipment/confirm-delivery")
     public ApiResponse<FulfillmentDTO> confirmDelivery(
             @RequestHeader("X-User-Id") Long customerId, @PathVariable Long orderId) {
         return ApiResponse.ok(fulfillmentService.confirmDelivery(customerId, orderId));

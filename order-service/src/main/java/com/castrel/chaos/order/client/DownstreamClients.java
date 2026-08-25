@@ -105,7 +105,8 @@ public class DownstreamClients {
     }
 
     public void releaseInventory(String orderId, String sku, String reservationId) {
-        Map<String, Object> body = Map.of("orderId", orderId, "sku", sku, "reservationId", reservationId, "qty", 0);
+        Map<String, Object> body = Map.of("orderId", orderId, "sku", sku, "reservationId", reservationId,
+            "operationId", reservationId);
         exchange(inventoryUrl + "/internal/inventory/release", HttpMethod.POST, body, Map.class);
     }
 
@@ -121,25 +122,19 @@ public class DownstreamClients {
 
     public void confirmInventory(String orderId, String sku, String reservationId) {
         exchange(inventoryUrl + "/internal/inventory/confirm", HttpMethod.POST,
-                Map.of("orderId", orderId, "sku", sku, "reservationId", reservationId), Map.class);
+            Map.of("orderId", orderId, "sku", sku, "reservationId", reservationId,
+                "operationId", reservationId), Map.class);
     }
 
     public void expireInventory(String reservationId, String sku) {
         exchange(inventoryUrl + "/internal/inventory/expire", HttpMethod.POST,
-                Map.of("reservationId", reservationId, "sku", sku), Map.class);
+            Map.of("reservationId", reservationId, "sku", sku, "operationId", reservationId), Map.class);
     }
 
     public Map<String, Object> retryPayment(Long paymentId) {
         Map<String, Object> response = exchange(paymentUrl + "/internal/payments/" + paymentId + "/retry",
                 HttpMethod.POST, Map.of(), Map.class);
         return (Map<String, Object>) ((Map<?, ?>) response).get("data");
-    }
-
-    public Map<String, Object> charge(String orderId, String orderNo, Long userId, BigDecimal amount) {
-        Map<String, Object> reqBody = Map.of(
-                "orderId", orderId, "orderNo", orderNo, "userId", userId, "amount", amount);
-    Map<String, Object> resp = exchange(paymentUrl + "/internal/payments/charge", HttpMethod.POST, reqBody, Map.class);
-        return (Map<String, Object>) ((Map<?, ?>) resp).get("data");
     }
 
     public CheckoutFreeze freezeCart(Long userId, CheckoutCommand command) {
@@ -188,18 +183,23 @@ public class DownstreamClients {
     }
 
     public Map<String, Object> preCheckRisk(Long userId, String orderNo, BigDecimal amount,
-                                String sku, int qty) {
+                                List<Map<String, Object>> items) {
             Map<String, Object> body = Map.of("userId", userId, "orderNo", orderNo,
-                "amount", amount, "sku", sku, "qty", qty);
+                "amount", amount, "items", items);
             Map<String, Object> response = exchange(riskUrl + "/internal/risk/pre-check",
                 HttpMethod.POST, body, Map.class);
             return (Map<String, Object>) ((Map<?, ?>) response).get("data");
     }
 
-            public Map<String, Object> calculatePromotion(Long userId, String orderNo,
+                public Map<String, Object> calculatePromotion(Long userId, String orderNo, Long couponId,
                                                           List<Map<String, Object>> items) {
+                Map<String, Object> request = new java.util.HashMap<>();
+                request.put("userId", userId);
+                request.put("orderId", orderNo);
+                request.put("couponId", couponId);
+                request.put("skus", items);
                 Map<String, Object> response = exchange(promotionUrl + "/internal/promotions/calculate",
-                        HttpMethod.POST, Map.of("userId", userId, "orderId", orderNo, "skus", items), Map.class);
+                    HttpMethod.POST, request, Map.class);
                 return (Map<String, Object>) ((Map<?, ?>) response).get("data");
             }
 }

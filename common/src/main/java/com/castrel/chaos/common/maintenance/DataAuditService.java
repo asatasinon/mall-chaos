@@ -32,8 +32,8 @@ public class DataAuditService {
     private static final int MAX_DURATION_SEC = 600;
 
     private static final Set<String> ALLOWED_TABLES = Set.of(
-            "orders", "payments", "inventories", "fulfillments",
-            "notification_logs", "risk_events", "promotions", "coupons"
+            "orders", "order_items", "payment_attempts", "inventories",
+            "shipments", "customer_notifications", "risk_events", "promotions", "coupons"
     );
 
     private final DataSource dataSource;

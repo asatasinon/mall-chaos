@@ -39,6 +39,11 @@ public class OrderController {
         return ApiResponse.ok(orderService.getCustomerOrder(customerId, id));
     }
 
+    @GetMapping("/internal/orders/{id}")
+    public ApiResponse<OrderDTO> getInternalOrder(@PathVariable Long id) {
+        return ApiResponse.ok(orderService.getOrder(id));
+    }
+
     @GetMapping("/api/orders")
     public ApiResponse<Page<OrderDTO>> listOrders(
             @RequestHeader("X-User-Id") Long customerId,

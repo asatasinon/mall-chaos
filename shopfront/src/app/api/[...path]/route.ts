@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { ACCESS_TOKEN_COOKIE } from '@/lib/auth';
 import { clearAuthCookies } from '@/lib/server-auth';
 
-const allowedRoots = new Set(['products', 'cart', 'checkout', 'orders', 'payments', 'fulfillments', 'notifications', 'auth', 'users', 'addresses']);
+const allowedRoots = new Set(['products', 'cart', 'checkout', 'orders', 'payments', 'notifications', 'auth', 'me']);
 
 function isAllowed(path: string[]) {
   return path.length > 0 && allowedRoots.has(path[0]) && !path.some((part) => part === '..' || part === 'internal');

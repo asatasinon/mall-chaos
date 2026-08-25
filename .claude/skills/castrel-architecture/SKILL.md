@@ -23,7 +23,7 @@ castrel-chaos 是一个电商风格的 Java 微服务系统，用于压测/混�
 | risk-service | - | 是 | 否 | 下单前/支付后风控校验 |
 | fulfillment-service | - | 是 | 否 | 订单履约，异步发货状态更新 |
 | notification-service | 8090 | 是 | 是 | 通知发送（订单创建/支付结果/发货），当前**无调用方**，接口已就位但未接入 |
-| traffic-runner-service | 8086 | 否 | 否 | 非业务服务：自动化流量生成 + 混沌场景编排器 |
+| traffic-control-plane | 3086 | 否 | 是（worker） | Next.js 控制台、自动化流量生成与混沌场景编排 |
 
 所有服务的 MySQL/Redis 均指向共享实例：`jdbc:mysql://mysql:3306/castrel`、`redis:6379`（见 `k8s/configmap/app-config.yaml`）。
 
@@ -34,30 +34,33 @@ client → gateway-service (8080)
            ├─ /api/orders/**    → order-service:8084
            ├─ /api/products/**  → catalog-service:8082
            ├─ /ops/chaos/{svc}/** → 对应 service（strip 前缀转发）
-           ├─ /ops/scenario/**  → traffic-runner-service:8086 (rewrite → /internal/runner/scenario/**)
+           ├─ /api/orders/*/payment-intents → payment-service:8085
+           ├─ /api/orders/*/shipment/** → fulfillment-service:8089
+           └─ /internal/chaos/** → target service（控制面分发）
            └─ /ops/toxiproxy/** , /internal/toxiproxy/** → toxiproxy:8474
 
 order-service → (DownstreamClients.java, RestClient + TraceContext 传播)
            ├─ user-service      GET  /internal/users/{id}
            ├─ catalog-service   POST /internal/catalog/batch
            ├─ inventory-service POST /internal/inventory/{reserve,release}
-           └─ payment-service   POST /internal/payments/charge
+           ├─ promotion-service POST /internal/promotions/preview
+           └─ risk-service      POST /internal/risk/pre-check
 
-traffic-runner-service → (ScenarioController，混沌编排)
+traffic-control-plane worker → (TrafficActionOrchestrator，流量编排)
            持有 order/payment/inventory/catalog/promotion/risk/fulfillment/notification
            的 URL，调用各服务 /internal/maintenance/data-audit/{start,stop}
-           模拟表锁；并翻转 Redis flag 触发慢查询/内存压力场景
+           通过 Gateway dispatch 下发表锁、慢查询和内存压力故障
 ```
 
-其余服务（catalog、inventory、payment、promotion、risk、user、fulfillment）彼此之间**无**直连调用，只作为 order-service 或 traffic-runner-service 的下游被调用。
+其余服务（catalog、inventory、payment、promotion、risk、user、fulfillment）彼此之间**无**直连调用，只作为 order-service 或控制面的下游被调用。
 
-**关键点：只有 order-service 是业务编排的调用发起方**（下单流程串联 user/catalog/inventory/payment）；traffic-runner-service 是外部混沌控制面，不属于业务调用链。
+**关键点：只有 order-service 是业务编排的调用发起方**（下单流程串联 user/catalog/inventory/promotion/risk）；traffic-control-plane 是外部流量与混沌控制面，不属于业务调用链。
 
 ## 混沌故障注入机制
 
 所有支持混沌的业务服务（order/inventory/payment/promotion/risk/fulfillment/notification）都通过 `common` 模块自动装配了同一套故障钩子，无需各自实现：
 
-1. **表锁/死锁模拟**：每个服务暴露相同的 `MaintenanceController`：`/internal/maintenance/data-audit/{start,stop,status}`，底层是 `common` 的 `DataAuditService`。由 traffic-runner-service 的 `/table-lock/enable` 远程触发。
+1. **表锁/死锁模拟**：目标服务的 `/internal/chaos/**` 由 Gateway dispatch 到 `common` 的 `ChaosService` 和 `DataAuditService`，按统一协议启动、停止和查询。
 2. **慢查询模拟**：traffic-runner 翻转 Redis flag `castrel:query:enrichment`，服务内 `common` 的 `QueryEnrichmentInterceptor` 读取该 flag 并人为延迟 SQL。
 3. **内存泄漏/压力模拟**：Redis flag `castrel:cache:local-buffer`，由 `common` 的 `LocalQueryCacheManager` 读取并持续占用内存。
 
@@ -104,7 +107,7 @@ traffic-runner-service → (ScenarioController，混沌编排)
 
 - 想看下单调用链：`order-service/src/main/java/.../client/DownstreamClients.java`
 - 想看网关路由表：`gateway-service/src/main/resources/application.yml`
-- 想看某类故障怎么触发：`traffic-runner-service/.../controller/ScenarioController.java`
+- 想看某类故障怎么触发：`traffic-control-plane/src/app/chaos/` 与 `common/src/main/java/com/castrel/chaos/common/chaos/ChaosService.java`
 - 想看某服务是否支持某混沌：看它是否依赖 `common` 的对应 auto-configuration + 有没有 `MaintenanceController`
 - k8s 层服务发现用 `<name>-service` DNS 名，环境变量见 `k8s/configmap/app-config.yaml`，与各服务 `application.yml` 默认值一一对应
 
@@ -114,5 +117,5 @@ traffic-runner-service → (ScenarioController，混沌编排)
 |---|---|
 | 以为服务间用 MQ 通信 | 全部是同步 HTTP，无 Kafka/RabbitMQ/RocketMQ |
 | 以为 notification-service 被订单/支付流程调用 | 接口已定义但当前代码中**无任何调用方**，是预留集成点 |
-| 以为 traffic-runner-service 是业务服务 | 它是压测/混沌编排器，不参与真实下单链路 |
+| 以为 traffic-control-plane 是业务服务 | 它是流量/混沌控制面，不参与真实下单业务编排 |
 | 以为每个服务的混沌能力是独立实现的 | 实际由 `common` 模块的 Redis flag + 拦截器统一驱动 |

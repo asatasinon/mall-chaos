@@ -69,13 +69,6 @@ public class InventoryService {
     }
 
     @Transactional
-    public Map<String, Object> reserve(String orderId, String sku, int qty) {
-        String operationId = orderId + ":" + sku;
-        String reservationId = operationId;
-        return reserve(orderId, sku, qty, reservationId, operationId);
-    }
-
-    @Transactional
     public Map<String, Object> reserve(String orderId, String sku, int qty,
                                        String reservationId, String operationId) {
         reservationCounter.increment();
@@ -123,12 +116,15 @@ public class InventoryService {
     }
 
     @Transactional
-    public void release(String orderId, String sku, int qty) {
-        release(orderId, sku, qty, orderId + ":" + sku);
-    }
-
-    @Transactional
-    public void release(String orderId, String sku, int qty, String reservationId) {
+    public void release(String orderId, String sku, String reservationId, String operationId) {
+        if (reservationId == null || operationId == null || operationId.isBlank()) {
+            throw new BizException("INVALID_RESERVATION", "reservationId and operationId are required");
+        }
+        InventoryReservation operation = reservationRepository.findByOperationIdAndSku(operationId, sku)
+                .orElseThrow(() -> new BizException("RESERVATION_NOT_FOUND", "Reservation not found"));
+        if (!operation.getReservationId().equals(reservationId)) {
+            throw new BizException("RESERVATION_NOT_FOUND", "Reservation not found");
+        }
         InventoryReservation reservation = reservationRepository.findByReservationIdAndSku(reservationId, sku)
                 .orElseThrow(() -> new BizException("RESERVATION_NOT_FOUND", "Reservation not found"));
         if (!reservation.getOrderId().equals(orderId)) {
@@ -143,7 +139,12 @@ public class InventoryService {
     }
 
     @Transactional
-    public void confirm(String orderId, String sku, String reservationId) {
+    public void confirm(String orderId, String sku, String reservationId, String operationId) {
+        InventoryReservation operation = reservationRepository.findByOperationIdAndSku(operationId, sku)
+                .orElseThrow(() -> new BizException("RESERVATION_NOT_FOUND", "Reservation not found"));
+        if (!operation.getReservationId().equals(reservationId)) {
+            throw new BizException("RESERVATION_NOT_FOUND", "Reservation not found");
+        }
         InventoryReservation reservation = reservationRepository.findByReservationIdAndSku(reservationId, sku)
                 .orElseThrow(() -> new BizException("RESERVATION_NOT_FOUND", "Reservation not found"));
         if (!reservation.getOrderId().equals(orderId)) {
@@ -157,7 +158,12 @@ public class InventoryService {
     }
 
     @Transactional
-    public void expire(String reservationId, String sku) {
+    public void expire(String reservationId, String sku, String operationId) {
+        InventoryReservation operation = reservationRepository.findByOperationIdAndSku(operationId, sku)
+                .orElseThrow(() -> new BizException("RESERVATION_NOT_FOUND", "Reservation not found"));
+        if (!operation.getReservationId().equals(reservationId)) {
+            throw new BizException("RESERVATION_NOT_FOUND", "Reservation not found");
+        }
         InventoryReservation reservation = reservationRepository.findByReservationIdAndSku(reservationId, sku)
                 .orElseThrow(() -> new BizException("RESERVATION_NOT_FOUND", "Reservation not found"));
         if (!"RESERVED".equals(reservation.getStatus())) return;
