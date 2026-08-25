@@ -293,8 +293,7 @@ export class TrafficActionOrchestrator {
   }
 
   private async findSellableProducts(
-    orderNo: order?.orderNo, paymentId, pendingPaymentRetained, faultScenarioId, steps,
-    cartVersion: steps.findLast((step) => step.actionType === 'CART_READ_READY')?.cartVersion,
+    context: CustomerRequestContext,
     signal?: AbortSignal,
   ): Promise<StepValue<ProductData[]>> {
     const products: ProductData[] = [];
