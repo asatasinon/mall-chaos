@@ -30,13 +30,15 @@
 | `src/lib/gateway-client.ts` | 提供登录、刷新、登出与 bearer-authenticated 请求；请求头按认证模式互斥。 |
 | `src/worker/customer-session-manager.ts` | 选择账号、维护生命周期内客户会话、刷新 token 和失效处理。 |
 | `src/worker/traffic-action-orchestrator.ts` | 执行完整生命周期及子步骤，不再为每个子动作随机选择客户。 |
-| `src/worker/runner-engine.ts` | 以生命周期作为主调度单位，记录父子步骤并定义 QPS 语义。 |
+| `src/worker/runner-engine.ts` | 以生命周期作为主调度单位，按固定串行间隔调度并记录父子步骤。 |
 | `src/worker/coupon-replenishment.ts` | 启动时及每 6 小时触发一次演示券池补齐，复用 Redis 锁和 GatewayClient 调用模式。 |
+| `src/worker/inventory-replenishment.ts` | 启动时及每 6 小时触发一次库存基线补齐，取代 runner 对库存 reset 的依赖。 |
 | `src/lib/runtime-state.ts` | 仅保存不含秘密、按客户归属的订单引用及活动数据。 |
 | `src/lib/runner-config.ts` | 校验生命周期模式、成功支付比例、优惠券使用比例和可选背景动作配置。 |
 | `src/lib/runner-persistence.ts` | 持久化 `lifecycleId` 与步骤记录。 |
 | `src/app/runner/page.tsx` | 展示生命周期配置、账号健康和父子步骤活动。 |
 | `promotion-service` | 提供客户归属可用券查询、原子预留和幂等的演示券池补齐命令；worker 不直接生成优惠券。 |
+| `inventory-service` | 提供幂等库存基线补齐命令；worker 不直接写库存，也不调用 reset。 |
 
 ## 3. 配置与安全边界
 
@@ -70,6 +72,7 @@ TRAFFIC_LIFECYCLE_ACCOUNTS=[]
 | 字段 | 类型 | 规则 |
 | --- | --- | --- |
 | `traffic_mode` | enum | `CUSTOMER_LIFECYCLE` 为默认主模式；旧独立动作仅显式选择。 |
+| `lifecycle_interval_sec` | enum | 仅允许 `60`、`30`、`20`、`10`；一次生命周期结束后等待此间隔再开始下一次。 |
 | `successful_payment_ratio` | decimal | $0 \le r \le 1$。 |
 | `coupon_usage_ratio` | decimal | $0 \le r \le 1$；其余生命周期明确不传 `couponId`。 |
 | `background_actions_enabled` | boolean | 默认 `false`。 |
@@ -78,7 +81,7 @@ TRAFFIC_LIFECYCLE_ACCOUNTS=[]
 
 演示券池基线为 `promotion-service` 的服务端配置，而非 runner 可编辑参数。配置至少包含演示客户集合、可补充的 promotion 类型、每客户每类型的 `targetAvailableCount`、`replenishBelowCount` 和券有效期。补券任务只能作用于显式演示客户，默认不影响普通客户。
 
-补券调度属于 `traffic-control-plane` worker，固定 cron 为 `0 0 */6 * * *`（UTC 的 00:00、06:00、12:00、18:00）。worker 启动后在启用生命周期流量前执行一次同样的补齐协调；这既恢复刚重置的演示数据，也避免首次运行等待最多 6 小时。周期不开放给控制台编辑，避免运行期间改变券池节奏。
+补券和库存补齐调度均属于 `traffic-control-plane` worker，固定 cron 为 `0 0 */6 * * *`（UTC 的 00:00、06:00、12:00、18:00）。worker 启动后在启用生命周期流量前分别执行一次补齐协调，避免首次运行等待最多 6 小时。周期不开放给控制台编辑，避免运行期间改变基线补齐节奏。
 
 如 `traffic_actions` 无法表达父子关联，新增 nullable `lifecycle_id CHAR(36)`、索引 `(traffic_run_id, lifecycle_id, created_at)`；不持久化 token 或密码。父记录使用 `action_type=CUSTOMER_LIFECYCLE`，子步骤保留稳定动作类型。
 
@@ -184,12 +187,16 @@ executeLifecycle(runId, config):
   eligible = candidates where status is sellable and availableQty > 0
   if eligible is empty: record NOOP and finish
 
+  existingCart = GET /api/cart
+  eligible = eligible excluding existingCart item SKUs
   selected = sampleWithoutReplacement(eligible, random integer [1, min(maxItems, eligible.length)])
   for product in selected:
     add cart item(product.sku, random integer [1, maxItemQuantity])
 
   cart = GET /api/cart
   address = GET /api/me/addresses and choose default then first
+  if address is missing:
+    address = POST /api/me/addresses(deterministic demo address, isDefault=true)
   useCoupon = random() < couponUsageRatio
   coupons = GET /api/me/coupons when useCoupon
   coupon = chooseEligibleCoupon(coupons, cart)
@@ -201,7 +208,7 @@ executeLifecycle(runId, config):
   GET /api/orders/{order.id}
   if random() < successfulPaymentRatio:
     intent = POST /api/orders/{order.id}/payment-intents(unique idempotencyKey)
-    POST /api/payments/{intent.id}/confirm {}
+    require POST /api/payments/{intent.id}/confirm {} returns SUCCESS
   else:
     current = GET /api/orders/{order.id}
     if current.status == PENDING_PAYMENT:
@@ -213,7 +220,11 @@ executeLifecycle(runId, config):
   logout and clear session
 ```
 
-目录响应必须是商品候选的唯一来源。不得继续依赖固定 `SKU-001..SKU-050`，因为它会选中下架商品，且类别集合可能与实际种子数据不一致。目录读取应在有界次数内组合分类、关键字、页码和商品详情；无候选商品属于 `NOOP`，不是重试风暴。
+目录响应必须是商品候选的唯一来源。不得继续依赖固定 `SKU-001..SKU-050`，因为它会选中下架商品，且类别集合可能与实际种子数据不一致。常规生命周期假设基线库存充足；目录中的零库存、下架、价格变化、支付失败/未知与下游异常只由明确的故障注入场景验证。目录读取应在有界次数内组合分类、关键字、页码和商品详情；无候选商品属于 `NOOP`，不是重试风暴。
+
+购物车为演示账号的持久化状态：runner 不清空既有明细，而是排除既有 SKU 后继续随机加购。若已有明细已达到 `maxItems` 或无新增 SKU 候选，runner 仍可使用当前购物车 checkout，并记录 `CART_REUSED`。地址缺失时，仅为当前登录客户经 Gateway `POST /api/me/addresses` 创建固定格式的演示地址；已有地址不修改、不删除、不覆盖默认标记。
+
+常规支付成功由训练环境的普通 CUSTOMER 支付固定成功契约保证。真实支付失败、未知、库存不足、优惠券争用、商品下架及下游超时必须由故障注入场景明确开启、标记 `faultScenarioId` 并单独统计；常规生命周期不将它们作为随机结局。故障注入导致的已创建订单可停留在 `PENDING_PAYMENT`，依赖既有订单预占到期、库存/优惠券释放和补偿流程，runner 不强制取消或重试。
 
 ### 5.3 优惠券查询、选择与补充
 
@@ -224,7 +235,7 @@ GET /api/me/coupons?status=AVAILABLE
 Authorization: Bearer <accessToken>
 ```
 
-`promotion-service` 必须仅从可信客户主体取得客户 ID，返回该客户当前 `AVAILABLE`、未过期且关联促销仍启用的券。返回 DTO 至少包含 `id`、promotion 类型、名称、门槛、折扣/减免、过期时间；不得接受请求传入的 `userId`。列表只用于候选选择，不能替代 checkout 的最终资格校验。
+Gateway 必须新增精确的 `/api/me/coupons/** -> promotion-service` 路由，并按普通 CUSTOMER 客户 API 处理：验证 bearer token、清洗伪造身份头、生成可信下游主体声明。`promotion-service` 必须仅从该可信主体取得客户 ID，返回该客户当前 `AVAILABLE`、未过期且关联促销仍启用的券。返回 DTO 至少包含 `id`、promotion 类型、名称、门槛、折扣/减免、过期时间；不得接受请求传入的 `userId`。列表只用于候选选择，不能替代 checkout 的最终资格校验。跨客户读取、无 token 访问和直接访问 promotion-service 均必须拒绝。
 
 runner 在“使用券”分支中，从候选列表选择一张与当前购物车金额匹配的券；在“无券”分支中明确省略 `couponId`。`couponId == null` 的促销计算语义必须改为“不选择、不预留、不消耗任何券”，禁止现有的自动选择首张可用券行为。
 
@@ -239,19 +250,34 @@ X-Internal-Service-Key: <control-plane service credential>
 
 Gateway 将调用分发到 `promotion-service`；worker 不读取或写入 `coupons`、`coupon_reservations` 表，也不传入客户 ID、promotion ID、数量或券内容。促销服务的 `DemoCouponPoolService` 是唯一能够决定和写入补券数据的组件。
 
+Gateway 必须将 `/internal/gateway/promotions/demo-coupons/replenish` 路由为仅限 traffic-control-plane 服务主体的内部调度命令：拒绝 CUSTOMER bearer token、浏览器来源和任意请求参数，验证内部服务认证后才分发至 promotion-service 的内部端点。该端点不得被 Shopfront 或公开 Ingress 暴露。
+
 每次触发按以下规则执行：
 
-1. worker 启动后立即尝试一次，并在每个 UTC 六小时窗口执行一次；使用 `traffic-control-plane:coupon-replenish:<utc-window>` Redis `SET NX` 锁，使多实例和重启只产生一次调用。
+1. worker 启动后立即尝试一次，并在每个 UTC 六小时窗口执行一次；使用短期执行锁和独立的成功完成标记，而不是仅用窗口 `SET NX` 锁。
 2. 计算每个 `(customerId, promotionId)` 的未过期 `AVAILABLE` 数量。
 3. 数量低于 `replenishBelowCount` 时，补充到 `targetAvailableCount`，并设置有限 `expireAt`。
 4. 促销服务以数据库唯一键或受控的发行批次/幂等键保证重复 Gateway 调用不会超额补券；Redis 锁仅减少重复调度，不作为最终一致性保证。
-5. worker 与促销服务分别记录补券数、跳过数、失败数和关联 ID；仅记录 customer ID、promotion ID 和数量，不记录登录秘密或 token。
+5. Gateway 或促销服务调用失败时，worker 在当前窗口内以有限退避重试；只有成功才写窗口完成标记。worker 与促销服务分别记录补券数、跳过数、失败数、重试次数和关联 ID；仅记录 customer ID、promotion ID 和数量，不记录登录秘密或 token。
 
 该任务不回收 `RESERVED` 券。过期预留的释放仍必须由订单过期流程和促销服务的受控清理任务处理；券查询和 checkout 均须拒绝 `expireAt <= now()` 的券。
 
-### 5.4 调度
+### 5.4 库存补齐
 
-`RunnerEngine` 主模式中每个 tick 启动一条生命周期，下一 tick 必须等当前生命周期结束后调度，以保持当前串行执行模型。`currentQps` 明确表示生命周期启动速率；可额外发布 `httpRequestsPerSecond` 作为子步骤请求速率，避免混淆。
+新增 worker 的 `InventoryReplenishmentScheduler`，使用与优惠券相同的启动协调、UTC 六小时周期、短期执行锁、成功完成标记和窗口内有限退避。它仅通过 Gateway 调用受内部服务认证保护的无参数库存补齐命令，例如：
+
+```http
+POST /internal/gateway/inventory/demo-stock/replenish
+X-Internal-Service-Key: <control-plane service credential>
+```
+
+Gateway 将请求分发至 `inventory-service`；worker 不读取或写入库存表，不传 SKU、数量或目标版本，也不得调用任何 `/reset` 路径。`DemoInventoryBaselineService` 只针对显式配置的演示 SKU，计算可售库存与 `targetAvailableQty` 的差额并用条件更新补齐，绝不覆盖未过期预占或已确认库存扣减。服务端以补齐窗口/批次幂等键确保超时重送、多实例和重试不会重复加库存。补齐结果记录 SKU 数、补充数量、跳过数量、失败数、重试次数和关联 ID。
+
+`/internal/gateway/inventory/demo-stock/replenish` 采用与补券命令相同的 Gateway 内部服务认证与入口隔离规则；不提供公开、客户或 Shopfront 可调用的补货/reset API。
+
+### 5.5 串行调度
+
+`RunnerEngine` 主模式中每次只执行一条生命周期。生命周期完成后，按 `lifecycle_interval_sec` 等待 `60`、`30`、`20` 或 `10` 秒，再启动下一条；不再计算或展示 QPS、峰值倍率、周期和抖动。状态 API 返回当前选择间隔、上次开始/结束时间、累计完成/中断数和实际平均间隔。若单次执行时长超过选择间隔，下一次在完成后立即按最小安全延迟启动，不允许重叠执行。
 
 生命周期必须在 runner 停止前完成或以受控方式标记为中断；子步骤持久化不能以 fire-and-forget 形式在 run 已标记完成后丢失。
 
@@ -272,24 +298,25 @@ interface RunnerOrderRef {
 
 队列读取后必须使用该 `customerId` 的有效会话重新请求订单；若没有该客户会话或 token 已不可用，则只记录 `NOOP/SESSION_UNAVAILABLE`，不得将订单转交其他账号。主生命周期不依赖跨生命周期队列完成支付或取消。
 
-库存重置和环境重置继续清空全部 runner order queue 与活动关联状态。
+runner 不依赖库存 reset；库存保持由六小时补齐任务维护。环境全量重置属于独立运维操作，不属于本流量方案的场景或触发器。
 
 ## 7. API、控制台与审计
 
 现有 runner 配置 Route Handler 扩展为：
 
-- `GET /internal/traffic/runner/config`：返回无秘密的 lifecycle 配置、支付/取消比例和账号统计。
-- `PUT /internal/traffic/runner/config`：要求 `version`，校验模式、比例和边界；写入 operator audit。
-- `GET /internal/traffic/runner/status`：返回 lifecycle QPS、运行 ID、活跃生命周期数、账号成功/失败汇总，不返回 token。
+- `GET /internal/traffic/runner/config`：返回无秘密的串行执行间隔、支付/取消/用券比例和账号统计。
+- `PUT /internal/traffic/runner/config`：要求 `version`，仅接受四种执行间隔并校验比例和边界；写入 operator audit。
+- `GET /internal/traffic/runner/status`：返回执行间隔、运行 ID、当前生命周期、累计完成/中断数、上次完成时间和账号结果汇总，不返回 token。
 - `GET /internal/traffic/runner/activity`：返回父/子关联、客户 ID、账号标签、订单/支付关联和稳定错误码。
 
 Runner 页面应：
 
-1. 将“支付成功/失败/未知”编辑控件改为“成功支付/取消待支付订单”，并增加“使用优惠券/无券”比例。
-2. 显示生命周期模式、账号数、最近会话健康摘要与活动层级。
-3. 对父生命周期展开子步骤，便于从登录定位到最终订单状态。
-4. 展示下一次固定补券时间、上次结果和补券数；不提供周期修改或任意补券参数输入。
-5. 不渲染账号邮箱、密码、token 或原始 authorization 请求头。
+1. 移除 QPS、峰值倍率、周期和抖动控件，改为 `60s`、`30s`、`20s`、`10s` 串行执行间隔单选。
+2. 将“支付成功/失败/未知”编辑控件改为“成功支付/取消待支付订单”，并增加“使用优惠券/无券”比例。
+3. 显示生命周期模式、账号数、最近会话健康摘要与活动层级。
+4. 对父生命周期展开子步骤，便于从登录定位到最终订单状态、地址创建、购物车复用和待支付保留原因。
+5. 展示下一次固定补券/库存补齐时间、上次结果、补充数与当前窗口重试状态；不提供周期修改或任意补齐参数输入。
+6. 不渲染账号邮箱、密码、token 或原始 authorization 请求头。
 
 ## 8. 测试与验证
 
@@ -304,11 +331,18 @@ Runner 页面应：
 - 使用同一会话执行加购、checkout、查单、支付/取消；禁止跨客户订单操作。
 - 仅从目录响应中选择可售且可用库存为正的 SKU。
 - 无重复 SKU，种类与数量均在边界内。
+- 已有购物车明细在生命周期间保留；本次仅新增不同 SKU，购物车已满时正确记录复用分支。
+- 无地址时仅为当前客户创建默认演示地址；已有客户地址不会被改写。
 - `GET /api/me/coupons` 只返回当前客户可用、未过期且促销有效的券；请求不得携带或信任 `userId`。
+- Gateway 将 `/api/me/coupons` 只路由给 promotion-service 的 CUSTOMER API；跨客户、无 token、伪造身份头和 promotion-service 直连均被拒绝。
+- 补券和库存补齐命令仅接受 traffic-control-plane 的内部服务认证；CUSTOMER token、浏览器调用、Shopfront 和公开入口均被拒绝。
 - 无券 checkout 不创建优惠券预留或改变券状态；有券 checkout 仅选择当前客户 API 返回的券。
 - 并发 checkout 对同一券至多产生一个 `RESERVED` 预留；支付确认变为 `USED`，取消、失败和到期恰好一次释放为 `AVAILABLE`。
 - 演示券池补充在低水位后恢复目标数量，多次运行和多实例并发不会超额生成。
-- worker 启动补齐和每 6 小时的 UTC 周期补齐均通过 Gateway；Redis 锁竞争失败时本实例跳过，促销服务重复执行仍保持幂等。
+- worker 启动补券/库存补齐和每 6 小时的 UTC 周期均通过 Gateway；失败会在窗口内重试，成功标记仅在完成后写入，重复执行仍保持幂等。
+- 常规支付总是成功；支付失败、未知、库存耗尽、下架、价格变化和下游异常仅在关联 `faultScenarioId` 的故障注入测试中出现并单独统计。
+- 中断后允许订单保持 `PENDING_PAYMENT`，并验证既有订单过期、库存/优惠券释放与补偿机制，而非 runner reset。
+- 串行调度只接受四种间隔；慢生命周期不重叠，状态记录实际开始/结束和平均执行间隔。
 - checkout 幂等键唯一，创建后与收尾后各查询一次订单。
 - 成功支付分支不发送 runner 支付策略头。
 - 取消分支在每次取消前重新读取状态，非 `PENDING_PAYMENT` 时返回 `NOOP`。
@@ -329,12 +363,13 @@ pnpm build
 在包含 MySQL、Redis、Gateway 与全部业务服务的干净 Compose 环境执行：
 
 1. 使用 Secret 设置 `CASTREL_JWT_SECRET`、内部服务认证密钥以及生命周期账号配置。
-2. 验证 Gateway 健康后，以低 QPS 启动有界 runner。
-3. 启动 worker 后验证其先执行一次补券；随后以可控时钟或测试 cron 验证六小时窗口内仅一次 Gateway 分发和一次促销服务有效补齐。
-4. 分别确认 `alice`、`bob` 的有券成功支付、无券成功支付以及有券取消生命周期。
-5. 查询订单、支付、库存预占、优惠券预留、券池补充记录以及 `traffic_runs`、`traffic_actions`，确认状态和关联一致。
-5. 检查 Redis 活动、MySQL 记录和控制台 API 响应不包含密码或 token。
-6. 验证缺失、过期和错配 bearer token 被 Gateway 拒绝，且无法访问其他客户订单。
+2. 验证 Gateway 健康后，分别选择 `60s`、`30s`、`20s`、`10s` 执行间隔，确认生命周期严格串行且记录实际间隔。
+3. 启动 worker 后验证其先执行一次补券和库存补齐；随后以可控时钟或测试 cron 验证六小时窗口内失败重试、一次成功完成标记及幂等 Gateway 分发。
+4. 分别确认 `alice`、`bob` 的有券成功支付、无券成功支付、有券取消、已有购物车续加购和无地址自动创建分支。
+5. 在受控 worker 中断后确认订单可保留 `PENDING_PAYMENT`，并由既有订单到期/补偿链路释放预占，不触发库存 reset。
+6. 查询订单、支付、库存预占、优惠券预留、券池/库存补齐记录以及 `traffic_runs`、`traffic_actions`，确认状态和关联一致。
+7. 检查 Redis 活动、MySQL 记录和控制台 API 响应不包含密码或 token。
+8. 验证缺失、过期和错配 bearer token 被 Gateway 拒绝，且无法访问其他客户订单。
 
 ## 9. 迁移与兼容性
 
