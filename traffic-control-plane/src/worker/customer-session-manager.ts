@@ -1,0 +1,148 @@
+import {
+  CustomerAuthResponse,
+  CustomerRequestContext,
+  CustomerSession,
+  GatewayClient,
+  getGatewayClient,
+} from '../lib/gateway-client';
+import {
+  LifecycleAccount,
+  loadLifecycleAccounts,
+  validateLoginIdentity,
+} from '../lib/lifecycle-accounts';
+
+interface ActiveSession {
+  account: LifecycleAccount;
+  session: CustomerSession;
+}
+
+export interface CustomerSessionManagerDependencies {
+  accounts?: LifecycleAccount[];
+  gateway?: GatewayClient;
+  random?: () => number;
+}
+
+export class CustomerSessionManager {
+  private readonly accounts: LifecycleAccount[];
+  private readonly gateway: GatewayClient;
+  private readonly random: () => number;
+  private readonly sessions = new Map<string, ActiveSession>();
+
+  constructor(dependencies: CustomerSessionManagerDependencies = {}) {
+    this.accounts = dependencies.accounts ?? loadLifecycleAccounts();
+    this.gateway = dependencies.gateway ?? getGatewayClient();
+    this.random = dependencies.random ?? Math.random;
+  }
+
+  async openSession(
+    trafficRunId: string,
+    lifecycleId: string,
+    traceId: string,
+  ): Promise<CustomerRequestContext> {
+    if (this.sessions.has(lifecycleId)) {
+      throw new Error('LIFECYCLE_SESSION_ALREADY_EXISTS');
+    }
+    const account = this.selectAccount();
+    let auth: CustomerAuthResponse;
+    try {
+      auth = await this.gateway.login(account.email, account.password, traceId);
+    } catch {
+      throw new Error('LIFECYCLE_LOGIN_FAILED');
+    }
+
+    let customerId: number;
+    try {
+      customerId = validateLoginIdentity(account, auth);
+    } catch (error) {
+      throw error instanceof Error ? error : new Error('LIFECYCLE_LOGIN_IDENTITY_INVALID');
+    }
+    const expiresAt = new Date(auth.expiresAt);
+    if (Number.isNaN(expiresAt.getTime())) {
+      throw new Error('LIFECYCLE_AUTH_RESPONSE_INVALID');
+    }
+
+    const session: CustomerSession = {
+      accountLabel: account.label,
+      customerId,
+      accessToken: auth.accessToken,
+      sessionToken: auth.sessionToken,
+      expiresAt,
+    };
+    this.sessions.set(lifecycleId, { account, session });
+    return this.contextFor(trafficRunId, lifecycleId, traceId, session);
+  }
+
+  async refreshSession(lifecycleId: string, traceId: string): Promise<void> {
+    const active = this.sessions.get(lifecycleId);
+    if (!active) {
+      throw new Error('LIFECYCLE_SESSION_NOT_FOUND');
+    }
+    if (!active.account.enabled) {
+      throw new Error('LIFECYCLE_ACCOUNT_DISABLED');
+    }
+
+    let auth: CustomerAuthResponse;
+    try {
+      auth = await this.gateway.refresh(active.session.sessionToken, traceId);
+    } catch {
+      throw new Error('LIFECYCLE_SESSION_REFRESH_FAILED');
+    }
+    let customerId: number;
+    try {
+      customerId = validateLoginIdentity(active.account, auth);
+    } catch {
+      throw new Error('LIFECYCLE_SESSION_REFRESH_FAILED');
+    }
+    if (customerId !== active.session.customerId) {
+      throw new Error('LIFECYCLE_CUSTOMER_ID_MISMATCH');
+    }
+    const expiresAt = new Date(auth.expiresAt);
+    if (Number.isNaN(expiresAt.getTime())) {
+      throw new Error('LIFECYCLE_SESSION_REFRESH_FAILED');
+    }
+    active.session.accessToken = auth.accessToken;
+    active.session.sessionToken = auth.sessionToken;
+    active.session.expiresAt = expiresAt;
+  }
+
+  async closeSession(lifecycleId: string, traceId: string): Promise<void> {
+    const active = this.sessions.get(lifecycleId);
+    if (!active) return;
+    try {
+      await this.gateway.logout(active.session.sessionToken, traceId);
+    } catch {
+      // Logout is best effort; the local session must still be discarded.
+    } finally {
+      this.sessions.delete(lifecycleId);
+      active.session.accessToken = '';
+      active.session.sessionToken = '';
+    }
+  }
+
+  hasSession(lifecycleId: string): boolean {
+    return this.sessions.has(lifecycleId);
+  }
+
+  private selectAccount(): LifecycleAccount {
+    const enabled = this.accounts.filter((account) => account.enabled);
+    if (enabled.length === 0) {
+      throw new Error('LIFECYCLE_NO_ENABLED_ACCOUNT');
+    }
+    return enabled[Math.floor(this.random() * enabled.length)];
+  }
+
+  private contextFor(
+    trafficRunId: string,
+    lifecycleId: string,
+    traceId: string,
+    session: CustomerSession,
+  ): CustomerRequestContext {
+    return {
+      trafficRunId,
+      lifecycleId,
+      traceId,
+      session,
+      refresh: () => this.refreshSession(lifecycleId, traceId),
+    };
+  }
+}
