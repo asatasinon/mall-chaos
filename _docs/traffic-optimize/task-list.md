@@ -17,7 +17,7 @@
 3. 业务请求必须经 `gateway-service`；worker 和 runner 禁止直接访问业务服务或直接写业务表。
 4. 常规生命周期不制造支付失败/未知、库存耗尽、商品下架、价格变化、券争用或下游异常；这些结果仅由有 `faultScenarioId` 的故障注入场景产生并单独记录。
 5. 不记录或返回密码、access token、session token、refresh token 或原始 authorization header。
-6. 旧库存 reset 不属于本方案。实现期间不能移除既有运维 reset 能力，但新生命周期、worker 调度和控制台不得依赖它。
+6. 本方案为全新开发。删除旧 runner、旧 action mix、旧 inventory reset scheduler、旧配置字段、旧 API、旧 UI 控件及其测试；不得以弃用、feature flag 或未调用代码的形式保留。
 
 ## 阶段总览
 
@@ -26,8 +26,8 @@
 | A | 契约、Schema 与安全边界 | 待开始 | 0 / 10 | 无 |
 | B | 优惠券和库存基线补齐 | 待开始 | 0 / 8 | A |
 | C | 真实登录客户生命周期 | 待开始 | 0 / 10 | A、B |
-| D | Worker 串行调度与可观测性 | 待开始 | 0 / 8 | B、C |
-| E | 控制台、验证与迁移 | 待开始 | 0 / 5 | A 至 D |
+| D | Worker 串行调度与可观测性 | 待开始 | 0 / 10 | B、C |
+| E | 控制台、验证与发布 | 待开始 | 0 / 5 | A 至 D |
 
 ---
 
@@ -39,15 +39,17 @@
 
 ### A1. 生命周期配置与活动 Schema
 
-- [ ] 在 `runner_profile` 或等价配置表加入 `traffic_mode`、`lifecycle_interval_sec`、`successful_payment_ratio`、`coupon_usage_ratio` 和 `background_actions_enabled`。
+- [ ] 新建生命周期配置模型，包含 `traffic_mode`、`lifecycle_interval_sec`、`successful_payment_ratio` 和 `coupon_usage_ratio`。
 - [ ] `lifecycle_interval_sec` 仅接受 `60`、`30`、`20`、`10`，保留配置 `version` 乐观锁。
 - [ ] 为 `traffic_actions` 增加 nullable `lifecycle_id`，为 `(traffic_run_id, lifecycle_id, created_at)` 建索引；父记录使用 `CUSTOMER_LIFECYCLE`，子步骤保留稳定动作类型。
 - [ ] 增加运行补齐状态持久化或等价可查询记录：窗口 ID、操作类型、状态、开始/完成时间、重试次数、结果摘要和关联 ID；禁止保存秘密。
-- [ ] 更新初始化 SQL、数据访问层和配置 DTO；保留旧字段的兼容读取或安排一次明确的全新初始化。
+- [ ] 新建初始化 SQL、数据访问层和配置 DTO，不读取、写入或迁移旧 runner 配置字段。
+- [ ] 删除旧 runner 配置表字段、旧 DTO 字段、旧持久化查询和相关初始化数据；新 Schema 不包含 QPS、峰值、周期、抖动、action mix、支付策略或 reset 配置。
 
 ### A1-V. 生命周期配置与活动 Schema 验证
 
 - [ ] 验证非法间隔或比例被服务端拒绝；并发配置更新只有一个成功；生命周期父子记录可按 `lifecycleId` 查询；活动/补齐记录无秘密字段。
+- [ ] 验证新 Schema、配置 API 和持久化查询均不存在旧 runner 字段或兼容读取分支。
 
 ### A2. Gateway 路由与权限矩阵
 
@@ -141,7 +143,7 @@
 
 - [ ] 新增 `InventoryReplenishmentScheduler`，实现与 B3 相同的启动补齐、UTC 六小时调度、锁、成功标记和窗口内重试语义。
 - [ ] 仅经 `/internal/gateway/inventory/demo-stock/replenish` 调用，禁止调用 reset 路径。
-- [ ] 将旧 inventory reset scheduler 保留为运维兼容能力，但从 worker 启动、runner 生命周期和控制台主路径移除其依赖。
+- [ ] worker 启动、runner 生命周期和控制台只注册新的库存补齐调度器。
 - [ ] 补充状态/活动记录，展示下次执行、上次结果、补充数和重试状态。
 
 ### B4-V. Worker 库存补齐调度器验证
@@ -217,14 +219,13 @@
 
 ## Phase D：Worker 串行调度与可观测性
 
-**阶段进度：0 / 8**
+**阶段进度：0 / 10**
 
 目标：用四档固定间隔调度完整生命周期，准确展示真实执行节奏、活动和补齐状态。
 
 ### D1. RunnerEngine 串行间隔调度
 
 - [ ] 将主模式 action pick 替换为 `CUSTOMER_LIFECYCLE` 执行。
-- [ ] 移除主路径的 base QPS、峰值倍率、波形、抖动和按 action mix 的调度语义。
 - [ ] 一条生命周期完成后等待 `lifecycle_interval_sec` 再开始下一条；慢生命周期绝不重叠。
 - [ ] 停止时停止下一次调度，并把未完成生命周期安全标记为中断；在 run 完成前等待必要的持久化 drain。
 
@@ -254,20 +255,31 @@
 
 - [ ] 验证运营人员可在不访问秘密的前提下判断 runner、券池、库存基线及故障注入是否健康。
 
-### D4. 旧路径兼容与清理
+### D4. 删除旧流量实现
 
-- [ ] 明确旧 runner credential/action mix 的支持状态：移除、禁用或作为显式背景流量；不能默认混入 `CUSTOMER_LIFECYCLE`。
-- [ ] 从 runner 主状态、主调度和 UI 移除 QPS/峰值/抖动、失败/未知支付与 inventory reset 依赖。
-- [ ] 保留运维 inventory reset endpoint 和旧表/路由时，增加弃用说明，避免误作为 lifecycle 资源补齐机制。
-- [ ] 更新 `.env.example`、Compose、Kubernetes Secret/ConfigMap，声明演示账号 Secret、模式 flag 和安全默认值。
+- [ ] 删除旧 action-mix 调度、QPS/峰值/周期/抖动计算、runner credential 请求构造、支付策略注入和 inventory reset scheduler 的源文件、导出、启动注册与调用点。
+- [ ] 删除旧 runner API 路由、请求/响应 DTO、运行时状态字段、Redis key、活动类型和只服务于旧流量的数据库查询。
+- [ ] 删除旧 runner 页面控件、状态展示、表单校验、文案、测试夹具和端到端用例；不保留隐藏控件或 feature flag 分支。
+- [ ] 删除旧环境变量、Compose/Kubernetes 配置、样例配置和文档，避免部署环境继续注入已删除的运行参数。
 
-### D4-V. 旧路径兼容与清理验证
+### D4-V. 旧流量实现删除验证
 
-- [ ] 验证常规生命周期运行不使用 runner credential 或 reset、旧能力不会意外暴露或被删除，以及部署配置 fail-closed。
+- [ ] 对 `traffic-control-plane`、部署配置和文档运行定向搜索，验证不存在旧 action mix、QPS、峰值、周期、抖动、runner credential、支付策略或 inventory reset scheduler 的实现、配置和引用。
+- [ ] 构建 worker 与控制台，验证无失效导入、死路由、未解析配置或残留旧测试。
+
+### D5. 新部署配置
+
+- [ ] 新建仅供生命周期模式使用的环境变量、Secret 和 ConfigMap，声明演示账号 Secret、内部服务认证和安全默认值。
+- [ ] 更新 Compose 与 Kubernetes 部署，使 worker 仅启动 Customer Lifecycle、补券和补库存组件。
+- [ ] 以缺失 Secret、错误 Secret 或未启用登录模式作为 fail-closed 启动条件。
+
+### D5-V. 新部署配置验证
+
+- [ ] 验证新部署仅启动 Customer Lifecycle、补券和补库存组件，且缺失或错误的部署 Secret/模式配置会 fail-closed。
 
 ---
 
-## Phase E：控制台、验证与迁移
+## Phase E：控制台、验证与发布
 
 **阶段进度：0 / 5**
 
@@ -276,7 +288,6 @@
 ### E1. Runner 控制台与内部 API
 
 - [ ] 配置 API 以 `version` 接收 lifecycle mode、四档间隔、支付成功比例和用券比例；服务端校验所有边界。
-- [ ] Runner 页面移除 QPS、峰值、周期、抖动、支付失败/未知和 inventory reset 的主控件。
 - [ ] 增加间隔单选、成功支付/取消比例、用券/无券比例、账号健康摘要、父子活动展开、补券/补库存状态。
 - [ ] 配置修改与手动安全操作写入 operator audit；页面不展示 email、密码、token 或原始请求头。
 
@@ -303,10 +314,10 @@
 
 **完成条件**：订单、支付、库存预占、优惠券 reservation、补齐记录、`traffic_runs`、`traffic_actions` 与 Redis 活动相互一致且无秘密。
 
-### E4. 文档、迁移与发布清单
+### E4. 文档与发布清单
 
-- [ ] 更新根级产品/技术设计、README、环境说明和运维 Runbook，说明真实登录模式、常规/故障边界、补齐机制和旧 reset 的非依赖关系。
-- [ ] 记录 Schema 初始化或迁移步骤、配置 Secret、Gateway 新路由、回滚策略和旧 runner 背景流量开关。
+- [ ] 更新根级产品/技术设计、README、环境说明和运维 Runbook，说明真实登录模式、常规/故障边界、补齐机制和新的运行配置。
+- [ ] 记录全新 Schema 初始化步骤、配置 Secret、Gateway 新路由与发布前置条件。
 - [ ] 将实施结果回填本任务清单、[product.md](product.md) 和 [technical-design.md](technical-design.md) 的状态/更新时间。
 
 ### E5. 发布前验证
@@ -324,7 +335,7 @@ cd ..
 mvn test -pl promotion-service,inventory-service,order-service,gateway-service
 ```
 
-**完成条件**：发布前文档、部署配置、回滚方式和验证结果完整；没有未说明的安全边界变化。
+**完成条件**：发布前文档、部署配置和验证结果完整；没有未说明的安全边界变化。
 
 ## 交付完成定义
 
