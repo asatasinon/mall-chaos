@@ -52,25 +52,27 @@ find "$MYSQL_DATA_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 echo "Starting MySQL and running the current initialization scripts..."
 docker compose up -d "$MYSQL_SERVICE" >/dev/null
 
-for attempt in {1..60}; do
-  if docker compose exec -T "$MYSQL_SERVICE" sh -c \
-    'mysqladmin ping -h localhost -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' \
-    >/dev/null 2>&1; then
-    break
-  fi
-  if [[ "$attempt" == 60 ]]; then
-    echo "MySQL did not become ready. Check: docker compose logs $MYSQL_SERVICE" >&2
-    exit 1
-  fi
-  sleep 2
-done
-
 mysql_query() {
   local query="$1"
   docker compose exec -T "$MYSQL_SERVICE" sh -c \
     'MYSQL_PWD="$MYSQL_PASSWORD" mysql --batch --skip-column-names -u"$MYSQL_USER" "$MYSQL_DATABASE" -e "$1"' \
     sh "$query"
 }
+
+for attempt in {1..60}; do
+  if docker compose exec -T "$MYSQL_SERVICE" sh -c \
+    'mysqladmin ping -h localhost -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' \
+    >/dev/null 2>&1; then
+    if [[ "$(mysql_query 'SELECT version FROM schema_version WHERE id = 1;' 2>/dev/null || true)" == "1" ]]; then
+      break
+    fi
+  fi
+  if [[ "$attempt" == 60 ]]; then
+    echo "MySQL initialization did not finish. Check: docker compose logs $MYSQL_SERVICE" >&2
+    exit 1
+  fi
+  sleep 2
+done
 
 schema_version="$(mysql_query 'SELECT version FROM schema_version WHERE id = 1;')"
 if [[ "$schema_version" != "1" ]]; then
