@@ -1,7 +1,10 @@
 package com.castrel.chaos.promotion.service;
 
 import com.castrel.chaos.common.BizException;
+import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
+import com.castrel.chaos.promotion.config.DemoCouponPoolProperties;
+import com.castrel.chaos.promotion.dto.DemoCouponReplenishmentResult;
 import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.promotion.dto.PromotionRequest;
 import com.castrel.chaos.promotion.dto.PromotionResultDTO;
@@ -26,6 +29,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.List;
@@ -39,6 +43,9 @@ public class PromotionService {
 
     @Autowired
     private PromotionRepository promotionRepository;
+
+    @Autowired
+    private DemoCouponPoolProperties demoCouponPoolProperties;
 
     @Autowired
     private CouponRepository couponRepository;
@@ -78,6 +85,137 @@ public class PromotionService {
         BigDecimal original = calcOriginal(req.getSkus());
         return applyPromotions(req.getUserId(), original, false, null, req.getOrderId(), req.getCouponId());
     }
+
+        @Transactional
+        public DemoCouponReplenishmentResult replenishDemoCouponPool() {
+        validateDemoCouponPoolConfiguration();
+        String windowId = currentReplenishmentWindowId();
+        String correlationId = TraceContext.getTraceId() == null
+            ? "coupon-replenish-" + windowId
+            : TraceContext.getTraceId();
+        LocalDateTime startedAt = LocalDateTime.now();
+        writeReplenishmentRun(windowId, correlationId, "RUNNING", startedAt, null,
+            0, "started");
+
+        int addedCount = 0;
+        int skippedCount = 0;
+        int failedCount = 0;
+        int promotionCount = 0;
+        try {
+            if (!demoCouponPoolProperties.isEnabled()) {
+            DemoCouponReplenishmentResult disabled = new DemoCouponReplenishmentResult(
+                windowId, correlationId, demoCouponPoolProperties.getCustomerIds().size(),
+                0, 0, 0, 0);
+            writeReplenishmentRun(windowId, correlationId, "COMPLETED", startedAt,
+                LocalDateTime.now(), 0, "disabled");
+            return disabled;
+            }
+
+            LocalDateTime now = LocalDateTime.now();
+            List<Promotion> promotions = promotionRepository.findAll().stream()
+                .filter(promotion -> demoCouponPoolProperties.getPromotionTypes().stream()
+                    .anyMatch(type -> type.equalsIgnoreCase(promotion.getType())))
+                .filter(promotion -> isActive(promotion, now))
+                .toList();
+            promotionCount = promotions.size();
+
+            for (Long customerId : demoCouponPoolProperties.getCustomerIds()) {
+            for (Promotion promotion : promotions) {
+                if (!claimReplenishmentBatch(windowId, customerId, promotion.getId(), now)) {
+                skippedCount++;
+                continue;
+                }
+                long available = couponRepository.countAvailable(customerId, promotion.getId(), now);
+                if (available >= demoCouponPoolProperties.getReplenishBelowCount()) {
+                skippedCount++;
+                markReplenishmentBatchCompleted(windowId, customerId, promotion.getId(), now);
+                continue;
+                }
+
+                int missing = demoCouponPoolProperties.getTargetAvailableCount() - (int) available;
+                for (int index = 0; index < missing; index++) {
+                Coupon coupon = new Coupon();
+                coupon.setUserId(customerId);
+                coupon.setPromotionId(promotion.getId());
+                coupon.setStatus(0);
+                coupon.setExpireAt(now.plusHours(demoCouponPoolProperties.getValidityHours()));
+                couponRepository.save(coupon);
+                }
+                addedCount += missing;
+                markReplenishmentBatchCompleted(windowId, customerId, promotion.getId(), now);
+            }
+            }
+
+            DemoCouponReplenishmentResult result = new DemoCouponReplenishmentResult(
+                windowId, correlationId, demoCouponPoolProperties.getCustomerIds().size(),
+                promotionCount, addedCount, skippedCount, failedCount);
+            writeReplenishmentRun(windowId, correlationId, "COMPLETED", startedAt,
+                LocalDateTime.now(), 0, replenishmentSummary(result));
+            return result;
+        } catch (RuntimeException exception) {
+            failedCount++;
+            writeReplenishmentRun(windowId, correlationId, "FAILED", startedAt,
+                LocalDateTime.now(), 0, "failed");
+            throw exception;
+        }
+        }
+
+        private boolean claimReplenishmentBatch(
+            String windowId, Long customerId, Long promotionId, LocalDateTime now) {
+        int inserted = jdbcTemplate.update(
+            "INSERT IGNORE INTO coupon_issuance_batches "
+                + "(window_id, customer_id, promotion_id, status, created_at, updated_at) "
+                + "VALUES (?, ?, ?, 'RUNNING', ?, ?)",
+            windowId, customerId, promotionId, now, now);
+        return inserted == 1;
+        }
+
+        private void markReplenishmentBatchCompleted(
+            String windowId, Long customerId, Long promotionId, LocalDateTime now) {
+        jdbcTemplate.update(
+            "UPDATE coupon_issuance_batches SET status = 'COMPLETED', updated_at = ? "
+                + "WHERE window_id = ? AND customer_id = ? AND promotion_id = ?",
+            now, windowId, customerId, promotionId);
+        }
+
+        private void validateDemoCouponPoolConfiguration() {
+        if (demoCouponPoolProperties.getCustomerIds() == null
+            || demoCouponPoolProperties.getCustomerIds().isEmpty()
+            || demoCouponPoolProperties.getPromotionTypes() == null
+            || demoCouponPoolProperties.getPromotionTypes().isEmpty()
+            || demoCouponPoolProperties.getTargetAvailableCount() < 1
+            || demoCouponPoolProperties.getReplenishBelowCount() < 0
+            || demoCouponPoolProperties.getReplenishBelowCount()
+                > demoCouponPoolProperties.getTargetAvailableCount()
+            || demoCouponPoolProperties.getValidityHours() < 1
+            || demoCouponPoolProperties.getCustomerIds().stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new BizException("DEMO_COUPON_POOL_CONFIG_INVALID",
+                "Demo coupon pool configuration is invalid");
+        }
+        }
+
+        private String currentReplenishmentWindowId() {
+        return "UTC-6H-" + Instant.now().getEpochSecond() / (6 * 60 * 60);
+        }
+
+        private void writeReplenishmentRun(
+            String windowId, String correlationId, String status, LocalDateTime startedAt,
+            LocalDateTime completedAt, int retryCount, String resultSummary) {
+        jdbcTemplate.update(
+            "INSERT INTO traffic_replenishment_runs "
+                + "(window_id, operation_type, status, started_at, completed_at, retry_count, "
+                + "result_summary, correlation_id) VALUES (?, 'DEMO_COUPON_REPLENISH', ?, ?, ?, ?, ?, ?) "
+                + "ON DUPLICATE KEY UPDATE status = VALUES(status), completed_at = VALUES(completed_at), "
+                + "retry_count = VALUES(retry_count), result_summary = VALUES(result_summary), "
+                + "correlation_id = VALUES(correlation_id)",
+            windowId, status, startedAt, completedAt, retryCount, resultSummary, correlationId);
+        }
+
+        private String replenishmentSummary(DemoCouponReplenishmentResult result) {
+        return "customers=" + result.customerCount() + ",promotions=" + result.promotionCount()
+            + ",added=" + result.addedCount() + ",skipped=" + result.skippedCount()
+            + ",failed=" + result.failedCount();
+        }
 
         @Transactional(readOnly = true)
         public List<CouponCandidateDTO> findAvailableCoupons(Long userId) {

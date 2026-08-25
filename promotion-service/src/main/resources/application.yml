@@ -18,6 +18,15 @@ spring:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:16379}
 
+promotion:
+  demo-coupon-pool:
+    enabled: ${PROMOTION_DEMO_COUPON_POOL_ENABLED:true}
+    customer-ids: ${PROMOTION_DEMO_COUPON_CUSTOMER_IDS:1,2}
+    promotion-types: ${PROMOTION_DEMO_COUPON_PROMOTION_TYPES:DISCOUNT,COUPON}
+    target-available-count: ${PROMOTION_DEMO_COUPON_TARGET_AVAILABLE_COUNT:3}
+    replenish-below-count: ${PROMOTION_DEMO_COUPON_REPLENISH_BELOW_COUNT:1}
+    validity-hours: ${PROMOTION_DEMO_COUPON_VALIDITY_HOURS:168}
+
 management:
   endpoint:
     health:

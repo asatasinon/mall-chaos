@@ -6,6 +6,8 @@ import com.castrel.chaos.promotion.controller.PromotionController;
 import com.castrel.chaos.promotion.dto.CouponCandidateDTO;
 import com.castrel.chaos.promotion.entity.Coupon;
 import com.castrel.chaos.promotion.entity.Promotion;
+import com.castrel.chaos.promotion.config.DemoCouponPoolProperties;
+import com.castrel.chaos.promotion.repository.CouponIssuanceBatchRepository;
 import com.castrel.chaos.promotion.repository.CouponRepository;
 import com.castrel.chaos.promotion.repository.CouponReservationRepository;
 import com.castrel.chaos.promotion.repository.PromotionRepository;
@@ -15,6 +17,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -37,6 +40,15 @@ class PromotionServiceContractTest {
 
     @Mock
     private CouponReservationRepository reservationRepository;
+
+    @Mock
+    private CouponIssuanceBatchRepository issuanceBatchRepository;
+
+    @Mock
+    private DemoCouponPoolProperties demoCouponPoolProperties;
+
+    @Mock
+    private JdbcTemplate jdbcTemplate;
 
     @InjectMocks
     private PromotionService promotionService;
@@ -121,6 +133,60 @@ class PromotionServiceContractTest {
         verify(couponRepository).save(coupon);
         verify(reservationRepository).save(reservation);
     }
+
+        @Test
+        void replenishesOnlyConfiguredCustomersAndPromotionsToTarget() {
+        DemoCouponPoolProperties properties = new DemoCouponPoolProperties();
+        properties.setCustomerIds(List.of(1L));
+        properties.setPromotionTypes(List.of("COUPON"));
+        properties.setTargetAvailableCount(3);
+        properties.setReplenishBelowCount(2);
+        properties.setValidityHours(24);
+        ReflectionTestUtils.setField(promotionService, "demoCouponPoolProperties", properties);
+
+        Promotion couponPromotion = promotion(5L, "COUPON", BigDecimal.ZERO, null, new BigDecimal("10.00"));
+        Promotion discountPromotion = promotion(6L, "DISCOUNT", BigDecimal.ZERO, new BigDecimal("0.90"), null);
+        when(promotionRepository.findAll()).thenReturn(List.of(couponPromotion, discountPromotion));
+        when(couponRepository.countAvailable(
+            org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(5L),
+            org.mockito.ArgumentMatchers.any())).thenReturn(1L);
+        when(jdbcTemplate.update(org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.any(Object[].class))).thenReturn(1);
+
+        var result = promotionService.replenishDemoCouponPool();
+
+        assertThat(result.customerCount()).isEqualTo(1);
+        assertThat(result.promotionCount()).isEqualTo(1);
+        assertThat(result.addedCount()).isEqualTo(2);
+        assertThat(result.skippedCount()).isZero();
+        verify(couponRepository, org.mockito.Mockito.times(2))
+            .save(org.mockito.ArgumentMatchers.argThat(coupon ->
+                coupon.getUserId().equals(1L)
+                    && coupon.getPromotionId().equals(5L)
+                    && coupon.getStatus() == 0
+                    && coupon.getExpireAt() != null));
+        }
+
+        @Test
+        void duplicateWindowClaimSkipsWithoutIssuingAnotherCoupon() {
+        DemoCouponPoolProperties properties = new DemoCouponPoolProperties();
+        properties.setCustomerIds(List.of(1L));
+        properties.setPromotionTypes(List.of("COUPON"));
+        ReflectionTestUtils.setField(promotionService, "demoCouponPoolProperties", properties);
+
+        Promotion couponPromotion = promotion(5L, "COUPON", BigDecimal.ZERO, null, new BigDecimal("10.00"));
+        when(promotionRepository.findAll()).thenReturn(List.of(couponPromotion));
+        org.mockito.Mockito.doAnswer(invocation ->
+            ((String) invocation.getArgument(0)).contains("INSERT IGNORE") ? 0 : 1)
+            .when(jdbcTemplate).update(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(Object[].class));
+
+        var result = promotionService.replenishDemoCouponPool();
+
+        assertThat(result.addedCount()).isZero();
+        assertThat(result.skippedCount()).isEqualTo(1);
+        verify(couponRepository, never()).save(org.mockito.ArgumentMatchers.any());
+        }
 
     private Promotion promotion(Long id, String type, BigDecimal minAmount,
                                 BigDecimal discount, BigDecimal reduceAmount) {

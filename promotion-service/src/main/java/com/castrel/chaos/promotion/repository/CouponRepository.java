@@ -14,6 +14,11 @@ public interface CouponRepository extends JpaRepository<Coupon, Long> {
 
     List<Coupon> findByUserIdAndStatus(Long userId, Integer status);
 
+        @Query("select count(c) from Coupon c where c.userId = :userId and c.promotionId = :promotionId "
+            + "and c.status = 0 and (c.expireAt is null or c.expireAt > :now)")
+        long countAvailable(@Param("userId") Long userId, @Param("promotionId") Long promotionId,
+                @Param("now") java.time.LocalDateTime now);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from Coupon c where c.id = :id")
     Optional<Coupon> findByIdForUpdate(@Param("id") Long id);

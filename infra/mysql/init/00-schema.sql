@@ -390,6 +390,18 @@ CREATE TABLE IF NOT EXISTS coupons (
     INDEX idx_promotion_id (promotion_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS coupon_issuance_batches (
+  id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  window_id     VARCHAR(64)  NOT NULL,
+  customer_id   BIGINT       NOT NULL,
+  promotion_id  BIGINT       NOT NULL,
+  status        VARCHAR(16)  NOT NULL DEFAULT 'COMPLETED',
+  created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_coupon_issuance_batch (window_id, customer_id, promotion_id),
+  INDEX idx_coupon_issuance_status (window_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Seed promotions
 INSERT INTO promotions (type, name, min_amount, discount, reduce_amt, enabled) VALUES
   ('FULL_REDUCTION', '满200减30',   200.00, NULL,  30.00, 1),

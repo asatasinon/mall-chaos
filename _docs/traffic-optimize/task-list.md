@@ -24,7 +24,7 @@
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
 | A | 契约、Schema 与安全边界 | 已完成 | 5 / 5 | 无 |
-| B | 优惠券和库存基线补齐 | 待开始 | 0 / 4 | A |
+| B | 优惠券和库存基线补齐 | 进行中 | 1 / 4 | A |
 | C | 真实登录客户生命周期 | 待开始 | 0 / 5 | A、B |
 | D | Worker 串行调度与可观测性 | 待开始 | 0 / 5 | B、C |
 | E | 控制台与发布准备 | 待开始 | 0 / 2 | A 至 D |
@@ -79,17 +79,17 @@
 
 ## Phase B：优惠券和库存基线补齐
 
-**阶段进度：0 / 4**
+**阶段进度：1 / 4**
 
 目标：由 worker 协调每六小时补齐演示资源，但由领域服务独占发行和库存写入规则。
 
 ### B1. promotion-service 演示券池补齐命令
 
-- [ ] 实现受内部服务认证保护的无参数 `DemoCouponPoolService`/内部 Controller 命令。
-- [ ] 使用服务端配置的演示客户、promotion 类型、`targetAvailableCount`、`replenishBelowCount` 和券有效期；不得接受 worker 提供的客户、券或数量。
-- [ ] 统计未过期 `AVAILABLE` 券，低水位时补至目标数量。
-- [ ] 使用发行批次或幂等键保证超时重送、重复调用和多实例场景不会超额补券。
-- [ ] 记录每次补齐的补充数、跳过数、失败数、窗口 ID 与关联 ID。
+- [x] 实现受内部服务认证保护的无参数 `DemoCouponPoolService`/内部 Controller 命令。
+- [x] 使用服务端配置的演示客户、promotion 类型、`targetAvailableCount`、`replenishBelowCount` 和券有效期；不得接受 worker 提供的客户、券或数量。
+- [x] 统计未过期 `AVAILABLE` 券，低水位时补至目标数量。
+- [x] 使用发行批次或幂等键保证超时重送、重复调用和多实例场景不会超额补券。
+- [x] 记录每次补齐的补充数、跳过数、失败数、窗口 ID 与关联 ID。
 
 ### B2. inventory-service 演示库存补齐命令
 
