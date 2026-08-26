@@ -65,6 +65,16 @@ spring:
           predicates:
             - Path=/api/products/**
 
+fault-run:
+  dispatch:
+    services:
+      catalog-service: ${CATALOG_SERVICE_URL:http://localhost:8082}
+      cart-service: ${CART_SERVICE_URL:http://localhost:8091}
+      order-service: ${ORDER_SERVICE_URL:http://localhost:8084}
+      promotion-service: ${PROMOTION_SERVICE_URL:http://localhost:8087}
+      inventory-service: ${INVENTORY_SERVICE_URL:http://localhost:8083}
+      notification-service: ${NOTIFICATION_SERVICE_URL:http://localhost:8090}
+      psp-simulator: ${PSP_SIMULATOR_URL:http://localhost:8092}
 management:
   endpoints:
     web:
@@ -74,50 +84,3 @@ management:
     metrics:
       export:
         enabled: true
-
-# ── Chaos dispatch: service name → base URL mapping ──
-chaos:
-  endpoints:
-    enabled: false
-  dispatch:
-    services:
-      catalog-service: ${CHAOS_CATALOG_URL:${CATALOG_SERVICE_URL:http://localhost:8082}}
-      inventory-service: ${CHAOS_INVENTORY_URL:${INVENTORY_SERVICE_URL:http://localhost:8083}}
-      order-service: ${CHAOS_ORDER_URL:${ORDER_SERVICE_URL:http://localhost:8084}}
-      payment-service: ${CHAOS_PAYMENT_URL:${PAYMENT_SERVICE_URL:http://localhost:8085}}
-      promotion-service: ${CHAOS_PROMOTION_URL:${PROMOTION_SERVICE_URL:http://localhost:8087}}
-      risk-service: ${CHAOS_RISK_URL:${RISK_SERVICE_URL:http://localhost:8088}}
-      fulfillment-service: ${CHAOS_FULFILLMENT_URL:${FULFILLMENT_SERVICE_URL:http://localhost:8089}}
-      notification-service: ${CHAOS_NOTIFICATION_URL:${NOTIFICATION_SERVICE_URL:http://localhost:8090}}
-    # Which services support which chaos type
-    whitelist:
-      slow-sql:
-        - catalog-service
-        - inventory-service
-        - order-service
-        - payment-service
-        - promotion-service
-        - risk-service
-        - fulfillment-service
-        - notification-service
-      memory-leak:
-        - order-service
-        - payment-service
-      deadlock:
-        - order-service
-        - payment-service
-      table-lock:
-        - order-service
-        - payment-service
-        - fulfillment-service
-        - notification-service
-      storage-growth:
-        - catalog-service
-        - risk-service
-        - notification-service
-  toxiproxy:
-    api-url: ${TOXIPROXY_API_URL:http://localhost:18474}
-    proxy-whitelist:
-      - order-to-payment
-      - order-to-inventory
-      - gateway-to-order

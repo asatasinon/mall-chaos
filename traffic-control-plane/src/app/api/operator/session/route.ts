@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { error, ok } from '@/lib/api-response';
-import { createOperatorSession, isOperatorAuthConfigured, operatorCookieOptions, operatorCredentials } from '@/lib/operator-auth';
+import {
+  createCsrfToken,
+  createOperatorSession,
+  csrfCookieOptions,
+  isOperatorAuthConfigured,
+  operatorCookieOptions,
+  operatorCredentials,
+} from '@/lib/operator-auth';
 
 export async function POST(request: NextRequest) {
   if (!isOperatorAuthConfigured()) {
@@ -26,11 +33,13 @@ export async function POST(request: NextRequest) {
 
   const response = NextResponse.json(ok({ authenticated: true }));
   response.cookies.set({ ...operatorCookieOptions(8 * 60 * 60), value: await createOperatorSession() });
+  response.cookies.set({ ...csrfCookieOptions(8 * 60 * 60), value: createCsrfToken() });
   return response;
 }
 
 export async function DELETE() {
   const response = NextResponse.json(ok({ authenticated: false }));
   response.cookies.set({ ...operatorCookieOptions(0), value: '' });
+  response.cookies.set({ ...csrfCookieOptions(0), value: '' });
   return response;
 }

@@ -1,243 +1,117 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Activity, Clock3, ExternalLink, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { fetchWithAuth } from '@/lib/auth-fetch';
 
-interface OverviewData {
-  runner: {
-    running: boolean; paused: boolean;
-    lifecycleIntervalSec: number; lifecycleCompletedCount: number;
-    lifecycleFailedCount: number; lifecycleInterruptedCount: number;
-  };
-  chaos: Record<string, unknown>;
-  timestamp: string;
+interface FaultRun {
+  faultRunId: string;
+  scenario: string;
+  targetService: string;
+  targetOperation: string;
+  state: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+interface FaultRunResponse {
+  scenarios: Array<{ scenario: string; targetService: string; targetOperation: string }>;
+  runs: FaultRun[];
 }
 
 export default function OverviewPage() {
-  const [data, setData] = useState<OverviewData | null>(null);
+  const [data, setData] = useState<FaultRunResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
 
   useEffect(() => {
+    let active = true;
     const load = async () => {
       try {
-        const res = await fetchWithAuth('/internal/traffic/chaos/overview');
-        const json = await res.json();
-        if (json.code === 0) { setData(json.data); setError(null); }
-        else setError(json.message);
-      } catch (e: unknown) { setError(e instanceof Error ? e.message : 'network error'); }
+        const response = await fetchWithAuth('/internal/fault-runs');
+        const result = await response.json() as { code: number; message: string; data: FaultRunResponse };
+        if (!response.ok || result.code !== 0) throw new Error(result.message);
+        if (active) {
+          setData(result.data);
+          setError(null);
+        }
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : 'Unable to load Fault Runs');
+      }
     };
-    load();
-    const id = setInterval(() => { load(); setTick((t) => t + 1); }, 5000);
-    return () => clearInterval(id);
+    void load();
+    const timer = setInterval(() => { void load(); }, 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, []);
 
-  const runnerLabel = !data ? 'Unknown'
-    : data.runner.paused ? 'Paused'
-    : data.runner.running ? 'Running' : 'Stopped';
-  const dotCls = !data ? 'status-dot-off'
-    : data.runner.paused ? 'status-dot-yellow'
-    : data.runner.running ? 'status-dot-green' : 'status-dot-off';
-
-  const anyArmed = data
-    ? Object.values(data.chaos).some((v) => isChaosActive(v))
-    : false;
+  const activeRun = data?.runs.find((run) => ['CREATING', 'ACTIVE', 'RECOVERING'].includes(run.state));
 
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Live telemetry · auto-refresh every 5s {tick > 0 && `· #${tick}`}</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Fault Runs</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">Protected scenario coordination and recovery evidence</p>
       </div>
 
-      {/* Active chaos banner — always visible */}
-      <ActiveChaosStrip chaos={data?.chaos ?? null} />
+      {error && <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">{error}</div>}
 
-      {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-
-      {/* KPI row */}
-      <div className="grid grid-cols-3 gap-4">
-        <MetricCard title="Lifecycle interval" unit="seconds">
-          <span className="metric-value text-primary">{data?.runner.lifecycleIntervalSec ?? '—'}</span>
-        </MetricCard>
-        <MetricCard title="Completed lifecycles">
-          <span className="metric-value text-[oklch(0.62_0.18_155)]">{data?.runner.lifecycleCompletedCount ?? '—'}</span>
-        </MetricCard>
-        <MetricCard title="Failed / interrupted">
-          <span className="metric-value text-destructive">{data ? `${data.runner.lifecycleFailedCount} / ${data.runner.lifecycleInterruptedCount}` : '—'}</span>
-        </MetricCard>
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricCard icon={<ShieldCheck className="size-4" />} label="Scenario catalog" value={data ? String(data.scenarios.length) : '...'} />
+        <MetricCard icon={<Activity className="size-4" />} label="Active run" value={activeRun ? activeRun.state : 'None'} />
+        <MetricCard icon={<Clock3 className="size-4" />} label="Recorded runs" value={data ? String(data.runs.length) : '...'} />
       </div>
 
-      {/* Runner + chaos map */}
-      <div className="grid grid-cols-[260px_1fr] gap-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center justify-between">
-              Runner
-              <div className="flex items-center gap-2">
-                <span className={`status-dot ${dotCls}`} />
-                <span className="text-xs font-normal text-muted-foreground">{runnerLabel}</span>
-              </div>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2.5">
-            <StatRow label="Status"    value={runnerLabel}
-              valueClass={data?.runner.running && !data.runner.paused ? 'text-[oklch(0.62_0.18_155)]' : 'text-muted-foreground'} />
-            <StatRow label="Interval" value={data ? `${data.runner.lifecycleIntervalSec}s` : '—'} />
-            <StatRow label="Completed" value={data ? String(data.runner.lifecycleCompletedCount) : '—'} valueClass="text-[oklch(0.62_0.18_155)]" />
-            <StatRow label="Failed" value={data ? String(data.runner.lifecycleFailedCount) : '—'} valueClass="text-destructive" />
-            <StatRow label="Interrupted" value={data ? String(data.runner.lifecycleInterruptedCount) : '—'} />
-            <StatRow label="Last sync" value={data ? new Date(data.timestamp).toISOString().slice(11, 19) + 'Z' : '—'} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center justify-between">
-              Chaos Subsystems
-              {anyArmed && (
-                <Badge variant="destructive" className="text-[10px] gap-1.5">
-                  <span className="status-dot status-dot-red" style={{ width: 6, height: 6 }} />
-                  Armed
-                </Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {!data && <p className="text-sm text-muted-foreground">Loading…</p>}
-            {data && (
-              <div className="grid grid-cols-3 gap-2.5">
-                {Object.entries(data.chaos).map(([key, value]) => {
-                  const isError   = typeof value === 'object' && value !== null && 'error' in (value as object) && !!(value as Record<string,unknown>).error;
-                  const isEnabled = isChaosActive(value);
-                  return (
-                    <div key={key} className={[
-                      'rounded-md border px-3 py-2.5 flex items-center justify-between',
-                      isEnabled ? 'border-destructive/40 bg-destructive/5' : 'border-border bg-muted/20',
-                    ].join(' ')}>
-                      <div>
-                        <p className="text-[11px] font-medium text-foreground/80 capitalize">
-                          {key.replace(/([A-Z])/g, ' $1').trim()}
-                        </p>
-                        <p className={`text-[11px] mt-0.5 ${isEnabled ? 'text-destructive' : 'text-muted-foreground'}`}>
-                          {isError ? 'N/A' : isEnabled ? 'Injecting' : 'Standby'}
-                        </p>
-                      </div>
-                      <span className={`status-dot ${isEnabled ? 'status-dot-red' : 'status-dot-off'}`} />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-sm font-medium">Recent runs</CardTitle>
+          <a
+            href="/internal/fault-runs"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-8 items-center gap-2 rounded-md border border-input bg-background px-3 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            Open API <ExternalLink className="size-3.5" />
+          </a>
+        </CardHeader>
+        <CardContent>
+          {!data && !error && <p className="text-sm text-muted-foreground">Loading...</p>}
+          {data?.runs.length === 0 && <p className="text-sm text-muted-foreground">No Fault Runs recorded in the last seven days.</p>}
+          {data && data.runs.length > 0 && (
+            <div className="divide-y divide-border">
+              {data.runs.map((run) => (
+                <a key={run.faultRunId} href={`/internal/fault-runs/${run.faultRunId}`} target="_blank" rel="noreferrer" className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 hover:bg-muted/30">
+                  <div>
+                    <p className="text-sm font-medium">{run.scenario}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{run.targetService} / {run.targetOperation}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge variant={run.state === 'ACTIVE' ? 'destructive' : 'secondary'}>{run.state}</Badge>
+                    <span className="font-mono text-xs text-muted-foreground">{run.faultRunId.slice(0, 8)}</span>
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-function isChaosActive(v: unknown): boolean {
-  if (typeof v !== 'object' || v === null) return false;
-  const o = v as Record<string, unknown>;
-  if (o.active === true || o.enabled === true) return true;
-  return Object.values(o).some((child) => isChaosActive(child));
-}
-
-// Extract service names that are actively injecting from a status payload.
-// Single-service shape: { active: true } → returns the chaos type label as target.
-// Multi-service shape: { "payment-service": { active: true }, "order-service": { active: false } }
-//   → returns ["payment"]
-function activeServices(v: unknown): string[] {
-  if (typeof v !== 'object' || v === null) return [];
-  const o = v as Record<string, unknown>;
-  // Single-service shape
-  if ('active' in o || 'enabled' in o) {
-    return (o.active === true || o.enabled === true) ? ['—'] : [];
-  }
-  // Multi-service map shape
-  return Object.entries(o)
-    .filter(([, child]) => isChaosActive(child))
-    .map(([svc]) => svc.replace('-service', ''));
-}
-
-function ActiveChaosStrip({ chaos }: { chaos: Record<string, unknown> | null }) {
-  const active = chaos
-    ? Object.entries(chaos)
-        .filter(([, v]) => isChaosActive(v))
-        .map(([key, v]) => {
-          const label = key.replace(/([A-Z])/g, ' $1').trim();
-          const svcs  = activeServices(v).filter((s) => s !== '—');
-          return { key, label, targets: svcs.length > 0 ? svcs.join(', ') : null };
-        })
-    : null;
-
-  if (!active) {
-    return (
-      <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
-        <span className="status-dot status-dot-off" style={{ width: 6, height: 6 }} />
-        <span className="text-xs text-muted-foreground">Loading chaos status…</span>
-      </div>
-    );
-  }
-
-  if (active.length === 0) {
-    return (
-      <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
-        <span className="status-dot status-dot-green" style={{ width: 6, height: 6 }} />
-        <span className="text-xs text-muted-foreground">No active fault injections</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
-      <span className="text-[11px] font-medium text-destructive/70 shrink-0">Active:</span>
-      {active.map(({ key, label, targets }) => (
-        <span key={key} className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-destructive/10 border border-destructive/30 text-destructive">
-          <span className="status-dot status-dot-red" style={{ width: 6, height: 6 }} />
-          {label}{targets ? ` · ${targets}` : ''}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function MetricCard({ title, unit, children }: { title: string; unit?: string; children: React.ReactNode }) {
+function MetricCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-          {title}
-          {unit && <span className="text-xs font-normal">{unit}</span>}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">{children}</CardContent>
+      <CardContent className="flex items-center gap-3 pt-5">
+        <span className="text-primary">{icon}</span>
+        <div>
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-1 text-lg font-semibold">{value}</p>
+        </div>
+      </CardContent>
     </Card>
-  );
-}
-
-function ProgressBar({ value, variant }: { value: number; variant: 'success' | 'danger' }) {
-  const fill = variant === 'success'
-    ? 'bg-[oklch(0.62_0.18_155)]'
-    : 'bg-destructive';
-  return (
-    <div className="h-1 rounded-full bg-muted overflow-hidden">
-      <div className={`h-full rounded-full transition-all duration-500 ${fill}`} style={{ width: `${Math.min(value, 100)}%` }} />
-    </div>
-  );
-}
-
-function StatRow({ label, value, valueClass = '' }: { label: string; value: string; valueClass?: string }) {
-  return (
-    <div className="flex items-center justify-between text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={`font-mono font-medium tabular-nums ${valueClass}`}>{value}</span>
-    </div>
   );
 }

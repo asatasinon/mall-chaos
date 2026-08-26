@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 
 const OPERATOR_COOKIE = 'operator_session';
+const CSRF_COOKIE = 'operator_csrf';
 const SESSION_MAX_AGE = 8 * 60 * 60;
 const DEFAULT_USERNAME = 'castrel';
 const DEFAULT_PASSWORD = 'C@stre1_best_ai';
@@ -49,6 +50,22 @@ export function operatorCookieOptions(maxAge: number) {
   return {
     name: OPERATOR_COOKIE,
     httpOnly: true,
+    sameSite: 'lax' as const,
+    secure: process.env.CONTROL_PLANE_COOKIE_SECURE === 'true'
+      || (process.env.NODE_ENV === 'production' && process.env.CONTROL_PLANE_COOKIE_SECURE !== 'false'),
+    maxAge,
+    path: '/',
+  };
+}
+
+export function createCsrfToken(): string {
+  return crypto.randomUUID().replace(/-/g, '');
+}
+
+export function csrfCookieOptions(maxAge: number) {
+  return {
+    name: CSRF_COOKIE,
+    httpOnly: false,
     sameSite: 'lax' as const,
     secure: process.env.CONTROL_PLANE_COOKIE_SECURE === 'true'
       || (process.env.NODE_ENV === 'production' && process.env.CONTROL_PLANE_COOKIE_SECURE !== 'false'),

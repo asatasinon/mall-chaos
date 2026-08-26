@@ -1,0 +1,65 @@
+package com.castrel.chaos.gateway.service;
+
+import com.castrel.chaos.common.TraceContext;
+import com.castrel.chaos.common.security.JwtTokenService;
+import com.castrel.chaos.gateway.config.FaultRunDispatchProperties;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class FixedInternalDispatchService {
+
+    private final FaultRunDispatchProperties properties;
+    private final WebClient webClient;
+    private final JwtTokenService jwtTokenService;
+
+    public FixedInternalDispatchService(
+            FaultRunDispatchProperties properties,
+            WebClient.Builder webClientBuilder,
+            JwtTokenService jwtTokenService) {
+        this.properties = properties;
+        this.webClient = webClientBuilder.build();
+        this.jwtTokenService = jwtTokenService;
+    }
+
+    public Mono<Object> inventoryResetPlan(String traceId) {
+        return forward("inventory-service", "/internal/inventory/reset/plan", Map.of(), traceId, "INVENTORY_RESET");
+    }
+
+    public Mono<Object> inventoryReset(Map<String, Object> body, String traceId) {
+        return forward("inventory-service", "/internal/inventory/reset", body, traceId, "INVENTORY_RESET");
+    }
+
+    public Mono<Object> replenishCoupons(String traceId) {
+        return forward("promotion-service", "/internal/promotions/demo-coupons/replenish", Map.of(), traceId, "TRAFFIC_REPLENISH");
+    }
+
+    public Mono<Object> replenishStock(String traceId) {
+        return forward("inventory-service", "/internal/inventory/demo-stock/replenish", Map.of(), traceId, "TRAFFIC_REPLENISH");
+    }
+
+    private Mono<Object> forward(
+            String serviceName,
+            String path,
+            Map<String, Object> body,
+            String traceId,
+            String action) {
+        String baseUrl = properties.getServiceUrl(serviceName);
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return Mono.error(new IllegalArgumentException("Fixed internal target is not configured"));
+        }
+        return webClient.post()
+                .uri(baseUrl + path)
+                .header("Content-Type", "application/json")
+                .header(TraceContext.TRACE_ID_HEADER, traceId == null ? "" : traceId)
+                .header("X-Downstream-Principal", jwtTokenService.issueDownstreamPrincipal(
+                        0L, traceId == null ? "" : traceId, List.of(action)))
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(Object.class);
+    }
+}

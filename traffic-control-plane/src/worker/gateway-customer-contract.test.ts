@@ -143,7 +143,7 @@ test('customer errors do not include response bodies or credentials', async () =
     const error = await assert.rejects(
       gateway.customerGet('/api/me', undefined, context(session(), async () => undefined)),
       Error,
-    ) as Error;
+    ) as unknown as Error;
     assert.equal(error.message.includes('password-123'), false);
     assert.equal(error.message.includes('access-secret'), false);
     assert.equal(error.message.includes('session-secret'), false);

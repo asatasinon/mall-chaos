@@ -53,7 +53,7 @@ function fakeGateway(overrides: Partial<GatewayClient> = {}): GatewayClient & {
       gateway.logoutCalls.push(sessionToken);
     },
     ...overrides,
-  } as GatewayClient & { loginCalls: string[]; refreshCalls: string[]; logoutCalls: string[] };
+  } as unknown as GatewayClient & { loginCalls: string[]; refreshCalls: string[]; logoutCalls: string[] };
   return gateway;
 }
 

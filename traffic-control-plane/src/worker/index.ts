@@ -10,6 +10,8 @@ import {
 import { getCouponReplenishmentScheduler } from './coupon-replenishment';
 import { getInventoryReplenishmentScheduler } from './inventory-replenishment';
 import pino from 'pino';
+import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
+import { deleteExpiredFaultRuns } from '../lib/fault-run-repository';
 
 const log = pino({ name: 'worker' });
 
@@ -23,6 +25,9 @@ async function main() {
 
   const engine = getRunnerEngine();
   await engine.loadConfigFromDb();
+  const faultRunCoordinator = getFaultRunCoordinator();
+  await faultRunCoordinator.scheduleActiveRuns();
+  await faultRunCoordinator.recoverExpiredRuns();
   const couponReplenishmentScheduler = getCouponReplenishmentScheduler();
   const inventoryReplenishmentScheduler = getInventoryReplenishmentScheduler();
   await couponReplenishmentScheduler.start();
@@ -46,6 +51,16 @@ async function main() {
     void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
     void setCouponReplenishmentStatus(couponReplenishmentScheduler.getStatus());
   }, 1000);
+  const faultRunRecoveryTimer = setInterval(() => {
+    void faultRunCoordinator.recoverExpiredRuns().catch((error) => {
+      log.warn({ error }, 'Failed to recover expired Fault Runs');
+    });
+  }, 1000);
+  const faultRunRetentionTimer = setInterval(() => {
+    void deleteExpiredFaultRuns().catch((error) => {
+      log.warn({ error }, 'Failed to delete expired Fault Run records');
+    });
+  }, 24 * 60 * 60 * 1000);
   await setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
   await setCouponReplenishmentStatus(couponReplenishmentScheduler.getStatus());
   engine.start();
@@ -63,6 +78,8 @@ async function main() {
     log.info('Shutting down worker...');
     clearInterval(replenishmentCommandTimer);
     clearInterval(inventoryStatusTimer);
+    clearInterval(faultRunRecoveryTimer);
+    clearInterval(faultRunRetentionTimer);
     inventoryReplenishmentScheduler.stop();
     void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
     couponReplenishmentScheduler.stop();

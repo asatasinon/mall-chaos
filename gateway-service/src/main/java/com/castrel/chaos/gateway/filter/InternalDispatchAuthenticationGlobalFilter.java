@@ -20,7 +20,11 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
 
     private static final Set<String> INTERNAL_PATHS = Set.of(
             "/internal/gateway/promotions/demo-coupons/replenish",
-            "/internal/gateway/inventory/demo-stock/replenish");
+            "/internal/gateway/inventory/demo-stock/replenish",
+            "/internal/gateway/fault-runs/start",
+            "/internal/gateway/fault-runs/stop",
+            "/internal/gateway/fault-runs/cleanup",
+            "/internal/gateway/fault-runs/restart-notification");
 
     private final String internalServiceKey;
 
@@ -58,6 +62,10 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
                     requestHeaders.remove("X-User-Role");
                     requestHeaders.remove("X-Auth-Actor");
                     requestHeaders.remove("X-Downstream-Principal");
+                    requestHeaders.remove("X-Fault-Run-Id");
+                    requestHeaders.remove("X-Fault-Run-Expires-At");
+                    requestHeaders.remove("X-Fault-Run-Fencing-Token");
+                    requestHeaders.remove("X-Fault-Run-Idempotency-Key");
                 }))
                 .build();
         return chain.filter(sanitized);
@@ -70,6 +78,10 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
                 || headers.containsKey("X-Traffic-Runner-Action")
                 || headers.containsKey("X-Traffic-Runner-Payment-Strategy")
                 || headers.containsKey("X-Downstream-Principal")
+                || headers.containsKey("X-Fault-Run-Id")
+                || headers.containsKey("X-Fault-Run-Expires-At")
+                || headers.containsKey("X-Fault-Run-Fencing-Token")
+                || headers.containsKey("X-Fault-Run-Idempotency-Key")
                 || headers.containsKey("X-User-Id")
                 || headers.containsKey("X-User-Role")
                 || headers.containsKey("X-Auth-Actor");

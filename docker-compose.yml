@@ -10,7 +10,7 @@ x-service-defaults: &service-defaults
 #  restart: unless-stopped
 
 x-service-env: &service-env
-  SPRING_PROFILES_ACTIVE: docker,chaos
+  SPRING_PROFILES_ACTIVE: docker
   CASTREL_JWT_SECRET: ${CASTREL_JWT_SECRET:?CASTREL_JWT_SECRET must be set}
   CASTREL_INTERNAL_SERVICE_KEY: ${CASTREL_INTERNAL_SERVICE_KEY:?CASTREL_INTERNAL_SERVICE_KEY must be set}
   SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-castrel}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
@@ -253,19 +253,6 @@ services:
     depends_on:
       - loki
 
-  toxiproxy:
-    image: ${TOXIPROXY_IMAGE:-harbor.cloudwise.com/noname/toxiproxy:latest}
-    container_name: castrel-toxiproxy
-    <<: *service-defaults
-    ports:
-      - "18474:8474"   # ToxiProxy API
-      - "18183:18083" # order-to-inventory proxy
-      - "18184:18084" # gateway-to-order proxy
-      - "18185:18085" # order-to-payment proxy
-    volumes:
-      - ./infra/toxiproxy/toxiproxy.json:/config/toxiproxy.json:ro
-    command: -config=/config/toxiproxy.json -host=0.0.0.0
-
   # ─── Business Services ───────────────────────────────────────────────────────
 
   gateway-service:
@@ -284,7 +271,7 @@ services:
       OTEL_SERVICE_NAME: gateway-service
       SW_AGENT_NAME: gateway-service
       CW_APP_NAME: ${GATEWAY_CW_APP_NAME:-gateway-service}
-      ORDER_SERVICE_URL: http://toxiproxy:18084
+      ORDER_SERVICE_URL: http://order-service:8084
       CART_SERVICE_URL: http://cart-service:8091
       USER_SERVICE_URL: http://user-service:8081
       CATALOG_SERVICE_URL: http://catalog-service:8082
@@ -294,19 +281,7 @@ services:
       RISK_SERVICE_URL: http://risk-service:8088
       FULFILLMENT_SERVICE_URL: http://fulfillment-service:8089
       NOTIFICATION_SERVICE_URL: http://notification-service:8090
-      CHAOS_ORDER_URL: http://order-service:8084
-      CHAOS_PAYMENT_URL: http://payment-service:8085
-      CHAOS_CATALOG_URL: http://catalog-service:8082
-      CHAOS_INVENTORY_URL: http://inventory-service:8083
-      CHAOS_PROMOTION_URL: http://promotion-service:8087
-      CHAOS_RISK_URL: http://risk-service:8088
-      CHAOS_FULFILLMENT_URL: http://fulfillment-service:8089
-      CHAOS_NOTIFICATION_URL: http://notification-service:8090
-      TOXIPROXY_API_URL: http://toxiproxy:8474
-      CHAOS_CONSOLE_GRAFANA_BASE_URL: ${CHAOS_CONSOLE_GRAFANA_BASE_URL:-http://localhost:13000}
     depends_on:
-      toxiproxy:
-        condition: service_started
       cart-service:
         condition: service_healthy
     healthcheck:
@@ -421,8 +396,8 @@ services:
       CW_APP_NAME: ${ORDER_CW_APP_NAME:-order-service}
       USER_SERVICE_URL: http://user-service:8081
       CATALOG_SERVICE_URL: http://catalog-service:8082
-      INVENTORY_SERVICE_URL: http://toxiproxy:18083
-      PAYMENT_SERVICE_URL: http://toxiproxy:18085
+      INVENTORY_SERVICE_URL: http://inventory-service:8083
+      PAYMENT_SERVICE_URL: http://payment-service:8085
       CART_SERVICE_URL: http://cart-service:8091
       RISK_SERVICE_URL: http://risk-service:8088
       PROMOTION_SERVICE_URL: http://promotion-service:8087
@@ -718,16 +693,6 @@ services:
       - skywalking-oap
     profiles:
       - skywalking
-
-  # ─── Chaos Infrastructure (opt-in) ─────────────────────────────────────────
-
-  pumba:
-    image: gaiaadm/pumba:latest
-    container_name: castrel-pumba
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    profiles: ["chaos-pumba"]   # start with: docker-compose --profile chaos-pumba up -d pumba
-    network_mode: none
 
   redis-exporter:
     image: oliver006/redis_exporter:v1.67.0

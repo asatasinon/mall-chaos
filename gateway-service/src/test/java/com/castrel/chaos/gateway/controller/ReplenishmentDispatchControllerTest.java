@@ -1,6 +1,6 @@
 package com.castrel.chaos.gateway.controller;
 
-import com.castrel.chaos.gateway.service.ChaosDispatchService;
+import com.castrel.chaos.gateway.service.FixedInternalDispatchService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,7 +19,7 @@ import static org.mockito.Mockito.when;
 class ReplenishmentDispatchControllerTest {
 
     @Mock
-    private ChaosDispatchService dispatchService;
+    private FixedInternalDispatchService dispatchService;
 
     private ReplenishmentDispatchController controller;
 
@@ -30,8 +30,7 @@ class ReplenishmentDispatchControllerTest {
 
     @Test
     void dispatchesCouponReplenishmentWithoutWorkerParameters() {
-        when(dispatchService.postToServiceAsInternal(
-                "promotion-service", "/internal/promotions/demo-coupons/replenish", Map.of(), "trace-1"))
+        when(dispatchService.replenishCoupons("trace-1"))
                 .thenReturn(Mono.just(Map.of("added", 2)));
 
         var response = controller.replenishCoupons(Map.of(), "trace-1").block();
@@ -39,8 +38,7 @@ class ReplenishmentDispatchControllerTest {
         assertThat(response).isNotNull();
         assertThat(response.getCode()).isEqualTo(200);
         assertThat(response.getData()).isEqualTo(Map.of("added", 2));
-        verify(dispatchService).postToServiceAsInternal(
-                "promotion-service", "/internal/promotions/demo-coupons/replenish", Map.of(), "trace-1");
+        verify(dispatchService).replenishCoupons("trace-1");
     }
 
     @Test

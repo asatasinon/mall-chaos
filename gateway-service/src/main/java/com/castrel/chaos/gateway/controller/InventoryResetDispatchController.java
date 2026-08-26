@@ -3,7 +3,7 @@ package com.castrel.chaos.gateway.controller;
 import com.castrel.chaos.common.ApiResponse;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.gateway.dto.InventoryResetDispatchRequest;
-import com.castrel.chaos.gateway.service.ChaosDispatchService;
+import com.castrel.chaos.gateway.service.FixedInternalDispatchService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -19,9 +19,9 @@ public class InventoryResetDispatchController {
 
     private static final String INVENTORY_SERVICE = "inventory-service";
 
-    private final ChaosDispatchService dispatchService;
+        private final FixedInternalDispatchService dispatchService;
 
-    public InventoryResetDispatchController(ChaosDispatchService dispatchService) {
+        public InventoryResetDispatchController(FixedInternalDispatchService dispatchService) {
         this.dispatchService = dispatchService;
     }
 
@@ -29,7 +29,7 @@ public class InventoryResetDispatchController {
     public Mono<ApiResponse<Object>> resetPlan(
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId
     ) {
-        return dispatchService.postToService(INVENTORY_SERVICE, "/internal/inventory/reset/plan", Map.of(), traceId)
+        return dispatchService.inventoryResetPlan(traceId)
                 .map(ApiResponse::ok);
     }
 
@@ -42,7 +42,7 @@ public class InventoryResetDispatchController {
                 "expectedVersion", req.expectedVersion(),
                 "scope", req.scope()
         );
-        return dispatchService.postToService(INVENTORY_SERVICE, "/internal/inventory/reset", body, traceId)
+        return dispatchService.inventoryReset(body, traceId)
                 .map(ApiResponse::ok);
     }
 }
