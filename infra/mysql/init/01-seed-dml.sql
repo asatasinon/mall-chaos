@@ -164,9 +164,8 @@ INSERT INTO risk_rules (rule_type, threshold, window_sec, enabled, description) 
   ('FREQ_LIMIT',   10,   60, 1, 'Maximum 10 orders per user within 60 seconds'),
   ('AMOUNT_LIMIT', 5000, NULL, 1, 'Maximum 5000 per order');
 INSERT INTO user_credentials (user_id, password_hash)
-SELECT id, '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'
+SELECT id, '$2a$10$Sz3FK6PF9Hyq0oKXECV3JetuZODGMUMUznUhJMzPYaPJD9z5lsgiq'
 FROM users
-WHERE email IN ('alice@example.com', 'bob@example.com')
 ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash);
 INSERT INTO user_roles (user_id, role)
 SELECT id, 'CUSTOMER'
