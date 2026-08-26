@@ -93,8 +93,9 @@ class PromotionServiceContractTest {
         inactive.setEnabled(0);
         Coupon available = coupon(11L, 7L, 1L, LocalDateTime.now().plusDays(1));
         Coupon expired = coupon(12L, 7L, 2L, LocalDateTime.now().minusMinutes(1));
+        Coupon orphan = coupon(13L, 7L, 999L, LocalDateTime.now().plusDays(1));
         when(promotionRepository.findAll()).thenReturn(List.of(active, inactive));
-        when(couponRepository.findByUserIdAndStatus(7L, 0)).thenReturn(List.of(available, expired));
+        when(couponRepository.findByUserIdAndStatus(7L, 0)).thenReturn(List.of(available, expired, orphan));
 
         List<CouponCandidateDTO> result = promotionService.findAvailableCoupons(7L);
 

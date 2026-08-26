@@ -231,8 +231,8 @@ public class PromotionService {
 
         return couponRepository.findByUserIdAndStatus(userId, 0).stream()
             .filter(coupon -> coupon.getExpireAt() == null || coupon.getExpireAt().isAfter(now))
+            .filter(coupon -> activePromotions.containsKey(coupon.getPromotionId()))
             .map(coupon -> Map.entry(coupon, activePromotions.get(coupon.getPromotionId())))
-            .filter(entry -> entry.getValue() != null)
             .map(entry -> {
                 Coupon coupon = entry.getKey();
                 Promotion promotion = entry.getValue();
