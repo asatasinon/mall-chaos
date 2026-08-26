@@ -86,7 +86,7 @@ inventories_count="$(mysql_query 'SELECT COUNT(*) FROM inventories;')"
 carts_count="$(mysql_query 'SELECT COUNT(*) FROM carts;')"
 
 if [[ "$users_count" != "20" || "$products_count" != "50" ||
-  "$inventories_count" != "50" || "$carts_count" != "2" ]]; then
+  "$inventories_count" != "50" || "$carts_count" != "0" ]]; then
   echo "Seed data verification failed: users=$users_count products=$products_count inventories=$inventories_count carts=$carts_count" >&2
   exit 1
 fi

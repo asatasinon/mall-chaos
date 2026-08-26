@@ -176,15 +176,10 @@ SELECT id, '$2a$10$Sz3FK6PF9Hyq0oKXECV3JetuZODGMUMUznUhJMzPYaPJD9z5lsgiq'
 FROM users
 ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash);
 INSERT INTO user_roles (user_id, role)
-SELECT id, 'CUSTOMER'
-FROM users
-WHERE email IN ('alice@example.com', 'bob@example.com')
+SELECT customer_id, 'CUSTOMER'
+FROM runner_customer_whitelist
+WHERE enabled = 1
 ON DUPLICATE KEY UPDATE role = VALUES(role);
-INSERT INTO carts (customer_id, version, status)
-SELECT id, 0, 'ACTIVE'
-FROM users
-WHERE email IN ('alice@example.com', 'bob@example.com')
-ON DUPLICATE KEY UPDATE version = carts.version;
 INSERT INTO notification_preferences (customer_id)
 SELECT id
 FROM users
