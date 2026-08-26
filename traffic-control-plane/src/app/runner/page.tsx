@@ -9,6 +9,7 @@ import { fetchWithAuth } from '@/lib/auth-fetch';
 
 interface RunnerStatus {
   running: boolean;
+  workerOnline: boolean;
   enabled: boolean;
   paused: boolean;
   trafficMode: 'CUSTOMER_LIFECYCLE';
@@ -246,6 +247,7 @@ export default function RunnerPage() {
   };
 
   const running = status?.running ?? false;
+  const workerUnavailable = status?.workerOnline === false;
   const lifecycleResult = status
     ? `${status.lifecycleCompletedCount} completed / ${status.lifecycleFailedCount} failed`
     : '—';
@@ -256,8 +258,11 @@ export default function RunnerPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Customer Lifecycle</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">Serial customer traffic and replenishment health</p>
+          {status?.workerOnline === false && <p className="mt-1 text-xs text-destructive">Runner worker is not reporting. Check worker configuration and logs.</p>}
         </div>
-        <Badge variant={running ? 'default' : 'secondary'}>{running ? 'Running' : status?.paused ? 'Paused' : 'Stopped'}</Badge>
+        <Badge variant={status?.workerOnline === false ? 'destructive' : running ? 'default' : 'secondary'}>
+          {status?.workerOnline === false ? 'Worker offline' : running ? 'Running' : status?.paused ? 'Paused' : 'Stopped'}
+        </Badge>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -268,19 +273,17 @@ export default function RunnerPage() {
       </div>
 
       <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-3">
           <CardTitle className="text-sm font-medium">Lifecycle configuration</CardTitle>
-          {!editing ? (
-            <Button size="sm" variant="ghost" onClick={() => { setEditing(true); setMessage(null); }}><Pencil />Edit</Button>
-          ) : (
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={saveConfig} disabled={saving}><Save />{saving ? 'Saving...' : 'Save'}</Button>
-              <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setMessage(null); }}><X />Cancel</Button>
-            </div>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
+            {!editing ? (
+              <Button size="sm" variant="ghost" onClick={() => { setEditing(true); setMessage(null); }}><Pencil />Edit</Button>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" onClick={saveConfig} disabled={saving}><Save />{saving ? 'Saving...' : 'Save'}</Button>
+                <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setMessage(null); }}><X />Cancel</Button>
+              </>
+            )}
             {config?.enabled ? (
               <Button size="sm" variant="outline" onClick={toggleEnabled}><PowerOff />Disable</Button>
             ) : (
@@ -291,8 +294,10 @@ export default function RunnerPage() {
             ) : (
               <Button size="sm" variant="outline" onClick={() => void sendControl('/internal/traffic/runner/pause')}><Pause />Pause</Button>
             ))}
-            {message && <span className="text-xs text-muted-foreground">{message}</span>}
           </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {message && <p className="text-xs text-muted-foreground">{message}</p>}
           {editing ? (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
               <SelectField label="Interval" value={form.lifecycleIntervalSec} options={INTERVALS.map(String)} onChange={(value) => setForm((current) => ({ ...current, lifecycleIntervalSec: value }))} />
@@ -324,14 +329,14 @@ export default function RunnerPage() {
         <Card>
           <CardHeader className="pb-3"><CardTitle className="text-sm font-medium">Inventory replenishment</CardTitle></CardHeader>
           <CardContent>
-            {!inventory && <p className="text-sm text-muted-foreground">Loading...</p>}
+            {!inventory && <p className="text-sm text-muted-foreground">{workerUnavailable ? 'Worker unavailable' : 'Loading...'}</p>}
             {inventory && <div className="grid grid-cols-2 gap-3"><Metric title="Result" value={inventory.lastResult ?? 'pending'} /><Metric title="Window" value={inventory.lastWindowId ?? '—'} mono /><Metric title="Added" value={String(inventory.lastAddedQuantity)} /><Metric title="Retries" value={String(inventory.retryCount)} /></div>}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-3"><CardTitle className="text-sm font-medium">Coupon replenishment</CardTitle></CardHeader>
           <CardContent>
-            {!couponReplenishment && <p className="text-sm text-muted-foreground">Loading...</p>}
+            {!couponReplenishment && <p className="text-sm text-muted-foreground">{workerUnavailable ? 'Worker unavailable' : 'Loading...'}</p>}
             {couponReplenishment && <div className="grid grid-cols-2 gap-3"><Metric title="Result" value={couponReplenishment.lastResult ?? 'pending'} /><Metric title="Window" value={couponReplenishment.lastWindowId ?? '—'} mono /><Metric title="Next run" value={formatTimestamp(couponReplenishment.nextExecutionAt)} /><Metric title="Retries" value={String(couponReplenishment.retryCount)} /></div>}
           </CardContent>
         </Card>

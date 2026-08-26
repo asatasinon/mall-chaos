@@ -10,8 +10,17 @@ export async function GET() {
   ]);
 
   return jsonOk(
-    status ?? {
+    status ? {
+      ...status,
+      workerOnline: true,
+      running: status.running && config.enabled && !control.paused,
+      enabled: config.enabled,
+      paused: control.paused,
+      configVersion: config.version,
+      lifecycleIntervalSec: config.lifecycleIntervalSec,
+    } : {
       running: false,
+      workerOnline: false,
       enabled: config.enabled,
       paused: control.paused,
       trafficMode: config.trafficMode,

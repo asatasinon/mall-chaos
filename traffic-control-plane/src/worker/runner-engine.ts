@@ -15,6 +15,7 @@ export class RunnerEngine {
   private paused = false;
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private statusTimer: ReturnType<typeof setInterval> | null = null;
   private lastConfigCheckAt = 0;
   private trafficRunId: string | null = null;
   private trafficRunPersistence: Promise<void> | null = null;
@@ -68,11 +69,23 @@ export class RunnerEngine {
       log.error({ error }, 'Failed to persist runner start');
     });
     this.scheduleTick();
+    void this.refreshAndPublishStatus().catch((error) => {
+      log.error({ error }, 'Failed to publish initial runner status');
+    });
+    this.statusTimer = setInterval(() => {
+      void this.refreshAndPublishStatus().catch((error) => {
+        log.error({ error }, 'Failed to publish runner heartbeat');
+      });
+    }, 5000);
     log.info({ trafficRunId }, 'Runner engine started');
   }
 
   async stop(): Promise<void> {
     this.running = false;
+    if (this.statusTimer) {
+      clearInterval(this.statusTimer);
+      this.statusTimer = null;
+    }
     this.lifecycleAbortController?.abort();
     if (this.timer) {
       clearTimeout(this.timer);
@@ -89,6 +102,7 @@ export class RunnerEngine {
       });
     }
     this.trafficRunPersistence = null;
+    await this.publishStatus();
     log.info({ trafficRunId }, 'Runner engine stopped');
   }
 
@@ -232,6 +246,13 @@ export class RunnerEngine {
   private async refreshControlState(): Promise<void> {
     const state = await getRunnerControlState();
     this.paused = state.paused;
+  }
+
+  private async refreshAndPublishStatus(): Promise<void> {
+    if (!this.running) return;
+    await this.refreshControlState();
+    await this.refreshConfigIfNeeded();
+    await this.publishStatus();
   }
 
   private async refreshConfigIfNeeded(): Promise<void> {
