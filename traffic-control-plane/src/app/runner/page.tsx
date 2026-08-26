@@ -99,6 +99,7 @@ export default function RunnerPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<'accounts' | 'scheduled' | 'activity'>('accounts');
   const [expandedLifecycleId, setExpandedLifecycleId] = useState<string | null>(null);
   const [lifecycleSteps, setLifecycleSteps] = useState<Record<string, Array<Record<string, unknown>>>>({});
   const [form, setForm] = useState<ConfigForm>({
@@ -290,14 +291,6 @@ export default function RunnerPage() {
           ) : (
             <Button size="sm" onClick={toggleEnabled}><Power />Start</Button>
           )}
-          {!editing ? (
-            <Button size="sm" variant="ghost" onClick={() => { setEditing(true); setMessage(null); }}><Pencil />Edit</Button>
-          ) : (
-            <>
-              <Button size="sm" variant="outline" onClick={saveConfig} disabled={saving}><Save />{saving ? 'Saving...' : 'Save'}</Button>
-              <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setMessage(null); }}><X />Cancel</Button>
-            </>
-          )}
         </div>
       </div>
 
@@ -309,8 +302,21 @@ export default function RunnerPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium">Lifecycle configuration</CardTitle>
+        <CardHeader className="!flex min-w-0 flex-row items-start justify-between gap-4 space-y-0 pb-3">
+          <div className="min-w-0">
+            <CardTitle className="text-sm font-medium">Lifecycle configuration</CardTitle>
+            {config && <p className="mt-1 text-xs text-muted-foreground">Saved at version {config.version}</p>}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {!editing ? (
+              <Button size="sm" variant="outline" onClick={() => { setEditing(true); setMessage(null); }}><Pencil />Edit</Button>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" onClick={saveConfig} disabled={saving}><Save />{saving ? 'Saving...' : 'Save'}</Button>
+                <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setMessage(null); }}><X />Cancel</Button>
+              </>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {message && <p className="text-xs text-muted-foreground">{message}</p>}
@@ -334,15 +340,22 @@ export default function RunnerPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-3"><CardTitle className="text-sm font-medium">Lifecycle accounts</CardTitle></CardHeader>
-          <CardContent>
-            {!accountSummary && !accountError && <p className="text-sm text-muted-foreground">Loading...</p>}
-            {accountError && <p className="text-sm text-destructive">{accountError}</p>}
-            {accountSummary && <div className="space-y-2"><p className="text-xs text-muted-foreground">{accountSummary.enabledCount}/{accountSummary.count} enabled</p><div className="space-y-1">{accountSummary.accounts.map((account) => <div key={account.label} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"><div className="flex min-w-0 items-center gap-2 text-sm"><span className={`status-dot shrink-0 ${account.enabled ? 'status-dot-green' : 'status-dot-off'}`} />{account.label}{account.expectedCustomerId ? <span className="text-xs text-muted-foreground">customer {account.expectedCustomerId}</span> : null}</div><Button size="sm" variant="ghost" onClick={() => void toggleAccount(account.label, !account.enabled)}>{account.enabled ? <><Pause />Pause</> : <><Play />Enable</>}</Button></div>)}</div></div>}
-          </CardContent>
-        </Card>
+      <div role="tablist" aria-label="Runner views" className="flex w-full items-center gap-5">
+        <TabButton active={activeView === 'accounts'} onClick={() => setActiveView('accounts')}>Accounts</TabButton>
+        <TabButton active={activeView === 'scheduled'} onClick={() => setActiveView('scheduled')}>Scheduled tasks</TabButton>
+        <TabButton active={activeView === 'activity'} onClick={() => setActiveView('activity')}>Activity<span className="ml-1 text-xs text-muted-foreground">{activity.length}</span></TabButton>
+      </div>
+
+      {activeView === 'accounts' && <Card id="runner-accounts" role="tabpanel">
+        <CardHeader className="pb-3"><CardTitle className="text-sm font-medium">Lifecycle accounts</CardTitle></CardHeader>
+        <CardContent>
+          {!accountSummary && !accountError && <p className="text-sm text-muted-foreground">Loading...</p>}
+          {accountError && <p className="text-sm text-destructive">{accountError}</p>}
+          {accountSummary && <div className="space-y-2"><p className="text-xs text-muted-foreground">{accountSummary.enabledCount}/{accountSummary.count} enabled</p><div className="space-y-1">{accountSummary.accounts.map((account) => <div key={account.label} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"><div className="flex min-w-0 items-center gap-2 text-sm"><span className={`status-dot shrink-0 ${account.enabled ? 'status-dot-green' : 'status-dot-off'}`} />{account.label}{account.expectedCustomerId ? <span className="text-xs text-muted-foreground">customer {account.expectedCustomerId}</span> : null}</div><Button size="sm" variant="ghost" onClick={() => void toggleAccount(account.label, !account.enabled)}>{account.enabled ? <><Pause />Pause</> : <><Play />Enable</>}</Button></div>)}</div></div>}
+        </CardContent>
+      </Card>}
+
+      {activeView === 'scheduled' && <div id="runner-scheduled" role="tabpanel" className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader className="pb-3"><CardTitle className="text-sm font-medium">Inventory replenishment</CardTitle></CardHeader>
           <CardContent>
@@ -357,10 +370,10 @@ export default function RunnerPage() {
             {couponReplenishment && <div className="grid grid-cols-2 gap-3"><Metric title="Result" value={couponReplenishment.lastResult ?? 'pending'} /><Metric title="Window" value={couponReplenishment.lastWindowId ?? '—'} mono /><Metric title="Next run" value={formatTimestamp(couponReplenishment.nextExecutionAt)} /><Metric title="Retries" value={String(couponReplenishment.retryCount)} /></div>}
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
-      <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3"><CardTitle className="text-sm font-medium">Recent lifecycle activity</CardTitle><span className="text-xs text-muted-foreground">{activity.length} records</span></CardHeader>
+      {activeView === 'activity' && <Card id="runner-activity" role="tabpanel">
+        <CardHeader className="!flex flex-row items-center justify-between space-y-0 pb-3"><CardTitle className="text-sm font-medium">Recent lifecycle activity</CardTitle><span className="text-xs text-muted-foreground">{activity.length} records</span></CardHeader>
         <CardContent>
           {activity.length === 0 && <p className="text-sm text-muted-foreground">No lifecycle activity yet.</p>}
           <div className="space-y-1">{activity.map((entry, index) => <div key={`${entry.ts}-${index}`}>
@@ -376,13 +389,17 @@ export default function RunnerPage() {
             {expandedLifecycleId === entry.lifecycleId && lifecycleSteps[entry.lifecycleId] && <div className="ml-20 mt-1 space-y-1 border-l border-border pl-3">{lifecycleSteps[entry.lifecycleId].map((step, stepIndex) => <div key={`${String(step.action_id)}-${stepIndex}`} className="flex flex-wrap gap-2 text-[11px] text-muted-foreground"><span className="font-mono">{String(step.action_type ?? 'STEP')}</span><span>{String(step.status ?? '—')}</span>{step.result_code != null && <span className="font-mono">{String(step.result_code)}</span>}{step.error_code != null && <span className="font-mono text-destructive">{String(step.error_code)}</span>}</div>)}</div>}
           </div>)}</div>
         </CardContent>
-      </Card>
+      </Card>}
     </div>
   );
 }
 
 function Metric({ title, value, mono = false }: { title: string; value: string; mono?: boolean }) {
   return <div className="rounded-md bg-muted/40 px-3 py-2.5"><p className="mb-1 text-[11px] text-muted-foreground">{title}</p><p className={`text-lg font-semibold tabular-nums ${mono ? 'font-mono text-sm' : ''}`}>{value}</p></div>;
+}
+
+function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
+  return <button type="button" role="tab" aria-selected={active} className={`relative px-1 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${active ? 'text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-primary' : 'text-muted-foreground hover:text-foreground'}`} onClick={onClick}>{children}</button>;
 }
 
 function formatTimestamp(value: string | null): string {
