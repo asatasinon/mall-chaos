@@ -2,7 +2,11 @@ import { getRunnerEngine } from './runner-engine';
 import { getDataWarmupService } from './data-warmup';
 import { env } from '../lib/env';
 import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
-import { setCouponReplenishmentStatus, setInventoryReplenishmentStatus } from '../lib/runtime-state';
+import {
+  consumeReplenishmentCommand,
+  setCouponReplenishmentStatus,
+  setInventoryReplenishmentStatus,
+} from '../lib/runtime-state';
 import { getCouponReplenishmentScheduler } from './coupon-replenishment';
 import { getInventoryReplenishmentScheduler } from './inventory-replenishment';
 import pino from 'pino';
@@ -23,6 +27,21 @@ async function main() {
   const inventoryReplenishmentScheduler = getInventoryReplenishmentScheduler();
   await couponReplenishmentScheduler.start();
   await inventoryReplenishmentScheduler.start();
+  let processingReplenishmentCommand = false;
+  const replenishmentCommandTimer = setInterval(() => {
+    if (processingReplenishmentCommand) return;
+    processingReplenishmentCommand = true;
+    void processReplenishmentCommands(
+      couponReplenishmentScheduler,
+      inventoryReplenishmentScheduler,
+    )
+      .catch((error) => {
+        log.warn({ error }, 'Failed to poll replenishment commands');
+      })
+      .finally(() => {
+        processingReplenishmentCommand = false;
+      });
+  }, 1000);
   const inventoryStatusTimer = setInterval(() => {
     void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
     void setCouponReplenishmentStatus(couponReplenishmentScheduler.getStatus());
@@ -42,6 +61,7 @@ async function main() {
 
   const shutdown = async () => {
     log.info('Shutting down worker...');
+    clearInterval(replenishmentCommandTimer);
     clearInterval(inventoryStatusTimer);
     inventoryReplenishmentScheduler.stop();
     void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
@@ -59,3 +79,23 @@ main().catch((err) => {
   log.error({ error: err }, 'Worker failed to start');
   process.exit(1);
 });
+
+async function processReplenishmentCommands(
+  couponScheduler: ReturnType<typeof getCouponReplenishmentScheduler>,
+  inventoryScheduler: ReturnType<typeof getInventoryReplenishmentScheduler>,
+): Promise<void> {
+  while (true) {
+    const command = await consumeReplenishmentCommand();
+    if (!command) return;
+    try {
+      if (command.type === 'coupon') {
+        await couponScheduler.executeCurrentWindow();
+      } else {
+        await inventoryScheduler.executeCurrentWindow();
+      }
+      log.info({ type: command.type, correlationId: command.correlationId }, 'Manual replenishment command completed');
+    } catch (error) {
+      log.error({ type: command.type, correlationId: command.correlationId, error }, 'Manual replenishment command failed');
+    }
+  }
+}

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Check, Pencil, Pause, Play, Power, PowerOff, Save, X } from 'lucide-react';
+import { Check, Pencil, Pause, Play, Power, PowerOff, RefreshCw, Save, X } from 'lucide-react';
 import { fetchWithAuth } from '@/lib/auth-fetch';
 
 interface RunnerStatus {
@@ -98,6 +98,7 @@ export default function RunnerPage() {
   const [couponReplenishment, setCouponReplenishment] = useState<CouponReplenishmentStatus | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [triggeringReplenishment, setTriggeringReplenishment] = useState<'inventory' | 'coupon' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'accounts' | 'scheduled' | 'activity'>('accounts');
   const [expandedLifecycleId, setExpandedLifecycleId] = useState<string | null>(null);
@@ -176,6 +177,22 @@ export default function RunnerPage() {
       const json = await response.json();
       if (json.code === 0) setCouponReplenishment(json.data);
     } catch {}
+  };
+
+  const triggerReplenishment = async (type: 'inventory' | 'coupon') => {
+    setTriggeringReplenishment(type);
+    setMessage(null);
+    try {
+      const response = await fetchWithAuth(`/internal/traffic/runner/${type}-replenishment/trigger`, { method: 'POST' });
+      const json = await response.json();
+      if (json.code !== 0) throw new Error(json.message || 'Unable to queue replenishment');
+      setMessage(`${type === 'inventory' ? 'Inventory' : 'Coupon'} replenishment queued`);
+      await (type === 'inventory' ? loadInventory() : loadCouponReplenishment());
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to queue replenishment');
+    } finally {
+      setTriggeringReplenishment(null);
+    }
   };
 
   const toggleLifecycle = async (entry: ActivityEntry) => {
@@ -357,14 +374,24 @@ export default function RunnerPage() {
 
       {activeView === 'scheduled' && <div id="runner-scheduled" role="tabpanel" className="grid gap-4 md:grid-cols-2">
         <Card>
-          <CardHeader className="pb-3"><CardTitle className="text-sm font-medium">Inventory replenishment</CardTitle></CardHeader>
+          <CardHeader className="!flex flex-row items-center justify-between gap-3 space-y-0 pb-3">
+            <CardTitle className="text-sm font-medium">Inventory replenishment</CardTitle>
+            <Button size="sm" variant="outline" onClick={() => void triggerReplenishment('inventory')} disabled={triggeringReplenishment !== null}>
+              <RefreshCw className={triggeringReplenishment === 'inventory' ? 'animate-spin' : ''} />Run now
+            </Button>
+          </CardHeader>
           <CardContent>
             {!inventory && <p className="text-sm text-muted-foreground">{workerUnavailable ? 'Worker unavailable' : 'Loading...'}</p>}
             {inventory && <div className="grid grid-cols-2 gap-3"><Metric title="Result" value={inventory.lastResult ?? 'pending'} /><Metric title="Window" value={inventory.lastWindowId ?? '—'} mono /><Metric title="Added" value={String(inventory.lastAddedQuantity)} /><Metric title="Retries" value={String(inventory.retryCount)} /></div>}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-3"><CardTitle className="text-sm font-medium">Coupon replenishment</CardTitle></CardHeader>
+          <CardHeader className="!flex flex-row items-center justify-between gap-3 space-y-0 pb-3">
+            <CardTitle className="text-sm font-medium">Coupon replenishment</CardTitle>
+            <Button size="sm" variant="outline" onClick={() => void triggerReplenishment('coupon')} disabled={triggeringReplenishment !== null}>
+              <RefreshCw className={triggeringReplenishment === 'coupon' ? 'animate-spin' : ''} />Run now
+            </Button>
+          </CardHeader>
           <CardContent>
             {!couponReplenishment && <p className="text-sm text-muted-foreground">{workerUnavailable ? 'Worker unavailable' : 'Loading...'}</p>}
             {couponReplenishment && <div className="grid grid-cols-2 gap-3"><Metric title="Result" value={couponReplenishment.lastResult ?? 'pending'} /><Metric title="Window" value={couponReplenishment.lastWindowId ?? '—'} mono /><Metric title="Next run" value={formatTimestamp(couponReplenishment.nextExecutionAt)} /><Metric title="Retries" value={String(couponReplenishment.retryCount)} /></div>}
