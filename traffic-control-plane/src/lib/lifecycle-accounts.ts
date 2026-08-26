@@ -1,4 +1,5 @@
 import { env } from './env';
+import { getPool } from './db';
 
 export interface LifecycleAccount {
   label: string;
@@ -19,10 +20,63 @@ interface LoginIdentityResponse {
 }
 
 export function loadLifecycleAccounts(): LifecycleAccount[] {
-  return parseLifecycleAccounts(env.TRAFFIC_LIFECYCLE_ACCOUNTS, env.TRAFFIC_LIFECYCLE_LOGIN_ENABLED);
+  return parseLifecycleAccounts(env.TRAFFIC_LIFECYCLE_ACCOUNTS);
 }
 
-export function parseLifecycleAccounts(raw: string, loginEnabled: boolean): LifecycleAccount[] {
+export async function loadLifecycleAccountsWithState(): Promise<LifecycleAccount[]> {
+  const accounts = loadLifecycleAccounts();
+  const accountsWithIds = accounts.filter((account) => account.expectedCustomerId !== undefined);
+  if (accountsWithIds.length === 0) return accounts;
+
+  const ids = accountsWithIds.map((account) => account.expectedCustomerId!);
+  const placeholders = ids.map(() => '?').join(', ');
+  try {
+    const [rows] = await getPool().query(
+      `SELECT customer_id, enabled
+       FROM runner_customer_whitelist
+       WHERE customer_id IN (${placeholders})`,
+      ids,
+    );
+    const enabledByCustomerId = new Map(
+      (rows as Array<{ customer_id: number; enabled: number }>).map((row) => [
+        Number(row.customer_id),
+        Number(row.enabled) === 1,
+      ]),
+    );
+    return accounts.map((account) => account.expectedCustomerId === undefined
+      ? account
+      : { ...account, enabled: enabledByCustomerId.get(account.expectedCustomerId) ?? account.enabled });
+  } catch {
+    throw new Error('LIFECYCLE_ACCOUNT_STATE_UNAVAILABLE');
+  }
+}
+
+export async function setLifecycleAccountEnabled(label: string, enabled: boolean): Promise<LifecycleAccount[]> {
+  const account = loadLifecycleAccounts().find((candidate) => candidate.label === label);
+  if (!account) throw new Error('LIFECYCLE_ACCOUNT_NOT_FOUND');
+  if (account.expectedCustomerId === undefined) {
+    throw new Error('LIFECYCLE_ACCOUNT_CUSTOMER_ID_REQUIRED');
+  }
+
+  const current = await loadLifecycleAccountsWithState();
+  if (!enabled && current.filter((candidate) => candidate.enabled).length <= 1) {
+    throw new Error('LIFECYCLE_ACCOUNT_LAST_ENABLED');
+  }
+
+  try {
+    await getPool().query(
+      `INSERT INTO runner_customer_whitelist (customer_id, enabled, version)
+       VALUES (?, ?, 1)
+       ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), version = version + 1`,
+      [account.expectedCustomerId, enabled ? 1 : 0],
+    );
+  } catch {
+    throw new Error('LIFECYCLE_ACCOUNT_STATE_UNAVAILABLE');
+  }
+  return loadLifecycleAccountsWithState();
+}
+
+export function parseLifecycleAccounts(raw: string): LifecycleAccount[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -46,8 +100,8 @@ export function parseLifecycleAccounts(raw: string, loginEnabled: boolean): Life
     emails.add(normalisedEmail);
   }
 
-  if (loginEnabled && !accounts.some((account) => account.enabled)) {
-    throw new Error('NO_ENABLED_LIFECYCLE_ACCOUNT');
+  if (accounts.length === 0) {
+    throw new Error('NO_LIFECYCLE_ACCOUNT');
   }
   return accounts;
 }
@@ -82,10 +136,10 @@ function parseAccount(value: unknown): LifecycleAccount {
   const label = typeof account.label === 'string' ? account.label.trim() : '';
   const email = typeof account.email === 'string' ? account.email.trim().toLowerCase() : '';
   const password = typeof account.password === 'string' ? account.password : '';
-  const enabled = typeof account.enabled === 'boolean' ? account.enabled : undefined;
+  const enabled = true;
   const expectedCustomerId = account.expectedCustomerId;
   if (!label || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-      || password.length < 8 || typeof enabled !== 'boolean'
+      || password.length < 8
       || (expectedCustomerId !== undefined
         && (!Number.isInteger(expectedCustomerId) || Number(expectedCustomerId) <= 0))) {
     throw new Error('INVALID_LIFECYCLE_ACCOUNT');

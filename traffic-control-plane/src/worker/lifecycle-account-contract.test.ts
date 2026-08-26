@@ -23,31 +23,31 @@ const validJson = JSON.stringify([
   },
 ]);
 
-test('lifecycle accounts fail closed when enabled and malformed', () => {
-  assert.throws(() => parseLifecycleAccounts('{', true), /INVALID_LIFECYCLE_ACCOUNTS/);
-  assert.throws(() => parseLifecycleAccounts('[]', true), /NO_ENABLED_LIFECYCLE_ACCOUNT/);
+test('lifecycle accounts fail closed when malformed or empty', () => {
+  assert.throws(() => parseLifecycleAccounts('{'), /INVALID_LIFECYCLE_ACCOUNTS/);
+  assert.throws(() => parseLifecycleAccounts('[]'), /NO_LIFECYCLE_ACCOUNT/);
   assert.throws(
     () => parseLifecycleAccounts(JSON.stringify([
       { label: 'same', email: 'a@example.com', password: 'password-123', enabled: true },
       { label: 'same', email: 'b@example.com', password: 'password-123', enabled: true },
-    ]), true),
+    ])),
     /DUPLICATE_LIFECYCLE_ACCOUNT/,
   );
 });
 
 test('lifecycle account summaries never contain credentials', () => {
-  const accounts = parseLifecycleAccounts(validJson, true);
+  const accounts = parseLifecycleAccounts(validJson);
   const summary = summariseLifecycleAccounts(accounts);
   assert.deepEqual(summary, [
     { label: 'alice', enabled: true, expectedCustomerId: 1 },
-    { label: 'bob', enabled: false, expectedCustomerId: 2 },
+    { label: 'bob', enabled: true, expectedCustomerId: 2 },
   ]);
   assert.equal(JSON.stringify(summary).includes('development-password'), false);
   assert.equal(JSON.stringify(summary).includes('@example.com'), false);
 });
 
 test('login identity must match the configured customer id', () => {
-  const account = parseLifecycleAccounts(validJson, true)[0];
+  const account = parseLifecycleAccounts(validJson)[0];
   assert.equal(validateLoginIdentity(account, { userId: 1 }), 1);
   assert.throws(
     () => validateLoginIdentity(account, { userId: 2 }),

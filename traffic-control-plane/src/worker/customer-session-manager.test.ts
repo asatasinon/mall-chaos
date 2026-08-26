@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { GatewayRequestError } from '../lib/gateway-client';
 import type { CustomerAuthResponse, GatewayClient } from '../lib/gateway-client';
 import type { LifecycleAccount } from '../lib/lifecycle-accounts';
 import { CustomerSessionManager } from './customer-session-manager';
@@ -91,6 +92,20 @@ test('rejects an unexpected login customer id without retaining a session', asyn
     /LIFECYCLE_CUSTOMER_ID_MISMATCH/,
   );
   assert.equal(manager.hasSession('lifecycle-1'), false);
+});
+
+test('reports invalid login credentials without exposing the gateway response', async () => {
+  const gateway = fakeGateway({
+    async login(): Promise<CustomerAuthResponse> {
+      throw new GatewayRequestError('POST', '/api/auth/login', 401);
+    },
+  });
+  const manager = new CustomerSessionManager({ accounts, gateway, random: () => 0 });
+
+  await assert.rejects(
+    manager.openSession('run-1', 'lifecycle-1', 'trace-1'),
+    /LIFECYCLE_LOGIN_INVALID_CREDENTIALS/,
+  );
 });
 
 test('refreshes only the lifecycle session and keeps customer ownership', async () => {

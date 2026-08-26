@@ -15,9 +15,6 @@ async function main() {
   if (!env.CASTREL_INTERNAL_SERVICE_KEY.trim()) {
     throw new Error('INTERNAL_SERVICE_KEY_REQUIRED');
   }
-  if (!env.TRAFFIC_LIFECYCLE_LOGIN_ENABLED) {
-    throw new Error('LIFECYCLE_LOGIN_REQUIRED');
-  }
   loadLifecycleAccounts();
 
   const engine = getRunnerEngine();

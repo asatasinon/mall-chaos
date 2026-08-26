@@ -70,7 +70,7 @@
 
 ### A5. 演示账号与支付成功基线
 
-- [x] 在 traffic-control-plane 增加 server-only 生命周期账号配置，解析 `TRAFFIC_LIFECYCLE_LOGIN_ENABLED` 和 Secret 注入的账号 JSON。
+- [x] 在 traffic-control-plane 增加 server-only 生命周期账号配置，解析 Secret 注入的账号 JSON；账号为空或无效时 worker fail-closed。
 - [x] 配置校验账号标签/邮箱唯一、账号启用、预期 customer ID 与登录响应一致；控制台只显示安全摘要。
 - [x] 为训练环境的真实 CUSTOMER 支付定义固定成功基线，且不依赖 `X-Traffic-Runner-Payment-Strategy`。
 - [x] 将支付失败/未知、库存耗尽、商品下架、价格变化、券争用和下游异常明确转入 `faultScenarioId` 故障注入验证路径。

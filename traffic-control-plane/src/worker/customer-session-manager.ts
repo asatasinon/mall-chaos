@@ -3,11 +3,12 @@ import {
   CustomerRequestContext,
   CustomerSession,
   GatewayClient,
+  GatewayRequestError,
   getGatewayClient,
 } from '../lib/gateway-client';
 import {
   LifecycleAccount,
-  loadLifecycleAccounts,
+  loadLifecycleAccountsWithState,
   validateLoginIdentity,
 } from '../lib/lifecycle-accounts';
 
@@ -23,13 +24,13 @@ export interface CustomerSessionManagerDependencies {
 }
 
 export class CustomerSessionManager {
-  private readonly accounts: LifecycleAccount[];
+  private readonly configuredAccounts: LifecycleAccount[] | null;
   private readonly gateway: GatewayClient;
   private readonly random: () => number;
   private readonly sessions = new Map<string, ActiveSession>();
 
   constructor(dependencies: CustomerSessionManagerDependencies = {}) {
-    this.accounts = dependencies.accounts ?? loadLifecycleAccounts();
+    this.configuredAccounts = dependencies.accounts ?? null;
     this.gateway = dependencies.gateway ?? getGatewayClient();
     this.random = dependencies.random ?? Math.random;
   }
@@ -42,11 +43,17 @@ export class CustomerSessionManager {
     if (this.sessions.has(lifecycleId)) {
       throw new Error('LIFECYCLE_SESSION_ALREADY_EXISTS');
     }
-    const account = this.selectAccount();
+    const account = await this.selectAccount();
     let auth: CustomerAuthResponse;
     try {
       auth = await this.gateway.login(account.email, account.password, traceId);
-    } catch {
+    } catch (error) {
+      if (error instanceof GatewayRequestError && error.status === 401) {
+        throw new Error('LIFECYCLE_LOGIN_INVALID_CREDENTIALS');
+      }
+      if (error instanceof GatewayRequestError && [502, 503, 504].includes(error.status)) {
+        throw new Error('LIFECYCLE_LOGIN_GATEWAY_UNAVAILABLE');
+      }
       throw new Error('LIFECYCLE_LOGIN_FAILED');
     }
 
@@ -123,8 +130,9 @@ export class CustomerSessionManager {
     return this.sessions.has(lifecycleId);
   }
 
-  private selectAccount(): LifecycleAccount {
-    const enabled = this.accounts.filter((account) => account.enabled);
+  private async selectAccount(): Promise<LifecycleAccount> {
+    const accounts = this.configuredAccounts ?? await loadLifecycleAccountsWithState();
+    const enabled = accounts.filter((account) => account.enabled);
     if (enabled.length === 0) {
       throw new Error('LIFECYCLE_NO_ENABLED_ACCOUNT');
     }

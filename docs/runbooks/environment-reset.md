@@ -87,7 +87,7 @@
 
    ```bash
    # worker 要求 CASTREL_INTERNAL_SERVICE_KEY 和真实生命周期账号 Secret。
-   # TRAFFIC_LIFECYCLE_LOGIN_ENABLED=false 时 worker 会 fail-closed。
+   # 生命周期账号为空或配置无效时 worker 会 fail-closed。
    docker compose up -d traffic-control-plane traffic-control-plane-worker
    curl --fail http://localhost:13086/internal/traffic/runner/status
    ```

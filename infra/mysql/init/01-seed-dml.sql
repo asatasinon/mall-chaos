@@ -142,7 +142,15 @@ INSERT INTO runner_profile
 VALUES (1, 'CUSTOMER_LIFECYCLE', 60, 3, 3, 1.0000, 0.0000, 0, 1);
 INSERT INTO runner_customer_whitelist (customer_id, enabled, version) VALUES
   (1, 1, 1),
-  (2, 1, 1)
+  (2, 1, 1),
+  (3, 1, 1),
+  (4, 1, 1),
+  (5, 1, 1),
+  (6, 1, 1),
+  (7, 1, 1),
+  (8, 1, 1),
+  (9, 1, 1),
+  (10, 1, 1)
 ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), version = VALUES(version);
 INSERT INTO alert_config_meta (id, version, group_by_json) VALUES (1, 1, '["alertname", "severity", "service"]');
 

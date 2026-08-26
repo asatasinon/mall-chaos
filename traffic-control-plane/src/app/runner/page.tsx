@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Check, Pause, Pencil, Play, Power, PowerOff, Save, X } from 'lucide-react';
+import { Check, Pencil, Pause, Play, Power, PowerOff, Save, X } from 'lucide-react';
 import { fetchWithAuth } from '@/lib/auth-fetch';
 
 interface RunnerStatus {
@@ -48,7 +48,6 @@ interface ConfigForm {
 }
 
 interface AccountSummary {
-  loginEnabled: boolean;
   count: number;
   enabledCount: number;
   accounts: Array<{ label: string; enabled: boolean; expectedCustomerId?: number }>;
@@ -93,6 +92,7 @@ export default function RunnerPage() {
   const [status, setStatus] = useState<RunnerStatus | null>(null);
   const [config, setConfig] = useState<RunnerConfig | null>(null);
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null);
+  const [accountError, setAccountError] = useState<string | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [inventory, setInventory] = useState<InventoryReplenishmentStatus | null>(null);
   const [couponReplenishment, setCouponReplenishment] = useState<CouponReplenishmentStatus | null>(null);
@@ -142,8 +142,15 @@ export default function RunnerPage() {
     try {
       const response = await fetchWithAuth('/internal/traffic/runner/accounts');
       const json = await response.json();
-      if (json.code === 0) setAccountSummary(json.data);
-    } catch {}
+      if (json.code === 0) {
+        setAccountSummary(json.data);
+        setAccountError(null);
+      } else {
+        setAccountError(json.message || 'Lifecycle account state is unavailable');
+      }
+    } catch {
+      setAccountError('Lifecycle account state is unavailable');
+    }
   };
 
   const loadActivity = async () => {
@@ -201,11 +208,6 @@ export default function RunnerPage() {
     };
   }, []);
 
-  const sendControl = async (path: string) => {
-    await fetchWithAuth(path, { method: 'POST' });
-    await loadStatus();
-  };
-
   const toggleEnabled = async () => {
     if (!config) return;
     const response = await fetchWithAuth('/internal/traffic/runner/config', {
@@ -246,6 +248,25 @@ export default function RunnerPage() {
     }
   };
 
+  const toggleAccount = async (label: string, enabled: boolean) => {
+    try {
+      const response = await fetchWithAuth('/internal/traffic/runner/accounts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, enabled }),
+      });
+      const json = await response.json();
+      if (json.code === 0) {
+        setAccountSummary(json.data);
+        setAccountError(null);
+      } else {
+        setAccountError(json.message || 'Unable to update lifecycle account');
+      }
+    } catch {
+      setAccountError('Unable to update lifecycle account');
+    }
+  };
+
   const running = status?.running ?? false;
   const workerUnavailable = status?.workerOnline === false;
   const lifecycleResult = status
@@ -254,15 +275,30 @@ export default function RunnerPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Customer Lifecycle</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">Serial customer traffic and replenishment health</p>
           {status?.workerOnline === false && <p className="mt-1 text-xs text-destructive">Runner worker is not reporting. Check worker configuration and logs.</p>}
         </div>
-        <Badge variant={status?.workerOnline === false ? 'destructive' : running ? 'default' : 'secondary'}>
-          {status?.workerOnline === false ? 'Worker offline' : running ? 'Running' : status?.paused ? 'Paused' : 'Stopped'}
-        </Badge>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Badge variant={status?.workerOnline === false ? 'destructive' : running ? 'default' : 'secondary'}>
+            {status?.workerOnline === false ? 'Worker offline' : running ? 'Running' : 'Stopped'}
+          </Badge>
+          {config?.enabled ? (
+            <Button size="sm" variant="outline" onClick={toggleEnabled}><PowerOff />Stop</Button>
+          ) : (
+            <Button size="sm" onClick={toggleEnabled}><Power />Start</Button>
+          )}
+          {!editing ? (
+            <Button size="sm" variant="ghost" onClick={() => { setEditing(true); setMessage(null); }}><Pencil />Edit</Button>
+          ) : (
+            <>
+              <Button size="sm" variant="outline" onClick={saveConfig} disabled={saving}><Save />{saving ? 'Saving...' : 'Save'}</Button>
+              <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setMessage(null); }}><X />Cancel</Button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -273,28 +309,8 @@ export default function RunnerPage() {
       </div>
 
       <Card>
-        <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-3">
+        <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">Lifecycle configuration</CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
-            {!editing ? (
-              <Button size="sm" variant="ghost" onClick={() => { setEditing(true); setMessage(null); }}><Pencil />Edit</Button>
-            ) : (
-              <>
-                <Button size="sm" variant="outline" onClick={saveConfig} disabled={saving}><Save />{saving ? 'Saving...' : 'Save'}</Button>
-                <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setMessage(null); }}><X />Cancel</Button>
-              </>
-            )}
-            {config?.enabled ? (
-              <Button size="sm" variant="outline" onClick={toggleEnabled}><PowerOff />Disable</Button>
-            ) : (
-              <Button size="sm" onClick={toggleEnabled}><Power />Enable</Button>
-            )}
-            {config?.enabled && (status?.paused ? (
-              <Button size="sm" variant="outline" onClick={() => void sendControl('/internal/traffic/runner/resume')}><Play />Resume</Button>
-            ) : (
-              <Button size="sm" variant="outline" onClick={() => void sendControl('/internal/traffic/runner/pause')}><Pause />Pause</Button>
-            ))}
-          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {message && <p className="text-xs text-muted-foreground">{message}</p>}
@@ -322,8 +338,9 @@ export default function RunnerPage() {
         <Card>
           <CardHeader className="pb-3"><CardTitle className="text-sm font-medium">Lifecycle accounts</CardTitle></CardHeader>
           <CardContent>
-            {!accountSummary && <p className="text-sm text-muted-foreground">Loading...</p>}
-            {accountSummary && <div className="space-y-2"><p className="text-xs text-muted-foreground">{accountSummary.loginEnabled ? `${accountSummary.enabledCount}/${accountSummary.count} enabled` : 'Login disabled'}</p><div className="flex flex-wrap gap-2">{accountSummary.accounts.map((account) => <Badge key={account.label} variant="outline"><span className={`status-dot mr-1.5 ${account.enabled ? 'status-dot-green' : 'status-dot-off'}`} />{account.label}{account.expectedCustomerId ? ` · ${account.expectedCustomerId}` : ''}</Badge>)}</div></div>}
+            {!accountSummary && !accountError && <p className="text-sm text-muted-foreground">Loading...</p>}
+            {accountError && <p className="text-sm text-destructive">{accountError}</p>}
+            {accountSummary && <div className="space-y-2"><p className="text-xs text-muted-foreground">{accountSummary.enabledCount}/{accountSummary.count} enabled</p><div className="space-y-1">{accountSummary.accounts.map((account) => <div key={account.label} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"><div className="flex min-w-0 items-center gap-2 text-sm"><span className={`status-dot shrink-0 ${account.enabled ? 'status-dot-green' : 'status-dot-off'}`} />{account.label}{account.expectedCustomerId ? <span className="text-xs text-muted-foreground">customer {account.expectedCustomerId}</span> : null}</div><Button size="sm" variant="ghost" onClick={() => void toggleAccount(account.label, !account.enabled)}>{account.enabled ? <><Pause />Pause</> : <><Play />Enable</>}</Button></div>)}</div></div>}
           </CardContent>
         </Card>
         <Card>

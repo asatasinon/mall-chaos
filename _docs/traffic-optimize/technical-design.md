@@ -47,9 +47,6 @@
 建议新增以下仅服务端环境变量：
 
 ```dotenv
-# Disabled by default in production/shared deployments.
-TRAFFIC_LIFECYCLE_LOGIN_ENABLED=false
-
 # JSON supplied by deployment Secret, never returned from an API.
 # Example development shape only:
 # [{"label":"alice","email":"alice@example.com","password":"password","expectedCustomerId":1},
@@ -59,11 +56,12 @@ TRAFFIC_LIFECYCLE_ACCOUNTS=[]
 
 实现要求：
 
-1. `TRAFFIC_LIFECYCLE_LOGIN_ENABLED=true` 时，账号数组至少包含一个启用且合法的账号。
+1. 账号数组至少包含一个合法账号；账号为空或无效时 worker fail-closed。
 2. `label`、`email` 唯一；`expectedCustomerId` 存在时必须与登录响应 `userId` 相同。
 3. `.env.example` 仅说明 JSON 形状或占位符；真实部署通过 Compose/Kubernetes Secret 注入。
-4. `TRAFFIC_RUNNER_CREDENTIAL` 不用于登录生命周期请求。若保留旧 runner 模式，必须通过显式 mode 区分，禁止在同一请求中混合 bearer token 和 runner credential。
-5. 控制台和内部 API 只能暴露账号 `label`、启用状态、数量、最近登录结果、token 到期时间摘要；禁止返回 email、密码、任何 token。
+4. 账号是否参与流量由控制台写入 `runner_customer_whitelist`，不由环境变量控制。
+5. `TRAFFIC_RUNNER_CREDENTIAL` 不用于登录生命周期请求。若保留旧 runner 模式，必须通过显式 mode 区分，禁止在同一请求中混合 bearer token 和 runner credential。
+6. 控制台和内部 API 只能暴露账号 `label`、启用状态、数量、最近登录结果、token 到期时间摘要；禁止返回 email、密码、任何 token。
 
 ### 3.2 持久化配置
 

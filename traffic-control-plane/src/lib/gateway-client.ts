@@ -4,6 +4,18 @@ import { withTrace } from './trace';
 /**
  * Gateway client — all outbound HTTP from traffic-control-plane goes through gateway.
  */
+export class GatewayRequestError extends Error {
+  constructor(
+    method: string,
+    path: string,
+    public readonly status: number,
+    internal = false,
+  ) {
+    super(`Gateway ${internal ? 'internal ' : ''}${method} ${path} failed (${status})`);
+    this.name = 'GatewayRequestError';
+  }
+}
+
 export class GatewayClient {
   private baseUrl: string;
 
@@ -24,8 +36,7 @@ export class GatewayClient {
       body: JSON.stringify(body),
     }, requestOptions.traceId));
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Gateway POST ${path} failed (${res.status}): ${text}`);
+      throw new GatewayRequestError('POST', path, res.status);
     }
     return res.json();
   }
@@ -41,8 +52,7 @@ export class GatewayClient {
       body: JSON.stringify(body),
     }, traceId));
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Gateway internal POST ${path} failed (${res.status}): ${text}`);
+      throw new GatewayRequestError('POST', path, res.status, true);
     }
     return res.json();
   }
@@ -102,8 +112,7 @@ export class GatewayClient {
       headers: this.headers(undefined),
     }, requestOptions.traceId));
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Gateway GET ${path} failed (${res.status}): ${text}`);
+      throw new GatewayRequestError('GET', path, res.status);
     }
     return res.json();
   }
@@ -121,8 +130,7 @@ export class GatewayClient {
       body: JSON.stringify(body),
     }, requestOptions.traceId));
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Gateway PATCH ${path} failed (${res.status}): ${text}`);
+      throw new GatewayRequestError('PATCH', path, res.status);
     }
     return res.json();
   }
@@ -135,8 +143,7 @@ export class GatewayClient {
       headers: this.headers(undefined),
     }, requestOptions.traceId));
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Gateway DELETE ${path} failed (${res.status}): ${text}`);
+      throw new GatewayRequestError('DELETE', path, res.status);
     }
     return res.json();
   }
@@ -235,7 +242,7 @@ export class GatewayClient {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }, traceId));
     if (!response.ok) {
-      throw new Error(`Gateway ${method} ${path} failed (${response.status})`);
+      throw new GatewayRequestError(method, path, response.status);
     }
     return response.json();
   }
