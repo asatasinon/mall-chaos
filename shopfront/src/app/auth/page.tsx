@@ -34,7 +34,7 @@ export default function AuthPage() {
       window.dispatchEvent(new Event('auth-updated'));
       router.push('/');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '认证请求失败，请稍后重试');
+      setError(cause instanceof Error ? cause.message : 'Authentication request failed. Please try again later.');
     } finally {
       setBusy(false);
     }
@@ -48,7 +48,7 @@ export default function AuthPage() {
       setSession(nextSession);
       window.dispatchEvent(new Event('auth-updated'));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '会话刷新失败，请重新登录');
+      setError(cause instanceof Error ? cause.message : 'Session refresh failed. Please sign in again.');
     } finally {
       setBusy(false);
     }
@@ -62,7 +62,7 @@ export default function AuthPage() {
       setSession(null);
       window.dispatchEvent(new Event('auth-updated'));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '登出失败，请稍后重试');
+      setError(cause instanceof Error ? cause.message : 'Sign-out failed. Please try again later.');
     } finally {
       setBusy(false);
     }
@@ -76,7 +76,7 @@ export default function AuthPage() {
       <aside className="surface auth-side"><ShieldCheck size={22} color="var(--acid-deep)" /><h2>Private by default.</h2><p>The browser talks to the Shopfront BFF. The BFF forwards the short-lived access token to the Gateway and keeps the refresh credential server-side.</p><Link className="btn ghost" href="/account/addresses">Manage addresses <ArrowRight size={14} /></Link></aside>
     </div> : <div className="auth-layout reveal">
       <form className="surface auth-form" onSubmit={submit}>
-        <div className="auth-tabs" role="tablist" aria-label="认证模式"><button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => { setMode('login'); setError(''); }} role="tab" aria-selected={mode === 'login'}>Sign in</button><button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => { setMode('register'); setError(''); }} role="tab" aria-selected={mode === 'register'}>Create account</button></div>
+        <div className="auth-tabs" role="tablist" aria-label="Authentication mode"><button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => { setMode('login'); setError(''); }} role="tab" aria-selected={mode === 'login'}>Sign in</button><button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => { setMode('register'); setError(''); }} role="tab" aria-selected={mode === 'register'}>Create account</button></div>
         <div className="auth-form-heading"><LogIn size={21} /><div><span className="eyebrow">{mode === 'login' ? 'returning customer' : 'new customer'}</span><h2>{mode === 'login' ? 'Pick up where you left off.' : 'Make a place here.'}</h2></div></div>
         {mode === 'register' && <div className="field"><label htmlFor="nickname">Nickname</label><input className="input" id="nickname" autoComplete="nickname" value={nickname} onChange={(event) => setNickname(event.target.value)} required /></div>}
         <div className="field"><label htmlFor="email">Email</label><input className="input" id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></div>

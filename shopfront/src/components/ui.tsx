@@ -5,11 +5,11 @@ import type { Product } from '@/lib/types';
 import { money } from '@/lib/api';
 
 export function ErrorNotice({ message, retry }: { message: string; retry?: () => void }) {
-  return <div className="alert"><AlertCircle size={17} /><div>{message}{retry && <button className="btn ghost" onClick={retry} style={{ marginTop: 10 }}>再试一次</button>}</div></div>;
+  return <div className="alert"><AlertCircle size={17} /><div>{message}{retry && <button className="btn ghost" onClick={retry} style={{ marginTop: 10 }}>Try again</button>}</div></div>;
 }
 
 export function EmptyState({ title, body, href, action }: { title: string; body: string; href?: string; action?: string }) {
-  return <div className="empty"><PackageOpen size={25} /><h2>{title}</h2><p>{body}</p>{href && <Link className="btn" href={href}>{action ?? '继续浏览'} <ArrowRight size={14} /></Link>}</div>;
+  return <div className="empty"><PackageOpen size={25} /><h2>{title}</h2><p>{body}</p>{href && <Link className="btn" href={href}>{action ?? 'Keep browsing'} <ArrowRight size={14} /></Link>}</div>;
 }
 
 export function StatusPill({ status }: { status: string }) {

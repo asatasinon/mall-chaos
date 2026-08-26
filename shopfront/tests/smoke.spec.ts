@@ -14,7 +14,7 @@ test('auth page does not reload itself when an anonymous API call reports an exp
     await route.fulfill({
       status: 401,
       headers: { 'content-type': 'application/json', 'x-session-expired': '1' },
-      body: JSON.stringify({ code: 401, message: '会话已过期', data: null }),
+      body: JSON.stringify({ code: 401, message: 'Session expired', data: null }),
     });
   });
 

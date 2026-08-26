@@ -57,7 +57,7 @@ export class DataWarmupService {
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_sku (sku)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-      COMMENT='商品价格变更历史'
+      COMMENT='Product price change history'
     `);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS user_behavior_log (
@@ -70,7 +70,7 @@ export class DataWarmupService {
         session_id VARCHAR(64),
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-      COMMENT='用户行为日志'
+      COMMENT='User behavior log'
     `);
   }
 

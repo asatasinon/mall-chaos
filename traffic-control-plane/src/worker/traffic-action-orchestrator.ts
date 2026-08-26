@@ -198,8 +198,8 @@ export class TrafficActionOrchestrator {
       if (!address?.id) {
         const created = await this.runStep(steps, lifecycleId, 'ADDRESS_CREATE', options, () =>
           this.gateway.customerPost<ApiEnvelope<AddressData>>('/api/me/addresses', {
-            province: '上海市', city: '上海市', district: '浦东新区',
-            detail: `演示客户${customerId}默认地址`, receiver: `演示客户${customerId}`,
+            province: 'Shanghai', city: 'Shanghai', district: 'Pudong New Area',
+            detail: `Demo Customer${customerId}default address`, receiver: `Demo Customer${customerId}`,
             phone: '13800138000', isDefault: true,
           }, context!));
         address = created.value?.data;

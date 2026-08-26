@@ -48,7 +48,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
 
   const upstream = await forward(request, action, sessionToken);
   if (!upstream) {
-    return NextResponse.json({ code: 503, message: '认证服务暂时无法连接，请稍后重试', data: null }, { status: 503 });
+    return NextResponse.json({ code: 503, message: 'Authentication service is temporarily unavailable. Please try again later.', data: null }, { status: 503 });
   }
 
   const payload = await upstream.json().catch(() => null) as { code?: number; message?: string; data?: AuthResponse | null } | null;
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
     return logoutResponse(true);
   }
   if (!upstream.ok || !payload || payload.code !== 200) {
-    return NextResponse.json(payload ?? { code: upstream.status, message: '认证请求失败', data: null }, { status: upstream.status });
+    return NextResponse.json(payload ?? { code: upstream.status, message: 'Authentication request failed', data: null }, { status: upstream.status });
   }
 
   if (action === 'logout') {
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
 
   const auth = payload.data;
   if (!auth?.accessToken || !auth.sessionToken || !auth.userId) {
-    return NextResponse.json({ code: 502, message: '认证服务返回了无效会话', data: null }, { status: 502 });
+    return NextResponse.json({ code: 502, message: 'Authentication service returned an invalid session', data: null }, { status: 502 });
   }
   const response = NextResponse.json({
     code: 200,

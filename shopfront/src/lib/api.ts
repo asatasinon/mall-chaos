@@ -29,7 +29,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
   if (response.headers.get('x-session-expired') === '1') redirectToAuthOnSessionExpiry();
   if (!response.ok || !payload || payload.code !== 200) {
-    throw new ShopApiError(payload?.message ?? '服务暂时不可用，请稍后重试', payload?.code, response.status);
+    throw new ShopApiError(payload?.message ?? 'Service is temporarily unavailable. Please try again later.', payload?.code, response.status);
   }
   return payload.data;
 }

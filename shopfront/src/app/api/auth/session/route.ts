@@ -14,7 +14,7 @@ export async function GET() {
   const accessToken = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value;
   const sessionToken = cookieStore.get(SESSION_TOKEN_COOKIE)?.value;
   if (!userId || !accessToken || !sessionToken) {
-    return NextResponse.json({ code: 401, message: '未登录', data: null }, { status: 401 });
+    return NextResponse.json({ code: 401, message: 'Not signed in', data: null }, { status: 401 });
   }
 
   const baseUrl = process.env.GATEWAY_BASE_URL ?? 'http://localhost:18080';
@@ -26,7 +26,7 @@ export async function GET() {
     ? await profileResponse.json().catch(() => null) as UserProfilePayload | null
     : null;
   if (profileResponse?.status === 401) {
-    const response = NextResponse.json({ code: 401, message: '会话已过期，请重新登录', data: null }, { status: 401 });
+    const response = NextResponse.json({ code: 401, message: 'Session expired. Please sign in again.', data: null }, { status: 401 });
     response.headers.set('x-session-expired', '1');
     return clearAuthCookies(response);
   }
