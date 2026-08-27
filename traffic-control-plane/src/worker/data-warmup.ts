@@ -64,7 +64,7 @@ export class DataWarmupService {
         validateWarmupConfiguration();
         await ensureProgressTable();
         if (!(await acquireLease(this.owner))) {
-          await updateWarmupStatuses('PAUSED_GUARD', 'LEASE_NOT_ACQUIRED');
+          await clearWarmupLeaseOwners();
           await sleep(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
           continue;
         }
@@ -203,7 +203,7 @@ async function fillDate(table: typeof TABLES[number], date: string): Promise<boo
     });
     await sleep(env.DATA_WARMUP_BATCH_INTERVAL_MS);
   }
-  await refreshProgress(table, date, new Date().toISOString());
+  await refreshProgress(table, date, new Date());
   return false;
 }
 
@@ -301,7 +301,7 @@ async function setWarmupStatus(tableName: string, status: WarmupStatus, guardRea
   await getPool().query(`UPDATE data_warmup_progress SET ${fields.join(', ')} WHERE table_name = ?`, values);
 }
 
-async function refreshProgress(table: typeof TABLES[number], date: string, lastSuccessAt: string | null): Promise<void> {
+async function refreshProgress(table: typeof TABLES[number], date: string, lastSuccessAt: Date | null): Promise<void> {
   const [rows] = await getPool().query(
     `SELECT COUNT(*) AS actual_rows, MIN(${table.timeColumn}) AS earliest_time, MAX(${table.timeColumn}) AS latest_time,
             SUM(${table.timeColumn} >= ? AND ${table.timeColumn} < DATE_ADD(?, INTERVAL 1 DAY)) AS current_date_rows
@@ -335,6 +335,13 @@ async function updateWarmupStatuses(status: WarmupStatus, reason: string): Promi
   await getPool().query(
     `UPDATE data_warmup_progress SET status = ?, guard_reason = ?, lease_owner = NULL WHERE table_name IN (?, ?)`,
     [status, reason, TABLES[0].name, TABLES[1].name],
+  ).catch(() => undefined);
+}
+
+async function clearWarmupLeaseOwners(): Promise<void> {
+  await getPool().query(
+    `UPDATE data_warmup_progress SET lease_owner = NULL WHERE table_name IN (?, ?)`,
+    [TABLES[0].name, TABLES[1].name],
   ).catch(() => undefined);
 }
 
