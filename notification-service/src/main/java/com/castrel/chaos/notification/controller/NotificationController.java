@@ -15,6 +15,12 @@ import org.springframework.data.domain.PageRequest;
 import com.castrel.chaos.notification.dto.CustomerNotificationDTO;
 import com.castrel.chaos.notification.dto.NotificationPreferenceDTO;
 import com.castrel.chaos.notification.dto.UpdateNotificationPreferenceRequest;
+import com.castrel.chaos.common.BizException;
+import com.castrel.chaos.common.coordination.ScenarioRunContext;
+import com.castrel.chaos.common.coordination.ScenarioRunGuard;
+import com.castrel.chaos.notification.service.NotificationExerciseState;
+import com.castrel.chaos.notification.repository.CustomerNotificationRepository;
+import java.util.Map;
 
 @RestController
 public class NotificationController {
@@ -24,6 +30,15 @@ public class NotificationController {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private NotificationExerciseState exerciseState;
+
+    @Autowired
+    private ScenarioRunGuard runGuard;
+
+    @Autowired
+    private CustomerNotificationRepository customerNotificationRepository;
 
     @GetMapping("/api/notifications")
     public ApiResponse<Page<CustomerNotificationDTO>> list(
@@ -76,6 +91,43 @@ public class NotificationController {
         req.setEventId(envelope.getEventId());
         notificationService.notifyShippingCreated(req);
         return ApiResponse.ok();
+    }
+
+    @PostMapping("/internal/notification/fault-runs/start")
+    public ApiResponse<Map<String, Object>> startExercise(
+            @RequestHeader("X-Fault-Run-Scenario") String scenario,
+            @RequestHeader("X-Fault-Run-Operation") String operation,
+            @RequestHeader org.springframework.http.HttpHeaders headers,
+            @RequestBody Map<String, Object> parameters) {
+        if ((!"NOTIFICATION_HEAP_PRESSURE".equals(scenario) || !"notification-retention".equals(operation))
+                && (!"NOTIFICATION_STORAGE_APPEND".equals(scenario) || !"notification-storage".equals(operation))) {
+            throw new BizException("SCENARIO_OPERATION_MISMATCH", "Unsupported notification operation");
+        }
+        exerciseState.start(ScenarioRunContext.fromHeaders(headers), scenario, parameters, runGuard);
+        return ApiResponse.ok(Map.of("accepted", true, "scenario", scenario));
+    }
+
+    @PostMapping("/internal/notification/fault-runs/stop")
+    public ApiResponse<Map<String, Object>> stopExercise(
+            @RequestHeader org.springframework.http.HttpHeaders headers) {
+        ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
+        exerciseState.stop(context, runGuard);
+        return ApiResponse.ok(Map.of("released", true, "faultRunId", context.runId(),
+                "retainedEntries", exerciseState.retainedEntries()));
+    }
+
+    @PostMapping("/internal/notification/fault-runs/cleanup")
+    public ApiResponse<Map<String, Object>> cleanupExercise(
+            @RequestHeader org.springframework.http.HttpHeaders headers) {
+        ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
+        exerciseState.stop(context, runGuard);
+        long deleted = customerNotificationRepository.deleteByExerciseRunId(context.runId());
+        return ApiResponse.ok(Map.of("cleaned", true, "deletedNotifications", deleted));
+    }
+
+    @PostMapping("/internal/notification/fault-runs/restart")
+    public ApiResponse<Map<String, Object>> restartExerciseTarget() {
+        return ApiResponse.ok(Map.of("restartRequested", true, "target", "notification-service"));
     }
 
     private <T> T toRequest(EventEnvelope<JsonNode> envelope, Class<T> type) {

@@ -32,6 +32,16 @@ public record ScenarioRunContext(
         }
     }
 
+    public void validateForRelease() {
+        if (runId == null || !isUuid(runId)
+                || expiresAt == null
+                || fencingToken < 1
+                || idempotencyKey == null
+                || !idempotencyKey.matches("[A-Za-z0-9][A-Za-z0-9._:-]{7,127}")) {
+            throw new IllegalArgumentException("Invalid scenario run context");
+        }
+    }
+
     private static Instant parseInstant(String value) {
         try {
             return value == null ? null : Instant.parse(value);

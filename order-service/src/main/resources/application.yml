@@ -5,7 +5,7 @@ spring:
   application:
     name: order-service
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:13306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:13306/castrel?useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=+08:00&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:castrel}
     password: ${SPRING_DATASOURCE_PASSWORD:castrel}
   jpa:
@@ -27,6 +27,9 @@ services:
   promotion-url: ${PROMOTION_SERVICE_URL:http://localhost:8087}
   notification-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8090}
   cart-url: ${CART_SERVICE_URL:http://localhost:8091}
+
+reports:
+  optimized: ${REPORTS_OPTIMIZED:false}
 
 management:
   endpoint:

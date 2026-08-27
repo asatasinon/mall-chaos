@@ -276,21 +276,3 @@ data:
             annotations:
               summary: 'Redis memory usage is too high'
               description: 'Redis memory usage is {{ $value | humanize }}%, exceeding the 80% threshold.'
-
-      # 7. Chaos engineering injection detection
-      - name: castrel-chaos-detection
-        interval: 30s
-        rules:
-          - alert: ServiceDegradationLikelyChaos
-            expr: |
-              (rate(http_server_requests_seconds_count{status=~"5.."}[5m]) > 0)
-              and
-              (rate(inventory_reserve_fail_count_total[5m]) > 0)
-              or
-              (rate(payment_charge_timeout_count_total[5m]) > 0)
-            for: 1m
-            labels:
-              severity: info
-            annotations:
-              summary: 'Chaos engineering injection may be active'
-              description: 'Multiple services are showing errors or timeouts simultaneously, which may indicate a chaos engineering exercise.'

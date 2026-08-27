@@ -56,6 +56,9 @@ public class NotificationService {
     @Autowired
     private MeterRegistry meterRegistry;
 
+    @Autowired
+    private NotificationExerciseState exerciseState;
+
     private Counter sentCounter;
     private Counter failCounter;
 
@@ -115,6 +118,12 @@ public class NotificationService {
         notification.setBody(message);
         notification.setRead(false);
         notification.setCreatedAt(LocalDateTime.now());
+        exerciseState.shouldRetain();
+        String exerciseRunId = exerciseState.storageRunId();
+        if (exerciseRunId != null) {
+            exerciseState.reserveStorage(message.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+            notification.setExerciseRunId(exerciseRunId);
+        }
         customerNotificationRepository.save(notification);
         localQueryCacheManager.cacheIfNeeded("notification:" + orderNo, notification);
 

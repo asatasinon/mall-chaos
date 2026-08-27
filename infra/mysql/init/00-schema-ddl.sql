@@ -8,7 +8,7 @@
 -- and executed automatically on first MySQL startup.
 
 SET NAMES utf8mb4;
-SET time_zone = '+00:00';
+SET time_zone = '+08:00';
 
 -- Version 1 is a clean-install contract. Services must verify this row before
 -- accepting readiness or business traffic; migrations are intentionally out of scope.
@@ -367,6 +367,7 @@ CREATE TABLE IF NOT EXISTS cart_items (
   cart_id    BIGINT       NOT NULL,
   sku        VARCHAR(32)  NOT NULL,
   quantity   INT          NOT NULL,
+  exercise_run_id CHAR(36),
   created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_cart_sku (cart_id, sku),
@@ -497,8 +498,10 @@ CREATE TABLE IF NOT EXISTS customer_notifications (
   is_read     TINYINT(1)   NOT NULL DEFAULT 0,
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   read_at     DATETIME,
+  exercise_run_id CHAR(36),
   UNIQUE KEY uq_customer_notification_event (customer_id, event_id),
-  INDEX idx_customer_notifications (customer_id, is_read, created_at)
+  INDEX idx_customer_notifications (customer_id, is_read, created_at),
+  INDEX idx_customer_notifications_exercise (exercise_run_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS traffic_runs (

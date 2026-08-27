@@ -1,6 +1,7 @@
 package com.castrel.chaos.catalog.service;
 
 import com.castrel.chaos.catalog.dto.ProductDTO;
+import com.castrel.chaos.catalog.dto.ProductBrowseReportDTO;
 import com.castrel.chaos.catalog.entity.Product;
 import com.castrel.chaos.catalog.repository.ProductRepository;
 import com.castrel.chaos.common.BizException;
@@ -15,6 +16,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
 import java.util.Map;
@@ -37,6 +39,12 @@ public class CatalogService {
 
     @Autowired
     private MeterRegistry meterRegistry;
+
+    @Value("${reports.optimized:false}")
+    private boolean optimizedReports;
+
+    @Autowired
+    private CatalogDependencyState dependencyState;
 
     private Counter listCount;
     private Counter singleCount;
@@ -81,6 +89,21 @@ public class CatalogService {
         return result;
     }
 
+    public ProductDTO validateListedProduct(String sku) {
+        if (sku == null || sku.isBlank()) throw new BizException("PRODUCT_NOT_FOUND", "SKU is required");
+        ProductDTO product = productRepository.findBySku(sku.trim())
+                .map(this::toDTO)
+                .orElseThrow(() -> new BizException("PRODUCT_NOT_FOUND", "Product not found: " + sku));
+        if (!Integer.valueOf(1).equals(product.getStatus())) {
+            throw new BizException("PRODUCT_UNAVAILABLE", "Product is not listed: " + sku);
+        }
+        if (dependencyState != null && dependencyState.isUnavailable()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "Catalog dependency unavailable");
+        }
+        return product;
+    }
+
     public List<ProductDTO> batchQuery(List<String> skus) {
         enrichQueryIfNeeded(skus.isEmpty() ? null : skus.get(0));
         batchCount.increment();
@@ -94,6 +117,58 @@ public class CatalogService {
             missing.setStatus(-1); // not found sentinel
             return missing;
         }).collect(Collectors.toList());
+    }
+
+    public List<ProductBrowseReportDTO> browseReportBaseline() {
+        return jdbcTemplate.query(
+                "SELECT p.sku, p.name, p.category, p.price, COUNT(ubl.id) AS browse_count, "
+                        + "MAX(ubl.created_at) AS latest_browse_at "
+                        + "FROM products p "
+                        + "JOIN user_behavior_log ubl ON ubl.target_id = p.sku "
+                        + "AND ubl.action_type = 'PAGE_VIEW' "
+                        + "AND ubl.target_type = 'PRODUCT' "
+                        + "WHERE p.status = 1 "
+                        + "GROUP BY p.id, p.sku, p.name, p.category, p.price "
+                        + "ORDER BY browse_count DESC, latest_browse_at DESC, p.id DESC",
+                (rs, rowNum) -> {
+                    ProductBrowseReportDTO report = new ProductBrowseReportDTO();
+                    report.setSku(rs.getString("sku"));
+                    report.setName(rs.getString("name"));
+                    report.setCategory(rs.getString("category"));
+                    report.setPrice(rs.getBigDecimal("price"));
+                    report.setBrowseCount(rs.getLong("browse_count"));
+                    report.setLatestBrowseAt(rs.getTimestamp("latest_browse_at").toLocalDateTime());
+                    return report;
+                });
+    }
+
+    public List<ProductBrowseReportDTO> browseReport() {
+        return optimizedReports ? browseReportOptimized() : browseReportBaseline();
+    }
+
+    private List<ProductBrowseReportDTO> browseReportOptimized() {
+        return jdbcTemplate.query(
+                "SELECT p.sku, p.name, p.category, p.price, COUNT(ubl.id) AS browse_count, "
+                        + "MAX(ubl.created_at) AS latest_browse_at "
+                        + "FROM products p "
+                        + "JOIN user_behavior_log ubl ON ubl.target_id = p.sku "
+                        + "AND ubl.action_type = 'PAGE_VIEW' "
+                        + "AND ubl.target_type = 'PRODUCT' "
+                        + "AND ubl.created_at >= CURRENT_DATE "
+                        + "AND ubl.created_at < CURRENT_DATE + INTERVAL 1 DAY "
+                        + "WHERE p.status = 1 "
+                        + "GROUP BY p.id, p.sku, p.name, p.category, p.price "
+                        + "ORDER BY browse_count DESC, latest_browse_at DESC, p.id DESC",
+                (rs, rowNum) -> {
+                    ProductBrowseReportDTO report = new ProductBrowseReportDTO();
+                    report.setSku(rs.getString("sku"));
+                    report.setName(rs.getString("name"));
+                    report.setCategory(rs.getString("category"));
+                    report.setPrice(rs.getBigDecimal("price"));
+                    report.setBrowseCount(rs.getLong("browse_count"));
+                    report.setLatestBrowseAt(rs.getTimestamp("latest_browse_at").toLocalDateTime());
+                    return report;
+                });
     }
 
     private void enrichQueryIfNeeded(String sku) {

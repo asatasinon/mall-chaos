@@ -92,7 +92,8 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     maxDurationSec: 1800,
     recoveryStrategy: 'WORKER',
     allowManualCleanup: false,
-    parameters: [duration, boundedConcurrency, requestInterval],
+    parameters: [duration, boundedConcurrency, requestInterval,
+      { name: 'pageSize', kind: 'integer', min: 1, max: 50 }],
   },
   ORDER_QUERY_SURGE: {
     scenario: 'ORDER_QUERY_SURGE',
@@ -101,7 +102,8 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     maxDurationSec: 1800,
     recoveryStrategy: 'WORKER',
     allowManualCleanup: false,
-    parameters: [duration, boundedConcurrency, requestInterval],
+    parameters: [duration, boundedConcurrency, requestInterval,
+      { name: 'pageSize', kind: 'integer', min: 1, max: 50 }],
   },
   CART_REDIS_LARGE_VALUE: {
     scenario: 'CART_REDIS_LARGE_VALUE',
@@ -110,7 +112,11 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     maxDurationSec: 1800,
     recoveryStrategy: 'TARGET',
     allowManualCleanup: true,
-    parameters: [duration, boundedConcurrency, requestInterval],
+    parameters: [duration, boundedConcurrency, requestInterval,
+      { name: 'fieldCount', kind: 'integer', min: 1, max: 64 },
+      { name: 'fieldSizeBytes', kind: 'integer', min: 1, max: 65536 },
+      { name: 'totalSizeBytes', kind: 'integer', min: 1, max: 1048576 },
+      { name: 'keyTtlSec', kind: 'integer', min: 1, max: 3600 }],
   },
   CART_CATALOG_DEPENDENCY: {
     scenario: 'CART_CATALOG_DEPENDENCY',
@@ -128,7 +134,8 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     maxDurationSec: 3600,
     recoveryStrategy: 'NON_RELEASING',
     allowManualCleanup: false,
-    parameters: [duration, requestInterval],
+    parameters: [duration, requestInterval,
+      { name: 'retainedBytesPerNotification', kind: 'integer', min: 1024, max: 1048576 }],
   },
   NOTIFICATION_STORAGE_APPEND: {
     scenario: 'NOTIFICATION_STORAGE_APPEND',
@@ -137,7 +144,10 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     maxDurationSec: 3600,
     recoveryStrategy: 'MANUAL_CLEANUP',
     allowManualCleanup: true,
-    parameters: [duration, requestInterval],
+    parameters: [duration, requestInterval,
+      { name: 'totalBytes', kind: 'integer', min: 1024, max: 1073741824 },
+      { name: 'appendBytes', kind: 'integer', min: 1, max: 1048576 },
+      { name: 'minFreeBytes', kind: 'integer', min: 1, max: 1073741824 }],
   },
   PROMOTION_LOCK_CONTENTION: {
     scenario: 'PROMOTION_LOCK_CONTENTION',
@@ -164,7 +174,8 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     maxDurationSec: 1800,
     recoveryStrategy: 'TARGET',
     allowManualCleanup: false,
-    parameters: [duration],
+    parameters: [duration,
+      { name: 'providerOutcome', kind: 'string', required: true, maxLength: 16 }],
   },
 };
 

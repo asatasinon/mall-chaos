@@ -2,6 +2,7 @@ package com.castrel.chaos.catalog.controller;
 
 import com.castrel.chaos.catalog.dto.BatchQueryRequest;
 import com.castrel.chaos.catalog.dto.ProductDTO;
+import com.castrel.chaos.catalog.dto.ProductBrowseReportDTO;
 import com.castrel.chaos.catalog.service.CatalogService;
 import com.castrel.chaos.common.ApiResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.List;
 
 @RestController
 public class CatalogController {
@@ -30,6 +32,16 @@ public class CatalogController {
     @GetMapping("/api/products/{sku}")
     public ApiResponse<ProductDTO> getProduct(@PathVariable String sku) {
         return ApiResponse.ok(catalogService.getProduct(sku));
+    }
+
+    @GetMapping("/internal/catalog/products/{sku}/validate")
+    public ApiResponse<ProductDTO> validateProduct(@PathVariable String sku) {
+        return ApiResponse.ok(catalogService.validateListedProduct(sku));
+    }
+
+    @GetMapping("/api/products/browse-report")
+    public ApiResponse<List<ProductBrowseReportDTO>> browseReport() {
+        return ApiResponse.ok(catalogService.browseReport());
     }
 
     @PostMapping("/internal/catalog/batch")

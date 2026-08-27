@@ -18,6 +18,9 @@ spring:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:16379}
 
+services:
+  catalog-url: ${CATALOG_SERVICE_URL:http://localhost:8082}
+
 management:
   endpoint:
     health:

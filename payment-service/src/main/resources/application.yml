@@ -19,12 +19,11 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:16379}
 
 payment:
-  success-rate: 1.0
-  timeout-rate: 0.0
-  customer-success-baseline: true
+  psp-timeout-ms: 2000
 
 services:
   order-url: ${ORDER_SERVICE_URL:http://localhost:8084}
+  psp-url: ${PSP_SIMULATOR_URL:http://localhost:8092}
 
 management:
   endpoint:

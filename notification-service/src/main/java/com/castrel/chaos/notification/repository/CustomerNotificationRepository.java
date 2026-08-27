@@ -9,4 +9,6 @@ public interface CustomerNotificationRepository extends JpaRepository<CustomerNo
     Page<CustomerNotification> findByCustomerIdOrderByCreatedAtDesc(Long customerId, Pageable pageable);
 
     boolean existsByCustomerIdAndEventId(Long customerId, String eventId);
+
+    long deleteByExerciseRunId(String exerciseRunId);
 }

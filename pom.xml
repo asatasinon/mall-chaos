@@ -38,6 +38,7 @@
     <module>risk-service</module>
     <module>fulfillment-service</module>
     <module>notification-service</module>
+    <module>psp-simulator</module>
   </modules>
 
   <dependencyManagement>

@@ -53,6 +53,8 @@ public class FaultRunDispatchService {
                 .header("Content-Type", "application/json")
                 .header(TraceContext.TRACE_ID_HEADER, traceId)
             .header("X-Fault-Run-Id", String.valueOf(body.get("faultRunId")))
+                .header("X-Fault-Run-Scenario", String.valueOf(body.getOrDefault("scenario", "")))
+                .header("X-Fault-Run-Operation", String.valueOf(body.getOrDefault("operation", "")))
             .header("X-Fault-Run-Expires-At", String.valueOf(body.getOrDefault("expiresAt", "")))
             .header("X-Fault-Run-Fencing-Token", String.valueOf(body.get("fencingToken")))
             .header("X-Fault-Run-Idempotency-Key", String.valueOf(body.getOrDefault("idempotencyKey", "")))

@@ -1,0 +1,16 @@
+server:
+  port: 8092
+
+spring:
+  application:
+    name: psp-simulator
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:16379}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

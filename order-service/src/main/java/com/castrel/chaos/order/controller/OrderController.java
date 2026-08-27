@@ -9,6 +9,7 @@ import com.castrel.chaos.order.dto.OrderDTO;
 import com.castrel.chaos.order.dto.CheckoutCommand;
 import com.castrel.chaos.order.dto.PaymentResultRequest;
 import com.castrel.chaos.order.dto.RiskRejectedRequest;
+import com.castrel.chaos.order.dto.OrderQueryReportDTO;
 import com.castrel.chaos.order.service.OrderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +17,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 import java.util.Map;
+import java.util.List;
 
 @RestController
 public class OrderController {
@@ -51,6 +53,12 @@ public class OrderController {
             @RequestParam(defaultValue = "20") int size) {
         return ApiResponse.ok(orderService.listCustomerOrders(
                 customerId, PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100))));
+    }
+
+    @GetMapping("/api/orders/query-report")
+    public ApiResponse<List<OrderQueryReportDTO>> queryReport(
+            @RequestHeader("X-User-Id") Long customerId) {
+        return ApiResponse.ok(orderService.queryReport(customerId));
     }
 
     @PostMapping("/api/orders/{id}/cancel")

@@ -71,6 +71,15 @@ public class ScenarioRunGuard {
         return release(context, cleanups.remove(context.runId()));
     }
 
+    public boolean isAccepted(ScenarioRunContext context) {
+        try {
+            String value = redisTemplate.opsForValue().get(key());
+            return value != null && value.equals(String.valueOf(context.fencingToken()));
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
     public String serviceName() {
         return serviceName;
     }

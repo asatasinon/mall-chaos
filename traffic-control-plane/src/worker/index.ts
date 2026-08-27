@@ -9,6 +9,7 @@ import {
 } from '../lib/runtime-state';
 import { getCouponReplenishmentScheduler } from './coupon-replenishment';
 import { getInventoryReplenishmentScheduler } from './inventory-replenishment';
+import { getReportExerciseWorker } from './report-exercise-worker';
 import pino from 'pino';
 import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
 import { deleteExpiredFaultRuns } from '../lib/fault-run-repository';
@@ -30,8 +31,10 @@ async function main() {
   await faultRunCoordinator.recoverExpiredRuns();
   const couponReplenishmentScheduler = getCouponReplenishmentScheduler();
   const inventoryReplenishmentScheduler = getInventoryReplenishmentScheduler();
+  const reportExerciseWorker = getReportExerciseWorker();
   await couponReplenishmentScheduler.start();
   await inventoryReplenishmentScheduler.start();
+  reportExerciseWorker.start();
   let processingReplenishmentCommand = false;
   const replenishmentCommandTimer = setInterval(() => {
     if (processingReplenishmentCommand) return;
@@ -81,6 +84,7 @@ async function main() {
     clearInterval(faultRunRecoveryTimer);
     clearInterval(faultRunRetentionTimer);
     inventoryReplenishmentScheduler.stop();
+    await reportExerciseWorker.stop();
     void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
     couponReplenishmentScheduler.stop();
     void setCouponReplenishmentStatus(couponReplenishmentScheduler.getStatus());

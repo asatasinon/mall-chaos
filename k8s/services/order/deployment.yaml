@@ -29,7 +29,7 @@ spec:
             - secretRef:
                 name: db-secret
           env:
-            # order-service needs larger heap for memory-leak chaos testing
+            # order-service needs a larger heap for realistic order traffic
             - name: JAVA_OPTS
               value: "-Xms256m -Xmx768m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof"
           resources:

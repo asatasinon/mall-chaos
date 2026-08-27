@@ -3,6 +3,7 @@ package com.castrel.chaos.gateway.controller;
 import com.castrel.chaos.common.ApiResponse;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.gateway.service.FaultRunDispatchService;
+import com.castrel.chaos.gateway.service.FaultRunProbeService;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -33,9 +34,11 @@ public class FaultRunDispatchController {
     private static final Set<String> CLEANUP_FIELDS = Set.of("faultRunId", "scenario", "targetService", "fencingToken");
 
     private final FaultRunDispatchService dispatchService;
+    private final FaultRunProbeService probeService;
 
-    public FaultRunDispatchController(FaultRunDispatchService dispatchService) {
+    public FaultRunDispatchController(FaultRunDispatchService dispatchService, FaultRunProbeService probeService) {
         this.dispatchService = dispatchService;
+        this.probeService = probeService;
     }
 
     @PostMapping("/start")
@@ -93,6 +96,26 @@ public class FaultRunDispatchController {
         return dispatchService.cleanup(target.service(), "/internal/notification/fault-runs/restart", fixedBody, traceIdOrEmpty(traceId))
                 .map(ApiResponse::ok)
                 .onErrorResume(error -> Mono.just(ApiResponse.error(502, "Fixed notification target unavailable")));
+    }
+
+    @PostMapping("/probe")
+    public Mono<ApiResponse<Object>> probe(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
+        Validation validation = validate(body, false);
+        if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
+        String scenario = String.valueOf(body.get("scenario"));
+        if ("PROMOTION_LOCK_CONTENTION".equals(scenario)) {
+            return probeService.probe("promotion-service", "/internal/promotion/fault-runs/check", body, traceIdOrEmpty(traceId))
+                    .map(ApiResponse::ok)
+                    .onErrorResume(error -> Mono.just(ApiResponse.error(502, "Fixed promotion target unavailable")));
+        }
+        if ("INVENTORY_TABLE_EXCLUSIVE".equals(scenario)) {
+            return probeService.probe("inventory-service", "/internal/inventory/fault-runs/report", body, traceIdOrEmpty(traceId))
+                    .map(ApiResponse::ok)
+                    .onErrorResume(error -> Mono.just(ApiResponse.error(502, "Fixed inventory target unavailable")));
+        }
+        return Mono.just(ApiResponse.error(400, "Scenario does not expose a probe"));
     }
 
     private Validation validate(Map<String, Object> body, boolean cleanup) {

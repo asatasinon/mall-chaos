@@ -9,6 +9,7 @@ import com.castrel.chaos.payment.dto.PaymentIntentRequest;
 import com.castrel.chaos.payment.dto.RefundRequest;
 import com.castrel.chaos.payment.client.OrderPaymentResultClient;
 import com.castrel.chaos.payment.client.OrderClient;
+import com.castrel.chaos.payment.client.PspClient;
 import com.castrel.chaos.payment.entity.Payment;
 import com.castrel.chaos.payment.repository.PaymentRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,7 +26,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.Random;
 import java.util.UUID;
 
 @Service
@@ -55,20 +55,13 @@ public class PaymentService {
     @Autowired
     private MeterRegistry meterRegistry;
 
-    @Value("${payment.success-rate:1.0}")
-    private double successRate;
-
-    @Value("${payment.timeout-rate:0.0}")
-    private double timeoutRate;
-
-    @Value("${payment.customer-success-baseline:true}")
-    private boolean customerSuccessBaseline;
+    @Autowired
+    private PspClient pspClient;
 
     private Counter successCounter;
     private Counter failCounter;
     private Counter timeoutCounter;
     private Counter attemptCounter;
-    private final Random random = new Random();
 
     @PostConstruct
     void initMetrics() {
@@ -119,8 +112,7 @@ public class PaymentService {
         if (!"CREATED".equals(payment.getStatus()) && !"PROCESSING".equals(payment.getStatus())) {
             return toDTO(payment);
         }
-        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo(),
-            customerSuccessBaseline && forceCustomerSuccess && customerId != null);
+        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo());
     }
 
     @Transactional
@@ -142,7 +134,7 @@ public class PaymentService {
         payment.setResultCode("RETRYING");
         payment.setUpdatedAt(LocalDateTime.now());
         paymentRepository.save(payment);
-        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo(), customerId != null);
+        return executePayment(payment, orderClient.getOrder(payment.getOrderId()).orderNo());
     }
 
     @Transactional
@@ -165,27 +157,37 @@ public class PaymentService {
         return toDTO(paymentRepository.save(payment));
     }
 
-    private PaymentDTO executePayment(Payment payment, String orderNo, boolean customerSuccessBaseline) {
+    private PaymentDTO executePayment(Payment payment, String orderNo) {
         attemptCounter.increment();
-        double roll = random.nextDouble();
-        if (customerSuccessBaseline || roll < successRate) {
-            payment.setStatus("SUCCESS");
-            payment.setResultCode("SUCCESS");
-            successCounter.increment();
-        } else if (roll < successRate + timeoutRate) {
+        try {
+            PspClient.Authorization authorization = pspClient.authorize(
+                    payment.getPaymentNo(), payment.getOrderId(), payment.getAmount(), currentRunId());
+            if ("AUTHORIZED".equals(authorization.status())) {
+                payment.setStatus("SUCCESS");
+                payment.setResultCode("SUCCESS");
+                successCounter.increment();
+            } else {
+                payment.setStatus("FAILED");
+                payment.setResultCode(authorization.code());
+                failCounter.increment();
+            }
+        } catch (PspClient.PspTimeoutException | PspClient.PspUnavailableException exception) {
             payment.setStatus("UNKNOWN");
-            payment.setResultCode("UNKNOWN");
+            payment.setResultCode("PROVIDER_UNAVAILABLE");
             timeoutCounter.increment();
-        } else {
-            payment.setStatus("FAILED");
-            payment.setResultCode("INSUFFICIENT_BALANCE");
-            failCounter.increment();
         }
         payment.setUpdatedAt(LocalDateTime.now());
         PaymentDTO result = toDTO(paymentRepository.save(payment));
         result.setOrderNo(orderNo);
         deliverPaymentResult(result, orderNo);
         return result;
+    }
+
+    private String currentRunId() {
+        org.springframework.web.context.request.ServletRequestAttributes attributes =
+                (org.springframework.web.context.request.ServletRequestAttributes)
+                        org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        return attributes == null ? null : attributes.getRequest().getHeader("X-Fault-Run-Id");
     }
 
     private void deliverPaymentResult(PaymentDTO payment, String orderNo) {

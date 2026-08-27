@@ -29,9 +29,9 @@ spec:
             - secretRef:
                 name: db-secret
           env:
-            # payment-service needs larger heap for memory-leak chaos testing
+            # payment-service needs a larger heap for provider exercises
             - name: JAVA_OPTS
-              value: "-Xms256m -Xmx768m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof"
+              value: "-Xms256m -Xmx768m -Duser.timezone=Asia/Shanghai -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof"
           resources:
             requests:
               memory: "256Mi"

@@ -12,6 +12,7 @@ import com.castrel.chaos.order.dto.PaymentResultRequest;
 import com.castrel.chaos.order.dto.OrderItemDTO;
 import com.castrel.chaos.order.dto.RiskRejectedRequest;
 import com.castrel.chaos.order.dto.OrderDTO;
+import com.castrel.chaos.order.dto.OrderQueryReportDTO;
 import com.castrel.chaos.order.entity.Order;
 import com.castrel.chaos.order.entity.OrderItem;
 import com.castrel.chaos.order.entity.OrderAddressSnapshot;
@@ -29,6 +30,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -36,6 +38,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.ArrayList;
 
 @Service
 public class OrderService {
@@ -65,6 +68,9 @@ public class OrderService {
 
     @Autowired
     private MeterRegistry meterRegistry;
+
+    @Value("${reports.optimized:false}")
+    private boolean optimizedReports;
 
     private Timer checkoutTimer;
 
@@ -221,6 +227,46 @@ public class OrderService {
 
     public Page<OrderDTO> listCustomerOrders(Long customerId, Pageable pageable) {
         return orderRepository.findByUserIdOrderByCreatedAtDesc(customerId, pageable).map(this::toDTO);
+    }
+
+    public List<OrderQueryReportDTO> queryReportBaseline(Long customerId) {
+        List<Order> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(customerId,
+                org.springframework.data.domain.PageRequest.of(0, 100)).getContent();
+        List<OrderQueryReportDTO> reports = new ArrayList<>();
+        for (Order order : orders) {
+            List<OrderItem> items = orderItemRepository.findByOrderIdOrderByIdAsc(order.getId());
+            OrderQueryReportDTO report = new OrderQueryReportDTO();
+            report.setOrderNo(order.getOrderNo());
+            report.setStatus(order.getStatus());
+            report.setTotalAmount(order.getTotalAmount());
+            report.setCreatedAt(order.getCreatedAt());
+            report.setItemCount((long) items.size());
+            report.setTotalQuantity(items.stream().mapToLong(item -> item.getQuantity()).sum());
+            reports.add(report);
+        }
+        return reports;
+    }
+
+    public List<OrderQueryReportDTO> queryReport(Long customerId) {
+        if (!optimizedReports) return queryReportBaseline(customerId);
+        return jdbcTemplate.query(
+                "SELECT o.order_no, o.status, o.total_amount, o.created_at, COUNT(oi.id) AS item_count, "
+                        + "COALESCE(SUM(oi.quantity), 0) AS total_quantity "
+                        + "FROM orders o LEFT JOIN order_items oi ON oi.order_id = o.id "
+                        + "WHERE o.user_id = ? AND o.created_at >= CURRENT_DATE "
+                        + "AND o.created_at < CURRENT_DATE + INTERVAL 1 DAY "
+                        + "GROUP BY o.id, o.order_no, o.status, o.total_amount, o.created_at "
+                        + "ORDER BY o.created_at DESC, o.id DESC",
+                (rs, rowNum) -> {
+                    OrderQueryReportDTO report = new OrderQueryReportDTO();
+                    report.setOrderNo(rs.getString("order_no"));
+                    report.setStatus(rs.getString("status"));
+                    report.setTotalAmount(rs.getBigDecimal("total_amount"));
+                    report.setCreatedAt(rs.getTimestamp("created_at").toLocalDateTime());
+                    report.setItemCount(rs.getLong("item_count"));
+                    report.setTotalQuantity(rs.getLong("total_quantity"));
+                    return report;
+                }, customerId);
     }
 
     @Transactional

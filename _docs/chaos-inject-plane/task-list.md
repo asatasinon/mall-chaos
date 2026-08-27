@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase A 已完成，Phase B 待实施 |
+| 状态 | Phase A-B 已完成，Phase C 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-26 CST（Phase A 完成） |
+| 更新时间 | 2026-08-27 CST（Phase B 完成） |
 | 关联规格 | [product.md](product.md) |
 | 关联设计 | [tech.md](tech.md) |
 
@@ -26,7 +26,7 @@
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- |
 | A | Fault Run 契约、持久化与单运行协调 | 已完成 | 5 / 5 | 无 |
-| B | Gateway 单目标分发与业务场景接口 | 待开始 | 0 / 7 | A |
+| B | Gateway 单目标分发与业务场景接口 | 已完成 | 7 / 7 | A |
 | C | Worker、Runner 复用与 Sam 演练账号隔离 | 待开始 | 0 / 5 | A、B |
 | D | 90M 日分区预热与全栈东八区 | 待开始 | 0 / 4 | A |
 | E | PSP、重启适配器、控制台与旧系统清理 | 待开始 | 0 / 5 | A 至 D |
@@ -81,53 +81,53 @@
 
 ## Phase B：Gateway 单目标分发与业务场景接口
 
-**阶段进度：0 / 7**
+**阶段进度：7 / 7**
 
 目标：在固定服务位置实现真实业务路径和窄内部接口，不采用伪造 Controller 结果或合成延迟。
 
 ### B1. 可优化的商品与订单慢报表
 
-- [ ] 在 Catalog 增加经 Gateway 公开访问的商品浏览当日报表；初版等值关联真实行为与商品数据，但遗漏日期范围，并保留无匹配复合索引的 baseline Schema。
-- [ ] 在 Order 增加经 Gateway 可信客户身份访问的客户今日订单报表；初版遗漏日期范围、按客户全部历史排序，并逐订单查询明细形成 N+1。
-- [ ] 实现独立的应用修复版本和 migration：商品报表补半开日期范围及 `(action_type, target_type, created_at, target_id)` 索引；订单报表补日期范围、`(user_id, created_at, id)` 索引和投影/分组汇总。
-- [ ] 将报表 SQL 与 MySQL 东八区会话绑定，确保“今日”的应用语义、执行计划和日期分区边界一致。
+- [x] 在 Catalog 增加经 Gateway 公开访问的商品浏览当日报表；初版等值关联真实行为与商品数据，但遗漏日期范围，并保留无匹配复合索引的 baseline Schema。
+- [x] 在 Order 增加经 Gateway 可信客户身份访问的客户今日订单报表；初版遗漏日期范围、按客户全部历史排序，并逐订单查询明细形成 N+1。
+- [x] 实现独立的应用修复版本和 migration：商品报表补半开日期范围及 `(action_type, target_type, created_at, target_id)` 索引；订单报表补日期范围、`(user_id, created_at, id)` 索引和投影/分组汇总。
+- [x] 将报表 SQL 与 MySQL 东八区会话绑定，确保“今日”的应用语义、执行计划和日期分区边界一致。
 
 ### B2. 流量突增与报表运行目标
 
-- [ ] 定义浏览与订单查询突增的公开 Gateway 请求路径、受控参数和固定客户/订单来源；不修改现有 Runner 的串行配置或生命周期。
-- [ ] 将慢报表运行目标配置为由控制面持续调用公开报表 API；目标服务只提供窄状态/确认能力，不修改 SQL 或自动执行优化。
-- [ ] 将请求汇总、停止原因和恢复结果写入 `fault_run_events`，不在服务侧生成新的业务日志或监控指标。
+- [x] 定义浏览与订单查询突增的公开 Gateway 请求路径、受控参数和固定客户/订单来源；不修改现有 Runner 的串行配置或生命周期。
+- [x] 将慢报表运行目标配置为由控制面持续调用公开报表 API；目标服务只提供窄状态/确认能力，不修改 SQL 或自动执行优化。
+- [x] 将请求汇总、停止原因和恢复结果写入 `fault_run_events`，不在服务侧生成新的业务日志或监控指标。
 
 ### B3. Cart Redis 大 key 与 Catalog 依赖失败
 
-- [ ] 在 Cart 实现运行 ID 命名空间的 Redis 大 key 创建、受限字段/总大小/TTL、活动运行读取和幂等删除；非活动运行或非演练客户不得读取该 key。
-- [ ] 在 Cart 的真实加购路径中记录运行专属 key 的读取结果，并实现按 `faultRunId` 清理的 Cart/CartItem 演练数据归属。
-- [ ] 新增 Cart 到 Catalog 的认证 HTTP 商品校验客户端；SKU 不存在或未上架时，在 Cart/CartItem 持久化前通过真实下游失败终止。
-- [ ] 在 Catalog 实现受认证、固定范围的依赖响应控制，不接受任意路径、任意服务或随机失败参数；恢复后正常 Catalog 响应保持不变。
+- [x] 在 Cart 实现运行 ID 命名空间的 Redis 大 key 创建、受限字段/总大小/TTL、活动运行读取和幂等删除；非活动运行或非演练客户不得读取该 key。
+- [x] 在 Cart 的真实加购路径中记录运行专属 key 的读取结果，并实现按 `faultRunId` 清理的 Cart/CartItem 演练数据归属。
+- [x] 新增 Cart 到 Catalog 的认证 HTTP 商品校验客户端；SKU 不存在或未上架时，在 Cart/CartItem 持久化前通过真实下游失败终止。
+- [x] 在 Catalog 实现受认证、固定范围的依赖响应控制，不接受任意路径、任意服务或随机失败参数；恢复后正常 Catalog 响应保持不变。
 
 ### B4. 通知内存与存储路径
 
-- [ ] 在 `NotificationService.send()` 的真实对象处理路径接入运行专属高基数保留，支持节奏和持续时间，且不执行 `System.gc()`、清理保留对象或主动退出进程。
-- [ ] 在正常通知持久化事务接入运行专属受限追加，限制总字节、追加大小、速率和最小剩余空间；存储数据按运行 ID 供后续人工清理。
-- [ ] 实现通知目标侧本地到期与运行清理语义，内存运行仅停止新保留，存储运行停止新写入；两者均写数据库运行事件。
+- [x] 在 `NotificationService.send()` 的真实对象处理路径接入运行专属高基数保留，支持节奏和持续时间，且不执行 `System.gc()`、清理保留对象或主动退出进程。
+- [x] 在正常通知持久化事务接入运行专属受限追加，限制总字节、追加大小、速率和最小剩余空间；存储数据按运行 ID 供后续人工清理。
+- [x] 实现通知目标侧本地到期与运行清理语义，内存运行仅停止新保留，存储运行停止新写入；两者均写数据库运行事件。
 
 ### B5. Promotion 死锁接口
 
-- [ ] 在 Promotion 增加受认证的优惠券预留一致性核对内部接口，只允许访问运行创建的可识别过期预留记录。
-- [ ] 实现两条真实事务：预留路径按 `coupon -> coupon_reservation` 加锁，过期核对路径按 `coupon_reservation -> coupon` 加锁；完成、回滚或 MySQL 死锁后恢复准备数据。
-- [ ] 实现受限竞争并发与本地到期释放；接口及服务日志/注释使用预留一致性、过期核对等中性词汇。
+- [x] 在 Promotion 增加受认证的优惠券预留一致性核对内部接口，只允许访问运行创建的可识别过期预留记录。
+- [x] 实现两条真实事务：预留路径按 `coupon -> coupon_reservation` 加锁，过期核对路径按 `coupon_reservation -> coupon` 加锁；完成、回滚或 MySQL 死锁后恢复准备数据。
+- [x] 实现受限竞争并发与本地到期释放；接口及服务日志/注释使用预留一致性、过期核对等中性词汇。
 
 ### B6. Inventory 表锁与可用性报表接口
 
-- [ ] 在 Inventory 实现单活动运行的专用 JDBC 锁连接，使用 `LOCK TABLES inventories WRITE`，并在停止、到期、异常与启动恢复路径中 `UNLOCK TABLES`、关闭连接。
-- [ ] 新增受认证的库存可用性报表接口，查询受限 SKU 集合的真实库存摘要，不接受任意 SQL、表名或 SKU 输入。
-- [ ] 实现表锁运行的本地到期顺序：停止新报表调用、释放锁连接、收敛在途调用，并将结果写入数据库事件。
+- [x] 在 Inventory 实现单活动运行的专用 JDBC 锁连接，使用 `LOCK TABLES inventories WRITE`，并在停止、到期、异常与启动恢复路径中 `UNLOCK TABLES`、关闭连接。
+- [x] 新增受认证的库存可用性报表接口，查询受限 SKU 集合的真实库存摘要，不接受任意 SQL、表名或 SKU 输入。
+- [x] 实现表锁运行的本地到期顺序：停止新报表调用、释放锁连接、收敛在途调用，并将结果写入数据库事件。
 
 ### B7. PSP 模拟服务与支付映射
 
-- [ ] 新建 `psp-simulator` Maven 模块、Docker Compose 服务、Kubernetes Deployment/Service、健康端点和受认证固定运行控制端点。
-- [ ] 在 payment-service 新建 `PspClient`，支付确认通过 HTTP 调用 PSP；正常授权继续支付、明确拒付映射 `FAILED`、超时/不可达映射 `UNKNOWN` 并进入现有对账路径。
-- [ ] 移除 payment-service 中冲突的随机进程内支付结果策略；PSP 运行状态按 `faultRunId`、到期时间和 fencing token 管理。
+- [x] 新建 `psp-simulator` Maven 模块、Docker Compose 服务、Kubernetes Deployment/Service、健康端点和受认证固定运行控制端点。
+- [x] 在 payment-service 新建 `PspClient`，支付确认通过 HTTP 调用 PSP；正常授权继续支付、明确拒付映射 `FAILED`、超时/不可达映射 `UNKNOWN` 并进入现有对账路径。
+- [x] 移除 payment-service 中冲突的随机进程内支付结果策略；PSP 运行状态按 `faultRunId`、到期时间和 fencing token 管理。
 
 ---
 

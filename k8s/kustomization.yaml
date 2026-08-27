@@ -30,6 +30,7 @@ resources:
   - services/inventory/deployment.yaml
   - services/order/deployment.yaml
   - services/payment/deployment.yaml
+  - services/psp-simulator/deployment.yaml
   - services/traffic-control-plane/deployment.yaml
   - services/traffic-control-plane/worker-deployment.yaml
   - services/promotion/deployment.yaml
@@ -55,6 +56,8 @@ images:
   - name: castrel/order-service
     newTag: latest
   - name: castrel/payment-service
+    newTag: latest
+  - name: castrel/psp-simulator
     newTag: latest
   - name: castrel/traffic-control-plane
     newTag: latest

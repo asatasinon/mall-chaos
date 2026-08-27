@@ -11,9 +11,10 @@ x-service-defaults: &service-defaults
 
 x-service-env: &service-env
   SPRING_PROFILES_ACTIVE: docker
+  TZ: Asia/Shanghai
   CASTREL_JWT_SECRET: ${CASTREL_JWT_SECRET:?CASTREL_JWT_SECRET must be set}
   CASTREL_INTERNAL_SERVICE_KEY: ${CASTREL_INTERNAL_SERVICE_KEY:?CASTREL_INTERNAL_SERVICE_KEY must be set}
-  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-castrel}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-castrel}?useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=+08:00&allowPublicKeyRetrieval=true
   SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-castrel}
   SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-castrel}
   SPRING_DATA_REDIS_HOST: redis
@@ -35,6 +36,7 @@ x-service-env: &service-env
     -Xms256m
     -Xmx256m
     -Dfile.encoding=UTF-8
+    -Duser.timezone=Asia/Shanghai
     -Dsun.jnu.encoding=UTF-8
     -Djava.security.egd=file:/dev/./urandom
     -XX:+UseContainerSupport
@@ -437,13 +439,35 @@ services:
       SW_AGENT_NAME: payment-service
       CW_APP_NAME: ${PAYMENT_CW_APP_NAME:-payment-service}
       ORDER_SERVICE_URL: http://order-service:8084
+      PSP_SIMULATOR_URL: http://psp-simulator:8092
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+      psp-simulator:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
+      <<: *healthcheck-defaults
+
+  psp-simulator:
+    image: ${REGISTRY:-harbor.cloudwise.com/noname}/psp-simulator:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: psp-simulator/Dockerfile
+    container_name: castrel-psp-simulator
+    <<: *service-defaults
+    environment:
+      <<: *java-service-env
+      OTEL_SERVICE_NAME: psp-simulator
+      SW_AGENT_NAME: psp-simulator
+      CW_APP_NAME: ${PSP_CW_APP_NAME:-psp-simulator}
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8092/actuator/health"]
       <<: *healthcheck-defaults
 
   traffic-control-plane:
@@ -468,6 +492,7 @@ services:
       - ./infra/alertmanager:/app/infra-source/alertmanager:ro
     environment:
       NODE_ENV: production
+      TZ: Asia/Shanghai
       HOSTNAME: 0.0.0.0
       GATEWAY_BASE_URL: http://gateway-service:8080
       CASTREL_INTERNAL_SERVICE_KEY: ${CASTREL_INTERNAL_SERVICE_KEY:?CASTREL_INTERNAL_SERVICE_KEY must be set}
@@ -513,6 +538,7 @@ services:
       - ./data/traffic-control-plane-worker:/app/data
     environment:
       NODE_ENV: production
+      TZ: Asia/Shanghai
       GATEWAY_BASE_URL: http://gateway-service:8080
       CASTREL_INTERNAL_SERVICE_KEY: ${CASTREL_INTERNAL_SERVICE_KEY:?CASTREL_INTERNAL_SERVICE_KEY must be set}
       TRAFFIC_LIFECYCLE_ACCOUNTS: ${TRAFFIC_LIFECYCLE_ACCOUNTS:-[]}
@@ -666,7 +692,7 @@ services:
     <<: *service-defaults
     environment:
       SW_STORAGE: mysql
-      SW_JDBC_URL: "jdbc:mysql://mysql:3306/skywalking?rewriteBatchedStatements=true&allowMultiQueries=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+      SW_JDBC_URL: "jdbc:mysql://mysql:3306/skywalking?rewriteBatchedStatements=true&allowMultiQueries=true&useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=+08:00&allowPublicKeyRetrieval=true"
       SW_DATA_SOURCE_USER: ${MYSQL_USER:-castrel}
       SW_DATA_SOURCE_PASSWORD: ${MYSQL_PASSWORD:-castrel}
       SW_JDBC_DRIVER: com.mysql.cj.jdbc.Driver
