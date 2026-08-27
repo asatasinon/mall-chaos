@@ -76,6 +76,14 @@ public class CartFaultRunController {
         return ApiResponse.ok(cartService.cleanExerciseRun(context));
     }
 
+    @PostMapping("/cleanup-scenario")
+    public ApiResponse<Map<String, Object>> cleanupScenario(@RequestBody Map<String, Object> body) {
+        if (body == null || !"CART_REDIS_LARGE_VALUE".equals(body.get("scenario")) || body.size() != 1) {
+            throw new BizException("SCENARIO_OPERATION_MISMATCH", "Unsupported cart scenario cleanup");
+        }
+        return ApiResponse.ok(cartService.cleanExerciseScenario());
+    }
+
     private void requireOperation(String scenario, String operation) {
         if (!"CART_REDIS_LARGE_VALUE".equals(scenario) || !"cart-large-value".equals(operation)) {
             throw new BizException("SCENARIO_OPERATION_MISMATCH", "Unsupported cart scenario operation");

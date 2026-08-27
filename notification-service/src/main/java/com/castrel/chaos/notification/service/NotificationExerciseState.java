@@ -58,6 +58,13 @@ public class NotificationExerciseState {
         if (context.runId().equals(storageRun == null ? null : storageRun.runId())) storageRun = null;
     }
 
+    public synchronized void stopAllStorageRuns(ScenarioRunGuard guard) {
+        if (storageRun != null) {
+            guard.release(storageRun);
+            storageRun = null;
+        }
+    }
+
     public boolean shouldRetain() {
         ScenarioRunContext run = heapRun;
         if (run == null || !run.expiresAt().isAfter(Instant.now())) return false;

@@ -23,6 +23,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.time.Duration;
 import org.springframework.http.HttpHeaders;
@@ -100,6 +101,14 @@ public class CartService {
         Cart cart = cartRepository.findByCustomerIdAndStatus(19L, ACTIVE).orElse(null);
         if (cart != null) itemRepository.deleteByCartIdAndExerciseRunId(cart.getId(), context.runId());
         return Map.of("cleaned", true, "faultRunId", context.runId());
+    }
+
+    @Transactional
+    public Map<String, Object> cleanExerciseScenario() {
+        long deletedItems = itemRepository.deleteByExerciseRunIdIsNotNull();
+        Set<String> keys = redisTemplate.keys("cart:exercise:*:large-value");
+        long deletedKeys = keys == null || keys.isEmpty() ? 0 : redisTemplate.delete(keys);
+        return Map.of("cleaned", true, "deletedItems", deletedItems, "deletedKeys", deletedKeys);
     }
 
     private ScenarioRunContext validateExerciseContext(Long customerId, String scenario, HttpHeaders headers) {

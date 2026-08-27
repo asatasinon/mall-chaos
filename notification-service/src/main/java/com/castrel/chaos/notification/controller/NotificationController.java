@@ -125,6 +125,17 @@ public class NotificationController {
         return ApiResponse.ok(Map.of("cleaned", true, "deletedNotifications", deleted));
     }
 
+    @PostMapping("/internal/notification/fault-runs/cleanup-scenario")
+    public ApiResponse<Map<String, Object>> cleanupScenario(
+            @RequestBody Map<String, Object> body) {
+        if (body == null || !"NOTIFICATION_STORAGE_APPEND".equals(body.get("scenario")) || body.size() != 1) {
+            throw new BizException("SCENARIO_OPERATION_MISMATCH", "Unsupported notification scenario cleanup");
+        }
+        exerciseState.stopAllStorageRuns(runGuard);
+        long deleted = customerNotificationRepository.deleteByExerciseRunIdIsNotNull();
+        return ApiResponse.ok(Map.of("cleaned", true, "deletedNotifications", deleted));
+    }
+
     @PostMapping("/internal/notification/fault-runs/restart")
     public ApiResponse<Map<String, Object>> restartExerciseTarget() {
         return ApiResponse.ok(Map.of("restartRequested", true, "target", "notification-service"));

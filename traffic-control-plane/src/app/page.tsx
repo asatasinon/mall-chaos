@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { fetchWithAuth } from '@/lib/auth-fetch';
+import { createClientId } from '@/lib/client-id';
 import ScenarioCardWithActions from '@/components/ScenarioCardWithActions';
 
 type Parameter = { name: string; kind: 'integer' | 'number' | 'string'; required?: boolean; default?: number | string; min?: number; max?: number; maxLength?: number };
@@ -94,7 +95,7 @@ export default function ScenarioControlPage() {
   };
 
   const createRun = async (scenario: Scenario, parameters: Record<string, number | string>) => {
-    const idempotencyKey = `${scenario.scenario}-${crypto.randomUUID()}`;
+    const idempotencyKey = `${scenario.scenario}-${createClientId()}`;
     setBusy(scenario.scenario);
     try {
       const response = await fetchWithAuth('/internal/fault-runs', {
@@ -114,7 +115,7 @@ export default function ScenarioControlPage() {
 
   const stopRun = async (run: FaultRun) => {
     if (!window.confirm(`Stop ${run.scenario}?`)) return;
-    const idempotencyKey = `stop-${run.faultRunId}-${crypto.randomUUID()}`;
+    const idempotencyKey = `stop-${run.faultRunId}-${createClientId()}`;
     setBusy(run.faultRunId);
     try {
       const response = await fetchWithAuth(`/internal/fault-runs/${run.faultRunId}/stop`, {
@@ -134,7 +135,7 @@ export default function ScenarioControlPage() {
 
   const restartNotification = async (run: FaultRun) => {
     if (!window.confirm('Restart the fixed notification-service target?')) return;
-    const idempotencyKey = `restart-${run.faultRunId}-${crypto.randomUUID()}`;
+    const idempotencyKey = `restart-${run.faultRunId}-${createClientId()}`;
     setBusy(run.faultRunId);
     try {
       const response = await fetchWithAuth('/internal/traffic/services/notification/restart', {
@@ -152,21 +153,21 @@ export default function ScenarioControlPage() {
     }
   };
 
-  const cleanupRun = async (run: FaultRun) => {
-    if (!window.confirm(`Clean notification storage for run ${run.faultRunId.slice(0, 8)}?`)) return;
-    const idempotencyKey = `cleanup-${run.faultRunId}-${crypto.randomUUID()}`;
-    setBusy(run.faultRunId);
+  const cleanupScenario = async (scenario: Scenario) => {
+    if (!window.confirm(`Clean all data created by ${scenario.scenario}?`)) return;
+    const idempotencyKey = `cleanup-scenario-${scenario.scenario}-${createClientId()}`;
+    setBusy(`cleanup:${scenario.scenario}`);
     try {
-      const response = await fetchWithAuth(`/internal/fault-runs/${run.faultRunId}/cleanup`, {
+      const response = await fetchWithAuth('/internal/fault-runs/cleanup-scenario', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': idempotencyKey },
-        body: JSON.stringify({ confirmed: true }),
+        body: JSON.stringify({ scenario: scenario.scenario, confirmed: true }),
       });
       const result = await response.json() as { code: number; message: string };
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to clean Fault Run resources');
+      setError(cause instanceof Error ? cause.message : 'Failed to clean scenario data');
     } finally {
       setBusy(null);
     }
@@ -182,15 +183,15 @@ export default function ScenarioControlPage() {
       <div className="grid gap-3 sm:grid-cols-3"><Metric icon={<ShieldCheck className="size-4" />} label="Catalog scenarios" value={data ? String(data.scenarios.length) : '...'} /><Metric icon={<Activity className="size-4" />} label="Active run" value={activeRun ? activeRun.state : 'NONE'} /><Metric icon={<Clock3 className="size-4" />} label="Seven-day runs" value={data ? String(data.runs.length) : '...'} /></div>
       {activeRun && <ActiveRunBanner run={activeRun} remainingMs={new Date(activeRun.expiresAt).getTime() - now} onDetails={() => void openDetails(activeRun)} onStop={() => void stopRun(activeRun)} busy={busy === activeRun.faultRunId} />}
       {unavailableHeapRun && <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3"><div><p className="text-sm font-medium">Notification service unavailable</p><p className="mt-1 text-xs text-muted-foreground">Only a confirmed restart of the fixed notification-service target is allowed.</p></div><Button size="sm" onClick={() => void restartNotification(unavailableHeapRun)} disabled={busy === unavailableHeapRun.faultRunId}><ServerCog className="size-3.5" />{busy === unavailableHeapRun.faultRunId ? 'Restarting...' : 'Restart notification'}</Button></div>}
-      {data && <ScenarioWorkspace scenarios={data.scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} activeRun={activeRun} busy={busy} onCreate={createRun} onDetails={openDetails} onStop={stopRun} />}
+      {data && <ScenarioWorkspace scenarios={data.scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} activeRun={activeRun} busy={busy} onCreate={createRun} onDetails={openDetails} onStop={stopRun} onCleanup={cleanupScenario} />}
       {!data && !error && <div className="py-16 text-center text-sm text-muted-foreground"><RefreshCw className="mx-auto mb-3 size-5 animate-spin" />Loading scenario catalog...</div>}
-      {data && <RunHistory runs={visibleRuns} scenarios={data.scenarios} filterState={filterState} filterScenario={filterScenario} setFilterState={setFilterState} setFilterScenario={setFilterScenario} onDetails={openDetails} onCleanup={cleanupRun} busy={busy} />}
+      {data && <RunHistory runs={visibleRuns} scenarios={data.scenarios} filterState={filterState} filterScenario={filterScenario} setFilterState={setFilterState} setFilterScenario={setFilterScenario} onDetails={openDetails} />}
       {selectedRun && <RunDetails details={selectedRun} onClose={() => setSelectedRun(null)} />}
     </div>
   );
 }
 
-function ScenarioWorkspace({ scenarios, selectedScenario, setSelectedScenario, activeRun, busy, onCreate, onDetails, onStop }: { scenarios: Scenario[]; selectedScenario: string; setSelectedScenario: (value: string) => void; activeRun?: FaultRun; busy: string | null; onCreate: (scenario: Scenario, parameters: Record<string, number | string>) => Promise<void>; onDetails: (run: FaultRun) => Promise<void>; onStop: (run: FaultRun) => Promise<void> }) {
+function ScenarioWorkspace({ scenarios, selectedScenario, setSelectedScenario, activeRun, busy, onCreate, onDetails, onStop, onCleanup }: { scenarios: Scenario[]; selectedScenario: string; setSelectedScenario: (value: string) => void; activeRun?: FaultRun; busy: string | null; onCreate: (scenario: Scenario, parameters: Record<string, number | string>) => Promise<void>; onDetails: (run: FaultRun) => Promise<void>; onStop: (run: FaultRun) => Promise<void>; onCleanup: (scenario: Scenario) => Promise<void> }) {
   const scenario = scenarios.find((item) => item.scenario === selectedScenario) || scenarios[0];
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => Object.fromEntries(SCENARIO_GROUPS.map((group) => [group.label, group.scenarios.includes(scenario?.scenario || '')])));
   if (!scenario) return null;
@@ -217,12 +218,12 @@ function ScenarioWorkspace({ scenarios, selectedScenario, setSelectedScenario, a
         })}
       </div>
     </div>
-    <ScenarioCardWithActions key={scenario.scenario} scenario={scenario} activeRun={activeRun} busy={busy === scenario.scenario || busy === activeRun?.faultRunId} onCreate={onCreate} onDetails={onDetails} onStop={onStop} />
+    <ScenarioCardWithActions key={scenario.scenario} scenario={scenario} activeRun={activeRun} busy={busy === scenario.scenario || busy === activeRun?.faultRunId || busy === `cleanup:${scenario.scenario}`} onCreate={onCreate} onDetails={onDetails} onStop={onStop} onCleanup={onCleanup} />
   </section>;
 }
 
 function ActiveRunBanner({ run, remainingMs, onDetails, onStop, busy }: { run: FaultRun; remainingMs: number; onDetails: () => void; onStop: () => void; busy: boolean }) { return <div className="flex flex-wrap items-center justify-between gap-4 rounded-md border border-primary/30 bg-primary/5 px-4 py-3"><div className="flex items-center gap-3"><span className="status-dot status-dot-yellow" /><div><p className="text-sm font-medium">Active run: {run.scenario}</p><p className="text-xs text-muted-foreground">{run.targetService} · {formatRemaining(remainingMs)} remaining · {run.faultRunId.slice(0, 8)}</p></div></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={onDetails}><Activity className="size-3.5" />Details</Button><Button variant="destructive" size="sm" onClick={onStop} disabled={busy}><Square className="size-3.5" />{busy ? 'Stopping...' : 'Stop'}</Button></div></div>; }
-function RunHistory({ runs, scenarios, filterState, filterScenario, setFilterState, setFilterScenario, onDetails, onCleanup, busy }: { runs: FaultRun[]; scenarios: Scenario[]; filterState: string; filterScenario: string; setFilterState: (value: string) => void; setFilterScenario: (value: string) => void; onDetails: (run: FaultRun) => Promise<void>; onCleanup: (run: FaultRun) => Promise<void>; busy: string | null }) { return <Card><CardHeader className="flex flex-wrap items-center justify-between gap-3 space-y-0"><CardTitle className="text-sm">Recent runs · last 7 days</CardTitle><div className="flex gap-2"><select className="h-8 rounded-md border border-input bg-background px-2 text-xs" value={filterState} onChange={(event) => setFilterState(event.target.value)}><option value="ALL">All states</option>{['CREATING', 'ACTIVE', 'RECOVERING', 'RECOVERED', 'STOPPED', 'FAILED', 'SERVICE_UNAVAILABLE'].map((state) => <option key={state} value={state}>{state}</option>)}</select><select className="h-8 max-w-52 rounded-md border border-input bg-background px-2 text-xs" value={filterScenario} onChange={(event) => setFilterScenario(event.target.value)}><option value="ALL">All scenarios</option>{scenarios.map((scenario) => <option key={scenario.scenario} value={scenario.scenario}>{scenario.scenario}</option>)}</select></div></CardHeader><CardContent>{runs.length === 0 ? <p className="text-sm text-muted-foreground">No matching runs.</p> : <div className="divide-y divide-border">{runs.map((run) => { const canCleanup = scenarios.find((scenario) => scenario.scenario === run.scenario)?.allowManualCleanup && ['RECOVERED', 'STOPPED'].includes(run.state); return <div key={run.faultRunId} className="flex w-full flex-wrap items-center justify-between gap-3 py-3"><button type="button" className="min-w-0 text-left hover:underline" onClick={() => void onDetails(run)}><span className="block text-sm font-medium">{run.scenario}</span><span className="mt-1 block text-xs text-muted-foreground">{run.targetService} · {formatTime(run.createdAt)}</span></button><span className="flex items-center gap-2"><Badge variant={run.state === 'ACTIVE' ? 'destructive' : 'secondary'}>{run.state}</Badge><span className="font-mono text-xs text-muted-foreground">{run.faultRunId.slice(0, 8)}</span>{canCleanup && <Button variant="outline" size="sm" onClick={() => void onCleanup(run)} disabled={busy === run.faultRunId}>Cleanup</Button>}</span></div>; })}</div>}</CardContent></Card>; }
+function RunHistory({ runs, scenarios, filterState, filterScenario, setFilterState, setFilterScenario, onDetails }: { runs: FaultRun[]; scenarios: Scenario[]; filterState: string; filterScenario: string; setFilterState: (value: string) => void; setFilterScenario: (value: string) => void; onDetails: (run: FaultRun) => Promise<void> }) { return <Card><CardHeader className="flex flex-wrap items-center justify-between gap-3 space-y-0"><CardTitle className="text-sm">Recent runs · last 7 days</CardTitle><div className="flex gap-2"><select className="h-8 rounded-md border border-input bg-background px-2 text-xs" value={filterState} onChange={(event) => setFilterState(event.target.value)}><option value="ALL">All states</option>{['CREATING', 'ACTIVE', 'RECOVERING', 'RECOVERED', 'STOPPED', 'FAILED', 'SERVICE_UNAVAILABLE'].map((state) => <option key={state} value={state}>{state}</option>)}</select><select className="h-8 max-w-52 rounded-md border border-input bg-background px-2 text-xs" value={filterScenario} onChange={(event) => setFilterScenario(event.target.value)}><option value="ALL">All scenarios</option>{scenarios.map((scenario) => <option key={scenario.scenario} value={scenario.scenario}>{scenario.scenario}</option>)}</select></div></CardHeader><CardContent>{runs.length === 0 ? <p className="text-sm text-muted-foreground">No matching runs.</p> : <div className="divide-y divide-border">{runs.map((run) => <div key={run.faultRunId} className="flex w-full flex-wrap items-center justify-between gap-3 py-3"><button type="button" className="min-w-0 text-left hover:underline" onClick={() => void onDetails(run)}><span className="block text-sm font-medium">{run.scenario}</span><span className="mt-1 block text-xs text-muted-foreground">{run.targetService} · {formatTime(run.createdAt)}</span></button><span className="flex items-center gap-2"><Badge variant={run.state === 'ACTIVE' ? 'destructive' : 'secondary'}>{run.state}</Badge><span className="font-mono text-xs text-muted-foreground">{run.faultRunId.slice(0, 8)}</span></span></div>)}</div>}</CardContent></Card>; }
 function RunDetails({ details, onClose }: { details: FaultRunDetails; onClose: () => void }) { return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 sm:items-center"><div className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-lg border border-border bg-card shadow-xl"><div className="flex items-start justify-between border-b border-border p-5"><div><p className="text-xs uppercase tracking-wider text-muted-foreground">Fault Run details</p><h2 className="mt-1 text-lg font-semibold">{details.run.scenario}</h2><p className="mt-1 font-mono text-xs text-muted-foreground">{details.run.faultRunId}</p></div><Button variant="ghost" size="sm" onClick={onClose}>Close</Button></div><div className="grid gap-3 p-5 sm:grid-cols-4"><Detail label="State" value={details.run.state} /><Detail label="Target" value={details.run.targetService} /><Detail label="Expires" value={formatTime(details.run.expiresAt)} /><Detail label="Audit" value={details.run.operatorAuditId ? String(details.run.operatorAuditId) : 'Pending'} /></div><div className="border-t border-border px-5 py-4"><h3 className="mb-3 text-sm font-medium">Event timeline</h3>{details.events.length === 0 ? <p className="text-sm text-muted-foreground">No events recorded.</p> : <div className="space-y-3">{details.events.map((event) => <div key={event.id} className="flex gap-3 text-sm"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" /><div><p className="font-medium">{event.eventType}</p><p className="text-xs text-muted-foreground">{formatTime(event.createdAt)} · {eventSummary(event.payload)}</p></div></div>)}</div>}</div></div></div>; }
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) { return <Card><CardContent className="flex items-center gap-3 py-4"><span className="text-primary">{icon}</span><div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-0.5 text-lg font-semibold tabular-nums">{value}</p></div></CardContent></Card>; }
 function Detail({ label, value }: { label: string; value: string }) { return <div><p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-1 truncate text-sm font-medium">{value}</p></div>; }

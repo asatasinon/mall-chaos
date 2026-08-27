@@ -34,6 +34,9 @@ public class FaultRunDispatchController {
     private static final Set<String> REQUIRED_FIELDS = Set.of(
             "faultRunId", "scenario", "operation", "parameters", "expiresAt", "fencingToken", "idempotencyKey");
     private static final Set<String> CLEANUP_FIELDS = Set.of("faultRunId", "scenario", "targetService", "fencingToken");
+        private static final Map<String, String> SCENARIO_CLEANUP_PATHS = Map.of(
+            "CART_REDIS_LARGE_VALUE", "/internal/cart/fault-runs/cleanup-scenario",
+            "NOTIFICATION_STORAGE_APPEND", "/internal/notification/fault-runs/cleanup-scenario");
 
     private final FaultRunDispatchService dispatchService;
     private final FaultRunProbeService probeService;
@@ -80,6 +83,24 @@ public class FaultRunDispatchController {
         return dispatchService.cleanup(target.service(), target.cleanupPath(), body, traceIdOrEmpty(traceId))
                 .map(ApiResponse::ok)
             .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
+    }
+
+    @PostMapping("/cleanup-scenario")
+    public Mono<ApiResponse<Object>> cleanupScenario(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
+        if (body == null || !body.keySet().equals(Set.of("scenario"))) {
+            return Mono.just(ApiResponse.error(400, "Invalid scenario cleanup contract"));
+        }
+        String scenario = body.get("scenario") instanceof String value ? value : "";
+        Target target = TARGETS.get(scenario);
+        String cleanupPath = SCENARIO_CLEANUP_PATHS.get(scenario);
+        if (target == null || cleanupPath == null) {
+            return Mono.just(ApiResponse.error(400, "Scenario does not support cleanup"));
+        }
+        return dispatchService.cleanup(target.service(), cleanupPath, body, traceIdOrEmpty(traceId))
+                .map(ApiResponse::ok)
+                .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
     }
 
     @PostMapping("/restart-notification")
