@@ -525,14 +525,13 @@ CREATE TABLE IF NOT EXISTS traffic_actions (
   cart_version   INT,
   result_code    VARCHAR(64),
   error_code     VARCHAR(64),
-  fault_scenario_id VARCHAR(64),
   trace_id       VARCHAR(64),
   latency_ms     BIGINT,
   created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_traffic_action_id (action_id),
   INDEX idx_traffic_actions_run (traffic_run_id, created_at),
   INDEX idx_traffic_actions_lifecycle (traffic_run_id, lifecycle_id, created_at),
-  INDEX idx_traffic_actions_fault (traffic_run_id, fault_scenario_id, created_at)
+  INDEX idx_traffic_actions_time (traffic_run_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS traffic_replenishment_runs (

@@ -43,7 +43,7 @@ export default function LoginPage() {
         <div className="mb-6 flex items-start gap-3">
           <div className="rounded-md bg-primary/10 p-2 text-primary"><LockKeyhole className="size-5" /></div>
           <div>
-            <h1 className="text-lg font-semibold">Castrel Chaos</h1>
+            <h1 className="text-lg font-semibold">Castrel Operations</h1>
             <p className="mt-1 text-xs text-muted-foreground">Sign in to access the control plane.</p>
           </div>
         </div>

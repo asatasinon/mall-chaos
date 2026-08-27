@@ -43,7 +43,6 @@ export async function GET() {
       addressCreatedCount: 0,
       cartReusedCount: 0,
       pendingPaymentRetainedCount: 0,
-      faultScenarioCount: 0,
       updatedAt: null,
     }
   );

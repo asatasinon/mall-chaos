@@ -4,7 +4,6 @@ export interface TrafficActionRecord {
   trafficRunId: string;
   actionId: string;
   lifecycleId?: string;
-  faultScenarioId?: string;
   customerId: number;
   actionType: string;
   status: 'SUCCESS' | 'FAILED' | 'NOOP';
@@ -54,9 +53,9 @@ export async function recordTrafficAction(record: TrafficActionRecord): Promise<
   await getPool().query(
     `INSERT INTO traffic_actions
       (traffic_run_id, lifecycle_id, action_id, customer_id, action_type, status,
-       order_id, payment_id, cart_version, result_code, error_code, fault_scenario_id,
+       order_id, payment_id, cart_version, result_code, error_code,
        trace_id, latency_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       record.trafficRunId,
       record.lifecycleId ?? null,
@@ -69,7 +68,6 @@ export async function recordTrafficAction(record: TrafficActionRecord): Promise<
       record.cartVersion ?? null,
       record.resultCode ?? null,
       record.errorCode ?? null,
-      record.faultScenarioId ?? null,
       record.traceId,
       record.latencyMs,
     ],

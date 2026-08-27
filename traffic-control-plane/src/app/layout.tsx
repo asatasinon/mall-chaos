@@ -4,8 +4,8 @@ import { ThemeProvider } from '@/components/ThemeProvider';
 import ConsoleChrome from '@/components/ConsoleChrome';
 
 export const metadata: Metadata = {
-  title: 'Castrel · Chaos Control Plane',
-  description: 'Traffic generation and chaos engineering control console',
+  title: 'Castrel · Fault Run Control Plane',
+  description: 'Protected scenario coordination and recovery control console',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

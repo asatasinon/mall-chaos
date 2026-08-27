@@ -38,7 +38,6 @@ export class RunnerEngine {
   private addressCreatedCount = 0;
   private cartReusedCount = 0;
   private pendingPaymentRetainedCount = 0;
-  private faultScenarioCount = 0;
   private readonly orchestrator = new TrafficActionOrchestrator();
 
   constructor() {
@@ -145,7 +144,6 @@ export class RunnerEngine {
       addressCreatedCount: this.addressCreatedCount,
       cartReusedCount: this.cartReusedCount,
       pendingPaymentRetainedCount: this.pendingPaymentRetainedCount,
-      faultScenarioCount: this.faultScenarioCount,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -210,7 +208,6 @@ export class RunnerEngine {
       pendingPaymentRetained: result.pendingPaymentRetained,
       status: result.status,
       errorCode: result.errorCode,
-      faultScenarioId: result.faultScenarioId,
     });
     await this.publishStatus();
   }
@@ -240,7 +237,6 @@ export class RunnerEngine {
     if (steps.some((step) => step.actionType === 'ADDRESS_CREATE' && step.success)) this.addressCreatedCount++;
     if (steps.some((step) => step.actionType === 'CART_REUSED')) this.cartReusedCount++;
     if (result.pendingPaymentRetained) this.pendingPaymentRetainedCount++;
-    if (result.faultScenarioId) this.faultScenarioCount++;
   }
 
   private async refreshControlState(): Promise<void> {

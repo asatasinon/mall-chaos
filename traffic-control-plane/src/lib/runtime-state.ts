@@ -74,7 +74,6 @@ export interface RunnerStatusState {
   addressCreatedCount: number;
   cartReusedCount: number;
   pendingPaymentRetainedCount: number;
-  faultScenarioCount: number;
   updatedAt: string;
 }
 
@@ -120,7 +119,6 @@ export async function setRunnerStatus(status: RunnerStatusState): Promise<void> 
     addressCreatedCount: String(status.addressCreatedCount),
     cartReusedCount: String(status.cartReusedCount),
     pendingPaymentRetainedCount: String(status.pendingPaymentRetainedCount),
-    faultScenarioCount: String(status.faultScenarioCount),
     updatedAt: status.updatedAt,
   });
   await redis.expire(STATUS_KEY, 30);
@@ -157,7 +155,6 @@ export async function getRunnerStatus(): Promise<RunnerStatusState | null> {
     addressCreatedCount: Number(data.addressCreatedCount || 0),
     cartReusedCount: Number(data.cartReusedCount || 0),
     pendingPaymentRetainedCount: Number(data.pendingPaymentRetainedCount || 0),
-    faultScenarioCount: Number(data.faultScenarioCount || 0),
     updatedAt: data.updatedAt,
   };
 }
@@ -235,7 +232,6 @@ export interface ActivityEntry {
   orderId?: string;
   paymentId?: string;
   traceId?: string;
-  faultScenarioId?: string;
   lifecycleId?: string;
   pendingPaymentRetained?: boolean;
   status?: 'SUCCESS' | 'FAILED' | 'NOOP' | 'INTERRUPTED';

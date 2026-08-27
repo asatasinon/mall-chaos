@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 待实施 |
+| 状态 | Phase A 已完成，Phase B 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-26 CST |
+| 更新时间 | 2026-08-26 CST（Phase A 完成） |
 | 关联规格 | [product.md](product.md) |
 | 关联设计 | [tech.md](tech.md) |
 
@@ -25,7 +25,7 @@
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- |
-| A | Fault Run 契约、持久化与单运行协调 | 进行中 | 0 / 5 | 无 |
+| A | Fault Run 契约、持久化与单运行协调 | 已完成 | 5 / 5 | 无 |
 | B | Gateway 单目标分发与业务场景接口 | 待开始 | 0 / 7 | A |
 | C | Worker、Runner 复用与 Sam 演练账号隔离 | 待开始 | 0 / 5 | A、B |
 | D | 90M 日分区预热与全栈东八区 | 待开始 | 0 / 4 | A |
@@ -36,46 +36,46 @@
 
 ## Phase A：Fault Run 契约、持久化与单运行协调
 
-**阶段进度：0 / 5**
+**阶段进度：5 / 5**
 
 目标：建立唯一运行模型、数据库证据与控制面协调器，使任何场景都有统一的创建、到期、停止和恢复语义。
 
 ### A1. Fault Run Schema 与七天留存
 
-- [-] 在 traffic-control-plane 新建 `fault_runs` migration、类型、Repository 和数据访问层，包含场景、固定目标、参数快照、状态、开始/到期/停止时间、停止原因、恢复结果、审计关联、trace 关联和 `fencing_token`。
-- [-] 在数据库层实现只允许一条 `CREATING`、`ACTIVE` 或 `RECOVERING` 运行的约束；创建冲突返回现有运行 ID，不能依赖仅进程内锁。
-- [-] 新建 `fault_run_events` migration、类型和 Repository，以 `fault_run_id` 保存创建、目标确认、Runner 调用汇总、停止、恢复和错误事件的结构化 payload。
-- [-] 新建每日留存任务，按外键顺序分批删除已终止且超过 7 天的运行、事件和运行专属审计明细；活动、恢复中、服务不可用或清理未完成的记录永不按时间删除。
-- [ ] 删除或迁移旧控制面通用 Chaos 运行状态、旧 status 聚合和旧 recover-all 持久化路径，不保留兼容读写分支。
+- [x] 在 traffic-control-plane 新建 `fault_runs` migration、类型、Repository 和数据访问层，包含场景、固定目标、参数快照、状态、开始/到期/停止时间、停止原因、恢复结果、审计关联、trace 关联和 `fencing_token`。
+- [x] 在数据库层实现只允许一条 `CREATING`、`ACTIVE` 或 `RECOVERING` 运行的约束；创建冲突返回现有运行 ID，不能依赖仅进程内锁。
+- [x] 新建 `fault_run_events` migration、类型和 Repository，以 `fault_run_id` 保存创建、目标确认、Runner 调用汇总、停止、恢复和错误事件的结构化 payload。
+- [x] 新建每日留存任务，按外键顺序分批删除已终止且超过 7 天的运行、事件和运行专属审计明细；活动、恢复中、服务不可用或清理未完成的记录永不按时间删除。
+- [x] 删除或迁移旧控制面通用 Chaos 运行状态、旧 status 聚合和旧 recover-all 持久化路径，不保留兼容读写分支。
 
 ### A2. 场景 Catalog 与运行状态机
 
-- [-] 在 TypeScript 建立唯一场景 catalog，作为控制台、Route Handler、Coordinator、Gateway 映射和参数校验的唯一事实来源；每项固定场景、目标、参数 schema、最大持续时间、恢复策略、数据库事件字段和人工清理权限。
-- [-] 实现 `FaultRunCoordinator` 的 `CREATING -> ACTIVE -> RECOVERING -> RECOVERED` 主路径，以及 `FAILED`、`STOPPED`、`SERVICE_UNAVAILABLE` 分支。
-- [-] 实现创建补偿：目标确认前失败或部分分发失败时，协调器按相同 `faultRunId` 释放已启动资源并写事件。
-- [-] 实现到期调度、人工停止和控制面启动扫描；三者复用同一幂等停止与恢复逻辑。
-- [-] 内存耗尽场景实现非释放型到期语义：只停止后续保留动作，健康失败后转为 `SERVICE_UNAVAILABLE`，等待固定通知服务重启。
+- [x] 在 TypeScript 建立唯一场景 catalog，作为控制台、Route Handler、Coordinator、Gateway 映射和参数校验的唯一事实来源；每项固定场景、目标、参数 schema、最大持续时间、恢复策略、数据库事件字段和人工清理权限。
+- [x] 实现 `FaultRunCoordinator` 的 `CREATING -> ACTIVE -> RECOVERING -> RECOVERED` 主路径，以及 `FAILED`、`STOPPED`、`SERVICE_UNAVAILABLE` 分支。
+- [x] 实现创建补偿：目标确认前失败或部分分发失败时，协调器按相同 `faultRunId` 释放已启动资源并写事件。
+- [x] 实现到期调度、人工停止和控制面启动扫描；三者复用同一幂等停止与恢复逻辑。
+- [x] 内存耗尽场景实现非释放型到期语义：只停止后续保留动作，健康失败后转为 `SERVICE_UNAVAILABLE`，等待固定通知服务重启。
 
 ### A3. 目标侧到期与 fencing 契约
 
-- [-] 定义固定内部运行上下文：`faultRunId`、`expiresAt`、单调 `fencingToken`、幂等键和内部服务认证；拒绝用户传入目标服务、任意 URL、表名、SKU、客户或 shell 参数。
-- [ ] 为每个可恢复目标资源实现最近 fencing token 持久化/缓存、过期或较旧 token 拒绝和本地到期任务；控制面不可用时目标服务仍能停止或释放资源。
-- [-] 将运行 ID、到期时间和 token 经 Gateway 传递到目标服务，并为目标确认、过期拒绝、本地恢复写入 `fault_run_events`。
-- [ ] 为运行专属 Redis key、专用 JDBC 锁连接、PSP 运行状态、Cart 运行状态和通知存储运行状态定义统一的幂等清理归属规则。
+- [x] 定义固定内部运行上下文：`faultRunId`、`expiresAt`、单调 `fencingToken`、幂等键和内部服务认证；拒绝用户传入目标服务、任意 URL、表名、SKU、客户或 shell 参数。
+- [x] 为每个可恢复目标资源实现最近 fencing token 持久化/缓存、过期或较旧 token 拒绝和本地到期任务；控制面不可用时目标服务仍能停止或释放资源。
+- [x] 将运行 ID、到期时间和 token 经 Gateway 传递到目标服务，并为目标确认、过期拒绝、本地恢复写入 `fault_run_events`。
+- [x] 为运行专属 Redis key、专用 JDBC 锁连接、PSP 运行状态、Cart 运行状态和通知存储运行状态定义统一的幂等清理归属规则。
 
 ### A4. 控制面运行资源 API 与审计
 
-- [-] 新建受保护的 Route Handler：创建、列表、详情、停止、存储清理与固定通知服务重启；全部依据 catalog 校验输入。
-- [-] 为创建、停止、清理和重启加入运营会话、CSRF、确认、幂等键和审计写入；拒绝浏览器消费者路径与未认证内部调用。
-- [-] 运行详情 API 从 `fault_runs`、`fault_run_events` 和审计明细聚合结果；不新增 Prometheus 指标、Grafana 面板、告警规则或业务服务日志。
-- [-] 更新控制面数据库初始化与部署配置，注册运行扫描、到期调度和七天留存任务。
+- [x] 新建受保护的 Route Handler：创建、列表、详情、停止、存储清理与固定通知服务重启；全部依据 catalog 校验输入。
+- [x] 为创建、停止、清理和重启加入运营会话、CSRF、确认、幂等键和审计写入；拒绝浏览器消费者路径与未认证内部调用。
+- [x] 运行详情 API 从 `fault_runs`、`fault_run_events` 和审计明细聚合结果；不新增 Prometheus 指标、Grafana 面板、告警规则或业务服务日志。
+- [x] 更新控制面数据库初始化与部署配置，注册运行扫描、到期调度和七天留存任务。
 
 ### A5. Gateway 分发基础替换
 
-- [-] 将 Gateway 从旧通用 chaos fan-out 替换为场景到单一固定目标的映射，拒绝未知场景、错误目标、批量 target 和任意 URL。
-- [-] 定义各固定内部路径的服务认证和运行上下文转发规则；清洗外部伪造的运行、身份和内部认证头。
-- [-] 删除 `ChaosDispatchController`、`ChaosDispatchService`、通用 dispatch DTO、旧 `/internal/gateway/chaos/**` 和旧网络故障 dispatch 路由。
-- [-] 删除 common 中 `ChaosService`、`ChaosController`、自动配置扫描和旧 `/internal/chaos/**` 协议及相关配置。
+- [x] 将 Gateway 从旧通用 chaos fan-out 替换为场景到单一固定目标的映射，拒绝未知场景、错误目标、批量 target 和任意 URL。
+- [x] 定义各固定内部路径的服务认证和运行上下文转发规则；清洗外部伪造的运行、身份和内部认证头。
+- [x] 删除 `ChaosDispatchController`、`ChaosDispatchService`、通用 dispatch DTO、旧 `/internal/gateway/chaos/**` 和旧网络故障 dispatch 路由。
+- [x] 删除 common 中 `ChaosService`、`ChaosController`、自动配置扫描和旧 `/internal/chaos/**` 协议及相关配置。
 
 ---
 

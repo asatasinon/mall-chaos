@@ -6,9 +6,14 @@ import { getScenarioDefinition } from '@/lib/fault-run-catalog';
 import { appendFaultRunEvent, loadFaultRun } from '@/lib/fault-run-repository';
 import { recordOperatorAudit } from '@/lib/operator-audit';
 import { getOrCreateTraceId } from '@/lib/trace';
+import { getFaultRunCoordinator } from '@/lib/fault-run-coordinator';
 
 export async function POST(request: NextRequest) {
   if (!isCsrfRequest(request)) return jsonError(403, 'CSRF validation failed', 403);
+  const idempotencyKey = request.headers.get('X-Idempotency-Key');
+  if (!idempotencyKey || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(idempotencyKey)) {
+    return jsonError(400, 'A valid idempotency key is required', 400);
+  }
   let body: { faultRunId?: unknown; confirmed?: unknown } = {};
   try {
     body = await request.json();
@@ -34,23 +39,24 @@ export async function POST(request: NextRequest) {
       { faultRunId: run.faultRunId, fencingToken: run.fencingToken },
       traceId,
     );
-    await appendFaultRunEvent(run.faultRunId, 'NOTIFICATION_RESTART_COMPLETED', { result });
+    const recovered = await getFaultRunCoordinator().markServiceRecovered(run.faultRunId, { result });
+    await appendFaultRunEvent(run.faultRunId, 'NOTIFICATION_RESTART_COMPLETED', { result, recovered: recovered?.state === 'RECOVERED' });
     await recordOperatorAudit({
       request,
       action: 'NOTIFICATION_SERVICE_RESTART',
       target: 'notification-service',
-      parameters: { faultRunId: run.faultRunId },
+      parameters: { faultRunId: run.faultRunId, idempotencyKey },
       result: 'SUCCESS',
       correlationId: traceId,
     });
-    return jsonOk({ faultRunId: run.faultRunId, result });
+    return jsonOk({ faultRunId: run.faultRunId, result, run: recovered });
   } catch {
     await appendFaultRunEvent(run.faultRunId, 'NOTIFICATION_RESTART_FAILED').catch(() => undefined);
     await recordOperatorAudit({
       request,
       action: 'NOTIFICATION_SERVICE_RESTART',
       target: 'notification-service',
-      parameters: { faultRunId: run.faultRunId },
+      parameters: { faultRunId: run.faultRunId, idempotencyKey },
       result: 'FAILURE',
       correlationId: traceId,
     }).catch(() => undefined);

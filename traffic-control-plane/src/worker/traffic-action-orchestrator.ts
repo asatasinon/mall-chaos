@@ -31,7 +31,6 @@ export interface LifecycleStepResult {
   paymentId?: string;
   cartVersion?: number;
   latencyMs: number;
-  faultScenarioId?: string;
 }
 
 export interface RunnerActionResult {
@@ -48,7 +47,6 @@ export interface RunnerActionResult {
   paymentId?: string;
   cartVersion?: number;
   pendingPaymentRetained?: boolean;
-  faultScenarioId?: string;
   steps?: LifecycleStepResult[];
 }
 
@@ -105,7 +103,6 @@ interface StepValue<T> {
 }
 
 export interface LifecycleExecutionOptions {
-  faultScenarioId?: string;
   signal?: AbortSignal;
 }
 
@@ -154,14 +151,14 @@ export class TrafficActionOrchestrator {
       context = await this.sessions.openSession(trafficRunId, lifecycleId, traceId);
       customerId = context.session.customerId;
       this.currentCustomerId = customerId;
-      await this.recordStep(steps, lifecycleId, 'LOGIN', 'SUCCESS', true, undefined, options.faultScenarioId);
+      await this.recordStep(steps, lifecycleId, 'LOGIN', 'SUCCESS', true);
       this.throwIfInterrupted(options.signal);
 
       const products = await this.runStep(steps, lifecycleId, 'BROWSE_CATALOG', options, () =>
         this.findSellableProducts(context!, options.signal));
       if (products.status === 'NOOP') {
         return this.finish(lifecycleId, customerId, traceId, steps, 'NOOP', products.resultCode,
-          options.faultScenarioId, Date.now() - startedAt);
+          Date.now() - startedAt);
       }
       this.throwIfInterrupted(options.signal);
 
@@ -172,7 +169,7 @@ export class TrafficActionOrchestrator {
 
       const selected = this.selectProducts(products.value ?? [], cart, config.maxItems);
       if (selected.length === 0) {
-        await this.recordStep(steps, lifecycleId, 'CART_REUSED', 'NOOP', true, 'CART_REUSED', options.faultScenarioId);
+        await this.recordStep(steps, lifecycleId, 'CART_REUSED', 'NOOP', true, 'CART_REUSED');
       } else {
         for (const product of selected) {
           this.throwIfInterrupted(options.signal);
@@ -225,7 +222,7 @@ export class TrafficActionOrchestrator {
         couponId = coupon.value?.id;
       } else {
         await this.recordStep(steps, lifecycleId, 'COUPON_SELECT', 'NOOP', true,
-          'NO_COUPON_REQUESTED', options.faultScenarioId);
+          'NO_COUPON_REQUESTED');
       }
 
       const checkout = await this.runStep(steps, lifecycleId, 'CHECKOUT', options, () =>
@@ -265,7 +262,7 @@ export class TrafficActionOrchestrator {
           if (cancelled.value?.data?.status === 'CANCELLED') pendingPaymentRetained = false;
         } else {
           await this.recordStep(steps, lifecycleId, 'CANCEL_PENDING_ORDER', 'NOOP', true,
-            `ORDER_${beforeCancel.value?.data?.status ?? 'MISSING'}`, options.faultScenarioId, String(order.id));
+            `ORDER_${beforeCancel.value?.data?.status ?? 'MISSING'}`, String(order.id));
         }
       }
 
@@ -273,16 +270,16 @@ export class TrafficActionOrchestrator {
         this.gateway.customerGet<ApiEnvelope<OrderData>>(`/api/orders/${order!.id}`, undefined, context!));
       if (!finalOrder.value?.data) throw new Error('FINAL_ORDER_QUERY_FAILED');
       return this.finish(lifecycleId, customerId, traceId, steps, 'SUCCESS', finalOrder.value?.data?.status,
-        options.faultScenarioId, Date.now() - startedAt, order, pendingPaymentRetained, paymentId);
+        Date.now() - startedAt, order, pendingPaymentRetained, paymentId);
     } catch (error) {
       const interrupted = error instanceof Error && error.message === 'LIFECYCLE_INTERRUPTED';
       if (context) {
         await this.recordStep(steps, lifecycleId, 'LIFECYCLE_INTERRUPTED',
-          interrupted ? 'INTERRUPTED' : 'FAILED', false, errorCode(error), options.faultScenarioId,
+          interrupted ? 'INTERRUPTED' : 'FAILED', false, errorCode(error),
           order?.id === undefined ? undefined : String(order.id));
       }
       return this.finish(lifecycleId, customerId, traceId, steps, interrupted ? 'INTERRUPTED' : 'FAILED',
-        undefined, options.faultScenarioId, Date.now() - startedAt, order, pendingPaymentRetained, paymentId,
+        undefined, Date.now() - startedAt, order, pendingPaymentRetained, paymentId,
         errorCode(error));
     } finally {
       if (context) await this.sessions.closeSession(lifecycleId, traceId);
@@ -355,12 +352,12 @@ export class TrafficActionOrchestrator {
       const raw = await operation();
       const outcome = isStepValue(raw) ? raw : { status: 'SUCCESS' as const, success: true, value: raw };
       await this.recordStep(steps, lifecycleId, actionType, outcome.status, outcome.success,
-        outcome.resultCode, options.faultScenarioId, undefined, undefined, Date.now() - startedAt,
+        outcome.resultCode, undefined, undefined, Date.now() - startedAt,
         outcome.errorCode);
       return outcome;
     } catch (error) {
       await this.recordStep(steps, lifecycleId, actionType, 'FAILED', false, errorCode(error),
-        options.faultScenarioId, undefined, undefined, Date.now() - startedAt, errorCode(error));
+        undefined, undefined, Date.now() - startedAt, errorCode(error));
       throw error;
     }
   }
@@ -372,7 +369,6 @@ export class TrafficActionOrchestrator {
     status: LifecycleStepResult['status'],
     success: boolean,
     resultCode?: string,
-    faultScenarioId?: string,
     orderId?: string,
     paymentId?: string,
     latencyMs = 0,
@@ -380,7 +376,7 @@ export class TrafficActionOrchestrator {
   ): Promise<void> {
     const step: LifecycleStepResult = {
       actionId: uuidv4(), lifecycleId, actionType, status, success, resultCode,
-      errorCode: errorCodeValue, orderId, paymentId, latencyMs, faultScenarioId,
+      errorCode: errorCodeValue, orderId, paymentId, latencyMs,
     };
     steps.push(step);
     if (this.currentCustomerId > 0) {
@@ -389,7 +385,7 @@ export class TrafficActionOrchestrator {
         customerId: this.currentCustomerId, actionType,
         status: status === 'INTERRUPTED' ? 'FAILED' : status,
         orderId, paymentId, resultCode, errorCode: errorCodeValue,
-        faultScenarioId, traceId: this.currentTraceId, latencyMs,
+        traceId: this.currentTraceId, latencyMs,
       }).catch(() => undefined);
     }
   }
@@ -401,7 +397,6 @@ export class TrafficActionOrchestrator {
     steps: LifecycleStepResult[],
     status: RunnerActionResult['status'],
     resultCode?: string,
-    faultScenarioId?: string,
     _latencyMs = 0,
     order?: OrderData,
     pendingPaymentRetained = false,
@@ -412,7 +407,7 @@ export class TrafficActionOrchestrator {
       actionId: uuidv4(), lifecycleId, customerId, traceId,
       success: status === 'SUCCESS' || status === 'NOOP', status, resultCode,
       errorCode: errorCodeValue, orderId: order?.id === undefined ? undefined : String(order.id),
-      orderNo: order?.orderNo, paymentId, pendingPaymentRetained, faultScenarioId, steps,
+      orderNo: order?.orderNo, paymentId, pendingPaymentRetained, steps,
       cartVersion: steps.findLast((step) => step.actionType === 'CART_READ_READY')?.cartVersion,
     };
     if (customerId > 0) {
@@ -421,7 +416,7 @@ export class TrafficActionOrchestrator {
         customerId, status: status === 'INTERRUPTED' ? 'FAILED' : status,
         orderId: result.orderId, paymentId, cartVersion: result.cartVersion,
         resultCode, errorCode: errorCodeValue,
-        faultScenarioId, traceId, latencyMs: _latencyMs,
+        traceId, latencyMs: _latencyMs,
       }).catch(() => undefined);
     }
     return result;

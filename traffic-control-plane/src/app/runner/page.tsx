@@ -64,7 +64,6 @@ interface ActivityEntry {
   orderId?: string;
   paymentId?: string;
   traceId?: string;
-  faultScenarioId?: string;
   status?: string;
   errorCode?: string;
 }

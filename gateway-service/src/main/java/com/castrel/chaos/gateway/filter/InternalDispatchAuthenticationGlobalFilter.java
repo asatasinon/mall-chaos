@@ -21,6 +21,8 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
     private static final Set<String> INTERNAL_PATHS = Set.of(
             "/internal/gateway/promotions/demo-coupons/replenish",
             "/internal/gateway/inventory/demo-stock/replenish",
+            "/internal/gateway/inventory-reset/plan",
+            "/internal/gateway/inventory-reset",
             "/internal/gateway/fault-runs/start",
             "/internal/gateway/fault-runs/stop",
             "/internal/gateway/fault-runs/cleanup",

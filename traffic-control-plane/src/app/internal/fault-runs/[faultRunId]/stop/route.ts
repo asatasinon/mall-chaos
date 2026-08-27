@@ -13,6 +13,10 @@ export async function POST(
   if (!isCsrfRequest(request)) return jsonError(403, 'CSRF validation failed', 403);
   const { faultRunId } = await context.params;
   if (!/^[0-9a-f-]{36}$/i.test(faultRunId)) return jsonError(400, 'Invalid faultRunId', 400);
+  const idempotencyKey = request.headers.get('X-Idempotency-Key');
+  if (!idempotencyKey || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(idempotencyKey)) {
+    return jsonError(400, 'A valid idempotency key is required', 400);
+  }
   let confirmed = false;
   try {
     const body = await request.json();
@@ -30,7 +34,7 @@ export async function POST(
       request,
       action: 'FAULT_RUN_STOP',
       target: run.scenario,
-      parameters: { faultRunId },
+      parameters: { faultRunId, idempotencyKey },
       result: 'SUCCESS',
       correlationId: traceId,
     });
@@ -40,7 +44,7 @@ export async function POST(
     await recordOperatorAudit({
       request,
       action: 'FAULT_RUN_STOP',
-      parameters: { faultRunId },
+      parameters: { faultRunId, idempotencyKey },
       result: 'FAILURE',
       correlationId: traceId,
     }).catch(() => undefined);

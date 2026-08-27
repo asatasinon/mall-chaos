@@ -13,7 +13,7 @@ export const env = {
   MYSQL_PASSWORD: process.env.MYSQL_PASSWORD || 'castrel',
   MYSQL_DATABASE: process.env.MYSQL_DATABASE || 'castrel',
 
-  // Redis for distributed locking & chaos state
+  // Redis for distributed locking and runtime coordination
   REDIS_HOST: process.env.REDIS_HOST || 'localhost',
   REDIS_PORT: parseInt(process.env.REDIS_PORT || '16379', 10),
 

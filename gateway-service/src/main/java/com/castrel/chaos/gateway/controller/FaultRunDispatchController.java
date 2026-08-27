@@ -17,15 +17,15 @@ import java.util.UUID;
 public class FaultRunDispatchController {
 
     private static final Map<String, Target> TARGETS = Map.ofEntries(
-            Map.entry("BROWSE_REPORT_SQL", new Target("catalog-service", "products-browse-report", "/internal/catalog/fault-runs/start", "/internal/catalog/fault-runs/stop")),
-            Map.entry("ORDER_REPORT_SQL", new Target("order-service", "orders-query-report", "/internal/orders/fault-runs/start", "/internal/orders/fault-runs/stop")),
-            Map.entry("CART_REDIS_LARGE_VALUE", new Target("cart-service", "cart-large-value", "/internal/cart/fault-runs/start", "/internal/cart/fault-runs/stop")),
-            Map.entry("CART_CATALOG_DEPENDENCY", new Target("catalog-service", "cart-product-validation", "/internal/catalog/fault-runs/start", "/internal/catalog/fault-runs/stop")),
-            Map.entry("NOTIFICATION_HEAP_PRESSURE", new Target("notification-service", "notification-retention", "/internal/notification/fault-runs/start", "/internal/notification/fault-runs/stop")),
-            Map.entry("NOTIFICATION_STORAGE_APPEND", new Target("notification-service", "notification-storage", "/internal/notification/fault-runs/start", "/internal/notification/fault-runs/stop")),
-            Map.entry("PROMOTION_LOCK_CONTENTION", new Target("promotion-service", "coupon-reservation-consistency", "/internal/promotion/fault-runs/start", "/internal/promotion/fault-runs/stop")),
-            Map.entry("INVENTORY_TABLE_EXCLUSIVE", new Target("inventory-service", "inventory-availability-report", "/internal/inventory/fault-runs/start", "/internal/inventory/fault-runs/stop")),
-            Map.entry("PSP_PROVIDER_OUTCOME", new Target("psp-simulator", "provider-outcome", "/internal/psp/fault-runs/start", "/internal/psp/fault-runs/stop"))
+            Map.entry("BROWSE_REPORT_SQL", new Target("catalog-service", "products-browse-report", "/internal/catalog/fault-runs/start", "/internal/catalog/fault-runs/stop", "/internal/catalog/fault-runs/cleanup")),
+            Map.entry("ORDER_REPORT_SQL", new Target("order-service", "orders-query-report", "/internal/orders/fault-runs/start", "/internal/orders/fault-runs/stop", "/internal/orders/fault-runs/cleanup")),
+            Map.entry("CART_REDIS_LARGE_VALUE", new Target("cart-service", "cart-large-value", "/internal/cart/fault-runs/start", "/internal/cart/fault-runs/stop", "/internal/cart/fault-runs/cleanup")),
+            Map.entry("CART_CATALOG_DEPENDENCY", new Target("catalog-service", "cart-product-validation", "/internal/catalog/fault-runs/start", "/internal/catalog/fault-runs/stop", "/internal/catalog/fault-runs/cleanup")),
+            Map.entry("NOTIFICATION_HEAP_PRESSURE", new Target("notification-service", "notification-retention", "/internal/notification/fault-runs/start", "/internal/notification/fault-runs/stop", "/internal/notification/fault-runs/cleanup")),
+            Map.entry("NOTIFICATION_STORAGE_APPEND", new Target("notification-service", "notification-storage", "/internal/notification/fault-runs/start", "/internal/notification/fault-runs/stop", "/internal/notification/fault-runs/cleanup")),
+            Map.entry("PROMOTION_LOCK_CONTENTION", new Target("promotion-service", "coupon-reservation-consistency", "/internal/promotion/fault-runs/start", "/internal/promotion/fault-runs/stop", "/internal/promotion/fault-runs/cleanup")),
+            Map.entry("INVENTORY_TABLE_EXCLUSIVE", new Target("inventory-service", "inventory-availability-report", "/internal/inventory/fault-runs/start", "/internal/inventory/fault-runs/stop", "/internal/inventory/fault-runs/cleanup")),
+            Map.entry("PSP_PROVIDER_OUTCOME", new Target("psp-simulator", "provider-outcome", "/internal/psp/fault-runs/start", "/internal/psp/fault-runs/stop", "/internal/psp/fault-runs/cleanup"))
     );
 
     private static final Set<String> REQUIRED_FIELDS = Set.of(
@@ -72,7 +72,7 @@ public class FaultRunDispatchController {
         Validation validation = validate(body, true);
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
         Target target = validation.target();
-        return dispatchService.cleanup(target.service(), target.stopPath(), body, traceIdOrEmpty(traceId))
+        return dispatchService.cleanup(target.service(), target.cleanupPath(), body, traceIdOrEmpty(traceId))
                 .map(ApiResponse::ok)
                 .onErrorResume(error -> Mono.just(ApiResponse.error(502, "Fixed target unavailable")));
     }
@@ -154,7 +154,7 @@ public class FaultRunDispatchController {
         return traceId == null ? "" : traceId;
     }
 
-    private record Target(String service, String operation, String startPath, String stopPath) {
+    private record Target(String service, String operation, String startPath, String stopPath, String cleanupPath) {
     }
 
     private record Validation(boolean valid, String message, Target target) {

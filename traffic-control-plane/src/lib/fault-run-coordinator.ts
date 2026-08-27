@@ -18,6 +18,31 @@ export interface FaultRunTargetAdapter {
   compensate(run: FaultRunRecord): Promise<void>;
 }
 
+export interface FaultRunStore {
+  create(input: CreateFaultRunInput): Promise<{ run: FaultRunRecord; created: boolean }>;
+  load(faultRunId: string): Promise<FaultRunRecord | null>;
+  listActive(): Promise<FaultRunRecord[]>;
+  listExpired(now?: Date): Promise<FaultRunRecord[]>;
+  transition(
+    faultRunId: string,
+    expectedStates: readonly FaultRunRecord['state'][],
+    nextState: FaultRunRecord['state'],
+    details: Parameters<typeof transitionFaultRun>[3],
+  ): Promise<FaultRunRecord | null>;
+  appendEvent(faultRunId: string, eventType: string, payload?: unknown): Promise<void>;
+}
+
+export class SqlFaultRunStore implements FaultRunStore {
+  create(input: CreateFaultRunInput) { return createFaultRun(input); }
+  load(faultRunId: string) { return loadFaultRun(faultRunId); }
+  listActive() { return listActiveFaultRuns(); }
+  listExpired(now?: Date) { return listExpiredActiveFaultRuns(now); }
+  transition(...args: Parameters<FaultRunStore['transition']>) { return transitionFaultRun(...args); }
+  appendEvent(faultRunId: string, eventType: string, payload?: unknown) {
+    return appendFaultRunEvent(faultRunId, eventType, payload);
+  }
+}
+
 export class GatewayFaultRunTargetAdapter implements FaultRunTargetAdapter {
   async start(run: FaultRunRecord): Promise<void> {
     if (run.targetService === 'traffic-control-plane') return;
@@ -49,7 +74,10 @@ export class FaultRunCoordinator {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly recoveryPromises = new Map<string, Promise<FaultRunRecord | null>>();
 
-  constructor(private readonly targetAdapter: FaultRunTargetAdapter = new GatewayFaultRunTargetAdapter()) {}
+  constructor(
+    private readonly targetAdapter: FaultRunTargetAdapter = new GatewayFaultRunTargetAdapter(),
+    private readonly store: FaultRunStore = new SqlFaultRunStore(),
+  ) {}
 
   async create(command: CreateFaultRunCommand): Promise<{ run: FaultRunRecord; created: boolean }> {
     const definition = getScenarioDefinition(command.scenario);
@@ -67,7 +95,7 @@ export class FaultRunCoordinator {
       expiresAt: new Date(Date.now() + durationSec * 1000),
       traceId: command.traceId,
     };
-    const result = await createFaultRun(input);
+    const result = await this.store.create(input);
     if (!result.created) {
       this.schedule(result.run);
       return result;
@@ -75,7 +103,7 @@ export class FaultRunCoordinator {
 
     try {
       await this.targetAdapter.start(result.run);
-      const active = await transitionFaultRun(
+      const active = await this.store.transition(
         result.run.faultRunId,
         ['CREATING'],
         'ACTIVE',
@@ -86,7 +114,7 @@ export class FaultRunCoordinator {
       return { run: active, created: true };
     } catch (error) {
       const compensationError = await this.compensateAfterCreateFailure(result.run, error);
-      await transitionFaultRun(
+      await this.store.transition(
         result.run.faultRunId,
         ['CREATING'],
         'FAILED',
@@ -103,7 +131,7 @@ export class FaultRunCoordinator {
   }
 
   async stop(faultRunId: string, reason: 'MANUAL' | 'EXPIRED' = 'MANUAL'): Promise<FaultRunRecord | null> {
-    const existing = await loadFaultRun(faultRunId);
+    const existing = await this.store.load(faultRunId);
     if (!existing) return null;
     if (isTerminal(existing.state)) return existing;
     if (existing.state === 'SERVICE_UNAVAILABLE') return existing;
@@ -120,9 +148,13 @@ export class FaultRunCoordinator {
     }
   }
 
+  async stopExpired(faultRunId: string): Promise<FaultRunRecord | null> {
+    return this.stop(faultRunId, 'EXPIRED');
+  }
+
   async markServiceUnavailable(faultRunId: string, details: unknown = {}): Promise<FaultRunRecord | null> {
     this.clearTimer(faultRunId);
-    return transitionFaultRun(
+    return this.store.transition(
       faultRunId,
       ['ACTIVE', 'RECOVERING'],
       'SERVICE_UNAVAILABLE',
@@ -130,17 +162,31 @@ export class FaultRunCoordinator {
     );
   }
 
+  async markServiceRecovered(faultRunId: string, details: unknown = {}): Promise<FaultRunRecord | null> {
+    this.clearTimer(faultRunId);
+    return this.store.transition(
+      faultRunId,
+      ['SERVICE_UNAVAILABLE'],
+      'RECOVERED',
+      {
+        eventType: 'SERVICE_RECOVERED',
+        payload: details,
+        recoveryResult: { serviceRestarted: true, ...asRecord(details) },
+      },
+    );
+  }
+
   async recoverExpiredRuns(): Promise<void> {
-    const runs = await listExpiredActiveFaultRuns();
+    const runs = await this.store.listExpired();
     await Promise.all(runs.map((run) => this.stop(run.faultRunId, 'EXPIRED')));
   }
 
   async scheduleActiveRuns(): Promise<void> {
-    const runs = await listActiveFaultRuns();
+    const runs = await this.store.listActive();
     await Promise.all(runs.map(async (run) => {
       if (run.state === 'CREATING') {
         const compensationError = await this.compensateAfterCreateFailure(run, new Error('CONTROL_PLANE_RESTART'));
-        await transitionFaultRun(
+        await this.store.transition(
           run.faultRunId,
           ['CREATING'],
           'FAILED',
@@ -162,7 +208,7 @@ export class FaultRunCoordinator {
     this.clearTimer(run.faultRunId);
     const recovering = run.state === 'RECOVERING'
       ? run
-      : await transitionFaultRun(
+      : await this.store.transition(
         run.faultRunId,
         ['CREATING', 'ACTIVE'],
         'RECOVERING',
@@ -171,14 +217,14 @@ export class FaultRunCoordinator {
     if (!recovering || isTerminal(recovering.state)) return recovering;
     try {
       const result = await this.targetAdapter.stop(recovering);
-      return transitionFaultRun(
+      return this.store.transition(
         run.faultRunId,
         ['RECOVERING'],
-        'RECOVERED',
+        reason === 'MANUAL' ? 'STOPPED' : 'RECOVERED',
         { eventType: 'RECOVERY_COMPLETED', payload: result ?? {}, recoveryResult: result ?? { stopped: true } },
       );
     } catch (error) {
-      return transitionFaultRun(
+      return this.store.transition(
         run.faultRunId,
         ['RECOVERING'],
         'FAILED',
@@ -194,14 +240,14 @@ export class FaultRunCoordinator {
   }
 
   private async compensateAfterCreateFailure(run: FaultRunRecord, originalError: unknown): Promise<string | null> {
-    await appendFaultRunEvent(run.faultRunId, 'COMPENSATION_STARTED', { error: errorMessage(originalError) });
+    await this.store.appendEvent(run.faultRunId, 'COMPENSATION_STARTED', { error: errorMessage(originalError) });
     try {
       await this.targetAdapter.compensate(run);
-      await appendFaultRunEvent(run.faultRunId, 'COMPENSATION_COMPLETED');
+      await this.store.appendEvent(run.faultRunId, 'COMPENSATION_COMPLETED');
       return null;
     } catch (error) {
       const message = errorMessage(error);
-      await appendFaultRunEvent(run.faultRunId, 'COMPENSATION_FAILED', { error: message });
+      await this.store.appendEvent(run.faultRunId, 'COMPENSATION_FAILED', { error: message });
       return message;
     }
   }
@@ -237,6 +283,12 @@ function isTerminal(state: FaultRunRecord['state']): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 let coordinator: FaultRunCoordinator | null = null;
