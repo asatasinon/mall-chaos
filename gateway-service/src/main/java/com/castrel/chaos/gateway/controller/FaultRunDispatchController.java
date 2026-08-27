@@ -4,7 +4,9 @@ import com.castrel.chaos.common.ApiResponse;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.gateway.service.FaultRunDispatchService;
 import com.castrel.chaos.gateway.service.FaultRunProbeService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
@@ -50,7 +52,7 @@ public class FaultRunDispatchController {
         Target target = validation.target();
         return dispatchService.start(target.service(), target.startPath(), body, traceIdOrEmpty(traceId))
                 .map(ApiResponse::ok)
-                .onErrorResume(error -> Mono.just(ApiResponse.error(502, "Fixed target unavailable")));
+            .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
     }
 
     @PostMapping("/stop")
@@ -62,7 +64,7 @@ public class FaultRunDispatchController {
         Target target = validation.target();
         return dispatchService.stop(target.service(), target.stopPath(), body, traceIdOrEmpty(traceId))
                 .map(ApiResponse::ok)
-                .onErrorResume(error -> Mono.just(ApiResponse.error(502, "Fixed target unavailable")));
+            .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
     }
 
     @PostMapping("/cleanup")
@@ -77,7 +79,7 @@ public class FaultRunDispatchController {
         Target target = validation.target();
         return dispatchService.cleanup(target.service(), target.cleanupPath(), body, traceIdOrEmpty(traceId))
                 .map(ApiResponse::ok)
-                .onErrorResume(error -> Mono.just(ApiResponse.error(502, "Fixed target unavailable")));
+            .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
     }
 
     @PostMapping("/restart-notification")
@@ -95,7 +97,7 @@ public class FaultRunDispatchController {
         Target target = TARGETS.get("NOTIFICATION_HEAP_PRESSURE");
         return dispatchService.cleanup(target.service(), "/internal/notification/fault-runs/restart", fixedBody, traceIdOrEmpty(traceId))
                 .map(ApiResponse::ok)
-                .onErrorResume(error -> Mono.just(ApiResponse.error(502, "Fixed notification target unavailable")));
+            .onErrorMap(error -> targetUnavailable("Fixed notification target unavailable", error));
     }
 
     @PostMapping("/probe")
@@ -108,12 +110,12 @@ public class FaultRunDispatchController {
         if ("PROMOTION_LOCK_CONTENTION".equals(scenario)) {
             return probeService.probe("promotion-service", "/internal/promotion/fault-runs/check", body, traceIdOrEmpty(traceId))
                     .map(ApiResponse::ok)
-                    .onErrorResume(error -> Mono.just(ApiResponse.error(502, "Fixed promotion target unavailable")));
+                    .onErrorMap(error -> targetUnavailable("Fixed promotion target unavailable", error));
         }
         if ("INVENTORY_TABLE_EXCLUSIVE".equals(scenario)) {
             return probeService.probe("inventory-service", "/internal/inventory/fault-runs/report", body, traceIdOrEmpty(traceId))
                     .map(ApiResponse::ok)
-                    .onErrorResume(error -> Mono.just(ApiResponse.error(502, "Fixed inventory target unavailable")));
+                    .onErrorMap(error -> targetUnavailable("Fixed inventory target unavailable", error));
         }
         return Mono.just(ApiResponse.error(400, "Scenario does not expose a probe"));
     }
@@ -175,6 +177,10 @@ public class FaultRunDispatchController {
 
     private static String traceIdOrEmpty(String traceId) {
         return traceId == null ? "" : traceId;
+    }
+
+    private static ResponseStatusException targetUnavailable(String message, Throwable cause) {
+        return new ResponseStatusException(HttpStatus.BAD_GATEWAY, message, cause);
     }
 
     private record Target(String service, String operation, String startPath, String stopPath, String cleanupPath) {

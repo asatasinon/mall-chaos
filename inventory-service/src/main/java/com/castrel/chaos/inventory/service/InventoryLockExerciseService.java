@@ -51,7 +51,7 @@ public class InventoryLockExerciseService {
         }
     }
 
-    public synchronized Map<String, Object> report(ScenarioRunContext context) {
+    public Map<String, Object> report(ScenarioRunContext context) {
         context.validate(Instant.now());
         if (!context.runId().equals(activeRunId) || fencingToken != context.fencingToken()
                 || !runGuard.isAccepted(context)) {

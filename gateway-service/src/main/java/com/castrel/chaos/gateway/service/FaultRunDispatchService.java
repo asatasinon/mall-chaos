@@ -27,7 +27,7 @@ public class FaultRunDispatchService {
     }
 
     public Mono<Object> start(String serviceName, String path, Map<String, Object> body, String traceId) {
-        return forward(serviceName, path, body, traceId);
+        return forward(serviceName, path, body, startParameters(body), traceId);
     }
 
     public Mono<Object> stop(String serviceName, String path, Map<String, Object> body, String traceId) {
@@ -38,10 +38,29 @@ public class FaultRunDispatchService {
         return forward(serviceName, path, body, traceId);
     }
 
+    private Map<String, Object> startParameters(Map<String, Object> body) {
+        Object parameters = body.get("parameters");
+        if (!(parameters instanceof Map<?, ?> values)) return Map.of();
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        values.forEach((key, value) -> {
+            if (key instanceof String name) result.put(name, value);
+        });
+        return result;
+    }
+
     private Mono<Object> forward(
             String serviceName,
             String path,
             Map<String, Object> body,
+            String traceId) {
+        return forward(serviceName, path, body, body, traceId);
+        }
+
+        private Mono<Object> forward(
+            String serviceName,
+            String path,
+            Map<String, Object> body,
+            Object requestBody,
             String traceId) {
         String baseUrl = properties.getServiceUrl(serviceName);
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -61,8 +80,16 @@ public class FaultRunDispatchService {
             .header("X-Fault-Run-Idempotency-Key", String.valueOf(body.getOrDefault("idempotencyKey", "")))
                 .header("X-Downstream-Principal", jwtTokenService.issueDownstreamPrincipal(
                         0L, runId, List.of("FAULT_RUN_CONTROL")))
-                .bodyValue(body)
+                .bodyValue(requestBody)
                 .retrieve()
-                .bodyToMono(Object.class);
+                .bodyToMono(Object.class)
+                .flatMap(this::requireSuccessfulResponse);
+    }
+
+    private Mono<Object> requireSuccessfulResponse(Object response) {
+        if (response instanceof Map<?, ?> map && map.get("code") instanceof Number code && code.intValue() >= 400) {
+            return Mono.error(new IllegalStateException("Fixed target rejected Fault Run request"));
+        }
+        return Mono.just(response);
     }
 }

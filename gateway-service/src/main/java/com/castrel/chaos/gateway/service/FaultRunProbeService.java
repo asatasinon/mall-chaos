@@ -37,6 +37,14 @@ public class FaultRunProbeService {
                 .header("X-Fault-Run-Idempotency-Key", String.valueOf(body.get("idempotencyKey")))
                 .header("X-Downstream-Principal", jwtTokenService.issueDownstreamPrincipal(
                         0L, String.valueOf(body.get("faultRunId")), List.of("FAULT_RUN_CONTROL")))
-                .bodyValue(body).retrieve().bodyToMono(Object.class);
+                .bodyValue(body).retrieve().bodyToMono(Object.class)
+                .flatMap(this::requireSuccessfulResponse);
+    }
+
+    private Mono<Object> requireSuccessfulResponse(Object response) {
+        if (response instanceof Map<?, ?> map && map.get("code") instanceof Number code && code.intValue() >= 400) {
+            return Mono.error(new IllegalStateException("Fixed target rejected Fault Run probe"));
+        }
+        return Mono.just(response);
     }
 }
