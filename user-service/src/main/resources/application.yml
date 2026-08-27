@@ -33,7 +33,7 @@ management:
       show-details: always
       group:
         readiness:
-          include: readinessState,schemaVersion
+          include: readinessState
   endpoints:
     web:
       exposure:

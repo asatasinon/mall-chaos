@@ -34,7 +34,7 @@ management:
         enabled: true
       group:
         readiness:
-          include: readinessState,schemaVersion
+          include: readinessState
   endpoints:
     web:
       exposure:

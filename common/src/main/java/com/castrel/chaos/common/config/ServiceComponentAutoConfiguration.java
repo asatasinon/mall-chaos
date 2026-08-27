@@ -32,7 +32,7 @@ import javax.sql.DataSource;
 public class ServiceComponentAutoConfiguration {
 
         @Bean
-        @ConditionalOnBean({DataSource.class, StringRedisTemplate.class})
+        @ConditionalOnBean(DataSource.class)
         DataAuditService dataAuditService(DataSource dataSource, StringRedisTemplate redisTemplate) {
                 return new DataAuditService(dataSource, redisTemplate);
         }
