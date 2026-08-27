@@ -2,32 +2,31 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-MYSQL_DATA_DIR="$ROOT_DIR/data/mysql"
 
 MYSQL_SERVICE="${MYSQL_SERVICE:-mysql}"
-MYSQL_INIT_TIMEOUT_SEC="${MYSQL_INIT_TIMEOUT_SEC:-300}"
-MYSQL_INIT_POLL_INTERVAL_SEC="${MYSQL_INIT_POLL_INTERVAL_SEC:-2}"
+MYSQL_READY_TIMEOUT_SEC="${MYSQL_READY_TIMEOUT_SEC:-120}"
+MYSQL_READY_POLL_INTERVAL_SEC="${MYSQL_READY_POLL_INTERVAL_SEC:-2}"
 
-if ! [[ "$MYSQL_INIT_TIMEOUT_SEC" =~ ^[1-9][0-9]*$ ]] ||
-  ! [[ "$MYSQL_INIT_POLL_INTERVAL_SEC" =~ ^[1-9][0-9]*$ ]]; then
-  echo "MYSQL_INIT_TIMEOUT_SEC and MYSQL_INIT_POLL_INTERVAL_SEC must be positive integers." >&2
+if ! [[ "$MYSQL_READY_TIMEOUT_SEC" =~ ^[1-9][0-9]*$ ]] ||
+  ! [[ "$MYSQL_READY_POLL_INTERVAL_SEC" =~ ^[1-9][0-9]*$ ]]; then
+  echo "MYSQL_READY_TIMEOUT_SEC and MYSQL_READY_POLL_INTERVAL_SEC must be positive integers." >&2
   exit 2
 fi
 
-MYSQL_INIT_ATTEMPTS=$((
-  (MYSQL_INIT_TIMEOUT_SEC + MYSQL_INIT_POLL_INTERVAL_SEC - 1) /
-  MYSQL_INIT_POLL_INTERVAL_SEC
+MYSQL_READY_ATTEMPTS=$((
+  (MYSQL_READY_TIMEOUT_SEC + MYSQL_READY_POLL_INTERVAL_SEC - 1) /
+  MYSQL_READY_POLL_INTERVAL_SEC
 ))
 
 usage() {
   cat <<'EOF'
 Usage: ./scripts/mysql-reset.sh --yes
 
-Destructively removes the MySQL data directory, then starts MySQL so the
-current scripts under infra/mysql/init/ recreate the schema and seed data.
+Stops application writers, clears the databases through MySQL, and reapplies
+the current scripts under infra/mysql/init/ to recreate the schema and seed data.
 
-MYSQL_INIT_TIMEOUT_SEC and MYSQL_INIT_POLL_INTERVAL_SEC can override the
-initialization wait (defaults: 300 seconds and 2 seconds).
+MYSQL_READY_TIMEOUT_SEC and MYSQL_READY_POLL_INTERVAL_SEC can override the
+MySQL readiness wait (defaults: 120 seconds and 2 seconds).
 
 This script does not reset Redis or start the stopped application services.
 EOF
@@ -45,11 +44,6 @@ if [[ "${1:-}" != "--yes" || "$#" -ne 1 ]]; then
   exit 2
 fi
 
-if [[ -L "$MYSQL_DATA_DIR" || ! -d "$MYSQL_DATA_DIR" ]]; then
-  echo "Refusing to reset unexpected MySQL data path: $MYSQL_DATA_DIR" >&2
-  exit 1
-fi
-
 cd "$ROOT_DIR"
 
 echo "Stopping services that can write to MySQL..."
@@ -57,16 +51,49 @@ docker compose stop \
   traffic-control-plane-worker traffic-control-plane shopfront gateway-service \
   user-service cart-service catalog-service inventory-service order-service \
   payment-service promotion-service risk-service fulfillment-service \
-  notification-service >/dev/null
+  notification-service skywalking-oap >/dev/null
 
-echo "Stopping MySQL..."
-docker compose stop "$MYSQL_SERVICE" >/dev/null
-
-echo "Removing all contents of $MYSQL_DATA_DIR..."
-find "$MYSQL_DATA_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-
-echo "Starting MySQL and running the current initialization scripts..."
+echo "Starting MySQL..."
 docker compose up -d "$MYSQL_SERVICE" >/dev/null
+
+for ((attempt = 1; attempt <= MYSQL_READY_ATTEMPTS; attempt++)); do
+  if docker compose exec -T "$MYSQL_SERVICE" sh -c \
+    'mysqladmin ping -h localhost -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' \
+    >/dev/null 2>&1; then
+    break
+  fi
+  if [[ "$attempt" == "$MYSQL_READY_ATTEMPTS" ]]; then
+    echo "MySQL did not become ready within ${MYSQL_READY_TIMEOUT_SEC}s. Check: docker compose logs $MYSQL_SERVICE" >&2
+    exit 1
+  fi
+  sleep "$MYSQL_READY_POLL_INTERVAL_SEC"
+done
+
+echo "Clearing castrel and skywalking databases through SQL..."
+docker compose exec -T "$MYSQL_SERVICE" sh -c \
+  'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --batch -uroot -e "DROP DATABASE IF EXISTS \`$MYSQL_DATABASE\`; CREATE DATABASE \`$MYSQL_DATABASE\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; DROP DATABASE IF EXISTS skywalking;"'
+
+mysql_import_database() {
+  local init_script="$1"
+  docker compose exec -T "$MYSQL_SERVICE" sh -c \
+    'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --binary-mode=1 -uroot "$MYSQL_DATABASE" < "$1"' \
+    sh "$init_script"
+}
+
+mysql_import_global() {
+  local init_script="$1"
+  docker compose exec -T "$MYSQL_SERVICE" sh -c \
+    'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --binary-mode=1 -uroot < "$1"' \
+    sh "$init_script"
+}
+
+echo "Applying MySQL schema and seed scripts..."
+mysql_import_database /docker-entrypoint-initdb.d/00-schema-ddl.sql
+mysql_import_database /docker-entrypoint-initdb.d/01-seed-dml.sql
+mysql_import_global /docker-entrypoint-initdb.d/02-exporter-grants.sql
+mysql_import_global /docker-entrypoint-initdb.d/03-skywalking-db.sql
+mysql_import_database /docker-entrypoint-initdb.d/04-fault-run-schema.sql
+mysql_import_database /docker-entrypoint-initdb.d/05-warmup-partitions.sql
 
 mysql_query() {
   local query="$1"
@@ -74,21 +101,6 @@ mysql_query() {
     'MYSQL_PWD="$MYSQL_PASSWORD" mysql --batch --skip-column-names -u"$MYSQL_USER" "$MYSQL_DATABASE" -e "$1"' \
     sh "$query"
 }
-
-for ((attempt = 1; attempt <= MYSQL_INIT_ATTEMPTS; attempt++)); do
-  if docker compose exec -T "$MYSQL_SERVICE" sh -c \
-    'mysqladmin ping -h localhost -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' \
-    >/dev/null 2>&1; then
-    if [[ "$(mysql_query 'SELECT version FROM schema_version WHERE id = 1;' 2>/dev/null || true)" == "1" ]]; then
-      break
-    fi
-  fi
-  if [[ "$attempt" == "$MYSQL_INIT_ATTEMPTS" ]]; then
-    echo "MySQL initialization did not finish within ${MYSQL_INIT_TIMEOUT_SEC}s. Check: docker compose logs $MYSQL_SERVICE" >&2
-    exit 1
-  fi
-  sleep "$MYSQL_INIT_POLL_INTERVAL_SEC"
-done
 
 schema_version="$(mysql_query 'SELECT version FROM schema_version WHERE id = 1;')"
 if [[ "$schema_version" != "1" ]]; then
