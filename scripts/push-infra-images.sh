@@ -25,7 +25,6 @@ grafana/loki:3.6.10|loki:3.6.10
 grafana/promtail:3.6.10|promtail:3.6.10
 grafana/tempo:2.10.4|tempo:2.10.4
 grafana/grafana:12.4.3|grafana:12.4.3
-ghcr.io/shopify/toxiproxy:latest|toxiproxy:latest
 apache/skywalking-java-agent:9.4.0-java21|apache/skywalking-java-agent:9.4.0-java21
 EOF
 )

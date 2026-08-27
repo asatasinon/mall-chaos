@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notification-restart-broker
+  namespace: castrel
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: notification-restart-broker
+  namespace: castrel
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["notification-service"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: notification-restart-broker
+  namespace: castrel
+subjects:
+  - kind: ServiceAccount
+    name: notification-restart-broker
+    namespace: castrel
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: notification-restart-broker
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-restart-broker
+  namespace: castrel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-restart-broker
+  template:
+    metadata:
+      labels:
+        app: notification-restart-broker
+    spec:
+      serviceAccountName: notification-restart-broker
+      containers:
+        - name: notification-restart-broker
+          image: castrel/notification-restart-broker:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8095
+          env:
+            - name: RESTART_BROKER_MODE
+              value: kubernetes
+            - name: NOTIFICATION_RESTART_BROKER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: traffic-lifecycle-secret
+                  key: NOTIFICATION_RESTART_BROKER_KEY
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "25m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-restart-broker
+  namespace: castrel
+spec:
+  selector:
+    app: notification-restart-broker
+  ports:
+    - port: 8095
+      targetPort: 8095
+  type: ClusterIP

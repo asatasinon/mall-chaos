@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase A-D 已完成，Phase E 待实施 |
+| 状态 | Phase A-E 已完成，Phase F 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-27 CST（Phase D 完成） |
+| 更新时间 | 2026-08-27 CST（Phase E 完成） |
 | 关联规格 | [product.md](product.md) |
 | 关联设计 | [tech.md](tech.md) |
 
@@ -29,7 +29,7 @@
 | B | Gateway 单目标分发与业务场景接口 | 已完成 | 7 / 7 | A |
 | C | Worker、Runner 复用与 Sam 演练账号隔离 | 已完成 | 5 / 5 | A、B |
 | D | 90M 日分区预热与全栈东八区 | 已完成 | 4 / 4 | A |
-| E | PSP、重启适配器、控制台与旧系统清理 | 待开始 | 0 / 5 | A 至 D |
+| E | PSP、重启适配器、控制台与旧系统清理 | 已完成 | 5 / 5 | A 至 D |
 | F | 统一验证、验收与发布检查 | 待开始 | 0 / 18 个验证任务组 | A 至 E |
 
 ---
@@ -206,40 +206,40 @@
 
 ## Phase E：PSP、重启适配器、控制台与旧系统清理
 
-**阶段进度：0 / 5**
+**阶段进度：5 / 5**
 
 目标：交付受保护的运营入口、通知重启能力和不兼容替换后的部署与文档。
 
 ### E1. 通知服务受限重启
 
-- [ ] 实现 Compose 重启 broker，控制面仅可请求固定 `notification-service` restart；broker 独占 Docker 控制权，控制面不得挂载 Docker Socket。
-- [ ] 实现 Kubernetes 专用 ServiceAccount 和最小 RBAC，只允许固定 namespace 的 `notification-service` Deployment `get`/`patch` pod-template restart annotation。
-- [ ] 固定重启 Route 拒绝服务名、命令、namespace、镜像和 patch body；重启后在有界截止时间内轮询健康并写数据库事件。
+- [x] 实现 Compose 重启 broker，控制面仅可请求固定 `notification-service` restart；broker 独占 Docker 控制权，控制面不得挂载 Docker Socket。
+- [x] 实现 Kubernetes 专用 ServiceAccount 和最小 RBAC，只允许固定 namespace 的 `notification-service` Deployment `get`/`patch` pod-template restart annotation。
+- [x] 固定重启 Route 拒绝服务名、命令、namespace、镜像和 patch body；重启后在有界截止时间内轮询健康并写数据库事件。
 
 ### E2. 故障演练控制台
 
-- [ ] 用场景卡片替换旧泛化服务多选、网络延迟与连接重置界面；卡片只显示 catalog 固定目标、允许参数、状态、倒计时、数据库事件、停止与恢复结果。
-- [ ] 实现活动运行互斥显示：已有运行时禁止其他卡片创建，并提供当前运行详情和停止入口。
-- [ ] 实现慢 SQL 卡片的报表语义、数据窗口、baseline/修复执行计划证据和修复状态；实现 Sam、死锁、表锁、通知和 PSP 的数据库事件展示。
-- [ ] 内存卡片仅在通知服务不可用时显示确认式固定重启操作；不显示可编辑服务名、命令或基础设施参数。
+- [x] 用场景卡片替换旧泛化服务多选、网络延迟与连接重置界面；卡片只显示 catalog 固定目标、允许参数、状态、倒计时、数据库事件、停止与恢复结果。
+- [x] 实现活动运行互斥显示：已有运行时禁止其他卡片创建，并提供当前运行详情和停止入口。
+- [x] 实现慢 SQL 卡片的报表语义、数据窗口、baseline/修复执行计划证据和修复状态；实现 Sam、死锁、表锁、通知和 PSP 的数据库事件展示。
+- [x] 内存卡片仅在通知服务不可用时显示确认式固定重启操作；不显示可编辑服务名、命令或基础设施参数。
 
 ### E3. 部署、配置与操作文档
 
-- [ ] 更新 Compose、Kubernetes、ConfigMap、Secret、Dockerfile 和 worker 启动配置，注入固定 Gateway 地址、内部服务认证、MySQL/Redis、PSP、重启 broker、`APP_TIME_ZONE` 和数据预热环境变量。
-- [ ] 更新根 README、架构文档、部署说明和运行手册，说明单运行限制、东八区、Sam 隔离、分区窗口、七天留存、重启边界和各场景恢复语义。
-- [ ] 移除旧 Chaos、网络控制、旧 worker 注册、旧环境变量、旧 Compose/Kubernetes 配置、脚本、Grafana/告警引用和文档说明。
+- [x] 更新 Compose、Kubernetes、ConfigMap、Secret、Dockerfile 和 worker 启动配置，注入固定 Gateway 地址、内部服务认证、MySQL/Redis、PSP、重启 broker、`APP_TIME_ZONE` 和数据预热环境变量。
+- [x] 更新根 README、架构文档、部署说明和运行手册，说明单运行限制、东八区、Sam 隔离、分区窗口、七天留存、重启边界和各场景恢复语义。
+- [x] 移除旧 Chaos、网络控制、旧 worker 注册、旧环境变量、旧 Compose/Kubernetes 配置、脚本、Grafana/告警引用和文档说明。
 
 ### E4. 运行记录的访问与清理界面
 
-- [ ] 实现运行列表与详情的 7 天查询范围、状态/场景筛选、事件时间线和审计关联，不暴露秘密、原始认证头或内部地址。
-- [ ] 实现通知存储清理的确认式界面，仅允许已终止且符合场景 catalog 的运行 ID；显示数据库记录的清理结果。
-- [ ] 删除旧控制台对 Gateway chaos status、recover-all、服务 fan-out 和网络控制状态的读取与展示。
+- [x] 实现运行列表与详情的 7 天查询范围、状态/场景筛选、事件时间线和审计关联，不暴露秘密、原始认证头或内部地址。
+- [x] 实现通知存储清理的确认式界面，仅允许已终止且符合场景 catalog 的运行 ID；显示数据库记录的清理结果。
+- [x] 删除旧控制台对 Gateway chaos status、recover-all、服务 fan-out 和网络控制状态的读取与展示。
 
 ### E5. 全仓替换收尾
 
-- [ ] 删除旧 common chaos 组件、Gateway dispatch、控制面旧 route/UI/worker、旧 DTO/测试夹具和不再使用的依赖。
-- [ ] 更新模块依赖、Maven reactor、Docker 镜像、Kubernetes 清单与 Compose 服务，使 PSP、重启 broker、预热和新的控制面运行模型成为唯一部署路径。
-- [ ] 将产品、技术设计、任务清单、脚本和 runbook 的版本、状态和交叉链接更新到本方案。
+- [x] 删除旧 common chaos 组件、Gateway dispatch、控制面旧 route/UI/worker、旧 DTO/测试夹具和不再使用的依赖。
+- [x] 更新模块依赖、Maven reactor、Docker 镜像、Kubernetes 清单与 Compose 服务，使 PSP、重启 broker、预热和新的控制面运行模型成为唯一部署路径。
+- [x] 将产品、技术设计、任务清单、脚本和 runbook 的版本、状态和交叉链接更新到本方案。
 
 ---
 

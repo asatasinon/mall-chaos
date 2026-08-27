@@ -4,6 +4,8 @@ export const env = {
   // Gateway is the ONLY external service traffic-control-plane talks to
   GATEWAY_BASE_URL: process.env.GATEWAY_BASE_URL || 'http://localhost:18080',
   CASTREL_INTERNAL_SERVICE_KEY: process.env.CASTREL_INTERNAL_SERVICE_KEY || '',
+  NOTIFICATION_RESTART_BROKER_URL: process.env.NOTIFICATION_RESTART_BROKER_URL || 'http://localhost:8095',
+  NOTIFICATION_RESTART_BROKER_KEY: process.env.NOTIFICATION_RESTART_BROKER_KEY || '',
   TRAFFIC_LIFECYCLE_ACCOUNTS: process.env.TRAFFIC_LIFECYCLE_ACCOUNTS || '[]',
   TRAFFIC_EXERCISE_ACCOUNTS: process.env.TRAFFIC_EXERCISE_ACCOUNTS
     || '[{"label":"sam","email":"sam@example.com","password":"password","expectedCustomerId":19}]',

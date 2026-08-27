@@ -31,6 +31,13 @@ spec:
           env:
             - name: GATEWAY_BASE_URL
               value: "http://gateway-service:8080"
+            - name: NOTIFICATION_RESTART_BROKER_URL
+              value: "http://notification-restart-broker:8095"
+            - name: NOTIFICATION_RESTART_BROKER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: traffic-lifecycle-secret
+                  key: NOTIFICATION_RESTART_BROKER_KEY
           resources:
             requests:
               memory: "256Mi"

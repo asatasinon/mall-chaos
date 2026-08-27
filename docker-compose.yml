@@ -496,6 +496,8 @@ services:
       TZ: Asia/Shanghai
       HOSTNAME: 0.0.0.0
       GATEWAY_BASE_URL: http://gateway-service:8080
+      NOTIFICATION_RESTART_BROKER_URL: http://notification-restart-broker:8095
+      NOTIFICATION_RESTART_BROKER_KEY: ${NOTIFICATION_RESTART_BROKER_KEY:-${CASTREL_INTERNAL_SERVICE_KEY:?CASTREL_INTERNAL_SERVICE_KEY must be set}}
       CASTREL_INTERNAL_SERVICE_KEY: ${CASTREL_INTERNAL_SERVICE_KEY:?CASTREL_INTERNAL_SERVICE_KEY must be set}
       TRAFFIC_LIFECYCLE_ACCOUNTS: ${TRAFFIC_LIFECYCLE_ACCOUNTS:-[]}
       TRAFFIC_EXERCISE_ACCOUNTS: '${TRAFFIC_EXERCISE_ACCOUNTS:-[{"label":"sam","email":"sam@example.com","password":"password","expectedCustomerId":19}]}'
@@ -519,6 +521,8 @@ services:
       GRAFANA_BASE_URL: ${CHAOS_CONSOLE_GRAFANA_BASE_URL:-http://localhost:13000}
     depends_on:
       gateway-service:
+        condition: service_healthy
+      notification-restart-broker:
         condition: service_healthy
       mysql:
         condition: service_healthy
@@ -693,6 +697,28 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8090/actuator/health"]
       <<: *healthcheck-defaults
+
+  notification-restart-broker:
+    image: ${REGISTRY:-harbor.cloudwise.com/noname}/notification-restart-broker:${IMAGE_TAG:-latest}
+    build:
+      context: ./infra/notification-restart-broker
+      dockerfile: Dockerfile
+    container_name: castrel-notification-restart-broker
+    <<: *service-defaults
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      NOTIFICATION_RESTART_BROKER_KEY: ${NOTIFICATION_RESTART_BROKER_KEY:-${CASTREL_INTERNAL_SERVICE_KEY:?CASTREL_INTERNAL_SERVICE_KEY must be set}}
+      RESTART_BROKER_MODE: compose
+    depends_on:
+      notification-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8095/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   # ─── SkyWalking（opt-in：docker compose --profile skywalking up -d）──────────
   # TRACING_MODE=sw-only  → SkyWalking agent only; OTel disabled

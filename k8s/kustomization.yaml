@@ -31,6 +31,7 @@ resources:
   - services/order/deployment.yaml
   - services/payment/deployment.yaml
   - services/psp-simulator/deployment.yaml
+  - services/traffic-control-plane/restart-broker.yaml
   - services/traffic-control-plane/deployment.yaml
   - services/traffic-control-plane/worker-deployment.yaml
   - services/promotion/deployment.yaml
@@ -58,6 +59,8 @@ images:
   - name: castrel/payment-service
     newTag: latest
   - name: castrel/psp-simulator
+    newTag: latest
+  - name: castrel/notification-restart-broker
     newTag: latest
   - name: castrel/traffic-control-plane
     newTag: latest

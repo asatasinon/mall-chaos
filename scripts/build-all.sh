@@ -106,6 +106,16 @@ fi
 echo "--- [traffic-control-plane] Done ---"
 
 echo ""
+echo "=== Building notification restart broker ==="
+echo "--- [notification-restart-broker] Docker build (tag: ${REGISTRY}/notification-restart-broker:${IMAGE_TAG}) ---"
+castrel_docker_build ${DOCKER_PLATFORM_ARGS[@]+"${DOCKER_PLATFORM_ARGS[@]}"} ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/notification-restart-broker:${IMAGE_TAG}" "$REPO_ROOT/infra/notification-restart-broker"
+if [[ "$PUSH_IMAGE" == "true" ]]; then
+  echo "--- [notification-restart-broker] Docker push ---"
+  docker push "${REGISTRY}/notification-restart-broker:${IMAGE_TAG}"
+fi
+echo "--- [notification-restart-broker] Done ---"
+
+echo ""
 echo "=== Building shopfront (Node.js) ==="
 echo "--- [shopfront] Docker build (tag: ${REGISTRY}/shopfront:${IMAGE_TAG}) ---"
 castrel_docker_build ${DOCKER_PLATFORM_ARGS[@]+"${DOCKER_PLATFORM_ARGS[@]}"} ${DOCKER_BUILD_ARGS[@]+"${DOCKER_BUILD_ARGS[@]}"} -t "${REGISTRY}/shopfront:${IMAGE_TAG}" "$REPO_ROOT/shopfront"
