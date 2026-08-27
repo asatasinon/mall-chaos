@@ -26,7 +26,7 @@ function context(current: CustomerSession, refresh: () => Promise<void>): Custom
   };
 }
 
-test('customer login, refresh, and logout use trace without runner headers', async () => {
+test('customer login, refresh, and logout use trace without runner headers', { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; headers: Headers; body: string }> = [];
   globalThis.fetch = async (input, init) => {
@@ -36,7 +36,7 @@ test('customer login, refresh, and logout use trace without runner headers', asy
       body: typeof init?.body === 'string' ? init.body : '',
     });
     const url = String(input);
-    if (url.endsWith('/api/auth/login')) {
+    if (url.endsWith('/api/auth/login') || url.endsWith('/api/auth/refresh')) {
       return new Response(JSON.stringify({ code: 200, data: {
         userId: 1,
         accessToken: 'access-token',
@@ -72,7 +72,7 @@ test('customer login, refresh, and logout use trace without runner headers', asy
   }
 });
 
-test('customer request refreshes once after the first 401 and retries with the new bearer token', async () => {
+test('customer request refreshes once after the first 401 and retries with the new bearer token', { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
   const captured: Array<{ headers: Headers; url: string }> = [];
   let calls = 0;
@@ -106,7 +106,7 @@ test('customer request refreshes once after the first 401 and retries with the n
   }
 });
 
-test('near-expiry customer request refreshes at most once before sending', async () => {
+test('near-expiry customer request refreshes at most once before sending', { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
   let refreshes = 0;
   let authorization = '';
@@ -131,7 +131,7 @@ test('near-expiry customer request refreshes at most once before sending', async
   }
 });
 
-test('customer errors do not include response bodies or credentials', async () => {
+test('customer errors do not include response bodies or credentials', { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(
     'password=password-123 accessToken=access-secret sessionToken=session-secret',
@@ -140,13 +140,19 @@ test('customer errors do not include response bodies or credentials', async () =
 
   try {
     const gateway = new GatewayClient('http://gateway.test');
-    const error = await assert.rejects(
+    let error: unknown;
+    await assert.rejects(
       gateway.customerGet('/api/me', undefined, context(session(), async () => undefined)),
-      Error,
-    ) as unknown as Error;
-    assert.equal(error.message.includes('password-123'), false);
-    assert.equal(error.message.includes('access-secret'), false);
-    assert.equal(error.message.includes('session-secret'), false);
+      (cause: unknown) => {
+        error = cause instanceof Error ? cause : new Error(String(cause));
+        return true;
+      },
+    );
+    const message = error instanceof Error ? error.message : '';
+    assert.notEqual(message, '');
+    assert.equal(message.includes('password-123'), false);
+    assert.equal(message.includes('access-secret'), false);
+    assert.equal(message.includes('session-secret'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

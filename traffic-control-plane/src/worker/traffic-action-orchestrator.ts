@@ -11,6 +11,7 @@ import {
   TrafficLifecycleRecord,
 } from '../lib/runner-persistence';
 import { CustomerSessionManager } from './customer-session-manager';
+import type { FaultRunContext } from '../lib/fault-run-context';
 
 export interface RunnerExecutionConfig {
   maxItems: number;
@@ -104,6 +105,8 @@ interface StepValue<T> {
 
 export interface LifecycleExecutionOptions {
   signal?: AbortSignal;
+  faultRunContext?: FaultRunContext;
+  faultRunScenario?: string;
 }
 
 interface LifecyclePersistence {
@@ -148,7 +151,11 @@ export class TrafficActionOrchestrator {
     this.currentCustomerId = 0;
 
     try {
-      context = await this.sessions.openSession(trafficRunId, lifecycleId, traceId);
+      context = await this.sessions.openSession(trafficRunId, lifecycleId, traceId, {
+        signal: options.signal,
+        faultRunContext: options.faultRunContext,
+        faultRunScenario: options.faultRunScenario,
+      });
       customerId = context.session.customerId;
       this.currentCustomerId = customerId;
       await this.recordStep(steps, lifecycleId, 'LOGIN', 'SUCCESS', true);

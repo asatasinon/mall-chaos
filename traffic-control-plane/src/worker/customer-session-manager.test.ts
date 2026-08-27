@@ -116,7 +116,7 @@ test('refreshes only the lifecycle session and keeps customer ownership', async 
 
   await manager.refreshSession('lifecycle-1', 'trace-refresh');
 
-  assert.equal(gateway.refreshCalls, ['session-token']);
+  assert.deepEqual(gateway.refreshCalls, ['session-token']);
   assert.equal(context.session, oldSession);
   assert.equal(context.session.customerId, 2);
 });

@@ -5,6 +5,8 @@ export const env = {
   GATEWAY_BASE_URL: process.env.GATEWAY_BASE_URL || 'http://localhost:18080',
   CASTREL_INTERNAL_SERVICE_KEY: process.env.CASTREL_INTERNAL_SERVICE_KEY || '',
   TRAFFIC_LIFECYCLE_ACCOUNTS: process.env.TRAFFIC_LIFECYCLE_ACCOUNTS || '[]',
+  TRAFFIC_EXERCISE_ACCOUNTS: process.env.TRAFFIC_EXERCISE_ACCOUNTS
+    || '[{"label":"sam","email":"sam@example.com","password":"password","expectedCustomerId":19}]',
 
   // MySQL for runner config storage
   MYSQL_HOST: process.env.MYSQL_HOST || 'localhost',

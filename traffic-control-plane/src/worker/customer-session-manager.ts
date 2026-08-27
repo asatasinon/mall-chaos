@@ -11,6 +11,8 @@ import {
   loadLifecycleAccountsWithState,
   validateLoginIdentity,
 } from '../lib/lifecycle-accounts';
+import type { FaultRunContext } from '../lib/fault-run-context';
+import { loadExerciseAccounts } from '../lib/exercise-accounts';
 
 interface ActiveSession {
   account: LifecycleAccount;
@@ -21,6 +23,12 @@ export interface CustomerSessionManagerDependencies {
   accounts?: LifecycleAccount[];
   gateway?: GatewayClient;
   random?: () => number;
+}
+
+export interface SessionRunOptions {
+  signal?: AbortSignal;
+  faultRunContext?: FaultRunContext;
+  faultRunScenario?: string;
 }
 
 export class CustomerSessionManager {
@@ -39,6 +47,7 @@ export class CustomerSessionManager {
     trafficRunId: string,
     lifecycleId: string,
     traceId: string,
+    runOptions: SessionRunOptions = {},
   ): Promise<CustomerRequestContext> {
     if (this.sessions.has(lifecycleId)) {
       throw new Error('LIFECYCLE_SESSION_ALREADY_EXISTS');
@@ -76,7 +85,7 @@ export class CustomerSessionManager {
       expiresAt,
     };
     this.sessions.set(lifecycleId, { account, session });
-    return this.contextFor(trafficRunId, lifecycleId, traceId, session);
+    return this.contextFor(trafficRunId, lifecycleId, traceId, session, runOptions);
   }
 
   async refreshSession(lifecycleId: string, traceId: string): Promise<void> {
@@ -132,7 +141,10 @@ export class CustomerSessionManager {
 
   private async selectAccount(): Promise<LifecycleAccount> {
     const accounts = this.configuredAccounts ?? await loadLifecycleAccountsWithState();
-    const enabled = accounts.filter((account) => account.enabled);
+    const exerciseEmails = new Set(loadExerciseAccounts().map((account) => account.email));
+    const enabled = accounts.filter((account) => account.enabled
+      && account.expectedCustomerId !== 19
+      && !exerciseEmails.has(account.email));
     if (enabled.length === 0) {
       throw new Error('LIFECYCLE_NO_ENABLED_ACCOUNT');
     }
@@ -144,6 +156,7 @@ export class CustomerSessionManager {
     lifecycleId: string,
     traceId: string,
     session: CustomerSession,
+    runOptions: SessionRunOptions = {},
   ): CustomerRequestContext {
     return {
       trafficRunId,
@@ -151,6 +164,7 @@ export class CustomerSessionManager {
       traceId,
       session,
       refresh: () => this.refreshSession(lifecycleId, traceId),
+      ...runOptions,
     };
   }
 }

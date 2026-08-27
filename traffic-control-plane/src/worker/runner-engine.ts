@@ -2,6 +2,8 @@ import pino from 'pino';
 import { v4 as uuidv4 } from 'uuid';
 import { loadRunnerConfigFromDb, RunnerConfig } from '../lib/runner-config';
 import { completeTrafficRun, ensureTrafficRun } from '../lib/runner-persistence';
+import { appendFaultRunEvent, loadActiveFaultRun } from '../lib/fault-run-repository';
+import { createFaultRunContext } from '../lib/fault-run-context';
 import { getRunnerControlState, pushActivity, setRunnerStatus } from '../lib/runtime-state';
 import {
   RunnerActionResult,
@@ -178,12 +180,25 @@ export class RunnerEngine {
     this.lifecycleStartedCount++;
     this.lastLifecycleStartedAt = t0;
     this.currentLifecycleId = null;
+    const activeFaultRun = await loadActiveFaultRun();
+    const runnerFaultRun = activeFaultRun
+      && (activeFaultRun.scenario === 'NOTIFICATION_HEAP_PRESSURE'
+        || activeFaultRun.scenario === 'NOTIFICATION_STORAGE_APPEND'
+        || activeFaultRun.scenario === 'PSP_PROVIDER_OUTCOME')
+      ? activeFaultRun
+      : null;
     this.lifecyclePromise = this.orchestrator.executeLifecycle(trafficRunId, {
         maxItems: this.config.maxItems,
         maxItemQuantity: this.config.maxItemQuantity,
         paymentSuccessRatio: this.config.successfulPaymentRatio,
         couponUsageRatio: this.config.couponUsageRatio,
-      }, { signal: lifecycleAbortController.signal })
+      }, {
+        signal: lifecycleAbortController.signal,
+        ...(runnerFaultRun ? {
+          faultRunContext: createFaultRunContext(runnerFaultRun),
+          faultRunScenario: runnerFaultRun.scenario,
+        } : {}),
+      })
       .then((result) => this.finishLifecycle(result, t0))
       .finally(() => {
         if (this.lifecycleAbortController === lifecycleAbortController) {
@@ -193,6 +208,16 @@ export class RunnerEngine {
       });
     await this.lifecyclePromise;
     const result = this.lastLifecycleResult!;
+    if (runnerFaultRun) {
+      await appendFaultRunEvent(runnerFaultRun.faultRunId, 'RUNNER_LIFECYCLE_SUMMARY', {
+        trafficRunId,
+        lifecycleId: result.lifecycleId,
+        status: result.status,
+        success: result.success,
+        latencyMs: Date.now() - t0,
+        errorCode: result.errorCode,
+      }).catch((error) => log.warn({ error }, 'Failed to record Fault Run runner summary'));
+    }
     const latencyMs = Date.now() - t0;
     void pushActivity({
       ts: t0,

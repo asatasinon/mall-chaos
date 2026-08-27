@@ -144,6 +144,14 @@ CREATE TABLE IF NOT EXISTS runner_customer_whitelist (
     CONSTRAINT fk_runner_customer_user FOREIGN KEY (customer_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS traffic_exercise_accounts (
+  customer_id BIGINT NOT NULL PRIMARY KEY,
+  role       VARCHAR(32) NOT NULL,
+  enabled    TINYINT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_traffic_exercise_user FOREIGN KEY (customer_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 
 -- Alert configuration is managed by traffic-control-plane and rendered to
 -- Prometheus/Alertmanager files after each successful update.
@@ -368,6 +376,7 @@ CREATE TABLE IF NOT EXISTS cart_items (
   sku        VARCHAR(32)  NOT NULL,
   quantity   INT          NOT NULL,
   exercise_run_id CHAR(36),
+  exercise_operation_id VARCHAR(128),
   created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_cart_sku (cart_id, sku),

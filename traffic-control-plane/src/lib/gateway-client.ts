@@ -1,5 +1,6 @@
 import { env } from './env';
 import { withTrace } from './trace';
+import type { FaultRunContext } from './fault-run-context';
 
 /**
  * Gateway client — all outbound HTTP from traffic-control-plane goes through gateway.
@@ -34,6 +35,7 @@ export class GatewayClient {
       method: 'POST',
       headers: this.headers('application/json'),
       body: JSON.stringify(body),
+      signal: requestOptions.signal,
     }, requestOptions.traceId));
     if (!res.ok) {
       throw new GatewayRequestError('POST', path, res.status);
@@ -41,7 +43,7 @@ export class GatewayClient {
     return res.json();
   }
 
-  async postInternal<T = unknown>(path: string, body: unknown, traceId?: string): Promise<T> {
+  async postInternal<T = unknown>(path: string, body: unknown, traceId?: string, signal?: AbortSignal): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const res = await fetch(url, withTrace({
       method: 'POST',
@@ -50,6 +52,7 @@ export class GatewayClient {
         'X-Internal-Service-Key': env.CASTREL_INTERNAL_SERVICE_KEY,
       },
       body: JSON.stringify(body),
+      signal,
     }, traceId));
     if (!res.ok) {
       throw new GatewayRequestError('POST', path, res.status, true);
@@ -75,28 +78,31 @@ export class GatewayClient {
     path: string,
     params: Record<string, string> | undefined,
     context: CustomerRequestContext,
+    signal?: AbortSignal,
   ): Promise<T> {
-    return this.customerRequest<T>('GET', path, params, context);
+    return this.customerRequest<T>('GET', path, params, context, signal);
   }
 
   async customerPost<T = unknown>(
     path: string,
     body: unknown,
     context: CustomerRequestContext,
+    signal?: AbortSignal,
   ): Promise<T> {
-    return this.customerRequest<T>('POST', path, body, context);
+    return this.customerRequest<T>('POST', path, body, context, signal);
   }
 
   async customerPatch<T = unknown>(
     path: string,
     body: unknown,
     context: CustomerRequestContext,
+    signal?: AbortSignal,
   ): Promise<T> {
-    return this.customerRequest<T>('PATCH', path, body, context);
+    return this.customerRequest<T>('PATCH', path, body, context, signal);
   }
 
-  async customerDelete<T = unknown>(path: string, context: CustomerRequestContext): Promise<T> {
-    return this.customerRequest<T>('DELETE', path, undefined, context);
+  async customerDelete<T = unknown>(path: string, context: CustomerRequestContext, signal?: AbortSignal): Promise<T> {
+    return this.customerRequest<T>('DELETE', path, undefined, context, signal);
   }
 
   async get<T = unknown>(
@@ -110,6 +116,7 @@ export class GatewayClient {
     const res = await fetch(url, withTrace({
       method: 'GET',
       headers: this.headers(undefined),
+      signal: requestOptions.signal,
     }, requestOptions.traceId));
     if (!res.ok) {
       throw new GatewayRequestError('GET', path, res.status);
@@ -180,6 +187,7 @@ export class GatewayClient {
     path: string,
     payload: unknown,
     context: CustomerRequestContext,
+    signal?: AbortSignal,
   ): Promise<T> {
     let refreshed = false;
     if (shouldRefresh(context.session.expiresAt, Date.now())) {
@@ -187,10 +195,10 @@ export class GatewayClient {
       refreshed = true;
     }
 
-    let response = await this.rawCustomerRequest<T>(method, path, payload, context);
+    let response = await this.rawCustomerRequest<T>(method, path, payload, context, signal);
     if (response.response.status === 401 && !refreshed) {
       await this.refreshCustomerSession(context);
-      response = await this.rawCustomerRequest<T>(method, path, payload, context);
+      response = await this.rawCustomerRequest<T>(method, path, payload, context, signal);
     }
     if (!response.response.ok) {
       throw new Error(`Gateway customer ${method} ${path} failed (${response.response.status})`);
@@ -203,6 +211,7 @@ export class GatewayClient {
     path: string,
     payload: unknown,
     context: CustomerRequestContext,
+    signal?: AbortSignal,
   ): Promise<{ response: Response; body?: T }> {
     const isGet = method === 'GET';
     const qs = isGet && payload ? '?' + new URLSearchParams(payload as Record<string, string>).toString() : '';
@@ -211,7 +220,15 @@ export class GatewayClient {
       headers: {
         ...(isGet ? {} : { 'Content-Type': 'application/json' }),
         Authorization: `Bearer ${context.session.accessToken}`,
+        ...(context.faultRunContext ? {
+          'X-Fault-Run-Id': context.faultRunContext.faultRunId,
+          'X-Fault-Run-Expires-At': context.faultRunContext.expiresAt,
+          'X-Fault-Run-Fencing-Token': String(context.faultRunContext.fencingToken),
+          'X-Fault-Run-Idempotency-Key': context.faultRunContext.idempotencyKey,
+          ...(context.faultRunScenario ? { 'X-Fault-Run-Scenario': context.faultRunScenario } : {}),
+        } : {}),
       },
+      signal: signal ?? context.signal,
       ...(!isGet && payload !== undefined ? { body: JSON.stringify(payload) } : {}),
     }, context.traceId));
     if (!response.ok) return { response };
@@ -272,6 +289,9 @@ export interface CustomerRequestContext {
   traceId: string;
   session: CustomerSession;
   refresh: () => Promise<void>;
+  signal?: AbortSignal;
+  faultRunContext?: FaultRunContext;
+  faultRunScenario?: string;
 }
 
 interface ApiEnvelope<T> {
@@ -284,6 +304,7 @@ function shouldRefresh(expiresAt: Date, now: number): boolean {
 
 export interface GatewayRequestOptions {
   traceId?: string;
+  signal?: AbortSignal;
 }
 
 function normalizeOptions(

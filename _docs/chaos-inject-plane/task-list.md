@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase A-B 已完成，Phase C 待实施 |
+| 状态 | Phase A-C 已完成，Phase D 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-27 CST（Phase B 完成） |
+| 更新时间 | 2026-08-27 CST（Phase C 完成） |
 | 关联规格 | [product.md](product.md) |
 | 关联设计 | [tech.md](tech.md) |
 
@@ -27,7 +27,7 @@
 | --- | --- | --- | --- |
 | A | Fault Run 契约、持久化与单运行协调 | 已完成 | 5 / 5 | 无 |
 | B | Gateway 单目标分发与业务场景接口 | 已完成 | 7 / 7 | A |
-| C | Worker、Runner 复用与 Sam 演练账号隔离 | 待开始 | 0 / 5 | A、B |
+| C | Worker、Runner 复用与 Sam 演练账号隔离 | 已完成 | 5 / 5 | A、B |
 | D | 90M 日分区预热与全栈东八区 | 待开始 | 0 / 4 | A |
 | E | PSP、重启适配器、控制台与旧系统清理 | 待开始 | 0 / 5 | A 至 D |
 | F | 统一验证、验收与发布检查 | 待开始 | 0 / 18 个验证任务组 | A 至 E |
@@ -133,40 +133,40 @@
 
 ## Phase C：Worker、Runner 复用与 Sam 演练账号隔离
 
-**阶段进度：0 / 5**
+**阶段进度：5 / 5**
 
 目标：在不改变现有串行生命周期的前提下，实现受控持续调用，并确保 Redis 大 key 使用隔离的 Sam 账号。
 
 ### C1. 受控持续调用 Worker 框架
 
-- [ ] 为 Fault Run 实现可取消、可排空的 worker 执行框架，支持受限并发、请求间隔、截止时间、停止原因和数据库事件汇总。
-- [ ] Worker 仅经 `GatewayClient` 调用公开业务 API 或固定 Gateway 内部路径；不得直连业务服务、Redis、MySQL 业务表或 PSP 服务。
-- [ ] 到期与人工停止统一执行：禁止新请求、等待或取消在途请求、调用目标恢复、写入事件和更新运行状态。
+- [x] 为 Fault Run 实现可取消、可排空的 worker 执行框架，支持受限并发、请求间隔、截止时间、停止原因和数据库事件汇总。
+- [x] Worker 仅经 `GatewayClient` 调用公开业务 API 或固定 Gateway 内部路径；不得直连业务服务、Redis、MySQL 业务表或 PSP 服务。
+- [x] 到期与人工停止统一执行：禁止新请求、等待或取消在途请求、调用目标恢复、写入事件和更新运行状态。
 
 ### C2. 报表与流量突增 Worker
 
-- [ ] 实现 `ReportExerciseWorker`，在运行期持续调用商品或订单报表，并将请求结果汇总写入数据库。
-- [ ] 实现独立 `TrafficSurgeExecutor`，以受限并发和间隔调用商品浏览或客户订单查询；不改写 `RunnerEngine`、配置版本、串行生命周期或其调度。
-- [ ] 突增订单查询只使用现有 Runner 已持久化的合规演示客户和订单来源，不猜测客户或订单数据。
+- [x] 实现 `ReportExerciseWorker`，在运行期持续调用商品或订单报表，并将请求结果汇总写入数据库。
+- [x] 实现独立 `TrafficSurgeExecutor`，以受限并发和间隔调用商品浏览或客户订单查询；不改写 `RunnerEngine`、配置版本、串行生命周期或其调度。
+- [x] 突增订单查询只使用现有 Runner 已持久化的合规演示客户和订单来源，不猜测客户或订单数据。
 
 ### C3. Cart、Promotion 与 Inventory Exercise Worker
 
-- [ ] 实现 `CartLargeValueExerciseWorker`，在运行期经 Gateway 持续调用 `POST /api/cart/items`，固定传递 Sam、运行上下文和唯一操作标识。
-- [ ] 实现 `PromotionLockExerciseWorker`，在运行期经 Gateway 持续调用优惠券预留一致性核对接口，限制竞争并发与速率。
-- [ ] 实现 `InventoryLockExerciseWorker`，在表锁持有期经 Gateway 持续调用库存可用性报表接口，并在释放锁后收敛调用。
+- [x] 实现 `CartLargeValueExerciseWorker`，在运行期经 Gateway 持续调用 `POST /api/cart/items`，固定传递 Sam、运行上下文和唯一操作标识。
+- [x] 实现 `PromotionLockExerciseWorker`，在运行期经 Gateway 持续调用优惠券预留一致性核对接口，限制竞争并发与速率。
+- [x] 实现 `InventoryLockExerciseWorker`，在表锁持有期经 Gateway 持续调用库存可用性报表接口，并在释放锁后收敛调用。
 
 ### C4. Sam Seed、角色与购物车隔离
 
-- [ ] 更新 seed，使 `users.id = 19` 固定为 Sam，并加入 `TRAFFIC_EXERCISE` 演练账号白名单及同名业务角色；补齐其可登录凭证、地址、独立购物车和可加购演示 SKU 前置数据。
-- [ ] 修改 Runner 演示客户选择、会话创建、订单生成、库存补齐关联与正常运行状态，显式排除账号 ID `19` 和 `TRAFFIC_EXERCISE` 角色。
-- [ ] Cart 仅在请求携带有效运行上下文、账号为 Sam 且 Fault Run 活动时读取大 key；其他客户和未授权请求保持既有正常路径。
-- [ ] 为 Sam 加购运行实现运行 ID 标记、停止时购物车项清理和失败后的补偿清理，不删除 Sam 的非演练数据。
+- [x] 更新 seed，使 `users.id = 19` 固定为 Sam，并加入 `TRAFFIC_EXERCISE` 演练账号白名单及同名业务角色；补齐其可登录凭证、地址、独立购物车和可加购演示 SKU 前置数据。
+- [x] 修改 Runner 演示客户选择、会话创建、订单生成、库存补齐关联与正常运行状态，显式排除账号 ID `19` 和 `TRAFFIC_EXERCISE` 角色。
+- [x] Cart 仅在请求携带有效运行上下文、账号为 Sam 且 Fault Run 活动时读取大 key；其他客户和未授权请求保持既有正常路径。
+- [x] 为 Sam 加购运行实现运行 ID 标记、停止时购物车项清理和失败后的补偿清理，不删除 Sam 的非演练数据。
 
 ### C5. Runner 复用的通知与 PSP 触发
 
-- [ ] 将通知内存和存储演练接入既有 Runner 的真实业务请求触发，不新增专属通知 worker，也不改变 Runner 的串行生命周期。
-- [ ] 将 PSP 拒付和超时演练接入既有 Runner 的真实支付请求，不新增专属支付 worker，也不以 payment-service 作为泛化目标。
-- [ ] 将关联到活动 Fault Run 的 Runner 结果汇总写入 `fault_run_events`；常规 Runner 记录不标记为 Fault Run。
+- [x] 将通知内存和存储演练接入既有 Runner 的真实业务请求触发，不新增专属通知 worker，也不改变 Runner 的串行生命周期。
+- [x] 将 PSP 拒付和超时演练接入既有 Runner 的真实支付请求，不新增专属支付 worker，也不以 payment-service 作为泛化目标。
+- [x] 将关联到活动 Fault Run 的 Runner 结果汇总写入 `fault_run_events`；常规 Runner 记录不标记为 Fault Run。
 
 ---
 

@@ -68,6 +68,10 @@ public class CartService {
         mutationCounter.increment();
         validateItem(request);
         ScenarioRunContext runContext = validateExerciseContext(customerId, scenario, headers);
+        if (runContext != null && (request.getOperationId() == null
+                || !request.getOperationId().matches("[A-Za-z0-9._:-]{8,128}"))) {
+            throw new BizException("EXERCISE_OPERATION_REQUIRED", "Exercise operation id is required");
+        }
         catalogProductClient.requireListed(request.getSku().trim());
         if (runContext != null) readExerciseValue(runContext);
         Cart cart = getOrCreate(customerId);
@@ -81,6 +85,7 @@ public class CartService {
             throw new BizException("EXERCISE_CART_ITEM_CONFLICT", "SKU already belongs to Sam's normal cart");
         }
         if (runContext != null) item.setExerciseRunId(runContext.runId());
+        if (runContext != null) item.setExerciseOperationId(request.getOperationId());
         item.setQuantity(item.getQuantity() + request.getQuantity());
         item.setUpdatedAt(LocalDateTime.now());
         itemRepository.save(item);

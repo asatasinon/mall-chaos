@@ -10,6 +10,8 @@ import {
 import { getCouponReplenishmentScheduler } from './coupon-replenishment';
 import { getInventoryReplenishmentScheduler } from './inventory-replenishment';
 import { getReportExerciseWorker } from './report-exercise-worker';
+import { getTrafficSurgeExecutor } from './traffic-surge-executor';
+import { getScenarioExerciseWorkers } from './scenario-exercise-workers';
 import pino from 'pino';
 import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
 import { deleteExpiredFaultRuns } from '../lib/fault-run-repository';
@@ -32,9 +34,13 @@ async function main() {
   const couponReplenishmentScheduler = getCouponReplenishmentScheduler();
   const inventoryReplenishmentScheduler = getInventoryReplenishmentScheduler();
   const reportExerciseWorker = getReportExerciseWorker();
+  const trafficSurgeExecutor = getTrafficSurgeExecutor();
+  const scenarioExerciseWorkers = getScenarioExerciseWorkers();
   await couponReplenishmentScheduler.start();
   await inventoryReplenishmentScheduler.start();
   reportExerciseWorker.start();
+  trafficSurgeExecutor.start();
+  scenarioExerciseWorkers.start();
   let processingReplenishmentCommand = false;
   const replenishmentCommandTimer = setInterval(() => {
     if (processingReplenishmentCommand) return;
@@ -85,6 +91,8 @@ async function main() {
     clearInterval(faultRunRetentionTimer);
     inventoryReplenishmentScheduler.stop();
     await reportExerciseWorker.stop();
+    await trafficSurgeExecutor.stop();
+    await scenarioExerciseWorkers.stop();
     void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
     couponReplenishmentScheduler.stop();
     void setCouponReplenishmentStatus(couponReplenishmentScheduler.getStatus());

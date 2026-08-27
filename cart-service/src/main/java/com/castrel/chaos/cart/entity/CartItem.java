@@ -30,6 +30,9 @@ public class CartItem {
     @Column(name = "exercise_run_id")
     private String exerciseRunId;
 
+    @Column(name = "exercise_operation_id")
+    private String exerciseOperationId;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

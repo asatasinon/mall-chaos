@@ -605,6 +605,7 @@ curl http://castrel.local/api/products
 | `CHAOS_CONSOLE_GRAFANA_BASE_URL` | `http://localhost:13000` | Grafana 深链基础地址 |
 | `CASTREL_INTERNAL_SERVICE_KEY` | 无默认值 | worker 经 Gateway 调用补券/补库存所需的内部服务密钥；缺失时 worker fail-closed |
 | `TRAFFIC_LIFECYCLE_ACCOUNTS` | `[]` | Secret 注入的账号 JSON；包含 `label`、`email`、`password`、`expectedCustomerId`；配置为空或无效时 worker fail-closed，不进入控制台或活动记录 |
+| `TRAFFIC_EXERCISE_ACCOUNTS` | `[{"label":"sam","email":"sam@example.com","password":"password","expectedCustomerId":19}]` | 与 `TRAFFIC_LIFECYCLE_ACCOUNTS` 相同的账号对象 JSON 数组；必须包含 Sam 用户 19，生产环境通过 Secret 注入，不要提交真实密码 |
 | `JAVA_TOOL_OPTIONS` / `JAVA_OPTS` | `-Xms256m -Xmx256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 ...` | JVM 参数；Compose 直接注入 `JAVA_TOOL_OPTIONS`，K8s 可继续使用 `JAVA_OPTS` |
 
 ### 数据库
