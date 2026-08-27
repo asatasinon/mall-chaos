@@ -15,7 +15,7 @@
   --primary-foreground:   #f0eee6;
   --secondary:            #DEDCD1;
   --secondary-foreground: #3d3d3a;
-  --muted:                #DEDCD1;
+  --muted:                #c8c1b2;
   --muted-foreground:     #87867f;
   --accent:               #d8d0c2;
   --accent-foreground:    #141413;
@@ -43,7 +43,7 @@
   --primary-foreground:   #141413;
   --secondary:            #2a2a27;
   --secondary-foreground: #b0aea5;
-  --muted:                #2a2a27;
+  --muted:                #363630;
   --muted-foreground:     #87867f;
   --accent:               #252522;
   --accent-foreground:    #DEDCD1;
@@ -63,6 +63,8 @@
   --color-foreground:           var(--foreground);
   --color-card:                 var(--card);
   --color-card-foreground:      var(--card-foreground);
+  --color-popover:              var(--popover);
+  --color-popover-foreground:   var(--popover-foreground);
   --color-primary:              var(--primary);
   --color-primary-foreground:   var(--primary-foreground);
   --color-secondary:            var(--secondary);
@@ -121,6 +123,24 @@ a { color: inherit; text-decoration: none; }
   animation: status-pulse 2s ease-in-out infinite;
 }
 .status-dot-off { background: #87867f; opacity: 0.4; }
+
+.provider-option:hover,
+.provider-option:focus-visible {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.provider-option-detail,
+.provider-option-check {
+  color: var(--muted-foreground);
+}
+
+.provider-option:hover .provider-option-detail,
+.provider-option:focus-visible .provider-option-detail,
+.provider-option:hover .provider-option-check,
+.provider-option:focus-visible .provider-option-check {
+  color: var(--primary-foreground);
+}
 
 /* ── Metric numbers ───────────────────────────────────── */
 .metric-value {

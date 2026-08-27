@@ -27,6 +27,8 @@ export interface FaultRunParameterDefinition {
   name: string;
   kind: ParameterKind;
   required?: boolean;
+  default?: number | string;
+  options?: readonly string[];
   min?: number;
   max?: number;
   maxLength?: number;
@@ -46,6 +48,7 @@ const duration: FaultRunParameterDefinition = {
   name: 'durationSec',
   kind: 'integer',
   required: true,
+  default: 600,
   min: 1,
   max: 3600,
 };
@@ -54,6 +57,7 @@ const boundedConcurrency: FaultRunParameterDefinition = {
   name: 'concurrency',
   kind: 'integer',
   required: false,
+  default: 4,
   min: 1,
   max: 32,
 };
@@ -62,6 +66,7 @@ const requestInterval: FaultRunParameterDefinition = {
   name: 'requestIntervalMs',
   kind: 'integer',
   required: false,
+  default: 1000,
   min: 0,
   max: 60_000,
 };
@@ -93,7 +98,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'WORKER',
     allowManualCleanup: false,
     parameters: [duration, boundedConcurrency, requestInterval,
-      { name: 'pageSize', kind: 'integer', min: 1, max: 50 }],
+      { name: 'pageSize', kind: 'integer', default: 20, min: 1, max: 50 }],
   },
   ORDER_QUERY_SURGE: {
     scenario: 'ORDER_QUERY_SURGE',
@@ -103,7 +108,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'WORKER',
     allowManualCleanup: false,
     parameters: [duration, boundedConcurrency, requestInterval,
-      { name: 'pageSize', kind: 'integer', min: 1, max: 50 }],
+      { name: 'pageSize', kind: 'integer', default: 20, min: 1, max: 50 }],
   },
   CART_REDIS_LARGE_VALUE: {
     scenario: 'CART_REDIS_LARGE_VALUE',
@@ -113,10 +118,10 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'TARGET',
     allowManualCleanup: true,
     parameters: [duration, boundedConcurrency, requestInterval,
-      { name: 'fieldCount', kind: 'integer', min: 1, max: 64 },
-      { name: 'fieldSizeBytes', kind: 'integer', min: 1, max: 65536 },
-      { name: 'totalSizeBytes', kind: 'integer', min: 1, max: 1048576 },
-      { name: 'keyTtlSec', kind: 'integer', min: 1, max: 3600 }],
+      { name: 'fieldCount', kind: 'integer', default: 8, min: 1, max: 64 },
+      { name: 'fieldSizeBytes', kind: 'integer', default: 1024, min: 1, max: 65536 },
+      { name: 'totalSizeBytes', kind: 'integer', default: 8192, min: 1, max: 1048576 },
+      { name: 'keyTtlSec', kind: 'integer', default: 600, min: 1, max: 3600 }],
   },
   CART_CATALOG_DEPENDENCY: {
     scenario: 'CART_CATALOG_DEPENDENCY',
@@ -135,7 +140,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'NON_RELEASING',
     allowManualCleanup: false,
     parameters: [duration, requestInterval,
-      { name: 'retainedBytesPerNotification', kind: 'integer', min: 1024, max: 1048576 }],
+      { name: 'retainedBytesPerNotification', kind: 'integer', default: 65536, min: 1024, max: 1048576 }],
   },
   NOTIFICATION_STORAGE_APPEND: {
     scenario: 'NOTIFICATION_STORAGE_APPEND',
@@ -145,9 +150,9 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'MANUAL_CLEANUP',
     allowManualCleanup: true,
     parameters: [duration, requestInterval,
-      { name: 'totalBytes', kind: 'integer', min: 1024, max: 1073741824 },
-      { name: 'appendBytes', kind: 'integer', min: 1, max: 1048576 },
-      { name: 'minFreeBytes', kind: 'integer', min: 1, max: 1073741824 }],
+      { name: 'totalBytes', kind: 'integer', default: 1048576, min: 1024, max: 1073741824 },
+      { name: 'appendBytes', kind: 'integer', default: 8192, min: 1, max: 1048576 },
+      { name: 'minFreeBytes', kind: 'integer', default: 1048576, min: 1, max: 1073741824 }],
   },
   PROMOTION_LOCK_CONTENTION: {
     scenario: 'PROMOTION_LOCK_CONTENTION',
@@ -175,7 +180,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'TARGET',
     allowManualCleanup: false,
     parameters: [duration,
-      { name: 'providerOutcome', kind: 'string', required: true, maxLength: 16 }],
+      { name: 'providerOutcome', kind: 'string', required: true, default: 'TIMEOUT', options: ['AUTHORIZED', 'DECLINED', 'TIMEOUT'], maxLength: 16 }],
   },
 };
 
@@ -216,10 +221,12 @@ export function validateScenarioParameters(
     const supplied = parameters[parameter.name];
     if (supplied === undefined) {
       if (parameter.required) throw new FaultRunValidationError(`MISSING_PARAMETER:${parameter.name}`);
+      if (parameter.default !== undefined) result[parameter.name] = parameter.default;
       continue;
     }
     if (parameter.kind === 'string') {
       if (typeof supplied !== 'string' || supplied.length === 0
+          || (parameter.options !== undefined && !parameter.options.includes(supplied))
           || (parameter.maxLength !== undefined && supplied.length > parameter.maxLength)) {
         throw new FaultRunValidationError(`INVALID_PARAMETER:${parameter.name}`);
       }

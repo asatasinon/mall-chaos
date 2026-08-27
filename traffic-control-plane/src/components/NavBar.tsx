@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { LogOut } from 'lucide-react';
 
 const LINKS = [
-  { href: '/',       label: 'Overview'   },
+  { href: '/',       label: 'Scenario control' },
   { href: '/runner', label: 'Runner'     },
   { href: '/alerts', label: 'Alerts'     },
 ];

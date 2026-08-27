@@ -17,8 +17,12 @@ test('catalog exposes one fixed target for every scenario', () => {
 
 test('catalog validates required duration and bounded optional parameters', () => {
   assert.deepEqual(
+    validateScenarioParameters('BROWSE_SURGE', { durationSec: 30 }),
+    { durationSec: 30, concurrency: 4, requestIntervalMs: 1000, pageSize: 20 },
+  );
+  assert.deepEqual(
     validateScenarioParameters('BROWSE_SURGE', { durationSec: 30, concurrency: 4, requestIntervalMs: 100 }),
-    { durationSec: 30, concurrency: 4, requestIntervalMs: 100 },
+    { durationSec: 30, concurrency: 4, requestIntervalMs: 100, pageSize: 20 },
   );
   assert.throws(
     () => validateScenarioParameters('BROWSE_SURGE', { durationSec: 0 }),
@@ -38,5 +42,16 @@ test('catalog rejects unknown scenarios and duration above scenario limit', () =
   assert.throws(
     () => validateScenarioParameters('BROWSE_SURGE', { durationSec: 1801 }),
     (error: unknown) => error instanceof FaultRunValidationError && error.message === 'DURATION_EXCEEDS_SCENARIO_LIMIT',
+  );
+});
+
+test('catalog restricts PSP outcomes to the simulator contract', () => {
+  assert.deepEqual(
+    validateScenarioParameters('PSP_PROVIDER_OUTCOME', { durationSec: 600, providerOutcome: 'TIMEOUT' }),
+    { durationSec: 600, providerOutcome: 'TIMEOUT' },
+  );
+  assert.throws(
+    () => validateScenarioParameters('PSP_PROVIDER_OUTCOME', { durationSec: 600, providerOutcome: 'APPROVED' }),
+    (error: unknown) => error instanceof FaultRunValidationError && error.message === 'INVALID_PARAMETER:providerOutcome',
   );
 });
