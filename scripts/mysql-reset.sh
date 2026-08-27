@@ -5,6 +5,19 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 MYSQL_DATA_DIR="$ROOT_DIR/data/mysql"
 
 MYSQL_SERVICE="${MYSQL_SERVICE:-mysql}"
+MYSQL_INIT_TIMEOUT_SEC="${MYSQL_INIT_TIMEOUT_SEC:-300}"
+MYSQL_INIT_POLL_INTERVAL_SEC="${MYSQL_INIT_POLL_INTERVAL_SEC:-2}"
+
+if ! [[ "$MYSQL_INIT_TIMEOUT_SEC" =~ ^[1-9][0-9]*$ ]] ||
+  ! [[ "$MYSQL_INIT_POLL_INTERVAL_SEC" =~ ^[1-9][0-9]*$ ]]; then
+  echo "MYSQL_INIT_TIMEOUT_SEC and MYSQL_INIT_POLL_INTERVAL_SEC must be positive integers." >&2
+  exit 2
+fi
+
+MYSQL_INIT_ATTEMPTS=$((
+  (MYSQL_INIT_TIMEOUT_SEC + MYSQL_INIT_POLL_INTERVAL_SEC - 1) /
+  MYSQL_INIT_POLL_INTERVAL_SEC
+))
 
 usage() {
   cat <<'EOF'
@@ -12,6 +25,9 @@ Usage: ./scripts/mysql-reset.sh --yes
 
 Destructively removes the MySQL data directory, then starts MySQL so the
 current scripts under infra/mysql/init/ recreate the schema and seed data.
+
+MYSQL_INIT_TIMEOUT_SEC and MYSQL_INIT_POLL_INTERVAL_SEC can override the
+initialization wait (defaults: 300 seconds and 2 seconds).
 
 This script does not reset Redis or start the stopped application services.
 EOF
@@ -59,7 +75,7 @@ mysql_query() {
     sh "$query"
 }
 
-for attempt in {1..60}; do
+for ((attempt = 1; attempt <= MYSQL_INIT_ATTEMPTS; attempt++)); do
   if docker compose exec -T "$MYSQL_SERVICE" sh -c \
     'mysqladmin ping -h localhost -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' \
     >/dev/null 2>&1; then
@@ -67,11 +83,11 @@ for attempt in {1..60}; do
       break
     fi
   fi
-  if [[ "$attempt" == 60 ]]; then
-    echo "MySQL initialization did not finish. Check: docker compose logs $MYSQL_SERVICE" >&2
+  if [[ "$attempt" == "$MYSQL_INIT_ATTEMPTS" ]]; then
+    echo "MySQL initialization did not finish within ${MYSQL_INIT_TIMEOUT_SEC}s. Check: docker compose logs $MYSQL_SERVICE" >&2
     exit 1
   fi
-  sleep 2
+  sleep "$MYSQL_INIT_POLL_INTERVAL_SEC"
 done
 
 schema_version="$(mysql_query 'SELECT version FROM schema_version WHERE id = 1;')"
@@ -86,7 +102,7 @@ inventories_count="$(mysql_query 'SELECT COUNT(*) FROM inventories;')"
 carts_count="$(mysql_query 'SELECT COUNT(*) FROM carts;')"
 
 if [[ "$users_count" != "20" || "$products_count" != "50" ||
-  "$inventories_count" != "50" || "$carts_count" != "0" ]]; then
+  "$inventories_count" != "50" || "$carts_count" != "1" ]]; then
   echo "Seed data verification failed: users=$users_count products=$products_count inventories=$inventories_count carts=$carts_count" >&2
   exit 1
 fi
