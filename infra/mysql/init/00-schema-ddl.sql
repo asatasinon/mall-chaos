@@ -223,6 +223,7 @@ CREATE TABLE IF NOT EXISTS coupons (
     status          TINYINT         NOT NULL DEFAULT 0 COMMENT '0=AVAILABLE 1=RESERVED 2=USED',
     expire_at       DATETIME,
     used_at         DATETIME,
+  PRIMARY KEY (id),
     INDEX idx_user_id (user_id),
     INDEX idx_promotion_id (promotion_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
