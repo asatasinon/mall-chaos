@@ -63,6 +63,7 @@ SERVICES=(
   inventory-service
   order-service
   payment-service
+  psp-simulator
   promotion-service
   risk-service
   fulfillment-service
