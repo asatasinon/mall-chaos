@@ -4,6 +4,7 @@ import com.castrel.chaos.common.BizException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -25,6 +26,7 @@ import java.util.concurrent.TimeUnit;
  * when to release the lock.
  */
 @Service
+@ConditionalOnBean(DataSource.class)
 public class DataAuditService {
 
     private static final Logger log = LoggerFactory.getLogger(DataAuditService.class);
