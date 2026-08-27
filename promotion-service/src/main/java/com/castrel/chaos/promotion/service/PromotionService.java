@@ -5,7 +5,6 @@ import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
 import com.castrel.chaos.promotion.config.DemoCouponPoolProperties;
 import com.castrel.chaos.promotion.dto.DemoCouponReplenishmentResult;
-import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.promotion.dto.PromotionRequest;
 import com.castrel.chaos.promotion.dto.PromotionResultDTO;
 import com.castrel.chaos.promotion.dto.SkuItem;
@@ -54,9 +53,6 @@ public class PromotionService {
     private CouponReservationRepository reservationRepository;
 
     @Autowired
-    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
-
-    @Autowired
     private LocalQueryCacheManager localQueryCacheManager;
 
     @Autowired
@@ -81,7 +77,6 @@ public class PromotionService {
     }
 
     public PromotionResultDTO preview(PromotionRequest req) {
-        enrichQueryIfNeeded();
         BigDecimal original = calcOriginal(req.getSkus());
         return applyPromotions(req.getUserId(), original, false, null, req.getOrderId(), req.getCouponId());
     }
@@ -259,12 +254,10 @@ public class PromotionService {
         Boolean isNew = redisTemplate.opsForValue().setIfAbsent(idempotencyKey, "1", 24, TimeUnit.HOURS);
         if (Boolean.FALSE.equals(isNew)) {
             // Already calculated — return a consistent preview result (idempotent response)
-            enrichQueryIfNeeded();
             BigDecimal original = calcOriginal(req.getSkus());
             return applyPromotions(req.getUserId(), original, false, null, req.getOrderId(), req.getCouponId());
         }
 
-        enrichQueryIfNeeded();
         BigDecimal original = calcOriginal(req.getSkus());
         PromotionResultDTO result = applyPromotions(req.getUserId(), original, true, req.getUserId(),
             req.getOrderId(), req.getCouponId());
@@ -273,40 +266,6 @@ public class PromotionService {
         discountTotalCounter.increment(result.getDiscountAmount().doubleValue());
         localQueryCacheManager.cacheIfNeeded("promotion:" + req.getOrderId(), result);
         return result;
-    }
-
-    private void enrichQueryIfNeeded() {
-        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
-        String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        int limitRows = queryEnrichmentInterceptor.getLimitRows();
-        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
-        if ("product_price_history".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT pr.*, pph.effective_at AS __pph_effective_at" +
-                    " FROM promotions pr" +
-                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = pr.name" +
-                    " ORDER BY pph.effective_at DESC, pr.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.enabled = 1" +
-                    " AND s.__pph_effective_at <= NOW()" +
-                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        } else if ("user_behavior_log".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT pr.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
-                    " FROM promotions pr" +
-                    " JOIN user_behavior_log ubl ON TRUE" +
-                    " ORDER BY ubl.created_at DESC, pr.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.enabled = 1" +
-                    " AND s.__ubl_action_type = 'PLACE_ORDER'" +
-                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        }
     }
 
     private BigDecimal calcOriginal(List<SkuItem> skus) {

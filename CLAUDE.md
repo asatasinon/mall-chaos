@@ -46,9 +46,9 @@ Browser → traffic-control-plane :13086 (Next.js UI + Route Handlers)
 traffic-control-plane → gateway-service → all business services
 ```
 
-11 Spring Boot modules share a parent POM plus one `common` module. All Chaos control flows through: `traffic-control-plane → gateway-service → target service's /internal/chaos/** endpoints`.
+11 Spring Boot modules share a parent POM plus one `common` module. All scenario control flows through `traffic-control-plane → gateway-service → one fixed target operation`.
 
-The **gateway-service** never exposes its own chaos endpoints (`chaos.endpoints.enabled=false`). All 8 business services auto-register `ChaosController` via Spring auto-configuration with `matchIfMissing=true`.
+The **gateway-service** only dispatches catalog-defined scenarios to their fixed target operations. Slow SQL scenarios exercise the public catalog and order report paths through sustained Gateway requests.
 
 ## Module: `common`
 
@@ -62,20 +62,15 @@ Shared components auto-configured via `ServiceComponentAutoConfiguration` — **
 | `BizException` | Business errors with `errorCode` |
 | `TraceContext` | traceId propagation |
 | `DistributedLockService` | Redis-backed distributed lock |
-| `QueryEnrichmentInterceptor` | Slow SQL via JOIN on large tables |
 | `DataAuditService` | Table-lock injection (`LOCK TABLES ... WRITE`) disguised as data audit |
 | `LocalQueryCacheManager` | Memory leak via unbounded cache growth |
-| `ChaosService` | Unified chaos control (slow-SQL / memory-leak / deadlock / table-lock) |
-| `ChaosController` | `/internal/chaos/**` endpoints registered in all 8 business services |
 
 ## Key Conventions
 
-### Chaos Endpoint Rules
-- Chaos REST endpoints are always compiled in; gated by `chaos.endpoints.enabled` property
-- Every chaos bean must support `enable` flag + `durationSec` auto-disable
-- Deadlock injection supports `injectRate`, `scope`, and `durationSec`
-- Slow SQL uses JOIN enrichment on large tables (not `SLEEP()`)
-- Table lock = `LOCK TABLES <table> WRITE` wrapped in the DataAudit facade
+### Scenario Rules
+- Every scenario is catalog-defined, targets one fixed operation, and carries a server-validated `durationSec`
+- Slow SQL uses real catalog/order report SQL and sustained public requests, not auxiliary JOIN injection
+- Table locking uses a dedicated Inventory target operation and a JDBC session-owned `LOCK TABLES inventories WRITE`
 
 ### Critical Invariants
 - Runner config updates require a `version` field (optimistic lock protection)
@@ -144,14 +139,5 @@ curl http://localhost:13086/internal/traffic/runner/status   # should show runni
 ./scripts/chaos/chaos-verify.sh
 ```
 
-## Docs Reference
 
-| Topic | File |
-|---|---|
-| Task dependency graph | `_docs/tasks/README.md` |
-| Architecture & chaos design (v2) | `_docs/plans/chaos-v2.md` |
-| v2 common chaos components | `_docs/tasks/task-14-v2-common-components.md` |
-| v2 service integration | `_docs/tasks/task-16-v2-service-integration.md` |
-| Gateway chaos dispatch | `_docs/tasks/task-21-gateway-chaos-dispatch.md` |
-| Chaos protocol unification | `_docs/tasks/task-22-chaos-protocol-unification.md` |
 

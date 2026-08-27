@@ -2,7 +2,6 @@ package com.castrel.chaos.risk.service;
 
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
-import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.risk.dto.PostPayCheckRequest;
 import com.castrel.chaos.risk.dto.PreCheckRequest;
 import com.castrel.chaos.risk.dto.RiskResultDTO;
@@ -24,7 +23,6 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -52,13 +50,7 @@ public class RiskService {
     private RiskEventRepository riskEventRepository;
 
     @Autowired
-    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
-
-    @Autowired
     private LocalQueryCacheManager localQueryCacheManager;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private StringRedisTemplate redisTemplate;
@@ -96,8 +88,6 @@ public class RiskService {
     }
 
     public RiskResultDTO preCheck(PreCheckRequest req) {
-        enrichQueryIfNeeded(req.getUserId());
-
         // Blacklist check
         if (Boolean.TRUE.equals(redisTemplate.opsForSet().isMember(BLACKLIST_KEY, String.valueOf(req.getUserId())))) {
             saveEvent(req.getUserId(), req.getOrderNo(), "PRE_CHECK_REJECT", "BLACKLIST");
@@ -144,8 +134,6 @@ public class RiskService {
     }
 
     public RiskResultDTO postPayCheck(PostPayCheckRequest req) {
-        enrichQueryIfNeeded(req.getUserId());
-
         if (req.getAmount() != null
             && req.getAmount().compareTo(POST_PAY_HIGH_AMOUNT) > 0
             && postPayReviewRate > 0
@@ -187,38 +175,6 @@ public class RiskService {
                 ? fulfillmentUrl + "/internal/fulfillments/events/risk-passed"
                 : orderUrl + "/internal/orders/risk-rejected";
         client.postForEntity(target, new HttpEntity<>(envelope, headers), Void.class);
-    }
-
-    private void enrichQueryIfNeeded(Long userId) {
-        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
-        String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        int limitRows = queryEnrichmentInterceptor.getLimitRows();
-        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
-        if ("user_behavior_log".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT re.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
-                    " FROM risk_events re" +
-                    " JOIN user_behavior_log ubl ON ubl.user_id = re.user_id" +
-                    " ORDER BY ubl.created_at DESC, re.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.__ubl_action_type = 'PLACE_ORDER'" +
-                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        } else if ("product_price_history".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT re.*, pph.effective_at AS __pph_effective_at" +
-                    " FROM risk_events re" +
-                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = re.order_no" +
-                    " ORDER BY pph.effective_at DESC, re.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.__pph_effective_at <= NOW()" +
-                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        }
     }
 
     private int getFreqLimit() {

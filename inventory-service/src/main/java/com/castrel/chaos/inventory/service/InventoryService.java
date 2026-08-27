@@ -4,7 +4,6 @@ import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.DistributedLockService;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
-import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.inventory.config.DemoInventoryBaselineProperties;
 import com.castrel.chaos.inventory.dto.DemoInventoryReplenishmentResult;
 import com.castrel.chaos.inventory.dto.ResetRequest;
@@ -45,9 +44,6 @@ public class InventoryService {
 
     @Autowired
     private InventoryBaselineRepository baselineRepository;
-
-    @Autowired
-    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
 
     @Autowired
     private LocalQueryCacheManager localQueryCacheManager;
@@ -95,7 +91,6 @@ public class InventoryService {
                 throw new BizException("RESERVATION_NOT_RETRYABLE", "Reservation has already been released");
             }
         }
-        enrichQueryIfNeeded(sku);
         Inventory inv = inventoryRepository.findBySku(sku)
                 .orElseThrow(() -> new BizException("SKU_NOT_FOUND", "SKU not found: " + sku));
         int updated = inventoryRepository.reserve(sku, qty, inv.getVersion());
@@ -137,7 +132,6 @@ public class InventoryService {
             throw new BizException("RESERVATION_NOT_FOUND", "Reservation not found");
         }
         if (!"RESERVED".equals(reservation.getStatus())) return;
-        enrichQueryIfNeeded(sku);
         inventoryRepository.release(sku, reservation.getQuantity());
         reservation.setStatus("RELEASED");
         reservation.setUpdatedAt(LocalDateTime.now());
@@ -183,7 +177,6 @@ public class InventoryService {
     }
 
     public Map<String, Object> query(String sku) {
-        enrichQueryIfNeeded(sku);
         Inventory inv = inventoryRepository.findBySku(sku)
                 .orElseThrow(() -> new BizException("SKU_NOT_FOUND", "SKU not found: " + sku));
         return Map.of("sku", sku, "availableQty", inv.getAvailableQty(),
@@ -301,38 +294,6 @@ public class InventoryService {
     private String replenishmentSummary(DemoInventoryReplenishmentResult result) {
         return "skus=" + result.skuCount() + ",added=" + result.addedQuantity()
                 + ",skipped=" + result.skippedCount() + ",failed=" + result.failedCount();
-    }
-
-    private void enrichQueryIfNeeded(String sku) {
-        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
-        String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        int limitRows = queryEnrichmentInterceptor.getLimitRows();
-        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
-        if ("product_price_history".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT i.*, pph.effective_at AS __pph_effective_at" +
-                    " FROM inventories i" +
-                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = i.sku" +
-                    " ORDER BY pph.effective_at DESC, i.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.__pph_effective_at <= NOW()" +
-                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        } else if ("user_behavior_log".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT i.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
-                    " FROM inventories i" +
-                    " JOIN user_behavior_log ubl ON TRUE" +
-                    " ORDER BY ubl.created_at DESC, i.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.__ubl_action_type = 'VIEW_PRODUCT'" +
-                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        }
     }
 
     public List<Map<String, Object>> resetPlan() {

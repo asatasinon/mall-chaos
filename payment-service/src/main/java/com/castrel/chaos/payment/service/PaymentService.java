@@ -3,7 +3,6 @@ package com.castrel.chaos.payment.service;
 import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
-import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.payment.dto.PaymentDTO;
 import com.castrel.chaos.payment.dto.PaymentIntentRequest;
 import com.castrel.chaos.payment.dto.RefundRequest;
@@ -21,7 +20,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,13 +42,7 @@ public class PaymentService {
     private OrderClient orderClient;
 
     @Autowired
-    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
-
-    @Autowired
     private LocalQueryCacheManager localQueryCacheManager;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private MeterRegistry meterRegistry;
@@ -199,45 +191,11 @@ public class PaymentService {
     }
 
     public PaymentDTO getPayment(Long id) {
-        enrichQueryIfNeeded(null);
         PaymentDTO result = paymentRepository.findById(id)
                 .map(this::toDTO)
                 .orElseThrow(() -> new BizException("PAYMENT_NOT_FOUND", "Payment not found: " + id));
         localQueryCacheManager.cacheIfNeeded("payment:" + id, result);
         return result;
-    }
-
-    private void enrichQueryIfNeeded(String orderNo) {
-        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
-        String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        int limitRows = queryEnrichmentInterceptor.getLimitRows();
-        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
-        if ("user_behavior_log".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT p.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
-                    " FROM payment_attempts p" +
-                    " JOIN user_behavior_log ubl ON ubl.user_id = p.customer_id" +
-                    " ORDER BY ubl.created_at DESC, p.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.__ubl_action_type = 'PLACE_ORDER'" +
-                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        } else if ("product_price_history".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT p.*, pph.effective_at AS __pph_effective_at" +
-                    " FROM payment_attempts p" +
-                    " JOIN orders o ON o.id = p.order_id" +
-                    " JOIN product_price_history pph ON EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.sku = pph.sku)" +
-                    " ORDER BY pph.effective_at DESC, p.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.__pph_effective_at <= NOW()" +
-                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        }
     }
 
     private PaymentDTO toDTO(Payment p) {

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Keep the default test run free of chaos injection and run each available layer.
-mvn test -Dspring.profiles.active=test -Dchaos.endpoints.enabled=false
+# Run each available test layer with the default service configuration.
+mvn test -Dspring.profiles.active=test
 
 ./scripts/integration-test.sh
 

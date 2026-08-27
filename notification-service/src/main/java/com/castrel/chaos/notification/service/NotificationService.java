@@ -1,7 +1,6 @@
 package com.castrel.chaos.notification.service;
 
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
-import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.observability.SensitiveDataSanitizer;
 import com.castrel.chaos.notification.dto.PaymentResultRequest;
@@ -21,7 +20,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -39,13 +37,7 @@ public class NotificationService {
     private double failRate;
 
     @Autowired
-    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
-
-    @Autowired
     private LocalQueryCacheManager localQueryCacheManager;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private CustomerNotificationRepository customerNotificationRepository;
@@ -96,7 +88,6 @@ public class NotificationService {
         if (customerNotificationRepository.existsByCustomerIdAndEventId(userId, eventId)) {
             return;
         }
-        enrichQueryIfNeeded(userId, orderNo);
         NotificationPreference preference = preferenceRepository.findById(userId).orElseGet(() -> {
             NotificationPreference created = new NotificationPreference();
             created.setCustomerId(userId);
@@ -191,35 +182,4 @@ public class NotificationService {
         return new NotificationPreferenceDTO(preference.getEmail(), preference.getInApp());
     }
 
-    private void enrichQueryIfNeeded(Long userId, String orderNo) {
-        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
-        String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        int limitRows = queryEnrichmentInterceptor.getLimitRows();
-        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
-        if ("user_behavior_log".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT n.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
-                    " FROM customer_notifications n" +
-                    " JOIN user_behavior_log ubl ON ubl.user_id = n.customer_id" +
-                    " ORDER BY ubl.created_at DESC, n.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.__ubl_action_type = 'PLACE_ORDER'" +
-                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        } else if ("product_price_history".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT n.*, pph.effective_at AS __pph_effective_at" +
-                    " FROM customer_notifications n" +
-                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = n.order_no" +
-                    " ORDER BY pph.effective_at DESC, n.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.__pph_effective_at <= NOW()" +
-                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        }
-    }
 }

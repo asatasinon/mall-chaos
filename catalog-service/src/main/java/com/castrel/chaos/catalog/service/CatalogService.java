@@ -6,7 +6,6 @@ import com.castrel.chaos.catalog.entity.Product;
 import com.castrel.chaos.catalog.repository.ProductRepository;
 import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
-import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -27,9 +26,6 @@ public class CatalogService {
 
     @Autowired
     private ProductRepository productRepository;
-
-    @Autowired
-    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
 
     @Autowired
     private LocalQueryCacheManager localQueryCacheManager;
@@ -58,7 +54,6 @@ public class CatalogService {
     }
 
     public Page<ProductDTO> listProducts(String category, String keyword, String sort, int page, int size) {
-        enrichQueryIfNeeded(null);
         listCount.increment();
         String sortProperty = switch (sort == null ? "latest" : sort) {
             case "price_asc", "price" -> "price";
@@ -80,7 +75,6 @@ public class CatalogService {
     }
 
     public ProductDTO getProduct(String sku) {
-        enrichQueryIfNeeded(sku);
         singleCount.increment();
         ProductDTO result = productRepository.findBySku(sku)
                 .map(this::toDTO)
@@ -105,7 +99,6 @@ public class CatalogService {
     }
 
     public List<ProductDTO> batchQuery(List<String> skus) {
-        enrichQueryIfNeeded(skus.isEmpty() ? null : skus.get(0));
         batchCount.increment();
         Map<String, ProductDTO> found = productRepository.findBySkuIn(skus)
                 .stream()
@@ -169,40 +162,6 @@ public class CatalogService {
                     report.setLatestBrowseAt(rs.getTimestamp("latest_browse_at").toLocalDateTime());
                     return report;
                 });
-    }
-
-    private void enrichQueryIfNeeded(String sku) {
-        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
-        String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        int limitRows = queryEnrichmentInterceptor.getLimitRows();
-        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
-        if ("product_price_history".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT p.*, pph.effective_at AS __pph_effective_at" +
-                    " FROM products p" +
-                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = p.sku" +
-                    " ORDER BY pph.effective_at DESC, p.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.status = 1" +
-                    " AND s.__pph_effective_at <= NOW()" +
-                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        } else if ("user_behavior_log".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT p.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
-                    " FROM products p" +
-                    " JOIN user_behavior_log ubl ON TRUE" +
-                    " ORDER BY ubl.created_at DESC, p.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.status = 1" +
-                    " AND s.__ubl_action_type = 'VIEW_PRODUCT'" +
-                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        }
     }
 
     private ProductDTO toDTO(Product p) {

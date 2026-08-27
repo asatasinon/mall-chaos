@@ -3,7 +3,6 @@ package com.castrel.chaos.order.service;
 import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
-import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.order.client.DownstreamClients;
 import com.castrel.chaos.order.dto.CheckoutCommand;
 import com.castrel.chaos.order.dto.CheckoutFreeze;
@@ -56,9 +55,6 @@ public class OrderService {
 
     @Autowired
     private DownstreamClients clients;
-
-    @Autowired
-    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
 
     @Autowired
     private LocalQueryCacheManager localQueryCacheManager;
@@ -210,7 +206,6 @@ public class OrderService {
     }
 
     public OrderDTO getOrder(Long id) {
-        enrichQueryIfNeeded(null);
         OrderDTO result = orderRepository.findById(id)
                 .map(this::toDTO)
                 .orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "Order not found: " + id));
@@ -443,41 +438,6 @@ public class OrderService {
         order.setStatus("CANCELLED");
         order.setVersion(order.getVersion() + 1);
         return toDTO(order);
-    }
-
-    private void enrichQueryIfNeeded(Long userId) {
-        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
-        String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        int limitRows = queryEnrichmentInterceptor.getLimitRows();
-        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
-        if ("user_behavior_log".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT o.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
-                    " FROM orders o" +
-                    " JOIN user_behavior_log ubl ON ubl.user_id = o.user_id" +
-                    " ORDER BY ubl.created_at DESC, o.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.status = 'PENDING'" +
-                    " AND s.__ubl_action_type = 'PLACE_ORDER'" +
-                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        } else if ("product_price_history".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT o.*, pph.effective_at AS __pph_effective_at" +
-                    " FROM orders o" +
-                    " JOIN order_items oi ON oi.order_id = o.id" +
-                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = oi.sku" +
-                    " ORDER BY pph.effective_at DESC, o.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.status = 'PENDING'" +
-                    " AND s.__pph_effective_at <= NOW()" +
-                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        }
     }
 
     private OrderDTO toDTO(Order o) {

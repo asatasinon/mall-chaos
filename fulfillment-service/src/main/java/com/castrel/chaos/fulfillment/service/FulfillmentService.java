@@ -3,7 +3,6 @@ package com.castrel.chaos.fulfillment.service;
 import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.cache.LocalQueryCacheManager;
-import com.castrel.chaos.common.interceptor.QueryEnrichmentInterceptor;
 import com.castrel.chaos.fulfillment.dto.CancelFulfillmentRequest;
 import com.castrel.chaos.fulfillment.dto.CreateFulfillmentRequest;
 import com.castrel.chaos.fulfillment.dto.FulfillmentDTO;
@@ -24,7 +23,6 @@ import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -45,13 +43,7 @@ public class FulfillmentService {
     private ObjectMapper objectMapper;
 
     @Autowired
-    private QueryEnrichmentInterceptor queryEnrichmentInterceptor;
-
-    @Autowired
     private LocalQueryCacheManager localQueryCacheManager;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private MeterRegistry meterRegistry;
@@ -83,7 +75,6 @@ public class FulfillmentService {
 
     @Transactional
     public FulfillmentDTO create(CreateFulfillmentRequest req) {
-        enrichQueryIfNeeded(req.getOrderNo());
         // Idempotency: return existing if already created
         return fulfillmentRepository.findByOrderId(req.getOrderId())
                 .map(this::toDTO)
@@ -172,7 +163,6 @@ public class FulfillmentService {
 
     @Transactional
     public FulfillmentDTO cancel(CancelFulfillmentRequest req) {
-        enrichQueryIfNeeded(null);
         Fulfillment f = fulfillmentRepository.findByOrderId(req.getOrderId())
                 .orElseThrow(() -> new BizException("FULFILLMENT_NOT_FOUND",
                         "Fulfillment not found for orderId: " + req.getOrderId()));
@@ -190,44 +180,12 @@ public class FulfillmentService {
     }
 
     public FulfillmentDTO getByOrderId(Long orderId) {
-        enrichQueryIfNeeded(null);
         return fulfillmentRepository.findByOrderId(orderId)
                 .map(this::toDTO)
                 .orElseThrow(() -> new BizException("FULFILLMENT_NOT_FOUND",
                         "Fulfillment not found for orderId: " + orderId));
     }
 
-    private void enrichQueryIfNeeded(String orderNo) {
-        if (!queryEnrichmentInterceptor.shouldEnrich()) return;
-        String joinTable = queryEnrichmentInterceptor.getJoinTable();
-        int limitRows = queryEnrichmentInterceptor.getLimitRows();
-        int offsetRows = queryEnrichmentInterceptor.getOffsetRows();
-        if ("user_behavior_log".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT f.*, ubl.action_type AS __ubl_action_type, ubl.created_at AS __ubl_created_at" +
-                    " FROM shipments f" +
-                    " JOIN user_behavior_log ubl ON TRUE" +
-                    " ORDER BY ubl.created_at DESC, f.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.__ubl_action_type = 'PLACE_ORDER'" +
-                    " ORDER BY s.__ubl_created_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        } else if ("product_price_history".equals(joinTable)) {
-            jdbcTemplate.queryForList(
-                    "SELECT s.* FROM (" +
-                    " SELECT f.*, pph.effective_at AS __pph_effective_at" +
-                    " FROM shipments f" +
-                    " JOIN product_price_history pph ON CONCAT(pph.sku, '') = f.order_no" +
-                    " ORDER BY pph.effective_at DESC, f.id DESC" +
-                    " LIMIT " + limitRows + " OFFSET " + offsetRows +
-                    ") s" +
-                    " WHERE s.__pph_effective_at <= NOW()" +
-                    " ORDER BY s.__pph_effective_at DESC, s.id DESC" +
-                    " LIMIT " + limitRows);
-        }
-    }
 
     private FulfillmentDTO toDTO(Fulfillment f) {
         FulfillmentDTO dto = new FulfillmentDTO();
