@@ -37,7 +37,7 @@ public class CatalogProductClient {
         if (traceId != null) headers.set(TraceContext.TRACE_ID_HEADER, traceId);
         try {
             Map<?, ?> response = client.exchange(
-                    catalogUrl + "/internal/catalog/products/" + java.net.URLEncoder.encode(sku, java.nio.charset.StandardCharsets.UTF_8),
+                    catalogUrl + "/internal/catalog/products/" + java.net.URLEncoder.encode(sku, java.nio.charset.StandardCharsets.UTF_8) + "/validate",
                     HttpMethod.GET,
                     new HttpEntity<>(headers),
                     Map.class).getBody();
