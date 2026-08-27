@@ -340,7 +340,11 @@ async function updateWarmupStatuses(status: WarmupStatus, reason: string): Promi
 
 async function clearWarmupLeaseOwners(): Promise<void> {
   await getPool().query(
-    `UPDATE data_warmup_progress SET lease_owner = NULL WHERE table_name IN (?, ?)`,
+    `UPDATE data_warmup_progress SET
+       status = IF(guard_reason = 'LEASE_NOT_ACQUIRED', 'BACKFILLING', status),
+       guard_reason = IF(guard_reason = 'LEASE_NOT_ACQUIRED', NULL, guard_reason),
+       lease_owner = NULL
+     WHERE table_name IN (?, ?)`,
     [TABLES[0].name, TABLES[1].name],
   ).catch(() => undefined);
 }
