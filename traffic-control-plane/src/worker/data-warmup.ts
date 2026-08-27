@@ -92,7 +92,9 @@ export class DataWarmupService {
     const missingDays = await findMissingDays(table, windowStart, today);
     if (missingDays.length > 0) {
       await setWarmupStatus(table.name, 'BACKFILLING', null);
-      for (const date of missingDays) await fillDate(table, date);
+      for (const date of missingDays) {
+        if (await fillDate(table, date)) return;
+      }
     }
     const currentRows = await countDateRows(table, today);
     if (currentRows < env.DATA_WARMUP_ROWS_PER_DAY) {
@@ -106,7 +108,7 @@ export class DataWarmupService {
         return;
       }
       await setWarmupStatus(table.name, 'APPENDING', null);
-      await fillDate(table, today);
+      if (await fillDate(table, today)) return;
     }
     await setWarmupStatus(table.name, 'ROLLOVER_CLEANUP', null);
     await dropExpiredPartition(table, windowStart);
@@ -152,14 +154,19 @@ export async function loadWarmupProgress(): Promise<WarmupProgress[]> {
   return progressRows.map((row) => toProgress(row, partitionsByTable.get(String(row.table_name)) ?? []));
 }
 
-async function fillDate(table: typeof TABLES[number], date: string): Promise<void> {
+async function fillDate(table: typeof TABLES[number], date: string): Promise<boolean> {
   let completed = await countDateRows(table, date);
   if (completed >= env.DATA_WARMUP_ROWS_PER_DAY) {
     await refreshProgress(table, date, null);
-    return;
+    return false;
   }
   const startedAt = Date.now();
   while (completed < env.DATA_WARMUP_ROWS_PER_DAY) {
+    const guardReason = await capacityGuard(table.name, await getTableBytes(table.name));
+    if (guardReason) {
+      await setWarmupStatus(table.name, 'PAUSED_GUARD', guardReason);
+      return true;
+    }
     const batchSize = Math.min(env.DATA_WARMUP_BATCH_SIZE, env.DATA_WARMUP_ROWS_PER_DAY - completed);
     const values: Array<string | number | Date> = [];
     const placeholders: string[] = [];
@@ -197,6 +204,7 @@ async function fillDate(table: typeof TABLES[number], date: string): Promise<voi
     await sleep(env.DATA_WARMUP_BATCH_INTERVAL_MS);
   }
   await refreshProgress(table, date, new Date().toISOString());
+  return false;
 }
 
 async function ensureCurrentPartition(table: typeof TABLES[number], date: string): Promise<void> {
@@ -300,12 +308,8 @@ async function refreshProgress(table: typeof TABLES[number], date: string, lastS
        FROM ${table.name}`,
     [date, date],
   );
-  const [tableRows] = await getPool().query(
-    `SELECT data_length + index_length AS table_bytes FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
-    [table.name],
-  );
   const row = (rows as Record<string, unknown>[])[0] ?? {};
-  const bytes = Number((tableRows as Record<string, unknown>[])[0]?.table_bytes ?? 0);
+  const bytes = await getTableBytes(table.name);
   const guardReason = await capacityGuard(table.name, bytes);
   await getPool().query(
     `UPDATE data_warmup_progress SET status = ?, actual_rows = ?, current_date_value = ?, current_date_rows = ?,
@@ -316,6 +320,14 @@ async function refreshProgress(table: typeof TABLES[number], date: string, lastS
       Number(row.current_date_rows ?? 0), row.earliest_time ?? null, row.latest_time ?? null, bytes,
       guardReason, guardReason ? null : currentLeaseOwner, lastSuccessAt, table.name],
   );
+}
+
+async function getTableBytes(tableName: string): Promise<number> {
+  const [rows] = await getPool().query(
+    `SELECT data_length + index_length AS table_bytes FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
+    [tableName],
+  );
+  return Number((rows as Record<string, unknown>[])[0]?.table_bytes ?? 0);
 }
 
 async function updateWarmupStatuses(status: WarmupStatus, reason: string): Promise<void> {
