@@ -1,33 +1,18 @@
-import { jsonOk } from '@/lib/api-response';
-import { getPool } from '@/lib/db';
-
-const TARGET_ROWS = 30_000_000;
+import { jsonError, jsonOk } from '@/lib/api-response';
+import { loadWarmupProgress } from '@/worker/data-warmup';
+import { env } from '@/lib/env';
 
 export async function GET() {
-  const pool = getPool();
-
-  const countTable = async (table: string) => {
-    try {
-      const [rows] = await pool.query(`SELECT COUNT(*) AS cnt FROM ${table}`);
-      return Number((rows as Record<string, unknown>[])[0]?.cnt ?? 0);
-    } catch {
-      return 0;
-    }
-  };
-
-  const [priceHistoryCount, behaviorLogCount] = await Promise.all([
-    countTable('product_price_history'),
-    countTable('user_behavior_log'),
-  ]);
-
-  const completed = priceHistoryCount >= TARGET_ROWS && behaviorLogCount >= TARGET_ROWS;
-
-  return jsonOk({
-    priceHistoryCount,
-    priceHistoryTarget: TARGET_ROWS,
-    behaviorLogCount,
-    behaviorLogTarget: TARGET_ROWS,
-    completed,
-    status: completed ? 'COMPLETED' : 'RUNNING',
-  });
+  try {
+    const tables = await loadWarmupProgress();
+    return jsonOk({
+      status: tables.some((table) => table.status === 'ERROR') ? 'ERROR' : tables.some((table) => table.status === 'PAUSED_GUARD') ? 'PAUSED_GUARD' : tables.some((table) => table.status === 'BACKFILLING') ? 'BACKFILLING' : tables.some((table) => table.status === 'APPENDING') ? 'APPENDING' : 'ROLLOVER_CLEANUP',
+      windowDays: env.DATA_WARMUP_WINDOW_DAYS,
+      rowsPerDay: env.DATA_WARMUP_ROWS_PER_DAY,
+      targetRows: env.DATA_WARMUP_TARGET_ROWS,
+      tables,
+    });
+  } catch {
+    return jsonError(503, 'Data warmup progress is unavailable', 503);
+  }
 }

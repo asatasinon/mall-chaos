@@ -5,7 +5,7 @@ spring:
   application:
     name: cart-service
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:13306/castrel?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:13306/castrel?useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=+08:00&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:castrel}
     password: ${SPRING_DATASOURCE_PASSWORD:castrel}
   jpa:

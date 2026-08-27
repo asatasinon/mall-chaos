@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase A-C 已完成，Phase D 待实施 |
+| 状态 | Phase A-D 已完成，Phase E 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-27 CST（Phase C 完成） |
+| 更新时间 | 2026-08-27 CST（Phase D 完成） |
 | 关联规格 | [product.md](product.md) |
 | 关联设计 | [tech.md](tech.md) |
 
@@ -28,7 +28,7 @@
 | A | Fault Run 契约、持久化与单运行协调 | 已完成 | 5 / 5 | 无 |
 | B | Gateway 单目标分发与业务场景接口 | 已完成 | 7 / 7 | A |
 | C | Worker、Runner 复用与 Sam 演练账号隔离 | 已完成 | 5 / 5 | A、B |
-| D | 90M 日分区预热与全栈东八区 | 待开始 | 0 / 4 | A |
+| D | 90M 日分区预热与全栈东八区 | 已完成 | 4 / 4 | A |
 | E | PSP、重启适配器、控制台与旧系统清理 | 待开始 | 0 / 5 | A 至 D |
 | F | 统一验证、验收与发布检查 | 待开始 | 0 / 18 个验证任务组 | A 至 E |
 
@@ -172,35 +172,35 @@
 
 ## Phase D：90M 日分区预热与全栈东八区
 
-**阶段进度：0 / 4**
+**阶段进度：4 / 4**
 
 目标：将慢 SQL 数据源维护为东八区 180 天、每日 50 万行的 90M 固定窗口，并使全部日期语义一致。
 
 ### D1. MySQL 日分区迁移
 
-- [ ] 为 `product_price_history(effective_at)` 与 `user_behavior_log(created_at)` 设计并执行 MySQL `RANGE COLUMNS` 日分区 migration，分区命名为 `pYYYYMMDD`，上界为下一个东八区自然日。
-- [ ] 在分区前调整两表主键和全部唯一键，使每个唯一键包含分区时间列，满足 MySQL 分区限制并保持既有业务约束。
-- [ ] 为窗口初始化创建“今天至前 179 天”的 180 个分区；数据迁移和新表初始化不采用无界删除或均匀随机时间替代按日配额。
+- [x] 为 `product_price_history(effective_at)` 与 `user_behavior_log(created_at)` 设计并执行 MySQL `RANGE COLUMNS` 日分区 migration，分区命名为 `pYYYYMMDD`，上界为下一个东八区自然日。
+- [x] 在分区前调整两表主键和全部唯一键，使每个唯一键包含分区时间列，满足 MySQL 分区限制并保持既有业务约束。
+- [x] 为窗口初始化创建“今天至前 179 天”的 180 个分区；数据迁移和新表初始化不采用无界删除或均匀随机时间替代按日配额。
 
 ### D2. 常驻预热 Worker
 
-- [ ] 将 `DataWarmupService` 改为常驻 Redis 租约 worker，按表和日期重建配额，逐日填满 500,000 行，行为分区包含足量 `PAGE_VIEW`、`PRODUCT` 和真实 SKU 目标。
-- [ ] 实现 `BACKFILLING`、`APPENDING`、`ROLLOVER_CLEANUP`、`PAUSED_GUARD`、`ERROR`、`DISABLED` 状态及进度持久化；重启不重复完整分区或跳过缺失分区。
-- [ ] 日切后先创建当天分区并完成当天配额，再以 `DROP PARTITION` 删除窗口外最早整日分区；禁止以对 90M 表无界 `DELETE` 作为滚动机制。
-- [ ] 保留空间、表大小、批大小、间隔、速率限制和退避保护；保护触发时不新增写入或破坏窗口外数据。
+- [x] 将 `DataWarmupService` 改为常驻 Redis 租约 worker，按表和日期重建配额，逐日填满 500,000 行，行为分区包含足量 `PAGE_VIEW`、`PRODUCT` 和真实 SKU 目标。
+- [x] 实现 `BACKFILLING`、`APPENDING`、`ROLLOVER_CLEANUP`、`PAUSED_GUARD`、`ERROR`、`DISABLED` 状态及进度持久化；重启不重复完整分区或跳过缺失分区。
+- [x] 日切后先创建当天分区并完成当天配额，再以 `DROP PARTITION` 删除窗口外最早整日分区；禁止以对 90M 表无界 `DELETE` 作为滚动机制。
+- [x] 保留空间、表大小、批大小、间隔、速率限制和退避保护；保护触发时不新增写入或破坏窗口外数据。
 
 ### D3. 东八区部署与连接配置
 
-- [ ] 在 Compose 与 Kubernetes 为全部 Java 服务设置 `TZ=Asia/Shanghai` 与 `-Duser.timezone=Asia/Shanghai`，为 Next.js 和 standalone worker 设置 `TZ=Asia/Shanghai`。
-- [ ] 配置 MySQL `default-time-zone = '+08:00'`，并在所有 JDBC URL 强制连接会话时区为 `+08:00`。
-- [ ] 更新应用、worker、预热和报表的日期工具，统一通过 `APP_TIME_ZONE=Asia/Shanghai` 计算“今日”、日切与分区边界。
-- [ ] 更新数据预热状态 API，输出分区、当天配额、表行数、表大小、过期分区删除、租约和保护原因的数据库记录。
+- [x] 在 Compose 与 Kubernetes 为全部 Java 服务设置 `TZ=Asia/Shanghai` 与 `-Duser.timezone=Asia/Shanghai`，为 Next.js 和 standalone worker 设置 `TZ=Asia/Shanghai`。
+- [x] 配置 MySQL `default-time-zone = '+08:00'`，并在所有 JDBC URL 强制连接会话时区为 `+08:00`。
+- [x] 更新应用、worker、预热和报表的日期工具，统一通过 `APP_TIME_ZONE=Asia/Shanghai` 计算“今日”、日切与分区边界。
+- [x] 更新数据预热状态 API，输出分区、当天配额、表行数、表大小、过期分区删除、租约和保护原因的数据库记录。
 
 ### D4. 数据与运行记录清理调度
 
-- [ ] 将预热过期分区删除与 Fault Run 七天记录留存作为独立调度任务，分别使用各自锁和数据库事务，不相互耦合。
-- [ ] 为人工通知存储清理实现仅按 `faultRunId` 的受保护入口，保留操作审计并拒绝用户输入任意表、SQL 或文件路径。
-- [ ] 更新容量说明和部署变量，区分 90M 数据窗口、通知存储追加上限、运行记录七天留存和预热 guard 阈值。
+- [x] 将预热过期分区删除与 Fault Run 七天记录留存作为独立调度任务，分别使用各自锁和数据库事务，不相互耦合。
+- [x] 为人工通知存储清理实现仅按 `faultRunId` 的受保护入口，保留操作审计并拒绝用户输入任意表、SQL 或文件路径。
+- [x] 更新容量说明和部署变量，区分 90M 数据窗口、通知存储追加上限、运行记录七天留存和预热 guard 阈值。
 
 ---
 

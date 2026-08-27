@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS promotions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS coupons (
-    id              BIGINT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    id              BIGINT          NOT NULL AUTO_INCREMENT,
     user_id         BIGINT          NOT NULL,
     promotion_id    BIGINT          NOT NULL,
     status          TINYINT         NOT NULL DEFAULT 0 COMMENT '0=AVAILABLE 1=RESERVED 2=USED',
@@ -270,7 +270,7 @@ CREATE TABLE IF NOT EXISTS risk_events (
 -- Product price change history
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS product_price_history (
-    id              BIGINT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  id              BIGINT          NOT NULL AUTO_INCREMENT,
     sku             VARCHAR(32)     NOT NULL,
     previous_price  DECIMAL(10,2)   NOT NULL,
     current_price   DECIMAL(10,2)   NOT NULL,
@@ -278,7 +278,8 @@ CREATE TABLE IF NOT EXISTS product_price_history (
     operator_id     BIGINT          NOT NULL DEFAULT 0,
     effective_at    DATETIME        NOT NULL,
     created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_sku (sku)
+    PRIMARY KEY (id, effective_at),
+    INDEX idx_price_history_sku (sku, effective_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   COMMENT='Product price change history';
 
@@ -286,14 +287,15 @@ CREATE TABLE IF NOT EXISTS product_price_history (
 -- User behavior log
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS user_behavior_log (
-    id              BIGINT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    id              BIGINT          NOT NULL AUTO_INCREMENT,
     user_id         BIGINT          NOT NULL,
     action_type     VARCHAR(32)     NOT NULL COMMENT 'PAGE_VIEW / ADD_CART / PLACE_ORDER / SEARCH',
     target_id       VARCHAR(64)     NOT NULL,
     target_type     VARCHAR(32)     NOT NULL COMMENT 'PRODUCT / ORDER / CATEGORY',
     ip_address      VARCHAR(45),
     session_id      VARCHAR(64),
-    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   COMMENT='User behavior log';
 

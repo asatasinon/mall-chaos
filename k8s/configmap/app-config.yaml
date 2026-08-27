@@ -27,4 +27,6 @@ data:
   NOTIFICATION_SERVICE_URL: "http://notification-service:8090"
   PSP_SIMULATOR_URL: "http://psp-simulator:8092"
   APP_TIME_ZONE: "Asia/Shanghai"
+  TZ: "Asia/Shanghai"
+  JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Shanghai"
   JAVA_OPTS: "-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof"

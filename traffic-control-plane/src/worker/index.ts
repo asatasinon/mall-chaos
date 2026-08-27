@@ -15,6 +15,7 @@ import { getScenarioExerciseWorkers } from './scenario-exercise-workers';
 import pino from 'pino';
 import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
 import { deleteExpiredFaultRuns } from '../lib/fault-run-repository';
+import { getRedis } from '../lib/redis';
 
 const log = pino({ name: 'worker' });
 
@@ -66,7 +67,7 @@ async function main() {
     });
   }, 1000);
   const faultRunRetentionTimer = setInterval(() => {
-    void deleteExpiredFaultRuns().catch((error) => {
+    void runFaultRunRetention().catch((error) => {
       log.warn({ error }, 'Failed to delete expired Fault Run records');
     });
   }, 24 * 60 * 60 * 1000);
@@ -102,6 +103,26 @@ async function main() {
 
   process.on('SIGINT', () => { void shutdown(); });
   process.on('SIGTERM', () => { void shutdown(); });
+}
+
+const FAULT_RUN_RETENTION_LOCK = 'traffic-control-plane:fault-run-retention:lease';
+
+async function runFaultRunRetention(): Promise<void> {
+  const redis = getRedis();
+  await redis.connect().catch(() => undefined);
+  const owner = `retention-${process.pid}`;
+  const acquired = await redis.set(FAULT_RUN_RETENTION_LOCK, owner, 'EX', 300, 'NX').catch(() => null);
+  if (acquired !== 'OK') return;
+  try {
+    await deleteExpiredFaultRuns();
+  } finally {
+    await redis.eval(
+      "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+      1,
+      FAULT_RUN_RETENTION_LOCK,
+      owner,
+    ).catch(() => undefined);
+  }
 }
 
 main().catch((err) => {
