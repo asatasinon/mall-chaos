@@ -8,6 +8,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { fetchWithAuth } from '@/lib/auth-fetch';
 import { createClientId } from '@/lib/client-id';
 import ScenarioCardWithActions from '@/components/ScenarioCardWithActions';
@@ -18,6 +19,7 @@ type FaultRun = { faultRunId: string; scenario: string; targetService: string; t
 type Event = { id: number; eventType: string; payload?: unknown; createdAt: string };
 type ConsoleData = { scenarios: Scenario[]; runs: FaultRun[] };
 type FaultRunDetails = { run: FaultRun; events: Event[] };
+type ConfirmationRequest = { title: string; description: string; confirmLabel: string; action: () => Promise<void>; destructive?: boolean; confirmVariant?: 'default' | 'destructive' };
 
 const ACTIVE_STATES = ['CREATING', 'ACTIVE', 'RECOVERING'];
 const SCENARIO_META: Record<string, { label: string; description: string; icon: typeof Activity; tone: string }> = {
@@ -48,6 +50,7 @@ const SCENARIO_GROUPS = [
 export default function ScenarioControlPage() {
   const [data, setData] = useState<ConsoleData | null>(null);
   const [selectedRun, setSelectedRun] = useState<FaultRunDetails | null>(null);
+  const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [filterState, setFilterState] = useState('ALL');
@@ -113,8 +116,7 @@ export default function ScenarioControlPage() {
     }
   };
 
-  const stopRun = async (run: FaultRun) => {
-    if (!window.confirm(`Stop ${run.scenario}?`)) return;
+  const executeStop = async (run: FaultRun) => {
     const idempotencyKey = `stop-${run.faultRunId}-${createClientId()}`;
     setBusy(run.faultRunId);
     try {
@@ -133,8 +135,17 @@ export default function ScenarioControlPage() {
     }
   };
 
-  const restartNotification = async (run: FaultRun) => {
-    if (!window.confirm('Restart the fixed notification-service target?')) return;
+  const stopRun = async (run: FaultRun) => {
+    setConfirmation({
+      title: 'Stop active run?',
+      description: `Stop ${run.scenario}? The run will begin its recovery flow.`,
+      confirmLabel: 'Stop run',
+      destructive: true,
+      action: () => executeStop(run),
+    });
+  };
+
+  const executeRestartNotification = async (run: FaultRun) => {
     const idempotencyKey = `restart-${run.faultRunId}-${createClientId()}`;
     setBusy(run.faultRunId);
     try {
@@ -153,8 +164,17 @@ export default function ScenarioControlPage() {
     }
   };
 
-  const cleanupScenario = async (scenario: Scenario) => {
-    if (!window.confirm(`Clean all data created by ${scenario.scenario}?`)) return;
+  const restartNotification = async (run: FaultRun) => {
+    setConfirmation({
+      title: 'Restart notification service?',
+      description: 'Restart the fixed notification-service target to recover this scenario.',
+      confirmLabel: 'Restart service',
+      destructive: true,
+      action: () => executeRestartNotification(run),
+    });
+  };
+
+  const executeCleanupScenario = async (scenario: Scenario) => {
     const idempotencyKey = `cleanup-scenario-${scenario.scenario}-${createClientId()}`;
     setBusy(`cleanup:${scenario.scenario}`);
     try {
@@ -173,6 +193,18 @@ export default function ScenarioControlPage() {
     }
   };
 
+  const cleanupScenario = async (scenario: Scenario) => {
+    const scenarioLabel = SCENARIO_META[scenario.scenario]?.label || scenario.scenario;
+    setConfirmation({
+      title: 'Clean scenario data?',
+      description: `Clean all data created by ${scenarioLabel}? This cannot be undone.`,
+      confirmLabel: 'Confirm',
+      destructive: true,
+      confirmVariant: 'default',
+      action: () => executeCleanupScenario(scenario),
+    });
+  };
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
@@ -187,6 +219,7 @@ export default function ScenarioControlPage() {
       {!data && !error && <div className="py-16 text-center text-sm text-muted-foreground"><RefreshCw className="mx-auto mb-3 size-5 animate-spin" />Loading scenario catalog...</div>}
       {data && <RunHistory runs={visibleRuns} scenarios={data.scenarios} filterState={filterState} filterScenario={filterScenario} setFilterState={setFilterState} setFilterScenario={setFilterScenario} onDetails={openDetails} />}
       {selectedRun && <RunDetails details={selectedRun} onClose={() => setSelectedRun(null)} />}
+      {confirmation && <ConfirmDialog title={confirmation.title} description={confirmation.description} confirmLabel={confirmation.confirmLabel} confirmVariant={confirmation.confirmVariant} destructive={confirmation.destructive} onCancel={() => setConfirmation(null)} onConfirm={async () => { await confirmation.action(); setConfirmation(null); }} />}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { CalendarDays, Check, ChevronDown, Database, Pencil, Pause, Play, Power, PowerOff, RefreshCw, Save, Trash2, X } from 'lucide-react';
 import { fetchWithAuth } from '@/lib/auth-fetch';
 
@@ -118,6 +119,9 @@ interface WarmupResponse {
   jobs: WarmupJob[];
 }
 
+type WarmupJobRequest = { operation: 'INJECT' | 'CLEANUP'; tableName: string; dates: string[]; rowsPerDay: number };
+type WarmupCleanupConfirmation = { tableName: string; dates: string[] };
+
 const INTERVALS = [60, 30, 20, 10];
 
 export default function RunnerPage() {
@@ -141,6 +145,7 @@ export default function RunnerPage() {
   const [warmupDates, setWarmupDates] = useState<string[]>([]);
   const [warmupBusy, setWarmupBusy] = useState(false);
   const [warmupMessage, setWarmupMessage] = useState<string | null>(null);
+  const [warmupCleanupConfirmation, setWarmupCleanupConfirmation] = useState<WarmupCleanupConfirmation | null>(null);
   const [expandedLifecycleId, setExpandedLifecycleId] = useState<string | null>(null);
   const [lifecycleSteps, setLifecycleSteps] = useState<Record<string, Array<Record<string, unknown>>>>({});
   const [form, setForm] = useState<ConfigForm>({
@@ -281,19 +286,14 @@ export default function RunnerPage() {
     setWarmupDates((current) => [...current, warmupDateInput].sort());
   };
 
-  const submitWarmupJob = async () => {
-    if (warmupDates.length === 0) {
-      setWarmupMessage('Select at least one date');
-      return;
-    }
-    if (warmupOperation === 'CLEANUP' && !window.confirm(`Delete all data partitions for ${warmupDates.length} selected day(s)?`)) return;
+  const queueWarmupJob = async ({ operation, tableName, dates, rowsPerDay }: WarmupJobRequest) => {
     setWarmupBusy(true);
     setWarmupMessage(null);
     try {
       const response = await fetchWithAuth('/internal/traffic/runner/data-warmup/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operation: warmupOperation, tableName: warmupTable, dates: warmupDates, rowsPerDay: warmupOperation === 'INJECT' ? Number(warmupRows) : 0, confirmed: warmupOperation === 'CLEANUP' }),
+        body: JSON.stringify({ operation, tableName, dates, rowsPerDay, confirmed: operation === 'CLEANUP' }),
       });
       const json = await response.json();
       if (json.code !== 0) throw new Error(json.message || 'Unable to queue data warmup job');
@@ -305,6 +305,24 @@ export default function RunnerPage() {
     } finally {
       setWarmupBusy(false);
     }
+  };
+
+  const submitWarmupJob = () => {
+    if (warmupDates.length === 0) {
+      setWarmupMessage('Select at least one date');
+      return;
+    }
+    const request: WarmupJobRequest = {
+      operation: warmupOperation,
+      tableName: warmupTable,
+      dates: [...warmupDates],
+      rowsPerDay: warmupOperation === 'INJECT' ? Number(warmupRows) : 0,
+    };
+    if (request.operation === 'CLEANUP') {
+      setWarmupCleanupConfirmation({ tableName: request.tableName, dates: request.dates });
+      return;
+    }
+    void queueWarmupJob(request);
   };
 
   const toggleEnabled = async () => {
@@ -517,6 +535,18 @@ export default function RunnerPage() {
           </div>)}</div>
         </CardContent>
       </Card>}
+      {warmupCleanupConfirmation && <ConfirmDialog
+        title="Clear selected data partitions?"
+        description={`Delete all data partitions for ${warmupCleanupConfirmation.dates.length} selected day(s) from ${warmupCleanupConfirmation.tableName}? This cannot be undone.`}
+        confirmLabel="Confirm"
+        confirmVariant="default"
+        destructive
+        onCancel={() => setWarmupCleanupConfirmation(null)}
+        onConfirm={async () => {
+          await queueWarmupJob({ operation: 'CLEANUP', tableName: warmupCleanupConfirmation.tableName, dates: warmupCleanupConfirmation.dates, rowsPerDay: 0 });
+          setWarmupCleanupConfirmation(null);
+        }}
+      />}
     </div>
   );
 }

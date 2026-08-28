@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { LogOut } from 'lucide-react';
 
 const LINKS = [
-  { href: '/',       label: 'Scenario control' },
+  { href: '/',       label: 'Exercises'     },
   { href: '/runner', label: 'Runner'     },
   { href: '/alerts', label: 'Alerts'     },
 ];
@@ -23,7 +23,7 @@ export default function NavBar() {
   }, []);
 
   return (
-    <nav className="flex items-stretch flex-1">
+    <nav className="flex min-w-0 flex-1 items-stretch">
       {LINKS.map((l) => {
         const active = path === l.href;
         return (
@@ -31,7 +31,7 @@ export default function NavBar() {
             key={l.href}
             href={l.href}
             className={[
-              'relative flex items-center px-4 h-full text-sm font-medium transition-colors',
+              'relative flex h-full items-center px-1.5 text-xs font-medium transition-colors sm:px-4 sm:text-sm',
               active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
             ].join(' ')}
           >
@@ -42,7 +42,7 @@ export default function NavBar() {
           </a>
         );
       })}
-      <div className="ml-auto flex items-center gap-2 pl-4 text-[11px] text-muted-foreground font-mono">
+      <div className="ml-auto hidden items-center gap-2 pl-4 font-mono text-[11px] text-muted-foreground sm:flex">
         <span className="status-dot status-dot-green" />
         {time}
       </div>
@@ -50,7 +50,7 @@ export default function NavBar() {
         type="button"
         title="Sign out"
         aria-label="Sign out"
-        className="ml-4 flex items-center px-2 text-muted-foreground transition-colors hover:text-foreground"
+        className="ml-2 flex shrink-0 items-center px-1 text-muted-foreground transition-colors hover:text-foreground sm:ml-4 sm:px-2"
         onClick={async () => {
           await fetch('/api/operator/session', { method: 'DELETE' });
           router.replace('/login');

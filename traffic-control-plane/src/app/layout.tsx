@@ -4,7 +4,7 @@ import { ThemeProvider } from '@/components/ThemeProvider';
 import ConsoleChrome from '@/components/ConsoleChrome';
 
 export const metadata: Metadata = {
-  title: 'Castrel · Fault Run Control Plane',
+  title: 'Castrel Chaos · Fault Run Control Plane',
   description: 'Protected scenario coordination and recovery control console',
 };
 
