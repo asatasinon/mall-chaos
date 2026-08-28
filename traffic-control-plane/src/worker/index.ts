@@ -37,6 +37,7 @@ async function main() {
   const reportExerciseWorker = getReportExerciseWorker();
   const trafficSurgeExecutor = getTrafficSurgeExecutor();
   const scenarioExerciseWorkers = getScenarioExerciseWorkers();
+  const dataWarmupService = getDataWarmupService();
   await couponReplenishmentScheduler.start();
   await inventoryReplenishmentScheduler.start();
   reportExerciseWorker.start();
@@ -76,7 +77,7 @@ async function main() {
   engine.start();
 
   if (env.DATA_WARMUP_ENABLED) {
-    getDataWarmupService().start();
+    dataWarmupService.start();
     log.info('Data warmup started');
   } else {
     log.info('Data warmup is disabled by DATA_WARMUP_ENABLED=false');
@@ -97,6 +98,7 @@ async function main() {
     void setInventoryReplenishmentStatus(inventoryReplenishmentScheduler.getStatus());
     couponReplenishmentScheduler.stop();
     void setCouponReplenishmentStatus(couponReplenishmentScheduler.getStatus());
+    await dataWarmupService.stop();
     await engine.stop();
     process.exit(0);
   };

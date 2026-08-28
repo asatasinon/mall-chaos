@@ -1,5 +1,6 @@
 import pino from 'pino';
 import { randomUUID } from 'node:crypto';
+import type { PoolConnection } from 'mysql2/promise';
 import { getPool } from '../lib/db';
 import { getRedis } from '../lib/redis';
 import { env } from '../lib/env';
@@ -20,6 +21,25 @@ export type ManualWarmupJobStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED
 const WARMUP_TABLE_NAMES = TABLES.map((table) => table.name);
 const MAX_MANUAL_DATES = 31;
 const MAX_MANUAL_ROWS_PER_DAY = 1_000_000;
+const MANUAL_JOB_STALE_AFTER_SEC = 120;
+
+class AsyncMutex {
+  private tail = Promise.resolve();
+
+  async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.tail;
+    let release!: () => void;
+    this.tail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+}
+
+const warmupMutationLock = new AsyncMutex();
 
 export interface WarmupProgress {
   tableName: string;
@@ -61,6 +81,11 @@ export class DataWarmupService {
   private readonly owner = randomUUID();
   private started = false;
   private stopped = false;
+  private leaseSessionActive = false;
+  private runPromise: Promise<void> | null = null;
+  private manualLoopPromise: Promise<void> | null = null;
+  private stopPromise: Promise<void> = Promise.resolve();
+  private resolveStop: (() => void) | null = null;
   private leaseHeartbeat: NodeJS.Timeout | null = null;
   private leaseRenewalInFlight = false;
   private leaseHeld = false;
@@ -69,12 +94,18 @@ export class DataWarmupService {
     if (this.started) return;
     this.started = true;
     this.stopped = false;
-    void this.runLoop();
+    this.stopPromise = new Promise<void>((resolve) => { this.resolveStop = resolve; });
+    this.runPromise = this.runLoop();
+    void this.runPromise;
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.stopped = true;
-    void this.releaseLease();
+    this.leaseSessionActive = false;
+    this.resolveStop?.();
+    this.resolveStop = null;
+    await this.runPromise?.catch(() => undefined);
+    await this.releaseLease();
   }
 
   private async runLoop(): Promise<void> {
@@ -87,41 +118,86 @@ export class DataWarmupService {
         validateWarmupConfiguration();
         await ensureProgressTable();
         if (!(await acquireLease(this.owner))) {
-          await clearWarmupLeaseOwners();
-          await sleep(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
+          await this.sleepOrStop(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
           continue;
         }
         this.leaseHeld = true;
-        currentLeaseOwner = this.owner;
         this.startLeaseHeartbeat();
         if (!(await renewLease(this.owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
-        await processManualWarmupJobs();
-        for (const table of TABLES) {
-          await this.processTable(table);
-        }
-        if (!(await renewLease(this.owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
-        await sleep(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
+        await markWarmupLeaseOwner(this.owner);
+        await reclaimStaleManualWarmupJobs();
+        await this.runLeaseSession();
       } catch (error) {
+        const errorOwner = this.leaseHeld ? this.owner : null;
         this.stopLeaseHeartbeat();
         this.leaseHeld = false;
-        currentLeaseOwner = null;
         log.error({ error }, 'Data warmup iteration failed');
-        await updateWarmupStatuses('ERROR', error instanceof Error ? error.message : String(error));
-        await sleep(Math.min(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000) * 5, 30_000));
+        await updateWarmupStatuses('ERROR', error instanceof Error ? error.message : String(error), errorOwner);
+        await this.sleepOrStop(Math.min(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000) * 5, 30_000));
       }
     }
     await this.releaseLease();
   }
 
+  private async runLeaseSession(): Promise<void> {
+    this.leaseSessionActive = true;
+    this.manualLoopPromise = this.runManualLoop();
+    try {
+      while (this.canProcess()) {
+        for (const table of TABLES) {
+          await this.processTable(table);
+          if (!this.canProcess()) break;
+        }
+        if (!this.canProcess()) break;
+        if (!(await renewLease(this.owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
+        await this.sleepOrStop(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
+      }
+      if (!this.stopped && !this.leaseHeld) throw new Error('DATA_WARMUP_LEASE_LOST');
+    } finally {
+      this.leaseSessionActive = false;
+      await this.manualLoopPromise?.catch((error) => {
+        log.error({ error }, 'Manual warmup loop failed');
+      });
+      this.manualLoopPromise = null;
+    }
+  }
+
+  private async runManualLoop(): Promise<void> {
+    while (this.canProcess()) {
+      try {
+        await resumeGuardedManualWarmupJobs();
+        await processManualWarmupJobs(this.owner, () => this.canProcess());
+      } catch (error) {
+        if (error instanceof Error && error.message === 'DATA_WARMUP_LEASE_LOST') this.leaseHeld = false;
+        log.error({ error }, 'Manual warmup job failed');
+      }
+      if (this.canProcess()) {
+        await this.sleepOrStop(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
+      }
+    }
+  }
+
+  private async sleepOrStop(milliseconds: number): Promise<void> {
+    await Promise.race([sleep(milliseconds), this.stopPromise]);
+  }
+
+  private canProcess(): boolean {
+    return !this.stopped && this.leaseSessionActive && this.leaseHeld;
+  }
+
   private async processTable(table: typeof TABLES[number]): Promise<void> {
+    if (!this.canProcess()) return;
     const today = todayInShanghai();
-    await ensureCurrentPartition(table, today);
+    await ensureCurrentPartition(table, today, this.owner);
+    if (!this.canProcess()) return;
     const windowStart = addDays(today, -(env.DATA_WARMUP_WINDOW_DAYS - 1));
     const missingDays = await findMissingDays(table, windowStart, today);
+    if (!this.canProcess()) return;
     if (missingDays.length > 0) {
-      await setWarmupStatus(table.name, 'BACKFILLING', null);
+      await setWarmupStatus(table.name, 'BACKFILLING', null, this.owner);
       for (const date of missingDays) {
-        if (await fillDate(table, date)) return;
+        if (await fillDate(table, date, this.owner, () => this.canProcess())) return;
+        if (!this.canProcess()) return;
       }
     }
     const currentRows = await countDateRows(table, today);
@@ -132,15 +208,16 @@ export class DataWarmupService {
       );
       const guardReason = await capacityGuard(table.name, Number((tableRows as Record<string, unknown>[])[0]?.table_bytes ?? 0));
       if (guardReason) {
-        await setWarmupStatus(table.name, 'PAUSED_GUARD', guardReason);
+        await setWarmupStatus(table.name, 'PAUSED_GUARD', guardReason, this.owner);
         return;
       }
-      await setWarmupStatus(table.name, 'APPENDING', null);
-      if (await fillDate(table, today)) return;
+      await setWarmupStatus(table.name, 'APPENDING', null, this.owner);
+      if (await fillDate(table, today, this.owner, () => this.canProcess())) return;
     }
-    await setWarmupStatus(table.name, 'ROLLOVER_CLEANUP', null);
-    await dropExpiredPartition(table, windowStart);
-    await refreshProgress(table, today, null);
+    if (!this.canProcess()) return;
+    await setWarmupStatus(table.name, 'ROLLOVER_CLEANUP', null, this.owner);
+    await dropExpiredPartition(table, windowStart, this.owner);
+    await refreshProgress(table, today, null, this.owner);
   }
 
   private startLeaseHeartbeat(): void {
@@ -152,7 +229,6 @@ export class DataWarmupService {
         if (renewed) return;
         this.stopLeaseHeartbeat();
         this.leaseHeld = false;
-        currentLeaseOwner = null;
         log.warn('Data warmup lease renewal failed');
       }).finally(() => {
         this.leaseRenewalInFlight = false;
@@ -178,8 +254,12 @@ export class DataWarmupService {
       LEASE_KEY,
       this.owner,
     ).catch(() => undefined);
+    await getPool().query(
+      `UPDATE data_warmup_progress SET lease_owner = NULL
+         WHERE lease_owner = ? AND table_name IN (?, ?)`,
+      [this.owner, TABLES[0].name, TABLES[1].name],
+    ).catch(() => undefined);
     this.leaseHeld = false;
-    currentLeaseOwner = null;
   }
 }
 
@@ -234,53 +314,101 @@ export async function enqueueManualWarmupJob(input: {
   return Number((result as { insertId?: number }).insertId ?? 0);
 }
 
-async function processManualWarmupJobs(): Promise<void> {
-  const job = await claimManualWarmupJob();
+async function processManualWarmupJobs(owner: string, shouldContinue: () => boolean): Promise<void> {
+  if (!shouldContinue()) return;
+  const job = await claimManualWarmupJob(owner);
   if (!job) return;
   const table = TABLES.find((candidate) => candidate.name === job.tableName);
   if (!table) {
-    await setManualWarmupJobStatus(job.id, 'FAILED', 'Unsupported warmup table');
+    await setManualWarmupJobStatus(job.id, 'FAILED', 'Unsupported warmup table', owner);
     return;
   }
   try {
     if (job.operation === 'INJECT') {
-      for (const date of job.dates) {
-        await removeWarmupExclusion(table.name, date);
-        await ensureCurrentPartition(table, date);
-        let inserted = 0;
+      for (let dateIndex = job.processedDays; dateIndex < job.dates.length; dateIndex++) {
+        if (!shouldContinue()) {
+          await requeueManualWarmupJob(job.id, owner);
+          return;
+        }
+        const date = job.dates[dateIndex];
+        await removeWarmupExclusion(table.name, date, owner);
+        await ensureCurrentPartition(table, date, owner);
+        let inserted = dateIndex === job.processedDays
+          ? Math.min(Math.max(job.processedRows - dateIndex * job.rowsPerDay, 0), job.rowsPerDay)
+          : 0;
         while (inserted < job.rowsPerDay) {
+          if (!shouldContinue()) {
+            await requeueManualWarmupJob(job.id, owner);
+            return;
+          }
           const guardReason = await capacityGuard(table.name, await getTableBytes(table.name));
           if (guardReason) {
-            await setManualWarmupJobStatus(job.id, 'PAUSED_GUARD', guardReason);
-            await setWarmupStatus(table.name, 'PAUSED_GUARD', guardReason);
+            await setManualWarmupJobStatus(job.id, 'PAUSED_GUARD', guardReason, owner);
+            await setWarmupStatus(table.name, 'PAUSED_GUARD', guardReason, owner);
             return;
           }
           const batchSize = Math.min(env.DATA_WARMUP_BATCH_SIZE, job.rowsPerDay - inserted);
-          await insertWarmupRows(table, date, inserted, batchSize, job.rowsPerDay);
+          await insertManualWarmupBatch(table, date, dateIndex, inserted, batchSize, job.rowsPerDay, job.id, owner);
           inserted += batchSize;
-          if (!(await renewLease(currentLeaseOwner ?? ''))) throw new Error('DATA_WARMUP_LEASE_LOST');
-          await updateManualWarmupJobProgress(job.id, job.dates.indexOf(date), job.dates.indexOf(date) * job.rowsPerDay + inserted);
+          if (!(await renewLease(owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
+          if (!shouldContinue()) {
+            await requeueManualWarmupJob(job.id, owner);
+            return;
+          }
           await sleep(env.DATA_WARMUP_BATCH_INTERVAL_MS);
         }
-        await updateManualWarmupJobProgress(job.id, job.dates.indexOf(date) + 1, (job.dates.indexOf(date) + 1) * job.rowsPerDay);
+        await updateManualWarmupJobProgress(job.id, dateIndex + 1, (dateIndex + 1) * job.rowsPerDay, owner);
       }
     } else {
-      for (let index = 0; index < job.dates.length; index++) {
-        await addWarmupExclusion(table.name, job.dates[index]);
-        await dropPartition(table, job.dates[index]);
-        await updateManualWarmupJobProgress(job.id, index + 1, 0);
+      for (let index = job.processedDays; index < job.dates.length; index++) {
+        if (!shouldContinue()) {
+          await requeueManualWarmupJob(job.id, owner);
+          return;
+        }
+        await addWarmupExclusion(table.name, job.dates[index], owner);
+        await dropPartition(table, job.dates[index], owner);
+        await updateManualWarmupJobProgress(job.id, index + 1, 0, owner);
       }
-      await refreshProgress(table, todayInShanghai(), null);
+      await refreshProgress(table, todayInShanghai(), null, owner);
     }
-    await setManualWarmupJobStatus(job.id, 'COMPLETED', null);
+    await setManualWarmupJobStatus(job.id, 'COMPLETED', null, owner);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await setManualWarmupJobStatus(job.id, 'FAILED', message.slice(0, 255));
+    if (!shouldContinue() || message === 'DATA_WARMUP_LEASE_LOST') {
+      await requeueManualWarmupJob(job.id, owner);
+      if (message === 'DATA_WARMUP_LEASE_LOST') throw error;
+      return;
+    }
+    await setManualWarmupJobStatus(job.id, 'FAILED', message.slice(0, 255), owner);
     throw error;
   }
 }
 
-async function claimManualWarmupJob(): Promise<ManualWarmupJob | null> {
+async function reclaimStaleManualWarmupJobs(): Promise<void> {
+  await getPool().execute(
+    `UPDATE data_warmup_manual_jobs
+        SET status = 'QUEUED', started_at = NULL, heartbeat_at = NULL, claim_owner = NULL, completed_at = NULL, error_message = NULL
+      WHERE status = 'RUNNING'
+        AND COALESCE(heartbeat_at, started_at) < DATE_SUB(CURRENT_TIMESTAMP(3), INTERVAL ${MANUAL_JOB_STALE_AFTER_SEC} SECOND)`,
+  );
+}
+
+async function resumeGuardedManualWarmupJobs(): Promise<void> {
+  const [rows] = await getPool().query(
+    `SELECT id, table_name FROM data_warmup_manual_jobs WHERE status = 'PAUSED_GUARD' ORDER BY id`,
+  );
+  for (const row of rows as Record<string, unknown>[]) {
+    const table = TABLES.find((candidate) => candidate.name === String(row.table_name));
+    if (!table || await capacityGuard(table.name, await getTableBytes(table.name))) continue;
+    await getPool().execute(
+      `UPDATE data_warmup_manual_jobs SET status = 'QUEUED', completed_at = NULL, error_message = NULL
+         WHERE id = ? AND status = 'PAUSED_GUARD'`,
+      [Number(row.id)],
+    );
+  }
+}
+
+async function claimManualWarmupJob(owner: string): Promise<ManualWarmupJob | null> {
   const [rows] = await getPool().query(
     `SELECT id, operation, table_name, dates, rows_per_day, status, processed_days,
             processed_rows, error_message, created_at, started_at, completed_at
@@ -289,29 +417,74 @@ async function claimManualWarmupJob(): Promise<ManualWarmupJob | null> {
   const row = (rows as Record<string, unknown>[])[0];
   if (!row) return null;
   const [result] = await getPool().execute(
-    `UPDATE data_warmup_manual_jobs SET status = 'RUNNING', started_at = CURRENT_TIMESTAMP(3), error_message = NULL
+    `UPDATE data_warmup_manual_jobs SET status = 'RUNNING', started_at = CURRENT_TIMESTAMP(3), heartbeat_at = CURRENT_TIMESTAMP(3), claim_owner = ?, error_message = NULL
        WHERE id = ? AND status = 'QUEUED'`,
-    [Number(row.id)],
+    [owner, Number(row.id)],
   );
   if (Number((result as { affectedRows?: number }).affectedRows ?? 0) !== 1) return null;
   return { ...toManualWarmupJob(row), status: 'RUNNING', startedAt: new Date().toISOString() };
 }
 
-async function setManualWarmupJobStatus(id: number, status: ManualWarmupJobStatus, errorMessage: string | null): Promise<void> {
+async function setManualWarmupJobStatus(id: number, status: ManualWarmupJobStatus, errorMessage: string | null, owner: string): Promise<void> {
   await getPool().execute(
-    `UPDATE data_warmup_manual_jobs SET status = ?, error_message = ?, completed_at = ? WHERE id = ?`,
-    [status, errorMessage, ['COMPLETED', 'FAILED', 'PAUSED_GUARD'].includes(status) ? new Date() : null, id],
+    `UPDATE data_warmup_manual_jobs SET status = ?, error_message = ?, heartbeat_at = NULL, claim_owner = NULL, completed_at = ?
+       WHERE id = ? AND status = 'RUNNING' AND claim_owner = ?`,
+    [status, errorMessage, ['COMPLETED', 'FAILED', 'PAUSED_GUARD'].includes(status) ? new Date() : null, id, owner],
   );
 }
 
-async function updateManualWarmupJobProgress(id: number, processedDays: number, processedRows: number): Promise<void> {
+async function updateManualWarmupJobProgress(id: number, processedDays: number, processedRows: number, owner: string): Promise<void> {
+  const [result] = await getPool().execute(
+    `UPDATE data_warmup_manual_jobs SET processed_days = ?, processed_rows = ?, heartbeat_at = CURRENT_TIMESTAMP(3)
+       WHERE id = ? AND status = 'RUNNING' AND claim_owner = ?`,
+    [processedDays, processedRows, id, owner],
+  );
+  if (Number((result as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new Error('DATA_WARMUP_LEASE_LOST');
+}
+
+async function requeueManualWarmupJob(id: number, owner: string): Promise<void> {
   await getPool().execute(
-    `UPDATE data_warmup_manual_jobs SET processed_days = ?, processed_rows = ? WHERE id = ?`,
-    [processedDays, processedRows, id],
+    `UPDATE data_warmup_manual_jobs SET status = 'QUEUED', started_at = NULL, heartbeat_at = NULL, claim_owner = NULL, completed_at = NULL, error_message = NULL
+       WHERE id = ? AND status = 'RUNNING' AND claim_owner = ?`,
+    [id, owner],
   );
 }
 
-async function insertWarmupRows(table: typeof TABLES[number], date: string, startIndex: number, rowCount: number, totalRows: number): Promise<void> {
+async function insertManualWarmupBatch(
+  table: typeof TABLES[number], date: string, dateIndex: number, inserted: number, rowCount: number,
+  totalRows: number, jobId: number, owner: string,
+): Promise<void> {
+  await warmupMutationLock.runExclusive(async () => {
+    const connection = await getPool().getConnection();
+    try {
+      await connection.beginTransaction();
+      await assertWarmupLeaseOwner(connection, table.name, owner);
+      const startIndex = await countDateRows(table, date, connection);
+      await insertWarmupRowsUnlocked(
+        table, date, startIndex, rowCount, Math.max(totalRows, startIndex + rowCount), connection,
+      );
+      const [result] = await connection.execute(
+        `UPDATE data_warmup_manual_jobs SET processed_days = ?, processed_rows = ?, heartbeat_at = CURRENT_TIMESTAMP(3)
+           WHERE id = ? AND status = 'RUNNING' AND claim_owner = ?`,
+        [dateIndex, dateIndex * totalRows + inserted + rowCount, jobId, owner],
+      );
+      if (Number((result as { affectedRows?: number }).affectedRows ?? 0) !== 1) {
+        throw new Error('DATA_WARMUP_LEASE_LOST');
+      }
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback().catch(() => undefined);
+      throw error;
+    } finally {
+      connection.release();
+    }
+  });
+}
+
+async function insertWarmupRowsUnlocked(
+  table: typeof TABLES[number], date: string, startIndex: number, rowCount: number, totalRows: number,
+  executor: Pick<PoolConnection, 'query'> = getPool(),
+): Promise<void> {
   const values: Array<string | number | Date> = [];
   const placeholders: string[] = [];
   for (let index = 0; index < rowCount; index++) {
@@ -336,7 +509,7 @@ async function insertWarmupRows(table: typeof TABLES[number], date: string, star
   const sql = table.name === 'product_price_history'
     ? `INSERT INTO product_price_history (sku, previous_price, current_price, change_reason, operator_id, effective_at) VALUES ${placeholders.join(',')}`
     : `INSERT INTO user_behavior_log (user_id, action_type, target_id, target_type, ip_address, session_id, created_at) VALUES ${placeholders.join(',')}`;
-  await getPool().query(sql, values);
+  await executor.query(sql, values);
 }
 
 function validateManualWarmupRequest(input: {
@@ -395,68 +568,107 @@ function toManualWarmupJob(row: Record<string, unknown>): ManualWarmupJob {
   };
 }
 
-async function fillDate(table: typeof TABLES[number], date: string): Promise<boolean> {
+async function fillDate(table: typeof TABLES[number], date: string, owner: string, shouldContinue: () => boolean): Promise<boolean> {
   let completed = await countDateRows(table, date);
   if (completed >= env.DATA_WARMUP_ROWS_PER_DAY) {
-    await refreshProgress(table, date, null);
+    await refreshProgress(table, date, null, owner);
     return false;
   }
   const startedAt = Date.now();
   while (completed < env.DATA_WARMUP_ROWS_PER_DAY) {
+    if (!shouldContinue()) return true;
     const guardReason = await capacityGuard(table.name, await getTableBytes(table.name));
     if (guardReason) {
-      await setWarmupStatus(table.name, 'PAUSED_GUARD', guardReason);
+      await setWarmupStatus(table.name, 'PAUSED_GUARD', guardReason, owner);
       return true;
     }
     const batchSize = Math.min(env.DATA_WARMUP_BATCH_SIZE, env.DATA_WARMUP_ROWS_PER_DAY - completed);
-    await insertWarmupRows(table, date, completed, batchSize, env.DATA_WARMUP_ROWS_PER_DAY);
-    completed += batchSize;
-    if (!(await renewLease(currentLeaseOwner ?? ''))) throw new Error('DATA_WARMUP_LEASE_LOST');
+    const inserted = await insertDailyWarmupRows(table, date, batchSize, owner);
+    if (inserted === 0) return false;
+    completed += inserted;
+    if (!(await renewLease(owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
+    if (!shouldContinue()) return true;
     const elapsed = Math.max(1, Date.now() - startedAt);
-    await setWarmupStatus(table.name, 'APPENDING', null, {
+    await setWarmupStatus(table.name, 'APPENDING', null, owner, {
       currentDate: date,
       dayCompletedRows: completed,
       rowsPerSec: Math.round(completed * 1000 / elapsed),
     });
     await sleep(env.DATA_WARMUP_BATCH_INTERVAL_MS);
   }
-  await refreshProgress(table, date, new Date());
+  if (!shouldContinue()) return true;
+  await refreshProgress(table, date, new Date(), owner);
   return false;
 }
 
-async function ensureCurrentPartition(table: typeof TABLES[number], date: string): Promise<void> {
-  const partitionName = `p${date.replaceAll('-', '')}`;
-  const [rows] = await getPool().query(
-    `SELECT partition_name FROM information_schema.partitions
-      WHERE table_schema = DATABASE() AND table_name = ? AND partition_name = ?`,
-    [table.name, partitionName],
-  );
-  if ((rows as unknown[]).length > 0) return;
-  const nextDate = addDays(date, 1);
-  await getPool().query(
-    `ALTER TABLE ${table.name} ADD PARTITION (PARTITION ${partitionName} VALUES LESS THAN ('${nextDate}'))`,
-  );
+async function insertDailyWarmupRows(table: typeof TABLES[number], date: string, rowCount: number, owner: string): Promise<number> {
+  return warmupMutationLock.runExclusive(async () => {
+    const connection = await getPool().getConnection();
+    try {
+      await connection.beginTransaction();
+      await assertWarmupLeaseOwner(connection, table.name, owner);
+      if (await isWarmupDateExcluded(table.name, date, connection)) {
+        await connection.rollback();
+        return 0;
+      }
+      const completed = await countDateRows(table, date, connection);
+      if (completed >= env.DATA_WARMUP_ROWS_PER_DAY) {
+        await connection.rollback();
+        return 0;
+      }
+      const actualBatchSize = Math.min(rowCount, env.DATA_WARMUP_ROWS_PER_DAY - completed);
+      await insertWarmupRowsUnlocked(table, date, completed, actualBatchSize, env.DATA_WARMUP_ROWS_PER_DAY, connection);
+      await connection.commit();
+      return actualBatchSize;
+    } catch (error) {
+      await connection.rollback().catch(() => undefined);
+      throw error;
+    } finally {
+      connection.release();
+    }
+  });
 }
 
-async function dropExpiredPartition(table: typeof TABLES[number], windowStart: string): Promise<void> {
+async function ensureCurrentPartition(table: typeof TABLES[number], date: string, owner: string): Promise<void> {
+  const partitionName = `p${date.replaceAll('-', '')}`;
+  await warmupMutationLock.runExclusive(async () => {
+    await assertWarmupLeaseOwner(getPool(), table.name, owner);
+    const [rows] = await getPool().query(
+      `SELECT partition_name FROM information_schema.partitions
+        WHERE table_schema = DATABASE() AND table_name = ? AND partition_name = ?`,
+      [table.name, partitionName],
+    );
+    if ((rows as unknown[]).length > 0) return;
+    const nextDate = addDays(date, 1);
+    await getPool().query(
+      `ALTER TABLE ${table.name} ADD PARTITION (PARTITION ${partitionName} VALUES LESS THAN ('${nextDate}'))`,
+    );
+  });
+}
+
+async function dropExpiredPartition(table: typeof TABLES[number], windowStart: string, owner: string): Promise<void> {
   const expiredDate = addDays(windowStart, -1);
-  if (!(await dropPartition(table, expiredDate))) return;
+  if (!(await dropPartition(table, expiredDate, owner))) return;
   await getPool().query(
-    `UPDATE data_warmup_progress SET expired_partitions_dropped = expired_partitions_dropped + 1 WHERE table_name = ?`,
-    [table.name],
+    `UPDATE data_warmup_progress SET expired_partitions_dropped = expired_partitions_dropped + 1
+       WHERE table_name = ? AND lease_owner = ?`,
+    [table.name, owner],
   );
 }
 
-async function dropPartition(table: typeof TABLES[number], date: string): Promise<boolean> {
+async function dropPartition(table: typeof TABLES[number], date: string, owner: string): Promise<boolean> {
   const partitionName = `p${date.replaceAll('-', '')}`;
-  const [rows] = await getPool().query(
-    `SELECT partition_name FROM information_schema.partitions
-      WHERE table_schema = DATABASE() AND table_name = ? AND partition_name = ?`,
-    [table.name, partitionName],
-  );
-  if ((rows as unknown[]).length === 0) return false;
-  await getPool().query(`ALTER TABLE ${table.name} DROP PARTITION ${partitionName}`);
-  return true;
+  return warmupMutationLock.runExclusive(async () => {
+    await assertWarmupLeaseOwner(getPool(), table.name, owner);
+    const [rows] = await getPool().query(
+      `SELECT partition_name FROM information_schema.partitions
+        WHERE table_schema = DATABASE() AND table_name = ? AND partition_name = ?`,
+      [table.name, partitionName],
+    );
+    if ((rows as unknown[]).length === 0) return false;
+    await getPool().query(`ALTER TABLE ${table.name} DROP PARTITION ${partitionName}`);
+    return true;
+  });
 }
 
 async function findMissingDays(table: typeof TABLES[number], start: string, end: string): Promise<string[]> {
@@ -476,34 +688,56 @@ async function findMissingDays(table: typeof TABLES[number], start: string, end:
   return missing;
 }
 
-async function countDateRows(table: typeof TABLES[number], date: string): Promise<number> {
-  const [rows] = await getPool().query(
+async function countDateRows(
+  table: typeof TABLES[number], date: string, executor: Pick<PoolConnection, 'query'> = getPool(),
+): Promise<number> {
+  const [rows] = await executor.query(
     `SELECT COUNT(*) AS row_count FROM ${table.name} WHERE ${table.timeColumn} >= ? AND ${table.timeColumn} < DATE_ADD(?, INTERVAL 1 DAY)`,
     [date, date],
   );
   return Number((rows as Record<string, unknown>[])[0]?.row_count ?? 0);
 }
 
-async function isWarmupDateExcluded(tableName: string, date: string): Promise<boolean> {
-  const [rows] = await getPool().query(
+async function isWarmupDateExcluded(
+  tableName: string, date: string, executor: Pick<PoolConnection, 'query'> = getPool(),
+): Promise<boolean> {
+  const [rows] = await executor.query(
     `SELECT 1 FROM data_warmup_manual_exclusions WHERE table_name = ? AND date_value = ? LIMIT 1`,
     [tableName, date],
   );
   return (rows as unknown[]).length > 0;
 }
 
-async function addWarmupExclusion(tableName: string, date: string): Promise<void> {
-  await getPool().query(
-    `INSERT IGNORE INTO data_warmup_manual_exclusions (table_name, date_value) VALUES (?, ?)`,
-    [tableName, date],
-  );
+async function addWarmupExclusion(tableName: string, date: string, owner: string): Promise<void> {
+  await warmupMutationLock.runExclusive(async () => {
+    await assertWarmupLeaseOwner(getPool(), tableName, owner);
+    await getPool().query(
+      `INSERT IGNORE INTO data_warmup_manual_exclusions (table_name, date_value) VALUES (?, ?)`,
+      [tableName, date],
+    );
+  });
 }
 
-async function removeWarmupExclusion(tableName: string, date: string): Promise<void> {
-  await getPool().query(
-    `DELETE FROM data_warmup_manual_exclusions WHERE table_name = ? AND date_value = ?`,
-    [tableName, date],
+async function removeWarmupExclusion(tableName: string, date: string, owner: string): Promise<void> {
+  await warmupMutationLock.runExclusive(async () => {
+    await assertWarmupLeaseOwner(getPool(), tableName, owner);
+    await getPool().query(
+      `DELETE FROM data_warmup_manual_exclusions WHERE table_name = ? AND date_value = ?`,
+      [tableName, date],
+    );
+  });
+}
+
+async function assertWarmupLeaseOwner(
+  executor: Pick<PoolConnection, 'query'>, tableName: string, owner: string,
+): Promise<void> {
+  const [rows] = await executor.query(
+    `SELECT lease_owner FROM data_warmup_progress WHERE table_name = ? FOR UPDATE`,
+    [tableName],
   );
+  if (String((rows as Record<string, unknown>[])[0]?.lease_owner ?? '') !== owner) {
+    throw new Error('DATA_WARMUP_LEASE_LOST');
+  }
 }
 
 async function ensureProgressTable(): Promise<void> {
@@ -538,9 +772,13 @@ async function ensureProgressTable(): Promise<void> {
     error_message VARCHAR(255) NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     started_at DATETIME(3) NULL,
+    heartbeat_at DATETIME(3) NULL,
+    claim_owner VARCHAR(64) NULL,
     completed_at DATETIME(3) NULL,
     INDEX idx_data_warmup_manual_jobs_status (status, id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await ensureManualWarmupJobColumn('heartbeat_at', 'DATETIME(3) NULL');
+  await ensureManualWarmupJobColumn('claim_owner', 'VARCHAR(64) NULL');
   await getPool().query(`CREATE TABLE IF NOT EXISTS data_warmup_manual_exclusions (
     table_name VARCHAR(64) NOT NULL,
     date_value DATE NOT NULL,
@@ -556,18 +794,33 @@ async function ensureProgressTable(): Promise<void> {
   }
 }
 
+async function ensureManualWarmupJobColumn(columnName: 'heartbeat_at' | 'claim_owner', definition: string): Promise<void> {
+  const [rows] = await getPool().query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = DATABASE() AND table_name = 'data_warmup_manual_jobs' AND column_name = ? LIMIT 1`,
+    [columnName],
+  );
+  if ((rows as unknown[]).length > 0) return;
+  try {
+    await getPool().query(`ALTER TABLE data_warmup_manual_jobs ADD COLUMN ${columnName} ${definition}`);
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'ER_DUP_FIELDNAME') throw error;
+  }
+}
+
 async function setWarmupStatus(tableName: string, status: WarmupStatus, guardReason: string | null,
+                               owner: string,
                                patch: { currentDate?: string; dayCompletedRows?: number; rowsPerSec?: number } = {}): Promise<void> {
   const fields = ['status = ?', 'guard_reason = ?', 'lease_owner = ?', 'updated_at = CURRENT_TIMESTAMP(3)'];
-  const values: unknown[] = [status, guardReason, status === 'PAUSED_GUARD' ? null : currentLeaseOwner];
+  const values: unknown[] = [status, guardReason, owner];
   if (patch.currentDate) { fields.push('current_date_value = ?'); values.push(patch.currentDate); }
   if (patch.dayCompletedRows !== undefined) { fields.push('day_completed_rows = ?'); values.push(patch.dayCompletedRows); }
   if (patch.rowsPerSec !== undefined) { fields.push('rows_per_sec = ?'); values.push(patch.rowsPerSec); }
-  values.push(tableName);
-  await getPool().query(`UPDATE data_warmup_progress SET ${fields.join(', ')} WHERE table_name = ?`, values);
+  values.push(tableName, owner);
+  await getPool().query(`UPDATE data_warmup_progress SET ${fields.join(', ')} WHERE table_name = ? AND lease_owner = ?`, values);
 }
 
-async function refreshProgress(table: typeof TABLES[number], date: string, lastSuccessAt: Date | null): Promise<void> {
+async function refreshProgress(table: typeof TABLES[number], date: string, lastSuccessAt: Date | null, owner: string): Promise<void> {
   const [rows] = await getPool().query(
     `SELECT COUNT(*) AS actual_rows, MIN(${table.timeColumn}) AS earliest_time, MAX(${table.timeColumn}) AS latest_time,
             SUM(${table.timeColumn} >= ? AND ${table.timeColumn} < DATE_ADD(?, INTERVAL 1 DAY)) AS current_date_rows
@@ -581,10 +834,10 @@ async function refreshProgress(table: typeof TABLES[number], date: string, lastS
     `UPDATE data_warmup_progress SET status = ?, actual_rows = ?, current_date_value = ?, current_date_rows = ?,
       day_completed_rows = ?, earliest_time = ?, latest_time = ?, table_bytes = ?,
       guard_reason = ?, lease_owner = ?, last_success_at = COALESCE(?, last_success_at), updated_at = CURRENT_TIMESTAMP(3)
-      WHERE table_name = ?`,
+      WHERE table_name = ? AND lease_owner = ?`,
     [guardReason ? 'PAUSED_GUARD' : 'APPENDING', Number(row.actual_rows ?? 0), date, Number(row.current_date_rows ?? 0),
       Number(row.current_date_rows ?? 0), row.earliest_time ?? null, row.latest_time ?? null, bytes,
-      guardReason, guardReason ? null : currentLeaseOwner, lastSuccessAt, table.name],
+      guardReason, owner, lastSuccessAt, table.name, owner],
   );
 }
 
@@ -596,22 +849,26 @@ async function getTableBytes(tableName: string): Promise<number> {
   return Number((rows as Record<string, unknown>[])[0]?.table_bytes ?? 0);
 }
 
-async function updateWarmupStatuses(status: WarmupStatus, reason: string): Promise<void> {
+async function markWarmupLeaseOwner(owner: string): Promise<void> {
+  await getPool().query(
+    `UPDATE data_warmup_progress SET lease_owner = ? WHERE table_name IN (?, ?)`,
+    [owner, TABLES[0].name, TABLES[1].name],
+  );
+}
+
+async function updateWarmupStatuses(status: WarmupStatus, reason: string, owner: string | null = null): Promise<void> {
   await ensureProgressTable().catch(() => undefined);
+  if (owner) {
+    await getPool().query(
+      `UPDATE data_warmup_progress SET status = ?, guard_reason = ?, lease_owner = NULL
+         WHERE lease_owner = ? AND table_name IN (?, ?)`,
+      [status, reason, owner, TABLES[0].name, TABLES[1].name],
+    ).catch(() => undefined);
+    return;
+  }
   await getPool().query(
     `UPDATE data_warmup_progress SET status = ?, guard_reason = ?, lease_owner = NULL WHERE table_name IN (?, ?)`,
     [status, reason, TABLES[0].name, TABLES[1].name],
-  ).catch(() => undefined);
-}
-
-async function clearWarmupLeaseOwners(): Promise<void> {
-  await getPool().query(
-    `UPDATE data_warmup_progress SET
-       status = IF(guard_reason = 'LEASE_NOT_ACQUIRED', 'BACKFILLING', status),
-       guard_reason = IF(guard_reason = 'LEASE_NOT_ACQUIRED', NULL, guard_reason),
-       lease_owner = NULL
-     WHERE table_name IN (?, ?)`,
-    [TABLES[0].name, TABLES[1].name],
   ).catch(() => undefined);
 }
 
@@ -652,8 +909,6 @@ async function renewLease(owner: string): Promise<boolean> {
   ).catch(() => 0);
   return Number(result) === 1;
 }
-
-let currentLeaseOwner: string | null = null;
 
 function toProgress(row: Record<string, unknown>, partitions: string[]): WarmupProgress {
   return {
