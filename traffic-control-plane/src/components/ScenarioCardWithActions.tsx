@@ -1,39 +1,24 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  Activity, AlertTriangle, Check, ChevronDown, DatabaseZap, Flame, LockKeyhole, Play,
-  Search,
-  ServerCog, ShieldCheck, Square, WalletCards,
-} from 'lucide-react';
+import { Activity, Check, ChevronDown, Play, Search, Square } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PROVIDER_OUTCOMES, SCENARIO_META } from '@/components/scenarios/meta';
+import type { FaultRun, Scenario } from '@/components/scenarios/types';
 
-type Parameter = { name: string; kind: 'integer' | 'number' | 'string'; required?: boolean; default?: number | string; options?: readonly string[]; min?: number; max?: number; maxLength?: number };
-type Scenario = { scenario: string; targetService: string; targetOperation: string; maxDurationSec: number; recoveryStrategy: string; allowManualCleanup: boolean; parameters: Parameter[] };
-type FaultRun = { faultRunId: string; scenario: string; targetService: string; targetOperation: string; state: string; expiresAt: string; createdAt: string; operatorAuditId?: number | null };
+interface ScenarioCardWithActionsProps {
+  scenario: Scenario;
+  activeRun?: FaultRun;
+  busy: boolean;
+  onCreate: (scenario: Scenario, parameters: Record<string, number | string>) => Promise<void>;
+  onDetails: (run: FaultRun) => Promise<void>;
+  onStop: (run: FaultRun) => Promise<void>;
+  onCleanup: (scenario: Scenario) => Promise<void>;
+}
 
-const PROVIDER_OUTCOMES = [
-  { value: 'AUTHORIZED', label: 'Authorized' },
-  { value: 'DECLINED', label: 'Declined' },
-  { value: 'TIMEOUT', label: 'Timeout' },
-];
-const SCENARIO_META: Record<string, { label: string; description: string; icon: typeof Activity; tone: string }> = {
-  BROWSE_REPORT_SQL: { label: 'Browse report SQL', description: 'Exercise historical scans and query-plan differences on the product report path.', icon: DatabaseZap, tone: 'text-amber-700 dark:text-amber-300' },
-  ORDER_REPORT_SQL: { label: 'Order report SQL', description: 'Exercise the customer order report range and detail aggregation path.', icon: DatabaseZap, tone: 'text-amber-700 dark:text-amber-300' },
-  BROWSE_SURGE: { label: 'Browse traffic surge', description: 'Sustain controlled concurrency against the real product API through Gateway.', icon: Flame, tone: 'text-orange-700 dark:text-orange-300' },
-  ORDER_QUERY_SURGE: { label: 'Order query surge', description: 'Sustain compliant demo-customer traffic against the order query path.', icon: Flame, tone: 'text-orange-700 dark:text-orange-300' },
-  CART_REDIS_LARGE_VALUE: { label: 'Cart large Redis value', description: 'Create and read a large run-scoped Redis value through the fixed Sam cart.', icon: WalletCards, tone: 'text-emerald-700 dark:text-emerald-300' },
-  CART_CATALOG_DEPENDENCY: { label: 'Cart dependency failure', description: 'Fail the real Cart-to-Catalog dependency before a cart write.', icon: ServerCog, tone: 'text-rose-700 dark:text-rose-300' },
-  NOTIFICATION_HEAP_PRESSURE: { label: 'JVM memory leak', description: 'Retain high-cardinality objects until the notification JVM runs out of heap.', icon: AlertTriangle, tone: 'text-red-700 dark:text-red-300' },
-  NOTIFICATION_STORAGE_APPEND: { label: 'Notification storage growth', description: 'Grow persistent storage with run-scoped notification transaction data.', icon: DatabaseZap, tone: 'text-violet-700 dark:text-violet-300' },
-  PROMOTION_LOCK_CONTENTION: { label: 'Promotion deadlock', description: 'Trigger a real database deadlock through competing promotion reservations.', icon: LockKeyhole, tone: 'text-cyan-700 dark:text-cyan-300' },
-  INVENTORY_TABLE_EXCLUSIVE: { label: 'Inventory table lock', description: 'Hold an exclusive database table lock that blocks inventory reads.', icon: LockKeyhole, tone: 'text-cyan-700 dark:text-cyan-300' },
-  PSP_PROVIDER_OUTCOME: { label: 'PSP external dependency', description: 'Inject an external PSP dependency outcome into the payment path.', icon: ShieldCheck, tone: 'text-blue-700 dark:text-blue-300' },
-};
-
-export default function ScenarioCardWithActions({ scenario, activeRun, busy, onCreate, onDetails, onStop, onCleanup }: { scenario: Scenario; activeRun?: FaultRun; busy: boolean; onCreate: (scenario: Scenario, parameters: Record<string, number | string>) => Promise<void>; onDetails: (run: FaultRun) => Promise<void>; onStop: (run: FaultRun) => Promise<void>; onCleanup: (scenario: Scenario) => Promise<void> }) {
+export default function ScenarioCardWithActions({ scenario, activeRun, busy, onCreate, onDetails, onStop, onCleanup }: ScenarioCardWithActionsProps) {
   const meta = SCENARIO_META[scenario.scenario] || { label: scenario.scenario, description: 'Catalog-defined scenario.', icon: Activity, tone: 'text-primary' };
   const Icon = meta.icon;
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(scenario.parameters.map((parameter) => [parameter.name, String(parameter.default ?? '')])));
@@ -53,7 +38,7 @@ export default function ScenarioCardWithActions({ scenario, activeRun, busy, onC
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground"><span>Target <strong className="font-medium text-foreground">{scenario.targetService}</strong></span><span>Operation <strong className="font-medium text-foreground">{scenario.targetOperation}</strong></span><span>Limit <strong className="font-medium text-foreground">{scenario.maxDurationSec}s</strong></span></div><div className="flex items-center gap-2"><Button variant={isActiveScenario ? 'destructive' : 'default'} size="sm" onClick={() => isActiveScenario && activeRun ? void onStop(activeRun) : void submit()} disabled={locked || busy || !providerOutcomeIsValid}>{isActiveScenario ? <Square className="size-3.5" /> : <Play className="size-3.5" />}{busy ? (isActiveScenario ? 'Stopping...' : 'Starting...') : isActiveScenario ? 'Stop' : locked ? 'Locked' : 'Start'}</Button>{scenario.allowManualCleanup && <Button variant="outline" size="sm" onClick={() => void onCleanup(scenario)} disabled={Boolean(activeRun) || busy}>Cleanup</Button>}</div></div>
     </CardHeader>
     <CardContent className="space-y-4 pt-4">
-      {['BROWSE_REPORT_SQL', 'ORDER_REPORT_SQL'].includes(scenario.scenario) && <div className="grid grid-cols-3 gap-2 rounded-md bg-muted/50 p-3 text-[11px]"><Detail label="Data window" value="Today / 180-day partitions" /><Detail label="Baseline" value="Historical scan" /><Detail label="Fix status" value="Awaiting plan evidence" /></div>}
+      {['BROWSE_REPORT_SQL', 'ORDER_REPORT_SQL'].includes(scenario.scenario) && <div className="grid grid-cols-3 gap-2 rounded-md bg-muted/50 p-3 text-[11px]"><ScenarioDetail label="Data window" value="Today / 180-day partitions" /><ScenarioDetail label="Baseline" value="Historical scan" /><ScenarioDetail label="Fix status" value="Awaiting plan evidence" /></div>}
       <div className="grid grid-cols-2 gap-3">{scenario.parameters.map((parameter) => {
         const isProviderOutcome = parameter.name === 'providerOutcome';
         return <label key={parameter.name} className="space-y-1.5 text-xs"><span className="flex justify-between gap-2 text-muted-foreground"><span>{isProviderOutcome ? 'Provider outcome' : parameter.name}</span><span>{parameter.required ? 'required' : 'optional'}</span></span>{isProviderOutcome ? <ProviderOutcomeSelect value={values[parameter.name] || ''} onChange={(value) => setValue(parameter.name, value)} options={parameter.options} disabled={locked || Boolean(busy)} /> : <input className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" type={parameter.kind === 'string' ? 'text' : 'number'} min={parameter.min} max={parameter.max} maxLength={parameter.maxLength} value={values[parameter.name] || ''} onChange={(event) => setValue(parameter.name, event.target.value)} disabled={locked || busy} />}</label>;
@@ -81,4 +66,6 @@ function ProviderOutcomeSelect({ value, onChange, options, disabled }: { value: 
   </div>;
 }
 
-function Detail({ label, value }: { label: string; value: string }) { return <div><p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-1 truncate text-sm font-medium">{value}</p></div>; }
+function ScenarioDetail({ label, value }: { label: string; value: string }) {
+  return <div><p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-1 truncate text-sm font-medium">{value}</p></div>;
+}
