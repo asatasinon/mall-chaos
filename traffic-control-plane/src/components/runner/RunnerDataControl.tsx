@@ -97,7 +97,22 @@ export default function DataControlPanel({
       </Card>
     </div>
     <Card>
-      <CardHeader className="!flex flex-row items-center justify-between space-y-0 pb-3"><CardTitle className="text-sm font-medium">Manual operation queue</CardTitle><span className="text-xs text-muted-foreground">{warmup?.jobs.length ?? 0} recent</span></CardHeader>
+      <CardHeader className="!flex flex-row items-center justify-between space-y-0 pb-3">
+        <CardTitle className="text-sm font-medium">Manual operation queue</CardTitle>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{warmup?.jobs.length ?? 0} recent</span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Refresh manual operation queue"
+            title="Refresh manual operation queue"
+            onClick={onRefresh}
+            disabled={loading}
+          >
+            <RefreshCw className={loading ? 'animate-spin' : ''} />
+          </Button>
+        </div>
+      </CardHeader>
       <CardContent>
         {!warmup?.jobs.length && <p className="text-sm text-muted-foreground">No manual operations yet.</p>}
         <div className="space-y-1">{warmup?.jobs.map((job) => <div key={job.id} className="grid gap-1 border-b border-border py-2 last:border-0 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:gap-3"><span className="font-mono text-xs text-muted-foreground">#{job.id}</span><div className="min-w-0 text-xs"><span className="font-medium">{job.operation === 'INJECT' ? 'Inject' : 'Clear'} {job.tableName}</span><span className="ml-2 text-muted-foreground">{job.dates.join(', ')}</span>{job.operation === 'INJECT' && <span className="ml-2 text-muted-foreground">{formatNumber(job.rowsPerDay)}/day</span>}{job.errorMessage && <p className="truncate text-destructive">{job.errorMessage}</p>}</div><div className="flex items-center gap-2 text-xs"><span className="text-muted-foreground">{job.operation === 'INJECT' ? `${formatNumber(job.processedRows)} rows` : `${job.processedDays}/${job.dates.length} days`}</span><Badge variant={job.status === 'FAILED' || job.status === 'PAUSED_GUARD' ? 'destructive' : job.status === 'COMPLETED' ? 'default' : 'outline'}>{job.status}</Badge></div></div>)}</div>
