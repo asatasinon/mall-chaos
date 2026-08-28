@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import { CalendarDays, Check, ChevronDown, Database, Pencil, Pause, Play, Power, PowerOff, RefreshCw, Save, Trash2, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Database, Pencil, Pause, Play, Plus, Power, PowerOff, RefreshCw, Save, Trash2, X } from 'lucide-react';
 import { fetchWithAuth } from '@/lib/auth-fetch';
 
 interface RunnerStatus {
@@ -281,9 +281,9 @@ export default function RunnerPage() {
     };
   }, []);
 
-  const addWarmupDate = () => {
-    if (!warmupDateInput || warmupDates.includes(warmupDateInput)) return;
-    setWarmupDates((current) => [...current, warmupDateInput].sort());
+  const addWarmupDates = (dates: string[]) => {
+    if (dates.length === 0) return;
+    setWarmupDates((current) => Array.from(new Set([...current, ...dates])).sort());
   };
 
   const queueWarmupJob = async ({ operation, tableName, dates, rowsPerDay }: WarmupJobRequest) => {
@@ -512,7 +512,7 @@ export default function RunnerPage() {
         onTableChange={setWarmupTable}
         onRowsChange={setWarmupRows}
         onDateInputChange={setWarmupDateInput}
-        onAddDate={addWarmupDate}
+        onAddDates={addWarmupDates}
         onRemoveDate={(date) => setWarmupDates((current) => current.filter((item) => item !== date))}
         onSubmit={() => void submitWarmupJob()}
       />}
@@ -561,7 +561,7 @@ function TabButton({ active, children, onClick }: { active: boolean; children: R
 
 function DataControlPanel({
   warmup, operation, tableName, rowsPerDay, dateInput, dates, busy, message,
-  onOperationChange, onTableChange, onRowsChange, onDateInputChange, onAddDate, onRemoveDate, onSubmit,
+  onOperationChange, onTableChange, onRowsChange, onDateInputChange, onAddDates, onRemoveDate, onSubmit,
 }: {
   warmup: WarmupResponse | null;
   operation: 'INJECT' | 'CLEANUP';
@@ -575,13 +575,13 @@ function DataControlPanel({
   onTableChange: (value: string) => void;
   onRowsChange: (value: string) => void;
   onDateInputChange: (value: string) => void;
-  onAddDate: () => void;
+  onAddDates: (dates: string[]) => void;
   onRemoveDate: (date: string) => void;
   onSubmit: () => void;
 }) {
   return <div className="space-y-4" id="runner-data-control" role="tabpanel">
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
-      <Card>
+      <Card className="!overflow-visible">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
             <div><CardTitle className="text-sm font-medium">Data operation</CardTitle><p className="mt-1 text-xs text-muted-foreground">Queue a bounded operation for the standalone warmup worker.</p></div>
@@ -598,14 +598,14 @@ function DataControlPanel({
             {operation === 'INJECT' && <label className="space-y-1"><span className="text-xs text-muted-foreground">Rows per selected day</span><input type="number" min="1" max="1000000" value={rowsPerDay} onChange={(event) => onRowsChange(event.target.value)} className="h-8 w-full rounded-md border border-border bg-input px-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></label>}
           </div>
           <div className="space-y-2">
-            <span className="text-xs text-muted-foreground">Selected dates</span>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative"><CalendarDays className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><input type="date" value={dateInput} onChange={(event) => onDateInputChange(event.target.value)} className="h-8 rounded-md border border-border bg-input pl-7 pr-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></div>
-              <Button size="sm" variant="outline" onClick={onAddDate}><CalendarDays />Add day</Button>
+            <div className="flex items-end justify-between gap-3">
+              <span className="text-xs font-medium text-foreground">Selected dates</span>
+              <span className="text-[11px] tabular-nums text-muted-foreground">{dates.length ? `${dates.length} ${dates.length === 1 ? 'day' : 'days'} queued` : 'No days queued'}</span>
             </div>
-            <div className="flex min-h-9 flex-wrap gap-1.5 rounded-md border border-dashed border-border p-2">
-              {dates.length === 0 && <span className="text-xs text-muted-foreground">No days selected</span>}
-              {dates.map((date) => <span key={date} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 font-mono text-xs">{date}<button type="button" aria-label={`Remove ${date}`} title={`Remove ${date}`} onClick={() => onRemoveDate(date)} className="text-muted-foreground hover:text-foreground"><X className="size-3" /></button></span>)}
+            <DatePicker value={dateInput} selectedDates={dates} onChange={onDateInputChange} onAddDates={onAddDates} className="w-full" />
+            <div className="flex min-h-11 flex-wrap items-center gap-1.5 rounded-lg border border-border/80 bg-background/30 p-2.5">
+              {dates.length === 0 && <span className="px-1 text-xs text-muted-foreground">Choose a date above, then add it to the queue.</span>}
+              {dates.map((date) => <span key={date} className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 font-mono text-xs ring-1 ring-inset ring-primary/20">{date}<button type="button" aria-label={`Remove ${date}`} title={`Remove ${date}`} onClick={() => onRemoveDate(date)} className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-primary/15 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X className="size-3" /></button></span>)}
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
@@ -635,6 +635,196 @@ function DataControlPanel({
       </CardContent>
     </Card>
   </div>;
+}
+
+function DatePicker({ value, selectedDates, onChange, onAddDates, className = '' }: { value: string; selectedDates: string[]; onChange: (value: string) => void; onAddDates: (dates: string[]) => void; className?: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [placement, setPlacement] = useState<'bottom' | 'top'>('bottom');
+  const [rangeStart, setRangeStart] = useState<string | null>(null);
+  const [rangeEnd, setRangeEnd] = useState<string | null>(null);
+  const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(parseDateValue(value) ?? new Date()));
+  const selectedDate = parseDateValue(value);
+  const monthLabel = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(visibleMonth);
+  const dateCells = getCalendarCells(visibleMonth);
+  const today = todayInShanghaiClient();
+  const rangeDates = rangeStart
+    ? getDateRange(rangeStart, rangeEnd ?? rangeStart)
+    : selectedDate
+      ? [value]
+      : [];
+  const allRangeDatesQueued = rangeDates.length > 0 && rangeDates.every((date) => selectedDates.includes(date));
+  const rangeLabel = rangeEnd && rangeDates.length > 1
+    ? `${rangeDates.length} days selected`
+    : rangeStart
+      ? 'Choose an end date'
+      : 'Select a day to add';
+  const displayDate = rangeEnd && rangeDates.length > 1
+    ? `${formatDateLabel(parseDateValue(rangeDates[0]))} - ${formatDateLabel(parseDateValue(rangeDates[rangeDates.length - 1]))}`
+    : selectedDate
+      ? formatDateLabel(selectedDate)
+      : 'Choose a date';
+
+  useEffect(() => {
+    if (!open) return;
+    const updatePlacement = () => {
+      const container = containerRef.current;
+      const popover = popoverRef.current;
+      if (!container || !popover) return;
+
+      const triggerRect = container.getBoundingClientRect();
+      const popoverHeight = popover.getBoundingClientRect().height;
+      const gap = 8;
+      let topBoundary = 0;
+      let bottomBoundary = window.innerHeight;
+      let ancestor = container.parentElement;
+
+      while (ancestor) {
+        const overflowY = window.getComputedStyle(ancestor).overflowY;
+        if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'hidden' || overflowY === 'clip') {
+          const ancestorRect = ancestor.getBoundingClientRect();
+          topBoundary = Math.max(topBoundary, ancestorRect.top);
+          bottomBoundary = Math.min(bottomBoundary, ancestorRect.bottom);
+        }
+        ancestor = ancestor.parentElement;
+      }
+
+      const spaceAbove = triggerRect.top - topBoundary - gap;
+      const spaceBelow = bottomBoundary - triggerRect.bottom - gap;
+      const nextPlacement = spaceBelow >= popoverHeight || spaceAbove <= spaceBelow ? 'bottom' : 'top';
+      setPlacement((current) => current === nextPlacement ? current : nextPlacement);
+    };
+
+    updatePlacement();
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !containerRef.current?.contains(event.target)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('resize', updatePlacement);
+    window.addEventListener('scroll', updatePlacement, true);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('resize', updatePlacement);
+      window.removeEventListener('scroll', updatePlacement, true);
+    };
+  }, [open]);
+
+  const selectDate = (date: string) => {
+    if (!rangeStart || rangeEnd) {
+      setRangeStart(date);
+      setRangeEnd(null);
+    } else {
+      setRangeEnd(date);
+    }
+    onChange(date);
+    const parsedDate = parseDateValue(date);
+    if (parsedDate) setVisibleMonth(startOfMonth(parsedDate));
+  };
+
+  const addSelectedDates = () => {
+    if (rangeDates.length === 0 || allRangeDatesQueued) return;
+    onAddDates(rangeDates);
+    setRangeStart(null);
+    setRangeEnd(null);
+    setOpen(false);
+  };
+
+  const toggleOpen = () => {
+    if (!open && selectedDate) setVisibleMonth(startOfMonth(selectedDate));
+    setOpen((current) => !current);
+  };
+
+  return <div ref={containerRef} className={`relative ${className}`}>
+    <button type="button" className="group flex min-h-11 w-full items-center gap-3 rounded-lg border border-border bg-background/55 px-3 text-left shadow-sm outline-none transition-colors hover:border-primary/45 hover:bg-background focus-visible:ring-2 focus-visible:ring-ring" aria-haspopup="dialog" aria-expanded={open} aria-label="Choose a date" onClick={toggleOpen}>
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary transition-colors group-hover:bg-primary/15"><CalendarDays className="size-4" /></span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Date to add</span>
+        <span className={`block truncate text-sm font-medium ${selectedDate ? 'text-foreground' : 'text-muted-foreground'}`}>{displayDate}</span>
+      </span>
+      <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180 text-primary' : ''}`} />
+    </button>
+    {open && <div ref={popoverRef} className={`absolute left-0 z-40 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border/80 bg-popover p-3 text-popover-foreground shadow-xl ${placement === 'top' ? 'bottom-[calc(100%+0.5rem)]' : 'top-[calc(100%+0.5rem)]'}`} role="dialog" aria-label="Choose a date">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Calendar</p>
+          <p className="text-sm font-semibold">{monthLabel}</p>
+        </div>
+        <div className="flex items-center gap-1">
+          <button type="button" aria-label="Previous month" title="Previous month" className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}><ChevronLeft className="size-4" /></button>
+          <button type="button" aria-label="Next month" title="Next month" className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}><ChevronRight className="size-4" /></button>
+        </div>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center" role="grid" aria-label={monthLabel}>
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((weekday) => <span key={weekday} className="pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground" role="columnheader">{weekday.slice(0, 1)}</span>)}
+        {dateCells.map((cell) => {
+          const isInRange = rangeDates.includes(cell.date);
+          const isRangeStart = cell.date === rangeStart;
+          const isRangeEnd = cell.date === (rangeEnd ?? rangeStart);
+          const isQueued = selectedDates.includes(cell.date);
+          const isToday = cell.date === today;
+          return <button key={cell.date} type="button" role="gridcell" aria-label={`Select ${cell.date}`} aria-selected={isInRange} className={`relative flex aspect-square items-center justify-center rounded-md text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring ${cell.inMonth ? 'text-foreground' : 'text-muted-foreground/35'} ${isRangeStart || isRangeEnd ? 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90' : isInRange ? 'bg-primary/15 text-primary ring-1 ring-inset ring-primary/25 hover:bg-primary/25' : isQueued ? 'bg-primary/12 text-primary ring-1 ring-inset ring-primary/25 hover:bg-primary/20' : 'hover:bg-muted'}`} onClick={() => selectDate(cell.date)}>
+            {cell.day}
+            {isToday && !isRangeStart && !isRangeEnd && <span className="absolute bottom-1 size-1 rounded-full bg-primary" />}
+          </button>;
+        })}
+      </div>
+      <div className="mt-3 space-y-2 border-t border-border/70 pt-3">
+        <div className="flex items-center justify-between gap-2">
+          <button type="button" className="text-xs font-medium text-primary transition-colors hover:text-primary/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => selectDate(today)}>Today</button>
+          <span className="text-[11px] text-muted-foreground">{allRangeDatesQueued ? 'Already queued' : rangeLabel}</span>
+        </div>
+        <Button size="sm" className="w-full" onClick={addSelectedDates} disabled={rangeDates.length === 0 || allRangeDatesQueued}><Plus />{allRangeDatesQueued ? 'Added' : rangeDates.length > 1 ? `Add ${rangeDates.length} days` : 'Add day'}</Button>
+      </div>
+    </div>}
+  </div>;
+}
+
+function parseDateValue(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return date.getFullYear() === Number(match[1]) && date.getMonth() === Number(match[2]) - 1 && date.getDate() === Number(match[3]) ? date : null;
+}
+
+function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function toDateValue(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function formatDateLabel(date: Date | null): string {
+  return date ? new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(date) : 'Choose a date';
+}
+
+function getCalendarCells(month: Date): Array<{ date: string; day: number; inMonth: boolean }> {
+  const monthStart = startOfMonth(month);
+  const firstWeekday = monthStart.getDay();
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(monthStart.getFullYear(), monthStart.getMonth(), index - firstWeekday + 1);
+    return { date: toDateValue(date), day: date.getDate(), inMonth: date.getMonth() === monthStart.getMonth() };
+  });
+}
+
+function getDateRange(startValue: string, endValue: string): string[] {
+  const start = parseDateValue(startValue);
+  const end = parseDateValue(endValue);
+  if (!start || !end) return [];
+
+  const first = start <= end ? start : end;
+  const last = start <= end ? end : start;
+  const dates: string[] = [];
+  for (const date = new Date(first); date <= last; date.setDate(date.getDate() + 1)) {
+    dates.push(toDateValue(date));
+  }
+  return dates;
 }
 
 function ModeButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
