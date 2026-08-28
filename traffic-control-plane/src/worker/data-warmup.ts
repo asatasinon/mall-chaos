@@ -366,11 +366,18 @@ function isWarmupDate(date: string): boolean {
   return date >= windowStart && date <= currentDate;
 }
 
+export function parseWarmupDates(value: unknown): string[] {
+  const dates = Array.isArray(value) ? value : typeof value === 'string' ? JSON.parse(value) : [];
+  if (!Array.isArray(dates) || dates.some((date) => typeof date !== 'string')) {
+    throw new Error('INVALID_WARMUP_JOB_DATES');
+  }
+  return dates;
+}
+
 function toManualWarmupJob(row: Record<string, unknown>): ManualWarmupJob {
-  const rawDates = typeof row.dates === 'string' ? row.dates : String(row.dates ?? '[]');
   return {
     id: Number(row.id), operation: String(row.operation) as ManualWarmupOperation, tableName: String(row.table_name),
-    dates: JSON.parse(rawDates) as string[], rowsPerDay: Number(row.rows_per_day),
+    dates: parseWarmupDates(row.dates), rowsPerDay: Number(row.rows_per_day),
     status: String(row.status) as ManualWarmupJobStatus, processedDays: Number(row.processed_days),
     processedRows: Number(row.processed_rows), errorMessage: row.error_message ? String(row.error_message) : null,
     createdAt: new Date(String(row.created_at)).toISOString(), startedAt: row.started_at ? new Date(String(row.started_at)).toISOString() : null,
