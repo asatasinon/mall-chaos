@@ -11,6 +11,8 @@ import { formatBytes, formatNumber } from '@/components/runner/utils';
 
 interface DataControlPanelProps {
   warmup: WarmupResponse | null;
+  loading: boolean;
+  error: string | null;
   operation: 'INJECT' | 'CLEANUP';
   tableName: string;
   rowsPerDay: string;
@@ -25,11 +27,12 @@ interface DataControlPanelProps {
   onAddDates: (dates: string[]) => void;
   onRemoveDate: (date: string) => void;
   onSubmit: () => void;
+  onRefresh: () => void;
 }
 
 export default function DataControlPanel({
-  warmup, operation, tableName, rowsPerDay, dateInput, dates, busy, message,
-  onOperationChange, onTableChange, onRowsChange, onDateInputChange, onAddDates, onRemoveDate, onSubmit,
+  warmup, loading, error, operation, tableName, rowsPerDay, dateInput, dates, busy, message,
+  onOperationChange, onTableChange, onRowsChange, onDateInputChange, onAddDates, onRemoveDate, onSubmit, onRefresh,
 }: DataControlPanelProps) {
   return <div className="space-y-4" id="runner-data-control" role="tabpanel">
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
@@ -69,12 +72,26 @@ export default function DataControlPanel({
       </Card>
 
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-sm font-medium">Warmup window</CardTitle></CardHeader>
+        <CardHeader className="!flex flex-row items-center justify-between space-y-0 pb-3">
+          <CardTitle className="text-sm font-medium">Warmup window</CardTitle>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Refresh warmup status"
+            title="Refresh warmup status"
+            onClick={onRefresh}
+            disabled={loading}
+          >
+            <RefreshCw className={loading ? 'animate-spin' : ''} />
+          </Button>
+        </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-3 gap-2"><RunnerMetric title="Window" value={warmup ? `${warmup.windowDays} days` : '—'} /><RunnerMetric title="Default/day" value={warmup ? formatNumber(warmup.rowsPerDay) : '—'} /><RunnerMetric title="Target" value={warmup ? formatNumber(warmup.targetRows) : '—'} /></div>
           <div className="space-y-2">
             {warmup?.tables.map((table) => <div key={table.tableName} className="border-t border-border pt-2"><div className="flex items-center justify-between gap-2 text-xs"><span className="flex min-w-0 items-center gap-2 font-mono"><span className={`status-dot ${table.status === 'PAUSED_GUARD' || table.status === 'ERROR' ? 'status-dot-red' : table.status === 'APPENDING' ? 'status-dot-green' : 'status-dot-yellow'}`} />{table.tableName}</span><Badge variant={table.status === 'PAUSED_GUARD' ? 'destructive' : 'outline'}>{table.status}</Badge></div><div className="mt-1 grid grid-cols-3 gap-2 text-xs text-muted-foreground"><span>{formatNumber(table.actualRows)} rows</span><span>{formatNumber(table.dayCompletedRows)}/{formatNumber(table.dayTargetRows)} today</span><span className="text-right">{table.guardReason ?? formatBytes(table.tableBytes)}</span></div></div>)}
-            {!warmup && <p className="text-sm text-muted-foreground">Loading warmup status...</p>}
+            {!warmup && loading && <p className="text-sm text-muted-foreground">Loading warmup status...</p>}
+            {!warmup && !loading && <p className="text-sm text-destructive">{error ?? 'Warmup status is unavailable'}</p>}
+            {warmup && error && <p className="text-xs text-destructive">{error}</p>}
           </div>
         </CardContent>
       </Card>

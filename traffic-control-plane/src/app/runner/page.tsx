@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import DataControlPanel from '@/components/runner/RunnerDataControl';
 import {
@@ -42,6 +42,9 @@ export default function RunnerPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'accounts' | 'scheduled' | 'data' | 'activity'>('accounts');
   const [warmup, setWarmup] = useState<WarmupResponse | null>(null);
+  const [warmupLoading, setWarmupLoading] = useState(true);
+  const [warmupError, setWarmupError] = useState<string | null>(null);
+  const warmupRequestInFlight = useRef(false);
   const [warmupOperation, setWarmupOperation] = useState<'INJECT' | 'CLEANUP'>('INJECT');
   const [warmupTable, setWarmupTable] = useState('user_behavior_log');
   const [warmupRows, setWarmupRows] = useState('1000');
@@ -124,18 +127,33 @@ export default function RunnerPage() {
     } catch {}
   }, []);
 
-  const loadWarmup = useCallback(async () => {
+  const loadWarmup = useCallback(async (showLoading = false) => {
+    if (warmupRequestInFlight.current) return;
+    warmupRequestInFlight.current = true;
+    if (showLoading) setWarmupLoading(true);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
-      const response = await fetchWithAuth('/internal/traffic/runner/data-warmup/progress');
+      const response = await fetchWithAuth('/internal/traffic/runner/data-warmup/progress', { signal: controller.signal });
       const json = await response.json();
-      if (json.code === 0) setWarmup(json.data as WarmupResponse);
-    } catch {}
+      if (json.code !== 0) throw new Error(json.message || `Warmup status request failed (${response.status})`);
+      setWarmup(json.data as WarmupResponse);
+      setWarmupError(null);
+    } catch (error) {
+      setWarmupError(error instanceof Error && error.name === 'AbortError'
+        ? 'Warmup status request timed out'
+        : error instanceof Error ? error.message : 'Warmup status is unavailable');
+    } finally {
+      clearTimeout(timeout);
+      warmupRequestInFlight.current = false;
+      if (showLoading) setWarmupLoading(false);
+    }
   }, []);
 
   const loadAll = useCallback(async () => {
     await Promise.all([
       loadStatus(), loadConfig(), loadAccounts(), loadActivity(), loadInventory(),
-      loadCouponReplenishment(), loadWarmup(),
+      loadCouponReplenishment(), loadWarmup(true),
     ]);
   }, [loadAccounts, loadActivity, loadConfig, loadCouponReplenishment, loadInventory, loadStatus, loadWarmup]);
 
@@ -317,6 +335,8 @@ export default function RunnerPage() {
     {activeView === 'scheduled' && <ScheduledTasksPanel inventory={inventory} couponReplenishment={couponReplenishment} workerUnavailable={workerUnavailable} triggeringReplenishment={triggeringReplenishment} onTrigger={(type) => void triggerReplenishment(type)} />}
     {activeView === 'data' && <DataControlPanel
       warmup={warmup}
+      loading={warmupLoading}
+      error={warmupError}
       operation={warmupOperation}
       tableName={warmupTable}
       rowsPerDay={warmupRows}
@@ -324,6 +344,7 @@ export default function RunnerPage() {
       dates={warmupDates}
       busy={warmupBusy}
       message={warmupMessage}
+      onRefresh={() => void loadWarmup(true)}
       onOperationChange={(operation) => { setWarmupOperation(operation); setWarmupMessage(null); }}
       onTableChange={setWarmupTable}
       onRowsChange={setWarmupRows}
