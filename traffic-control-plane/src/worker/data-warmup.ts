@@ -61,6 +61,8 @@ export class DataWarmupService {
   private readonly owner = randomUUID();
   private started = false;
   private stopped = false;
+  private leaseHeartbeat: NodeJS.Timeout | null = null;
+  private leaseRenewalInFlight = false;
   private leaseHeld = false;
 
   start(): void {
@@ -91,6 +93,7 @@ export class DataWarmupService {
         }
         this.leaseHeld = true;
         currentLeaseOwner = this.owner;
+        this.startLeaseHeartbeat();
         if (!(await renewLease(this.owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
         await processManualWarmupJobs();
         for (const table of TABLES) {
@@ -99,6 +102,9 @@ export class DataWarmupService {
         if (!(await renewLease(this.owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
         await sleep(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
       } catch (error) {
+        this.stopLeaseHeartbeat();
+        this.leaseHeld = false;
+        currentLeaseOwner = null;
         log.error({ error }, 'Data warmup iteration failed');
         await updateWarmupStatuses('ERROR', error instanceof Error ? error.message : String(error));
         await sleep(Math.min(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000) * 5, 30_000));
@@ -137,7 +143,32 @@ export class DataWarmupService {
     await refreshProgress(table, today, null);
   }
 
+  private startLeaseHeartbeat(): void {
+    if (this.leaseHeartbeat) return;
+    this.leaseHeartbeat = setInterval(() => {
+      if (!this.leaseHeld || this.leaseRenewalInFlight) return;
+      this.leaseRenewalInFlight = true;
+      void renewLease(this.owner).then((renewed) => {
+        if (renewed) return;
+        this.stopLeaseHeartbeat();
+        this.leaseHeld = false;
+        currentLeaseOwner = null;
+        log.warn('Data warmup lease renewal failed');
+      }).finally(() => {
+        this.leaseRenewalInFlight = false;
+      });
+    }, Math.max(1000, Math.floor(LEASE_TTL_SEC * 1000 / 3)));
+    this.leaseHeartbeat.unref();
+  }
+
+  private stopLeaseHeartbeat(): void {
+    if (!this.leaseHeartbeat) return;
+    clearInterval(this.leaseHeartbeat);
+    this.leaseHeartbeat = null;
+  }
+
   private async releaseLease(): Promise<void> {
+    this.stopLeaseHeartbeat();
     if (!this.leaseHeld) return;
     const redis = getRedis();
     await redis.connect().catch(() => undefined);
@@ -636,8 +667,8 @@ function todayInShanghai(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: env.APP_TIME_ZONE }).format(new Date());
 }
 
-function addDays(date: string, days: number): string {
-  const value = new Date(`${date}T00:00:00+08:00`);
+export function addDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 }
