@@ -374,6 +374,16 @@ export function parseWarmupDates(value: unknown): string[] {
   return dates;
 }
 
+export function formatWarmupDate(value: unknown): string {
+  if (typeof value === 'string') {
+    const dateOnly = value.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+    if (dateOnly) return dateOnly;
+  }
+  const date = value instanceof Date ? value : new Date(String(value ?? ''));
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', { timeZone: env.APP_TIME_ZONE }).format(date);
+}
+
 function toManualWarmupJob(row: Record<string, unknown>): ManualWarmupJob {
   return {
     id: Number(row.id), operation: String(row.operation) as ManualWarmupOperation, tableName: String(row.table_name),
@@ -649,7 +659,7 @@ function toProgress(row: Record<string, unknown>, partitions: string[]): WarmupP
   return {
     tableName: String(row.table_name), status: String(row.status) as WarmupStatus,
     targetRows: Number(row.target_rows), actualRows: Number(row.actual_rows),
-    currentDate: String(row.current_date_value).slice(0, 10), dayTargetRows: Number(row.day_target_rows),
+    currentDate: formatWarmupDate(row.current_date_value), dayTargetRows: Number(row.day_target_rows),
     dayCompletedRows: Number(row.day_completed_rows), rowsPerSec: Number(row.rows_per_sec),
     currentDateRows: Number(row.current_date_rows), earliestTime: row.earliest_time ? new Date(String(row.earliest_time)).toISOString() : null,
     latestTime: row.latest_time ? new Date(String(row.latest_time)).toISOString() : null,
