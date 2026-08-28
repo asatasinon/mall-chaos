@@ -105,12 +105,11 @@ export interface WarmupJob {
   completedAt: string | null;
 }
 
-export interface WarmupResponse {
+export interface WarmupProgressResponse {
   windowDays: number;
   rowsPerDay: number;
   targetRows: number;
   tables: WarmupTable[];
-  jobs: WarmupJob[];
 }
 
 export type WarmupJobRequest = {

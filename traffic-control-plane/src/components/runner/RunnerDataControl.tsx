@@ -6,13 +6,16 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import DatePicker from '@/components/runner/DatePicker';
 import { ModeButton, RunnerMetric, TableSelect } from '@/components/runner/RunnerControls';
-import type { WarmupResponse } from '@/components/runner/types';
+import type { WarmupJob, WarmupProgressResponse } from '@/components/runner/types';
 import { formatBytes, formatNumber } from '@/components/runner/utils';
 
 interface DataControlPanelProps {
-  warmup: WarmupResponse | null;
+  warmup: WarmupProgressResponse | null;
+  jobs: WarmupJob[];
   loading: boolean;
+  jobsLoading: boolean;
   error: string | null;
+  jobsError: string | null;
   operation: 'INJECT' | 'CLEANUP';
   tableName: string;
   rowsPerDay: string;
@@ -28,11 +31,12 @@ interface DataControlPanelProps {
   onRemoveDate: (date: string) => void;
   onSubmit: () => void;
   onRefresh: () => void;
+  onRefreshJobs: () => void;
 }
 
 export default function DataControlPanel({
-  warmup, loading, error, operation, tableName, rowsPerDay, dateInput, dates, busy, message,
-  onOperationChange, onTableChange, onRowsChange, onDateInputChange, onAddDates, onRemoveDate, onSubmit, onRefresh,
+  warmup, jobs, loading, jobsLoading, error, jobsError, operation, tableName, rowsPerDay, dateInput, dates, busy, message,
+  onOperationChange, onTableChange, onRowsChange, onDateInputChange, onAddDates, onRemoveDate, onSubmit, onRefresh, onRefreshJobs,
 }: DataControlPanelProps) {
   return <div className="space-y-4" id="runner-data-control" role="tabpanel">
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
@@ -100,22 +104,24 @@ export default function DataControlPanel({
       <CardHeader className="!flex flex-row items-center justify-between space-y-0 pb-3">
         <CardTitle className="text-sm font-medium">Manual operation queue</CardTitle>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">{warmup?.jobs.length ?? 0} recent</span>
+          <span className="text-xs text-muted-foreground">{jobs.length} recent</span>
           <Button
             variant="ghost"
             size="icon-sm"
             aria-label="Refresh manual operation queue"
             title="Refresh manual operation queue"
-            onClick={onRefresh}
-            disabled={loading}
+            onClick={onRefreshJobs}
+            disabled={jobsLoading}
           >
-            <RefreshCw className={loading ? 'animate-spin' : ''} />
+            <RefreshCw className={jobsLoading ? 'animate-spin' : ''} />
           </Button>
         </div>
       </CardHeader>
       <CardContent>
-        {!warmup?.jobs.length && <p className="text-sm text-muted-foreground">No manual operations yet.</p>}
-        <div className="space-y-1">{warmup?.jobs.map((job) => <div key={job.id} className="grid gap-1 border-b border-border py-2 last:border-0 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:gap-3"><span className="font-mono text-xs text-muted-foreground">#{job.id}</span><div className="min-w-0 text-xs"><span className="font-medium">{job.operation === 'INJECT' ? 'Inject' : 'Clear'} {job.tableName}</span><span className="ml-2 text-muted-foreground">{job.dates.join(', ')}</span>{job.operation === 'INJECT' && <span className="ml-2 text-muted-foreground">{formatNumber(job.rowsPerDay)}/day</span>}{job.errorMessage && <p className="truncate text-destructive">{job.errorMessage}</p>}</div><div className="flex items-center gap-2 text-xs"><span className="text-muted-foreground">{job.operation === 'INJECT' ? `${formatNumber(job.processedRows)} rows` : `${job.processedDays}/${job.dates.length} days`}</span><Badge variant={job.status === 'FAILED' || job.status === 'PAUSED_GUARD' ? 'destructive' : job.status === 'COMPLETED' ? 'default' : 'outline'}>{job.status}</Badge></div></div>)}</div>
+        {!jobs.length && jobsLoading && <p className="text-sm text-muted-foreground">Loading manual operations...</p>}
+        {!jobs.length && !jobsLoading && <p className="text-sm text-muted-foreground">{jobsError ?? 'No manual operations yet.'}</p>}
+        {jobs.length > 0 && jobsError && <p className="mb-2 text-xs text-destructive">{jobsError}</p>}
+        <div className="space-y-1">{jobs.map((job) => <div key={job.id} className="grid gap-1 border-b border-border py-2 last:border-0 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:gap-3"><span className="font-mono text-xs text-muted-foreground">#{job.id}</span><div className="min-w-0 text-xs"><span className="font-medium">{job.operation === 'INJECT' ? 'Inject' : 'Clear'} {job.tableName}</span><span className="ml-2 text-muted-foreground">{job.dates.join(', ')}</span>{job.operation === 'INJECT' && <span className="ml-2 text-muted-foreground">{formatNumber(job.rowsPerDay)}/day</span>}{job.errorMessage && <p className="truncate text-destructive">{job.errorMessage}</p>}</div><div className="flex items-center gap-2 text-xs"><span className="text-muted-foreground">{job.operation === 'INJECT' ? `${formatNumber(job.processedRows)} rows` : `${job.processedDays}/${job.dates.length} days`}</span><Badge variant={job.status === 'FAILED' || job.status === 'PAUSED_GUARD' ? 'destructive' : job.status === 'COMPLETED' ? 'default' : 'outline'}>{job.status}</Badge></div></div>)}</div>
       </CardContent>
     </Card>
   </div>;

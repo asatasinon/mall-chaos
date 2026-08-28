@@ -1,5 +1,5 @@
 import { jsonError, jsonOk } from '@/lib/api-response';
-import { loadManualWarmupJobs, loadWarmupProgress } from '@/worker/data-warmup';
+import { loadWarmupProgress } from '@/worker/data-warmup';
 import { env } from '@/lib/env';
 
 export async function GET() {
@@ -11,7 +11,6 @@ export async function GET() {
       rowsPerDay: env.DATA_WARMUP_ROWS_PER_DAY,
       targetRows: env.DATA_WARMUP_TARGET_ROWS,
       tables,
-      jobs: await loadManualWarmupJobs(),
     });
   } catch {
     return jsonError(503, 'Data warmup progress is unavailable', 503);
