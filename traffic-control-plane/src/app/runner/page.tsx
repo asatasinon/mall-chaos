@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import DataControlPanel from '@/components/runner/RunnerDataControl';
 import {
@@ -60,22 +60,15 @@ export default function RunnerPage() {
     couponUsageRatio: '',
   });
 
-  const loadAll = async () => {
-    await Promise.all([
-      loadStatus(), loadConfig(), loadAccounts(), loadActivity(), loadInventory(),
-      loadCouponReplenishment(), loadWarmup(),
-    ]);
-  };
-
-  const loadStatus = async () => {
+  const loadStatus = useCallback(async () => {
     try {
       const response = await fetchWithAuth('/internal/traffic/runner/status');
       const json = await response.json();
       if (json.code === 0) setStatus(json.data);
     } catch {}
-  };
+  }, []);
 
-  const loadConfig = async () => {
+  const loadConfig = useCallback(async () => {
     try {
       const response = await fetchWithAuth('/internal/traffic/runner/config');
       const json = await response.json();
@@ -90,9 +83,9 @@ export default function RunnerPage() {
         couponUsageRatio: String(Math.round(next.couponUsageRatio * 100)),
       });
     } catch {}
-  };
+  }, []);
 
-  const loadAccounts = async () => {
+  const loadAccounts = useCallback(async () => {
     try {
       const response = await fetchWithAuth('/internal/traffic/runner/accounts');
       const json = await response.json();
@@ -105,39 +98,46 @@ export default function RunnerPage() {
     } catch {
       setAccountError('Lifecycle account state is unavailable');
     }
-  };
+  }, []);
 
-  const loadActivity = async () => {
+  const loadActivity = useCallback(async () => {
     try {
       const response = await fetchWithAuth('/internal/traffic/runner/activity?limit=30');
       const json = await response.json();
       if (json.code === 0) setActivity(json.data);
     } catch {}
-  };
+  }, []);
 
-  const loadInventory = async () => {
+  const loadInventory = useCallback(async () => {
     try {
       const response = await fetchWithAuth('/internal/traffic/runner/inventory-replenishment/status');
       const json = await response.json();
       if (json.code === 0) setInventory(json.data);
     } catch {}
-  };
+  }, []);
 
-  const loadCouponReplenishment = async () => {
+  const loadCouponReplenishment = useCallback(async () => {
     try {
       const response = await fetchWithAuth('/internal/traffic/runner/coupon-replenishment/status');
       const json = await response.json();
       if (json.code === 0) setCouponReplenishment(json.data);
     } catch {}
-  };
+  }, []);
 
-  const loadWarmup = async () => {
+  const loadWarmup = useCallback(async () => {
     try {
       const response = await fetchWithAuth('/internal/traffic/runner/data-warmup/progress');
       const json = await response.json();
       if (json.code === 0) setWarmup(json.data as WarmupResponse);
     } catch {}
-  };
+  }, []);
+
+  const loadAll = useCallback(async () => {
+    await Promise.all([
+      loadStatus(), loadConfig(), loadAccounts(), loadActivity(), loadInventory(),
+      loadCouponReplenishment(), loadWarmup(),
+    ]);
+  }, [loadAccounts, loadActivity, loadConfig, loadCouponReplenishment, loadInventory, loadStatus, loadWarmup]);
 
   const triggerReplenishment = async (type: 'inventory' | 'coupon') => {
     setTriggeringReplenishment(type);
@@ -173,7 +173,7 @@ export default function RunnerPage() {
   };
 
   useEffect(() => {
-    void loadAll();
+    void Promise.resolve().then(() => loadAll());
     const statusTimer = setInterval(() => void loadStatus(), 3000);
     const activityTimer = setInterval(() => void loadActivity(), 5000);
     const inventoryTimer = setInterval(() => void loadInventory(), 5000);
@@ -186,7 +186,7 @@ export default function RunnerPage() {
       clearInterval(couponTimer);
       clearInterval(warmupTimer);
     };
-  }, []);
+  }, [loadActivity, loadAll, loadCouponReplenishment, loadInventory, loadStatus, loadWarmup]);
 
   const addWarmupDates = (dates: string[]) => {
     if (dates.length === 0) return;

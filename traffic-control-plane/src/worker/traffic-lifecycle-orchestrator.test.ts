@@ -5,7 +5,6 @@ import type {
   CustomerSession,
   GatewayClient,
 } from '../lib/gateway-client';
-import type { TrafficActionRecord, TrafficLifecycleRecord } from '../lib/runner-persistence';
 import { CustomerSessionManager } from './customer-session-manager';
 import {
   RunnerExecutionConfig,
@@ -38,8 +37,8 @@ function makeSessionManager(context: CustomerRequestContext, onClose: () => void
 
 function noPersistence() {
   return {
-    recordTrafficAction: async (_record: TrafficActionRecord) => undefined,
-    recordTrafficLifecycle: async (_record: TrafficLifecycleRecord) => undefined,
+    recordTrafficAction: async () => undefined,
+    recordTrafficLifecycle: async () => undefined,
   };
 }
 

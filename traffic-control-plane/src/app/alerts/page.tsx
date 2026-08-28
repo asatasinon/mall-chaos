@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import AlertRoutingSection from '@/components/alerts/AlertRoutingSection';
 import { CreateAlertModal, ReceiverModal, RouteModal } from '@/components/alerts/AlertModals';
@@ -46,9 +46,9 @@ export default function AlertsPage() {
   const [scrollTarget, setScrollTarget] = useState('');
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  const login = () => router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`);
+  const login = useCallback(() => router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname)}`), [router]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setError('');
     try {
       const response = await fetchAlerts('/internal/alerts/config', { cache: 'no-store' }, login);
@@ -58,9 +58,9 @@ export default function AlertsPage() {
     } catch (cause) {
       setError(cause instanceof TypeError && cause.message.toLowerCase().includes('fetch') ? 'Control plane is unreachable. Start traffic-control-plane (localhost:13086) first.' : cause instanceof Error ? cause.message : 'Load failed');
     }
-  };
+  }, [login]);
 
-  const loadSource = async (kind: 'prometheus-rules' | 'alertmanager') => {
+  const loadSource = useCallback(async (kind: 'prometheus-rules' | 'alertmanager') => {
     setSourceLoading(true);
     setError('');
     try {
@@ -75,7 +75,7 @@ export default function AlertsPage() {
     } finally {
       setSourceLoading(false);
     }
-  };
+  }, [login]);
 
   const saveSource = async () => {
     if (!config || sourceVersion === null || !editorYaml.trim()) return;
@@ -104,8 +104,8 @@ export default function AlertsPage() {
     }
   };
 
-  useEffect(() => { void Promise.resolve().then(() => load()); }, []);
-  useEffect(() => { if (activeTab === 'yaml') void Promise.resolve().then(() => loadSource(sourceKind)); }, [activeTab, sourceKind]);
+  useEffect(() => { void Promise.resolve().then(() => load()); }, [load]);
+  useEffect(() => { if (activeTab === 'yaml') void Promise.resolve().then(() => loadSource(sourceKind)); }, [activeTab, sourceKind, loadSource]);
   useEffect(() => {
     if (!scrollTarget) return;
     const target = itemRefs.current[scrollTarget];
