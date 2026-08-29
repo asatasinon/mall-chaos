@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # build-all.sh — Build all service JARs and Docker images
-# Usage: PLATFORM=linux/amd64 ./scripts/build-all.sh [--image-source dockerhub|internal] [--push] [--tag <tag>]
+# Usage: PLATFORM=linux/amd64 ./scripts/build-all.sh [--image-source|-s <dockerhub|hub|internal>] [--push] [--tag <tag>]
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compose-common.sh"
@@ -14,10 +14,11 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --push) PUSH_IMAGE=true; shift ;;
     --tag)  IMAGE_TAG="$2"; shift 2 ;;
-    --image-source|--hub)
+    --image-source|-s|--hub)
+      [[ $# -lt 2 ]] && { echo "$1 requires a value" >&2; exit 1; }
       CASTREL_IMAGE_SOURCE="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: PLATFORM=linux/amd64 ./scripts/build-all.sh [--image-source dockerhub|internal] [--push] [--tag <tag>]"
+      echo "Usage: PLATFORM=linux/amd64 ./scripts/build-all.sh [--image-source|-s <dockerhub|hub|internal>] [--push] [--tag <tag>]"
       exit 0 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac

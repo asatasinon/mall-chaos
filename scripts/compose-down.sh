@@ -5,11 +5,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compose-common.sh"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/compose-down.sh [--image-source dockerhub|internal] [--hub dockerhub|internal] [-- <docker compose down args>]
+Usage: ./scripts/compose-down.sh [--image-source|-s <dockerhub|hub|internal>] [--hub <dockerhub|hub|internal>] [-- <docker compose down args>]
 
 Examples:
   ./scripts/compose-down.sh
-  ./scripts/compose-down.sh --hub dockerhub
+  ./scripts/compose-down.sh -s hub
   ./scripts/compose-down.sh -- --volumes
 
 Notes:

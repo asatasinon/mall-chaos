@@ -5,11 +5,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compose-common.sh"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/compose-restart.sh [--image-source dockerhub|internal] [--hub dockerhub|internal] [-- <docker compose up args>]
+Usage: ./scripts/compose-restart.sh [--image-source|-s <dockerhub|hub|internal>] [--hub <dockerhub|hub|internal>] [-- <docker compose up args>]
 
 Examples:
   ./scripts/compose-restart.sh
-  ./scripts/compose-restart.sh --hub dockerhub
+  ./scripts/compose-restart.sh -s hub
   ./scripts/compose-restart.sh -- --force-recreate
 
 Notes:

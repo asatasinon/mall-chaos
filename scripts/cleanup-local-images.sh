@@ -36,8 +36,8 @@ Options:
   --tag <tag>       Alias for --keep-tag
   --dry-run         List images that would be removed without deleting them
   --yes             Skip the confirmation prompt
-  --image-source <source>
-                    Use dockerhub or internal registry defaults
+  -s, --image-source <dockerhub|hub|internal>
+                    Use registry defaults; hub is short for dockerhub
   -h, --help        Show this help
 
 Examples:
@@ -69,7 +69,7 @@ while [[ $# -gt 0 ]]; do
       ASSUME_YES=true
       shift
       ;;
-    --image-source|--hub)
+    --image-source|-s|--hub)
       [[ $# -lt 2 ]] && { echo "$1 requires a value" >&2; exit 1; }
       CASTREL_IMAGE_SOURCE="$2"
       shift 2

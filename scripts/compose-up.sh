@@ -26,13 +26,13 @@ ensure_mysql_connector_jar() {
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/compose-up.sh [--image-source dockerhub|internal] [--hub dockerhub|internal] [-- <docker compose up args>]
+Usage: ./scripts/compose-up.sh [--image-source|-s <dockerhub|hub|internal>] [--hub <dockerhub|hub|internal>] [-- <docker compose up args>]
 
 Examples:
   ./scripts/compose-up.sh
-  ./scripts/compose-up.sh --image-source dockerhub
+  ./scripts/compose-up.sh -s hub
   ./scripts/compose-up.sh --hub internal
-  ./scripts/compose-up.sh --image-source dockerhub -- --force-recreate
+  ./scripts/compose-up.sh -s hub -- --force-recreate
 
 Notes:
   - Default image source is internal.

@@ -11,7 +11,7 @@ castrel_parse_compose_args() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --image-source|--hub)
+      --image-source|-s|--hub)
         [[ $# -lt 2 ]] && { echo "$1 requires a value" >&2; return 1; }
         CASTREL_IMAGE_SOURCE="$2"
         shift 2
@@ -36,6 +36,10 @@ castrel_parse_compose_args() {
 castrel_apply_image_source() {
   local skywalking_version
   skywalking_version="${SKYWALKING_VERSION:-10.2.0}"
+
+  if [[ "$CASTREL_IMAGE_SOURCE" == "hub" ]]; then
+    CASTREL_IMAGE_SOURCE="dockerhub"
+  fi
 
   case "$CASTREL_IMAGE_SOURCE" in
     dockerhub)
@@ -72,7 +76,7 @@ castrel_apply_image_source() {
       ;;
     *)
       echo "Unsupported image source: ${CASTREL_IMAGE_SOURCE}" >&2
-      echo "Expected one of: dockerhub, internal" >&2
+      echo "Expected one of: dockerhub (or hub), internal" >&2
       return 1
       ;;
   esac
