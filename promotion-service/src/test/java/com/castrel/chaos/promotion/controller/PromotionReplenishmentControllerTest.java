@@ -42,18 +42,18 @@ class PromotionReplenishmentControllerTest {
         when(jwtTokenService.verifyDownstreamPrincipal("principal"))
                 .thenReturn(new JwtTokenService.DownstreamPrincipal(
                         0L, "trace-1", List.of("TRAFFIC_REPLENISH"), "token-id"));
-        when(promotionService.replenishDemoCouponPool()).thenReturn(result);
+        when(promotionService.replenishDemoCouponPool("manual:run-1")).thenReturn(result);
 
-        var response = controller.replenishDemoCoupons(Map.of(), "principal", null);
+        var response = controller.replenishDemoCoupons(Map.of(), "principal", "manual:run-1");
 
         assertThat(response.getData()).isEqualTo(result);
-        verify(promotionService).replenishDemoCouponPool();
+        verify(promotionService).replenishDemoCouponPool("manual:run-1");
     }
 
     @Test
     void rejectsWorkerSuppliedParameters() {
         assertThatThrownBy(() -> controller.replenishDemoCoupons(
-                Map.of("customerId", 99), "principal", null))
+            Map.of("customerId", 99), "principal", "UTC-6H-1"))
                 .hasMessageContaining("does not accept parameters");
     }
 
@@ -64,7 +64,7 @@ class PromotionReplenishmentControllerTest {
                         7L, "trace-1", List.of("CUSTOMER_API"), "token-id"));
 
         assertThatThrownBy(() -> controller.replenishDemoCoupons(
-                Map.of(), "customer-principal", null))
+            Map.of(), "customer-principal", "UTC-6H-1"))
                 .hasMessageContaining("authentication required");
     }
 }

@@ -4,7 +4,6 @@ import com.castrel.chaos.common.ApiResponse;
 import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.security.JwtTokenService;
 import com.castrel.chaos.inventory.dto.DemoInventoryReplenishmentResult;
-import org.springframework.beans.factory.annotation.Value;
 import com.castrel.chaos.inventory.dto.ReserveRequest;
 import com.castrel.chaos.inventory.dto.ResetRequest;
 import com.castrel.chaos.inventory.dto.InventoryOperationRequest;
@@ -14,8 +13,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 
 @RestController
 public class InventoryController {
@@ -26,31 +23,26 @@ public class InventoryController {
     @Autowired
     private JwtTokenService jwtTokenService;
 
-    @Value("${CASTREL_INTERNAL_SERVICE_KEY:}")
-    private String internalServiceKey;
-
     @PostMapping("/internal/inventory/demo-stock/replenish")
     public ApiResponse<DemoInventoryReplenishmentResult> replenishDemoStock(
             @RequestBody(required = false) Map<String, Object> body,
             @RequestHeader(value = "X-Downstream-Principal", required = false) String downstreamPrincipal,
-            @RequestHeader(value = "X-Internal-Service-Key", required = false) String suppliedServiceKey) {
+            @RequestHeader(value = "X-Replenishment-Run-Id", required = false) String runId) {
         if (body != null && !body.isEmpty()) {
             throw new BizException("INVALID_REPLENISHMENT_REQUEST",
                     "Replenishment command does not accept parameters");
         }
-        if (!hasReplenishmentAuthority(downstreamPrincipal, suppliedServiceKey)) {
+        if (!hasReplenishmentAuthority(downstreamPrincipal)) {
             throw new BizException("REPLENISHMENT_FORBIDDEN",
                     "Replenishment service authentication required");
         }
-        return ApiResponse.ok(inventoryService.replenishDemoInventory());
+        if (runId == null || !runId.matches("[A-Za-z0-9:_-]{1,64}")) {
+            throw new BizException("INVALID_REPLENISHMENT_RUN", "A valid replenishment run ID is required");
+        }
+        return ApiResponse.ok(inventoryService.replenishDemoInventory(runId));
     }
 
-    private boolean hasReplenishmentAuthority(String downstreamPrincipal, String suppliedServiceKey) {
-        if (!internalServiceKey.isBlank() && suppliedServiceKey != null
-                && MessageDigest.isEqual(internalServiceKey.getBytes(StandardCharsets.UTF_8),
-                        suppliedServiceKey.getBytes(StandardCharsets.UTF_8))) {
-            return true;
-        }
+    private boolean hasReplenishmentAuthority(String downstreamPrincipal) {
         if (downstreamPrincipal == null || downstreamPrincipal.isBlank()) return false;
         try {
             return jwtTokenService.verifyDownstreamPrincipal(downstreamPrincipal)

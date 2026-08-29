@@ -27,25 +27,31 @@ public class ReplenishmentDispatchController {
     @PostMapping("/promotions/demo-coupons/replenish")
     public Mono<ApiResponse<Object>> replenishCoupons(
             @RequestBody(required = false) Map<String, Object> body,
-            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
-        return dispatch(body, traceId, dispatchService::replenishCoupons);
+            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId,
+            @RequestHeader(value = "X-Replenishment-Run-Id", required = false) String runId) {
+        return dispatch(body, traceId, runId, dispatchService::replenishCoupons);
     }
 
     @PostMapping("/inventory/demo-stock/replenish")
     public Mono<ApiResponse<Object>> replenishStock(
             @RequestBody(required = false) Map<String, Object> body,
-            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
-        return dispatch(body, traceId, dispatchService::replenishStock);
+            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId,
+            @RequestHeader(value = "X-Replenishment-Run-Id", required = false) String runId) {
+        return dispatch(body, traceId, runId, dispatchService::replenishStock);
     }
 
-        private Mono<ApiResponse<Object>> dispatch(
-            Map<String, Object> body, String traceId,
-            java.util.function.Function<String, Mono<Object>> target) {
+    private Mono<ApiResponse<Object>> dispatch(
+            Map<String, Object> body, String traceId, String runId,
+            java.util.function.BiFunction<String, String, Mono<Object>> target) {
         if (body != null && !body.isEmpty()) {
             return Mono.error(new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "Replenishment commands do not accept parameters"));
         }
-        return target.apply(traceId)
+        if (runId == null || !runId.matches("[A-Za-z0-9:_-]{1,64}")) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "A valid replenishment run ID is required"));
+        }
+        return target.apply(traceId, runId)
                 .map(ApiResponse::ok);
     }
 }

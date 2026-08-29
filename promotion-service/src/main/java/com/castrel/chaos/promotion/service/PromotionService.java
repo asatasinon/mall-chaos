@@ -82,9 +82,9 @@ public class PromotionService {
     }
 
         @Transactional
-        public DemoCouponReplenishmentResult replenishDemoCouponPool() {
+        public DemoCouponReplenishmentResult replenishDemoCouponPool(String runId) {
         validateDemoCouponPoolConfiguration();
-        String windowId = currentReplenishmentWindowId();
+        String windowId = validateReplenishmentRunId(runId);
         String correlationId = TraceContext.getTraceId() == null
             ? "coupon-replenish-" + windowId
             : TraceContext.getTraceId();
@@ -162,7 +162,13 @@ public class PromotionService {
                 + "(window_id, customer_id, promotion_id, status, created_at, updated_at) "
                 + "VALUES (?, ?, ?, 'RUNNING', ?, ?)",
             windowId, customerId, promotionId, now, now);
-        return inserted == 1;
+        if (inserted == 1) {
+            return true;
+        }
+        return jdbcTemplate.update(
+            "UPDATE coupon_issuance_batches SET status = 'RUNNING', updated_at = ? "
+                + "WHERE window_id = ? AND customer_id = ? AND promotion_id = ? AND status = 'FAILED'",
+            now, windowId, customerId, promotionId) == 1;
         }
 
         private void markReplenishmentBatchCompleted(
@@ -189,8 +195,11 @@ public class PromotionService {
         }
         }
 
-        private String currentReplenishmentWindowId() {
-        return "UTC-6H-" + Instant.now().getEpochSecond() / (6 * 60 * 60);
+        private String validateReplenishmentRunId(String runId) {
+        if (runId == null || !runId.matches("[A-Za-z0-9:_-]{1,64}")) {
+            throw new BizException("INVALID_REPLENISHMENT_RUN", "A valid replenishment run ID is required");
+        }
+        return runId;
         }
 
         private void writeReplenishmentRun(

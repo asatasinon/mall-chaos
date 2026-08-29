@@ -184,9 +184,9 @@ public class InventoryService {
     }
 
     @Transactional
-    public DemoInventoryReplenishmentResult replenishDemoInventory() {
+    public DemoInventoryReplenishmentResult replenishDemoInventory(String runId) {
         validateDemoInventoryConfiguration();
-        String windowId = currentReplenishmentWindowId();
+        String windowId = validateReplenishmentRunId(runId);
         String correlationId = TraceContext.getTraceId() == null
                 ? "stock-replenish-" + windowId : TraceContext.getTraceId();
         LocalDateTime startedAt = LocalDateTime.now();
@@ -249,11 +249,18 @@ public class InventoryService {
     }
 
     private boolean claimReplenishmentBatch(String windowId, String sku, LocalDateTime now) {
-        return jdbcTemplate.update(
+        boolean inserted = jdbcTemplate.update(
                 "INSERT IGNORE INTO inventory_replenishment_batches "
                         + "(window_id, sku, status, created_at, updated_at) "
                         + "VALUES (?, ?, 'RUNNING', ?, ?)",
                 windowId, sku, now, now) == 1;
+        if (inserted) {
+            return true;
+        }
+        return jdbcTemplate.update(
+            "UPDATE inventory_replenishment_batches SET status = 'RUNNING', updated_at = ? "
+                + "WHERE window_id = ? AND sku = ? AND status = 'FAILED'",
+            now, windowId, sku) == 1;
     }
 
     private void markReplenishmentBatch(String windowId, String sku, String status, LocalDateTime now) {
@@ -274,8 +281,11 @@ public class InventoryService {
         }
     }
 
-    private String currentReplenishmentWindowId() {
-        return "UTC-6H-" + Instant.now().getEpochSecond() / (6 * 60 * 60);
+    private String validateReplenishmentRunId(String runId) {
+        if (runId == null || !runId.matches("[A-Za-z0-9:_-]{1,64}")) {
+            throw new BizException("INVALID_REPLENISHMENT_RUN", "A valid replenishment run ID is required");
+        }
+        return runId;
     }
 
     private void writeReplenishmentRun(

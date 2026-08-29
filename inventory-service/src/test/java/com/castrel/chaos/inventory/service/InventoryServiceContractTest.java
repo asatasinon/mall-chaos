@@ -48,13 +48,22 @@ class InventoryServiceContractTest {
     }
 
     @Test
+    void defaultsCoverAllSeededSkusAtOneMillion() {
+        DemoInventoryBaselineProperties defaults = new DemoInventoryBaselineProperties();
+
+        assertThat(defaults.getTargetAvailableQty()).isEqualTo(1_000_000);
+        assertThat(defaults.getSkus()).hasSize(50)
+                .contains("SKU-001", "SKU-050");
+    }
+
+    @Test
     void replenishesAvailableQuantityWithoutChangingReservedQuantity() {
         stubJdbcUpdates(1);
         Inventory inventory = inventory("SKU-001", 40, 12, 7);
         when(inventoryRepository.findBySku("SKU-001")).thenReturn(Optional.of(inventory));
         when(inventoryRepository.replenishToTarget("SKU-001", 100, 7)).thenReturn(1);
 
-        var result = inventoryService.replenishDemoInventory();
+        var result = inventoryService.replenishDemoInventory("UTC-6H-test-1");
 
         assertThat(result.skuCount()).isEqualTo(1);
         assertThat(result.addedQuantity()).isEqualTo(60);
@@ -68,7 +77,7 @@ class InventoryServiceContractTest {
     void skipsDuplicateWindowWithoutReadingOrWritingInventory() {
         stubJdbcUpdates(0);
 
-        var result = inventoryService.replenishDemoInventory();
+        var result = inventoryService.replenishDemoInventory("UTC-6H-test-1");
 
         assertThat(result.addedQuantity()).isZero();
         assertThat(result.skippedCount()).isEqualTo(1);
@@ -77,11 +86,34 @@ class InventoryServiceContractTest {
     }
 
     @Test
+    void reclaimsFailedBatchForTheSameRun() {
+        doAnswer(invocation -> {
+            String sql = invocation.getArgument(0, String.class);
+            if (sql.contains("INSERT IGNORE")) {
+                return 0;
+            }
+            if (sql.contains("status = 'RUNNING'")) {
+                return 1;
+            }
+            return 1;
+        }).when(jdbcTemplate).update(anyString(), any(Object[].class));
+        Inventory inventory = inventory("SKU-001", 40, 12, 7);
+        when(inventoryRepository.findBySku("SKU-001")).thenReturn(Optional.of(inventory));
+        when(inventoryRepository.replenishToTarget("SKU-001", 100, 7)).thenReturn(1);
+
+        var result = inventoryService.replenishDemoInventory("UTC-6H-test-1");
+
+        assertThat(result.addedQuantity()).isEqualTo(60);
+        assertThat(result.skippedCount()).isZero();
+        assertThat(result.failedCount()).isZero();
+    }
+
+    @Test
     void reportsUnknownConfiguredSkuAsFailure() {
         stubJdbcUpdates(1);
         when(inventoryRepository.findBySku("SKU-001")).thenReturn(Optional.empty());
 
-        var result = inventoryService.replenishDemoInventory();
+        var result = inventoryService.replenishDemoInventory("UTC-6H-test-1");
 
         assertThat(result.addedQuantity()).isZero();
         assertThat(result.failedCount()).isEqualTo(1);
@@ -100,7 +132,13 @@ class InventoryServiceContractTest {
     private void stubJdbcUpdates(int batchInsertResult) {
         doAnswer(invocation -> {
             String sql = invocation.getArgument(0, String.class);
-            return sql.contains("INSERT IGNORE") ? batchInsertResult : 1;
+            if (sql.contains("INSERT IGNORE")) {
+                return batchInsertResult;
+            }
+            if (sql.contains("status = 'RUNNING'")) {
+                return batchInsertResult == 0 ? 0 : 1;
+            }
+            return 1;
         }).when(jdbcTemplate).update(anyString(), any(Object[].class));
     }
 }

@@ -27,19 +27,23 @@ public class FixedInternalDispatchService {
     }
 
     public Mono<Object> inventoryResetPlan(String traceId) {
-        return forward("inventory-service", "/internal/inventory/reset/plan", Map.of(), traceId, "INVENTORY_RESET");
+        return forward("inventory-service", "/internal/inventory/reset/plan", Map.of(), traceId,
+                "INVENTORY_RESET", null);
     }
 
     public Mono<Object> inventoryReset(Map<String, Object> body, String traceId) {
-        return forward("inventory-service", "/internal/inventory/reset", body, traceId, "INVENTORY_RESET");
+        return forward("inventory-service", "/internal/inventory/reset", body, traceId,
+                "INVENTORY_RESET", null);
     }
 
-    public Mono<Object> replenishCoupons(String traceId) {
-        return forward("promotion-service", "/internal/promotions/demo-coupons/replenish", Map.of(), traceId, "TRAFFIC_REPLENISH");
+    public Mono<Object> replenishCoupons(String traceId, String runId) {
+        return forward("promotion-service", "/internal/promotions/demo-coupons/replenish", Map.of(), traceId,
+                "TRAFFIC_REPLENISH", runId);
     }
 
-    public Mono<Object> replenishStock(String traceId) {
-        return forward("inventory-service", "/internal/inventory/demo-stock/replenish", Map.of(), traceId, "TRAFFIC_REPLENISH");
+    public Mono<Object> replenishStock(String traceId, String runId) {
+        return forward("inventory-service", "/internal/inventory/demo-stock/replenish", Map.of(), traceId,
+                "TRAFFIC_REPLENISH", runId);
     }
 
     private Mono<Object> forward(
@@ -47,17 +51,23 @@ public class FixedInternalDispatchService {
             String path,
             Map<String, Object> body,
             String traceId,
-            String action) {
+            String action,
+            String runId) {
         String baseUrl = properties.getServiceUrl(serviceName);
         if (baseUrl == null || baseUrl.isBlank()) {
             return Mono.error(new IllegalArgumentException("Fixed internal target is not configured"));
         }
         return webClient.post()
-                .uri(baseUrl + path)
-                .header("Content-Type", "application/json")
-                .header(TraceContext.TRACE_ID_HEADER, traceId == null ? "" : traceId)
-                .header("X-Downstream-Principal", jwtTokenService.issueDownstreamPrincipal(
-                        0L, traceId == null ? "" : traceId, List.of(action)))
+            .uri(baseUrl + path)
+            .headers(headers -> {
+                headers.set("Content-Type", "application/json");
+                headers.set(TraceContext.TRACE_ID_HEADER, traceId == null ? "" : traceId);
+                headers.set("X-Downstream-Principal", jwtTokenService.issueDownstreamPrincipal(
+                    0L, traceId == null ? "" : traceId, List.of(action)));
+                if (runId != null) {
+                headers.set("X-Replenishment-Run-Id", runId);
+                }
+            })
                 .bodyValue(body)
                 .retrieve()
                 .bodyToMono(Object.class);

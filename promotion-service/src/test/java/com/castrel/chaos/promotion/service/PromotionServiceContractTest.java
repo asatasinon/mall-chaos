@@ -154,7 +154,7 @@ class PromotionServiceContractTest {
         when(jdbcTemplate.update(org.mockito.ArgumentMatchers.anyString(),
             org.mockito.ArgumentMatchers.any(Object[].class))).thenReturn(1);
 
-        var result = promotionService.replenishDemoCouponPool();
+        var result = promotionService.replenishDemoCouponPool("UTC-6H-test-1");
 
         assertThat(result.customerCount()).isEqualTo(1);
         assertThat(result.promotionCount()).isEqualTo(1);
@@ -177,16 +177,53 @@ class PromotionServiceContractTest {
 
         Promotion couponPromotion = promotion(5L, "COUPON", BigDecimal.ZERO, null, new BigDecimal("10.00"));
         when(promotionRepository.findAll()).thenReturn(List.of(couponPromotion));
-        org.mockito.Mockito.doAnswer(invocation ->
-            ((String) invocation.getArgument(0)).contains("INSERT IGNORE") ? 0 : 1)
+        org.mockito.Mockito.doAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            return sql.contains("INSERT IGNORE") || sql.contains("status = 'RUNNING'") ? 0 : 1;
+        })
             .when(jdbcTemplate).update(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(Object[].class));
 
-        var result = promotionService.replenishDemoCouponPool();
+        var result = promotionService.replenishDemoCouponPool("UTC-6H-test-1");
 
         assertThat(result.addedCount()).isZero();
         assertThat(result.skippedCount()).isEqualTo(1);
         verify(couponRepository, never()).save(org.mockito.ArgumentMatchers.any());
+        }
+
+        @Test
+        void reclaimsFailedCouponBatchForTheSameRun() {
+        DemoCouponPoolProperties properties = new DemoCouponPoolProperties();
+        properties.setCustomerIds(List.of(1L));
+        properties.setPromotionTypes(List.of("COUPON"));
+        properties.setTargetAvailableCount(3);
+        properties.setReplenishBelowCount(2);
+        properties.setValidityHours(24);
+        ReflectionTestUtils.setField(promotionService, "demoCouponPoolProperties", properties);
+
+        Promotion couponPromotion = promotion(5L, "COUPON", BigDecimal.ZERO, null, new BigDecimal("10.00"));
+        when(promotionRepository.findAll()).thenReturn(List.of(couponPromotion));
+        when(couponRepository.countAvailable(
+            org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(5L),
+            org.mockito.ArgumentMatchers.any())).thenReturn(1L);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            if (sql.contains("INSERT IGNORE")) {
+                return 0;
+            }
+            if (sql.contains("status = 'RUNNING'")) {
+                return 1;
+            }
+            return 1;
+        })
+            .when(jdbcTemplate).update(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(Object[].class));
+
+        var result = promotionService.replenishDemoCouponPool("UTC-6H-test-1");
+
+        assertThat(result.addedCount()).isEqualTo(2);
+        assertThat(result.skippedCount()).isZero();
+        verify(couponRepository, org.mockito.Mockito.times(2)).save(org.mockito.ArgumentMatchers.any());
         }
 
     private Promotion promotion(Long id, String type, BigDecimal minAmount,

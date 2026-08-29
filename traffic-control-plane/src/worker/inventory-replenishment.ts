@@ -3,23 +3,32 @@ import { CronExpressionParser } from 'cron-parser';
 import pino from 'pino';
 import { getGatewayClient, GatewayClient } from '../lib/gateway-client';
 import { getRedis } from '../lib/redis';
-import { recordReplenishmentRun } from '../lib/runner-persistence';
+import { recordReplenishmentRun, type ReplenishmentRunRecord } from '../lib/runner-persistence';
+import { setInventoryReplenishmentStatus } from '../lib/runtime-state';
 
 const log = pino({ name: 'inventory-replenishment' });
 const CRON_EXPRESSION = '0 0 */6 * * *';
 const TIME_ZONE = 'UTC';
-const LOCK_TTL_SECONDS = 120;
+const LOCK_TTL_SECONDS = 600;
+const REQUEST_TIMEOUT_MS = 120_000;
 const COMPLETION_TTL_SECONDS = 7 * 60 * 60;
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [1000, 5000];
 
 interface ReplenishmentResponse {
   code?: string | number;
-  data?: {
-    addedQuantity?: number;
-    skippedCount?: number;
-    failedCount?: number;
-  };
+  data?: ReplenishmentData | ReplenishmentEnvelope<ReplenishmentData>;
+}
+
+interface ReplenishmentData {
+  addedQuantity?: number;
+  skippedCount?: number;
+  failedCount?: number;
+}
+
+interface ReplenishmentEnvelope<T> {
+  code?: string | number;
+  data?: T;
 }
 
 export interface InventoryReplenishmentStatus {
@@ -39,6 +48,8 @@ export interface InventoryReplenishmentDependencies {
   redis?: ReturnType<typeof getRedis>;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
+  statusPublisher?: (status: InventoryReplenishmentStatus) => Promise<void>;
+  persistenceWriter?: (record: ReplenishmentRunRecord) => Promise<void>;
 }
 
 export class InventoryReplenishmentScheduler {
@@ -46,6 +57,8 @@ export class InventoryReplenishmentScheduler {
   private readonly redis: ReturnType<typeof getRedis>;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly now: () => Date;
+  private readonly statusPublisher: (status: InventoryReplenishmentStatus) => Promise<void>;
+  private readonly persistenceWriter: (record: ReplenishmentRunRecord) => Promise<void>;
   private readonly instanceId = randomUUID();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
@@ -68,13 +81,16 @@ export class InventoryReplenishmentScheduler {
       setTimeout(resolve, milliseconds);
     }));
     this.now = dependencies.now ?? (() => new Date());
+    this.statusPublisher = dependencies.statusPublisher ?? setInventoryReplenishmentStatus;
+    this.persistenceWriter = dependencies.persistenceWriter ?? recordReplenishmentRun;
   }
 
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
     this.status = { ...this.status, running: true };
-    await this.executeCurrentWindow();
+    await this.publishStatus();
+    await this.executeScheduledWindow();
     this.scheduleNext();
     log.info({ status: this.status }, 'Inventory replenishment scheduler started');
   }
@@ -86,6 +102,7 @@ export class InventoryReplenishmentScheduler {
       this.timer = null;
     }
     this.status = { ...this.status, running: false, nextExecutionAt: null };
+    void this.publishStatus();
     log.info({ status: this.status }, 'Inventory replenishment scheduler stopped');
   }
 
@@ -93,29 +110,44 @@ export class InventoryReplenishmentScheduler {
     return { ...this.status };
   }
 
-  async executeCurrentWindow(): Promise<InventoryReplenishmentStatus> {
-    const windowId = this.windowId(this.now());
-    const correlationId = randomUUID();
-    const completedKey = `traffic-control-plane:replenishment:inventory:completed:${windowId}`;
+  async executeScheduledWindow(): Promise<InventoryReplenishmentStatus> {
+    return this.execute(this.windowId(this.now()), true, randomUUID());
+  }
+
+  async executeManual(correlationId: string = randomUUID()): Promise<InventoryReplenishmentStatus> {
+    return this.execute(`manual:${randomUUID()}`, false, correlationId);
+  }
+
+  private async execute(
+    runId: string,
+    scheduled: boolean,
+    correlationId: string,
+  ): Promise<InventoryReplenishmentStatus> {
+    const completedKey = scheduled
+      ? `traffic-control-plane:replenishment:inventory:completed:${runId}`
+      : null;
     const lockKey = 'traffic-control-plane:replenishment:inventory:lock';
     this.status = {
       ...this.status,
-      lastWindowId: windowId,
+      lastWindowId: runId,
       lastAttemptAt: this.now().toISOString(),
       retryCount: 0,
     };
+    await this.publishStatus();
 
     await this.redis.connect().catch(() => undefined);
-    if (await this.redis.get(completedKey)) {
+    if (completedKey && await this.redis.get(completedKey)) {
       this.status = { ...this.status, lastResult: 'COMPLETED' };
+      await this.publishStatus();
       return this.getStatus();
     }
 
-    const lockToken = `${this.instanceId}:${windowId}`;
+    const lockToken = `${this.instanceId}:${runId}`;
     const acquired = await this.redis.set(lockKey, lockToken, 'EX', LOCK_TTL_SECONDS, 'NX');
     if (!acquired) {
       this.status = { ...this.status, lastResult: 'SKIPPED' };
-      log.info({ windowId }, 'Inventory replenishment skipped because another worker holds the lock');
+      await this.publishStatus();
+      log.info({ runId }, 'Inventory replenishment skipped because another worker holds the lock');
       return this.getStatus();
     }
 
@@ -126,12 +158,16 @@ export class InventoryReplenishmentScheduler {
         this.status = { ...this.status, retryCount: attempt - 1 };
         try {
           const response = await this.gateway.postInternal<ReplenishmentResponse>(
-            '/internal/gateway/inventory/demo-stock/replenish', {}, correlationId);
-          if (!isSuccessfulResponse(response)) {
+            '/internal/gateway/inventory/demo-stock/replenish', {}, correlationId,
+            AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+            { 'X-Replenishment-Run-Id': runId });
+          const data = extractReplenishmentData(response);
+          if (!data || numberOrZero(data.failedCount) > 0) {
             throw new Error('INVENTORY_REPLENISHMENT_REJECTED');
           }
-          const data = response.data ?? {};
-          await this.redis.set(completedKey, 'completed', 'EX', COMPLETION_TTL_SECONDS);
+          if (completedKey) {
+            await this.redis.set(completedKey, 'completed', 'EX', COMPLETION_TTL_SECONDS);
+          }
           this.status = {
             ...this.status,
             lastResult: 'COMPLETED',
@@ -139,35 +175,41 @@ export class InventoryReplenishmentScheduler {
             lastSkippedCount: numberOrZero(data.skippedCount),
             lastFailedCount: numberOrZero(data.failedCount),
           };
-          await this.persistStatus(windowId, correlationId, startedAt, 'COMPLETED', attempt - 1, data);
+          await this.publishStatus();
+          await this.persistStatus(runId, correlationId, startedAt, 'COMPLETED', attempt - 1, data);
           return this.getStatus();
         } catch (error) {
           lastError = error;
-          if (attempt < MAX_ATTEMPTS && this.inCurrentWindow(windowId)) {
+          if (attempt < MAX_ATTEMPTS && (!scheduled || this.inCurrentWindow(runId))) {
             await this.sleep(BACKOFF_MS[attempt - 1]);
           }
         }
       }
       this.status = { ...this.status, lastResult: 'FAILED', retryCount: MAX_ATTEMPTS - 1 };
-      await this.persistStatus(windowId, correlationId, startedAt, 'FAILED', MAX_ATTEMPTS - 1, {});
-      log.error({ windowId, error: safeErrorMessage(lastError) }, 'Inventory replenishment failed');
+      await this.publishStatus();
+      await this.persistStatus(runId, correlationId, startedAt, 'FAILED', MAX_ATTEMPTS - 1, {});
+      log.error({ runId, error: safeErrorMessage(lastError) }, 'Inventory replenishment failed');
       return this.getStatus();
     } finally {
-      await this.redis.del(lockKey);
+      await this.releaseLock(lockKey, lockToken);
     }
   }
 
   private scheduleNext(): void {
     if (!this.running) return;
     try {
-      const interval = CronExpressionParser.parse(CRON_EXPRESSION, { tz: TIME_ZONE });
+      const interval = CronExpressionParser.parse(CRON_EXPRESSION, {
+        currentDate: this.now(),
+        tz: TIME_ZONE,
+      });
       const next = interval.next().toDate();
       this.status = { ...this.status, nextExecutionAt: next.toISOString() };
       this.timer = setTimeout(async () => {
         if (!this.running) return;
-        await this.executeCurrentWindow();
+        await this.executeScheduledWindow();
         this.scheduleNext();
       }, Math.max(next.getTime() - this.now().getTime(), 1000));
+      void this.publishStatus();
     } catch (error) {
       log.error({ error: safeErrorMessage(error) }, 'Failed to schedule inventory replenishment');
     }
@@ -182,16 +224,16 @@ export class InventoryReplenishmentScheduler {
   }
 
   private async persistStatus(
-    windowId: string,
+    runId: string,
     correlationId: string,
     startedAt: Date,
     status: 'COMPLETED' | 'FAILED',
     retryCount: number,
-    data: ReplenishmentResponse['data'],
+    data: ReplenishmentData,
   ): Promise<void> {
     try {
-      await recordReplenishmentRun({
-        windowId,
+      await this.persistenceWriter({
+        windowId: runId,
         operationType: 'DEMO_STOCK_REPLENISH',
         status,
         startedAt,
@@ -201,13 +243,46 @@ export class InventoryReplenishmentScheduler {
         correlationId,
       });
     } catch (error) {
-      log.warn({ windowId, error: safeErrorMessage(error) }, 'Failed to persist inventory scheduler status');
+      log.warn({ runId, error: safeErrorMessage(error) }, 'Failed to persist inventory scheduler status');
+    }
+  }
+
+  private async publishStatus(): Promise<void> {
+    try {
+      await this.statusPublisher(this.getStatus());
+    } catch (error) {
+      log.warn({ error: safeErrorMessage(error) }, 'Failed to publish inventory replenishment status');
+    }
+  }
+
+  private async releaseLock(lockKey: string, lockToken: string): Promise<void> {
+    try {
+      await this.redis.eval(
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+        1,
+        lockKey,
+        lockToken,
+      );
+    } catch (error) {
+      log.warn({ lockKey, error: safeErrorMessage(error) }, 'Failed to release inventory replenishment lock');
     }
   }
 }
 
-function isSuccessfulResponse(response: ReplenishmentResponse): boolean {
-  return response.code === undefined || response.code === 0 || response.code === 200 || response.code === '200';
+function extractReplenishmentData(response: ReplenishmentResponse): ReplenishmentData | null {
+  if (!isSuccessfulCode(response.code)) return null;
+  if (isReplenishmentEnvelope(response.data)) {
+    return isSuccessfulCode(response.data.code) ? response.data.data ?? {} : null;
+  }
+  return response.data ?? {};
+}
+
+function isSuccessfulCode(code: string | number | undefined): boolean {
+  return code === undefined || code === 0 || code === 200 || code === '200';
+}
+
+function isReplenishmentEnvelope(value: ReplenishmentResponse['data']): value is ReplenishmentEnvelope<ReplenishmentData> {
+  return typeof value === 'object' && value !== null && 'code' in value && 'data' in value;
 }
 
 function numberOrZero(value: number | undefined): number {
@@ -225,4 +300,12 @@ export function getInventoryReplenishmentScheduler(): InventoryReplenishmentSche
     scheduler = new InventoryReplenishmentScheduler();
   }
   return scheduler;
+}
+
+export async function runManualInventoryReplenishment(
+  correlationId: string,
+): Promise<InventoryReplenishmentStatus> {
+  return new InventoryReplenishmentScheduler({
+    statusPublisher: async () => undefined,
+  }).executeManual(correlationId);
 }

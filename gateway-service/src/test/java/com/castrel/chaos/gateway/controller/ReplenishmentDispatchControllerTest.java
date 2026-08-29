@@ -30,20 +30,26 @@ class ReplenishmentDispatchControllerTest {
 
     @Test
     void dispatchesCouponReplenishmentWithoutWorkerParameters() {
-        when(dispatchService.replenishCoupons("trace-1"))
+        when(dispatchService.replenishCoupons("trace-1", "UTC-6H-1"))
                 .thenReturn(Mono.just(Map.of("added", 2)));
 
-        var response = controller.replenishCoupons(Map.of(), "trace-1").block();
+        var response = controller.replenishCoupons(Map.of(), "trace-1", "UTC-6H-1").block();
 
         assertThat(response).isNotNull();
         assertThat(response.getCode()).isEqualTo(200);
         assertThat(response.getData()).isEqualTo(Map.of("added", 2));
-        verify(dispatchService).replenishCoupons("trace-1");
+        verify(dispatchService).replenishCoupons("trace-1", "UTC-6H-1");
     }
 
     @Test
     void rejectsCustomReplenishmentParameters() {
-        assertThatThrownBy(() -> controller.replenishStock(Map.of("sku", "SKU-001"), null).block())
+        assertThatThrownBy(() -> controller.replenishStock(Map.of("sku", "SKU-001"), null, "UTC-6H-1").block())
                 .hasMessageContaining("Replenishment commands do not accept parameters");
+    }
+
+    @Test
+    void rejectsMissingReplenishmentRunId() {
+        assertThatThrownBy(() -> controller.replenishStock(Map.of(), "trace-1", null).block())
+                .hasMessageContaining("A valid replenishment run ID is required");
     }
 }

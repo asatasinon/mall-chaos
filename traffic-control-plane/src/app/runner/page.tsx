@@ -191,11 +191,15 @@ export default function RunnerPage() {
     try {
       const response = await fetchWithAuth(`/internal/traffic/runner/${type}-replenishment/trigger`, { method: 'POST' });
       const json = await response.json();
-      if (json.code !== 0) throw new Error(json.message || 'Unable to queue replenishment');
-      setMessage(`${type === 'inventory' ? 'Inventory' : 'Coupon'} replenishment queued`);
-      await (type === 'inventory' ? loadInventory() : loadCouponReplenishment());
+      if (json.code !== 0) throw new Error(json.message || 'Unable to run replenishment');
+      if (type === 'inventory') {
+        setInventory(json.data.result as InventoryReplenishmentStatus);
+      } else {
+        setCouponReplenishment(json.data.result as CouponReplenishmentStatus);
+      }
+      setMessage(`${type === 'inventory' ? 'Inventory' : 'Coupon'} replenishment completed`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to queue replenishment');
+      setMessage(error instanceof Error ? error.message : 'Unable to run replenishment');
     } finally {
       setTriggeringReplenishment(null);
     }

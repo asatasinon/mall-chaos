@@ -34,7 +34,6 @@ class InventoryReplenishmentControllerTest {
         controller = new InventoryController();
         ReflectionTestUtils.setField(controller, "inventoryService", inventoryService);
         ReflectionTestUtils.setField(controller, "jwtTokenService", jwtTokenService);
-        ReflectionTestUtils.setField(controller, "internalServiceKey", "internal-secret");
     }
 
     @Test
@@ -43,36 +42,31 @@ class InventoryReplenishmentControllerTest {
         when(jwtTokenService.verifyDownstreamPrincipal("principal"))
                 .thenReturn(new JwtTokenService.DownstreamPrincipal(
                         0L, "trace-1", List.of("TRAFFIC_REPLENISH"), "token-id"));
-        when(inventoryService.replenishDemoInventory()).thenReturn(result);
+        when(inventoryService.replenishDemoInventory("manual:run-1")).thenReturn(result);
 
-        var response = controller.replenishDemoStock(Map.of(), "principal", null);
+        var response = controller.replenishDemoStock(Map.of(), "principal", "manual:run-1");
 
         assertThat(response.getData()).isEqualTo(result);
-        verify(inventoryService).replenishDemoInventory();
+        verify(inventoryService).replenishDemoInventory("manual:run-1");
     }
 
     @Test
-    void acceptsTheConfiguredInternalServiceKey() {
-        when(inventoryService.replenishDemoInventory())
-                .thenReturn(new DemoInventoryReplenishmentResult("window", "trace", 1, 0, 1, 0));
-
-        var response = controller.replenishDemoStock(Map.of(), null, "internal-secret");
-
-        assertThat(response.getCode()).isEqualTo(200);
-        verify(inventoryService).replenishDemoInventory();
+    void rejectsDirectCallsWithoutGatewayPrincipal() {
+        assertThatThrownBy(() -> controller.replenishDemoStock(Map.of(), null, "UTC-6H-1"))
+                .hasMessageContaining("authentication required");
     }
 
     @Test
     void rejectsCustomParametersAndWrongPrincipal() {
         assertThatThrownBy(() -> controller.replenishDemoStock(
-                Map.of("sku", "SKU-999"), "principal", null))
+            Map.of("sku", "SKU-999"), "principal", "UTC-6H-1"))
                 .hasMessageContaining("does not accept parameters");
 
         when(jwtTokenService.verifyDownstreamPrincipal("customer-principal"))
                 .thenReturn(new JwtTokenService.DownstreamPrincipal(
                         7L, "trace-1", List.of("CUSTOMER_API"), "token-id"));
         assertThatThrownBy(() -> controller.replenishDemoStock(
-                Map.of(), "customer-principal", null))
+            Map.of(), "customer-principal", "UTC-6H-1"))
                 .hasMessageContaining("authentication required");
     }
 }

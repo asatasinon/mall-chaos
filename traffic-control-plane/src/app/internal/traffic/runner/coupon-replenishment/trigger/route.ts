@@ -1,12 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import { jsonError, jsonOk } from '@/lib/api-response';
 import { recordOperatorAudit } from '@/lib/operator-audit';
-import { enqueueReplenishmentCommand } from '@/lib/runtime-state';
+import { runManualCouponReplenishment } from '@/worker/coupon-replenishment';
 
 export async function POST(request: Request) {
   const correlationId = randomUUID();
   try {
-    await enqueueReplenishmentCommand('coupon', correlationId);
+    const result = await runManualCouponReplenishment(correlationId);
+    if (result.lastResult !== 'COMPLETED') {
+      await recordOperatorAudit({
+        request,
+        action: 'RUNNER_REPLENISHMENT_TRIGGER',
+        target: 'coupon',
+        result: 'FAILURE',
+        correlationId,
+      });
+      return jsonError(503, 'Coupon replenishment did not complete', 503);
+    }
     await recordOperatorAudit({
       request,
       action: 'RUNNER_REPLENISHMENT_TRIGGER',
@@ -14,7 +24,7 @@ export async function POST(request: Request) {
       result: 'SUCCESS',
       correlationId,
     });
-    return jsonOk({ queued: true, type: 'coupon', correlationId }, 202);
+    return jsonOk({ type: 'coupon', correlationId, result });
   } catch {
     await recordOperatorAudit({
       request,
@@ -23,6 +33,6 @@ export async function POST(request: Request) {
       result: 'FAILURE',
       correlationId,
     }).catch(() => undefined);
-    return jsonError(503, 'Unable to queue coupon replenishment', 503);
+    return jsonError(503, 'Unable to run coupon replenishment', 503);
   }
 }

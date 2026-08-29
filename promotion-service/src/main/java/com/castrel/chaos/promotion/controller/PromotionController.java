@@ -27,22 +27,22 @@ public class PromotionController {
     public ApiResponse<DemoCouponReplenishmentResult> replenishDemoCoupons(
             @RequestBody(required = false) Map<String, Object> body,
             @RequestHeader(value = "X-Downstream-Principal", required = false) String downstreamPrincipal,
-            @RequestHeader(value = "X-Internal-Service-Key", required = false) String internalServiceKey) {
+            @RequestHeader(value = "X-Replenishment-Run-Id", required = false) String runId) {
         if (body != null && !body.isEmpty()) {
             throw new BizException("INVALID_REPLENISHMENT_REQUEST",
                     "Replenishment command does not accept parameters");
         }
-        if (!hasReplenishmentAuthority(downstreamPrincipal, internalServiceKey)) {
+        if (!hasReplenishmentAuthority(downstreamPrincipal)) {
             throw new BizException("REPLENISHMENT_FORBIDDEN",
                     "Replenishment service authentication required");
         }
-        return ApiResponse.ok(promotionService.replenishDemoCouponPool());
+        if (runId == null || !runId.matches("[A-Za-z0-9:_-]{1,64}")) {
+            throw new BizException("INVALID_REPLENISHMENT_RUN", "A valid replenishment run ID is required");
+        }
+        return ApiResponse.ok(promotionService.replenishDemoCouponPool(runId));
     }
 
-    private boolean hasReplenishmentAuthority(String downstreamPrincipal, String internalServiceKey) {
-        if (internalServiceKey != null && !internalServiceKey.isBlank()) {
-            return true;
-        }
+    private boolean hasReplenishmentAuthority(String downstreamPrincipal) {
         if (downstreamPrincipal == null || downstreamPrincipal.isBlank()) return false;
         try {
             return jwtTokenService.verifyDownstreamPrincipal(downstreamPrincipal)

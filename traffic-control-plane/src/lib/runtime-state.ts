@@ -4,47 +4,6 @@ const CONTROL_KEY = 'traffic-control-plane:runner:control';
 const STATUS_KEY = 'traffic-control-plane:runner:status';
 const INVENTORY_REPLENISHMENT_STATUS_KEY = 'traffic-control-plane:replenishment:inventory:status';
 const COUPON_REPLENISHMENT_STATUS_KEY = 'traffic-control-plane:replenishment:coupon:status';
-const REPLENISHMENT_COMMAND_KEY = 'traffic-control-plane:replenishment:commands';
-
-export type ReplenishmentType = 'inventory' | 'coupon';
-
-export interface ReplenishmentCommand {
-  type: ReplenishmentType;
-  requestedAt: string;
-  correlationId: string;
-}
-
-export async function enqueueReplenishmentCommand(
-  type: ReplenishmentType,
-  correlationId: string,
-): Promise<void> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  await redis.lpush(REPLENISHMENT_COMMAND_KEY, JSON.stringify({
-    type,
-    requestedAt: new Date().toISOString(),
-    correlationId,
-  } satisfies ReplenishmentCommand));
-  await redis.ltrim(REPLENISHMENT_COMMAND_KEY, 0, 99);
-}
-
-export async function consumeReplenishmentCommand(): Promise<ReplenishmentCommand | null> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  const value = await redis.rpop(REPLENISHMENT_COMMAND_KEY);
-  if (!value) return null;
-  try {
-    const command = JSON.parse(value) as Partial<ReplenishmentCommand>;
-    if ((command.type !== 'inventory' && command.type !== 'coupon')
-        || typeof command.requestedAt !== 'string'
-        || typeof command.correlationId !== 'string') {
-      return null;
-    }
-    return command as ReplenishmentCommand;
-  } catch {
-    return null;
-  }
-}
 
 export interface RunnerControlState {
   paused: boolean;

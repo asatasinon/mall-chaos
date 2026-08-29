@@ -27,13 +27,24 @@ class FakeRedis {
     return 1;
   }
 
+  async eval(_script: string, _numberOfKeys: number, key: string, token: string): Promise<number> {
+    if (this.values.get(key) !== token) return 0;
+    return this.del(key);
+  }
+
   seed(key: string, value: string): void {
     this.values.set(key, value);
   }
 }
 
 function gatewayThat(
-  implementation: (path: string, body: unknown, traceId?: string) => Promise<unknown>,
+  implementation: (
+    path: string,
+    body: unknown,
+    traceId?: string,
+    signal?: AbortSignal,
+    headers?: Record<string, string>,
+  ) => Promise<unknown>,
 ): GatewayClient {
   return { postInternal: implementation } as unknown as GatewayClient;
 }
@@ -48,6 +59,8 @@ function dependencies(
     redis: redis as unknown as Redis,
     now: () => now,
     sleep: async () => undefined,
+    statusPublisher: async () => undefined,
+    persistenceWriter: async () => undefined,
   };
 }
 
@@ -59,8 +72,9 @@ test('scheduler executes the current window before the lifecycle starts', async 
   const redis = new FakeRedis();
   let calls = 0;
   const scheduler = new CouponReplenishmentScheduler(dependencies(
-    gatewayThat(async () => {
+    gatewayThat(async (_path, _body, _traceId, _signal, headers) => {
       calls++;
+      assert.match(headers?.['X-Replenishment-Run-Id'] ?? '', /^UTC-6H-/);
       return { code: 200 };
     }),
     redis,
@@ -91,7 +105,7 @@ test('lock contention skips a window without marking it completed', async () => 
     return originalSet(key, value, ...args);
   };
 
-  const status = await scheduler.executeCurrentWindow();
+  const status = await scheduler.executeScheduledWindow();
 
   assert.equal(status.lastResult, 'SKIPPED');
   assert.equal(await redis.get(`traffic-control-plane:replenishment:coupon:completed:${TEST_WINDOW_ID}`), null);
@@ -109,7 +123,7 @@ test('gateway failures retry within the same window and complete once', async ()
     redis,
   ));
 
-  const status = await scheduler.executeCurrentWindow();
+  const status = await scheduler.executeScheduledWindow();
 
   assert.equal(calls, 3);
   assert.equal(status.lastResult, 'COMPLETED');
@@ -117,7 +131,7 @@ test('gateway failures retry within the same window and complete once', async ()
   assert.equal(await redis.get(`traffic-control-plane:replenishment:coupon:completed:${TEST_WINDOW_ID}`), 'completed');
 });
 
-test('a completed window does not call Gateway again', async () => {
+test('a completed scheduled window does not call Gateway again', async () => {
   const redis = new FakeRedis();
   redis.seed(`traffic-control-plane:replenishment:coupon:completed:${TEST_WINDOW_ID}`, 'completed');
   let calls = 0;
@@ -129,8 +143,33 @@ test('a completed window does not call Gateway again', async () => {
     redis,
   ));
 
-  const status = await scheduler.executeCurrentWindow();
+  const status = await scheduler.executeScheduledWindow();
 
   assert.equal(calls, 0);
+  assert.equal(status.lastResult, 'COMPLETED');
+});
+
+test('manual coupon execution is not skipped after a completed scheduled window', async () => {
+  const redis = new FakeRedis();
+  redis.seed(`traffic-control-plane:replenishment:coupon:completed:${TEST_WINDOW_ID}`, 'completed');
+  let calls = 0;
+  const scheduler = new CouponReplenishmentScheduler(dependencies(
+    gatewayThat(async (_path, _body, _traceId, _signal, headers) => {
+      calls++;
+      assert.match(headers?.['X-Replenishment-Run-Id'] ?? '', /^manual:/);
+      return {
+        code: 200,
+        data: {
+          code: 200,
+          data: { addedCount: 2, skippedCount: 0, failedCount: 0 },
+        },
+      };
+    }),
+    redis,
+  ));
+
+  const status = await scheduler.executeManual();
+
+  assert.equal(calls, 1);
   assert.equal(status.lastResult, 'COMPLETED');
 });

@@ -27,13 +27,24 @@ class FakeRedis {
     return 1;
   }
 
+  async eval(_script: string, _numberOfKeys: number, key: string, token: string): Promise<number> {
+    if (this.values.get(key) !== token) return 0;
+    return this.del(key);
+  }
+
   seed(key: string, value: string): void {
     this.values.set(key, value);
   }
 }
 
 function gatewayThat(
-  implementation: (path: string, body: unknown, traceId?: string) => Promise<unknown>,
+  implementation: (
+    path: string,
+    body: unknown,
+    traceId?: string,
+    signal?: AbortSignal,
+    headers?: Record<string, string>,
+  ) => Promise<unknown>,
 ): GatewayClient {
   return { postInternal: implementation } as unknown as GatewayClient;
 }
@@ -47,6 +58,8 @@ function dependencies(gateway: GatewayClient, redis: FakeRedis) {
     redis: redis as unknown as Redis,
     now: () => now,
     sleep: async () => undefined,
+    statusPublisher: async () => undefined,
+    persistenceWriter: async () => undefined,
   };
 }
 
@@ -54,9 +67,10 @@ test('inventory scheduler executes immediately and reports replenishment counts'
   const redis = new FakeRedis();
   let calls = 0;
   const scheduler = new InventoryReplenishmentScheduler(dependencies(
-    gatewayThat(async (path) => {
+    gatewayThat(async (path, _body, _traceId, _signal, headers) => {
       calls++;
       assert.equal(path, '/internal/gateway/inventory/demo-stock/replenish');
+      assert.match(headers?.['X-Replenishment-Run-Id'] ?? '', /^UTC-6H-/);
       return { code: 200, data: { addedQuantity: 60, skippedCount: 1, failedCount: 0 } };
     }),
     redis,
@@ -72,7 +86,7 @@ test('inventory scheduler executes immediately and reports replenishment counts'
   assert.equal(status.lastAddedQuantity, 60);
   assert.equal(status.lastSkippedCount, 1);
   assert.equal(status.lastFailedCount, 0);
-  assert.equal(status.nextExecutionAt, null);
+  assert.ok(status.nextExecutionAt);
 });
 
 test('inventory lock contention skips without completing the window', async () => {
@@ -87,7 +101,7 @@ test('inventory lock contention skips without completing the window', async () =
     redis,
   ));
 
-  const status = await scheduler.executeCurrentWindow();
+  const status = await scheduler.executeScheduledWindow();
 
   assert.equal(calls, 0);
   assert.equal(status.lastResult, 'SKIPPED');
@@ -108,7 +122,7 @@ test('inventory Gateway failures retry and never call reset routes', async () =>
     redis,
   ));
 
-  const status = await scheduler.executeCurrentWindow();
+  const status = await scheduler.executeScheduledWindow();
 
   assert.equal(calls, 2);
   assert.deepEqual(paths, [
@@ -120,7 +134,7 @@ test('inventory Gateway failures retry and never call reset routes', async () =>
   assert.equal(status.lastAddedQuantity, 10);
 });
 
-test('completed inventory window is idempotent', async () => {
+test('completed scheduled inventory window is idempotent', async () => {
   const redis = new FakeRedis();
   redis.seed(`traffic-control-plane:replenishment:inventory:completed:${windowId}`, 'completed');
   let calls = 0;
@@ -132,8 +146,49 @@ test('completed inventory window is idempotent', async () => {
     redis,
   ));
 
-  const status = await scheduler.executeCurrentWindow();
+  const status = await scheduler.executeScheduledWindow();
 
   assert.equal(calls, 0);
   assert.equal(status.lastResult, 'COMPLETED');
+});
+
+test('manual inventory execution is not skipped after a completed scheduled window', async () => {
+  const redis = new FakeRedis();
+  redis.seed(`traffic-control-plane:replenishment:inventory:completed:${windowId}`, 'completed');
+  let calls = 0;
+  const scheduler = new InventoryReplenishmentScheduler(dependencies(
+    gatewayThat(async (_path, _body, _traceId, _signal, headers) => {
+      calls++;
+      assert.match(headers?.['X-Replenishment-Run-Id'] ?? '', /^manual:/);
+      return {
+        code: 200,
+        data: {
+          code: 200,
+          data: { addedQuantity: 10, skippedCount: 0, failedCount: 0 },
+        },
+      };
+    }),
+    redis,
+  ));
+
+  const status = await scheduler.executeManual();
+
+  assert.equal(calls, 1);
+  assert.equal(status.lastResult, 'COMPLETED');
+});
+
+test('inventory execution does not release a lock acquired by another runner', async () => {
+  const redis = new FakeRedis();
+  const lockKey = 'traffic-control-plane:replenishment:inventory:lock';
+  const scheduler = new InventoryReplenishmentScheduler(dependencies(
+    gatewayThat(async () => {
+      await redis.set(lockKey, 'successor');
+      return { code: 200, data: { addedQuantity: 0, skippedCount: 1, failedCount: 0 } };
+    }),
+    redis,
+  ));
+
+  await scheduler.executeManual();
+
+  assert.equal(await redis.get(lockKey), 'successor');
 });
