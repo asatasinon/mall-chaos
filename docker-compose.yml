@@ -276,6 +276,7 @@ services:
       ORDER_SERVICE_URL: http://order-service:8084
       CART_SERVICE_URL: http://cart-service:8091
       USER_SERVICE_URL: http://user-service:8081
+      PSP_SIMULATOR_URL: http://psp-simulator:8092
       CATALOG_SERVICE_URL: http://catalog-service:8082
       INVENTORY_SERVICE_URL: http://inventory-service:8083
       PAYMENT_SERVICE_URL: http://payment-service:8085
