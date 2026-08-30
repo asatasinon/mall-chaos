@@ -112,8 +112,8 @@ public class CartService {
     }
 
     private ScenarioRunContext validateExerciseContext(Long customerId, String scenario, HttpHeaders headers) {
-        if (scenario == null || scenario.isBlank()) return null;
-        if (!"CART_REDIS_LARGE_VALUE".equals(scenario) || !Long.valueOf(19L).equals(customerId)) {
+        if (!"CART_REDIS_LARGE_VALUE".equals(scenario)) return null;
+        if (!Long.valueOf(19L).equals(customerId)) {
             throw new BizException("EXERCISE_CART_FORBIDDEN", "Only Sam's active exercise cart may use this path");
         }
         ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
