@@ -122,7 +122,7 @@ test('coupon branch selects only a candidate meeting the cart threshold', async 
       if (path === '/api/me/addresses') return { data: [{ id: 77, isDefault: true }] };
       if (path === '/api/me/coupons') return { data: [
         { id: 10, minAmount: 150, expireAt: '2099-01-01T00:00:00Z' },
-        { id: 11, minAmount: 50, expireAt: '2099-01-01T00:00:00Z' },
+        { id: 11, minAmount: 50, expireAt: null },
       ] };
       if (path === '/api/orders/101') return { data: { id: 101, orderNo: 'ORD-101', status: 'PENDING_PAYMENT' } };
       throw new Error(`unexpected GET ${path}`);

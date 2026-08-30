@@ -81,7 +81,7 @@ interface AddressData {
 interface CouponData {
   id: number;
   minAmount?: number | string;
-  expireAt?: string;
+  expireAt?: string | null;
 }
 
 interface OrderData {
@@ -219,7 +219,7 @@ export class TrafficActionOrchestrator {
           const response = await this.gateway.customerGet<ApiEnvelope<CouponData[]>>(
             '/api/me/coupons', { status: 'AVAILABLE' }, context!);
           const candidates = (response.data ?? []).filter((item) =>
-            (item.expireAt === undefined || new Date(item.expireAt).getTime() > Date.now())
+            (item.expireAt == null || new Date(item.expireAt).getTime() > Date.now())
               && Number(item.minAmount ?? 0) <= (cartTotal.value ?? 0));
           const chosen = candidates[Math.floor(Math.random() * candidates.length)];
           return chosen

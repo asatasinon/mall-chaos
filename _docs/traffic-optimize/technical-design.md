@@ -77,7 +77,7 @@ TRAFFIC_LIFECYCLE_ACCOUNTS=[]
 
 取消比例不单独持久化，计算为 $1-r$。配置更新继续要求 `version`，服务端校验所有边界，不能依赖前端归一化。
 
-演示券池基线为 `promotion-service` 的服务端配置，而非 runner 可编辑参数。配置至少包含演示客户集合、可补充的 promotion 类型、每客户每类型的 `targetAvailableCount`、`replenishBelowCount` 和券有效期。补券任务只能作用于显式演示客户，默认不影响普通客户。
+演示券池基线为 `promotion-service` 的服务端配置，而非 runner 可编辑参数。配置至少包含演示客户集合、可补充的 promotion 类型、每客户每类型的 `targetAvailableCount`、`replenishBelowCount` 和券有效期。补券任务只能作用于显式演示客户，默认不影响普通客户；客户集合必须覆盖所有已启用 lifecycle account 的 `expectedCustomerId`，目标容量必须覆盖一次六小时窗口内的预期用券量。
 
 补券和库存补齐调度均属于 `traffic-control-plane` worker，固定 cron 为 `0 0 */6 * * *`（UTC 的 00:00、06:00、12:00、18:00）。worker 启动后在启用生命周期流量前分别执行一次补齐协调，避免首次运行等待最多 6 小时。周期不开放给控制台编辑，避免运行期间改变基线补齐节奏。
 
