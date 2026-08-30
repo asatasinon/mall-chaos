@@ -4,7 +4,7 @@ import pino from 'pino';
 import { getGatewayClient, GatewayClient } from '../lib/gateway-client';
 import { getRedis } from '../lib/redis';
 import { recordReplenishmentRun, type ReplenishmentRunRecord } from '../lib/runner-persistence';
-import { setInventoryReplenishmentStatus } from '../lib/runtime-state';
+import { getInventoryReplenishmentStatus, setInventoryReplenishmentStatus } from '../lib/runtime-state';
 
 const log = pino({ name: 'inventory-replenishment' });
 const CRON_EXPRESSION = '0 0 */6 * * *';
@@ -33,9 +33,11 @@ interface ReplenishmentEnvelope<T> {
 
 export interface InventoryReplenishmentStatus {
   running: boolean;
+  isExecuting: boolean;
   lastWindowId: string | null;
   lastResult: 'COMPLETED' | 'FAILED' | 'SKIPPED' | null;
   lastAttemptAt: string | null;
+  lastCompletedAt: string | null;
   nextExecutionAt: string | null;
   retryCount: number;
   lastAddedQuantity: number;
@@ -50,6 +52,7 @@ export interface InventoryReplenishmentDependencies {
   now?: () => Date;
   statusPublisher?: (status: InventoryReplenishmentStatus) => Promise<void>;
   persistenceWriter?: (record: ReplenishmentRunRecord) => Promise<void>;
+  initialStatus?: Partial<InventoryReplenishmentStatus>;
 }
 
 export class InventoryReplenishmentScheduler {
@@ -64,9 +67,11 @@ export class InventoryReplenishmentScheduler {
   private running = false;
   private status: InventoryReplenishmentStatus = {
     running: false,
+    isExecuting: false,
     lastWindowId: null,
     lastResult: null,
     lastAttemptAt: null,
+    lastCompletedAt: null,
     nextExecutionAt: null,
     retryCount: 0,
     lastAddedQuantity: 0,
@@ -83,6 +88,7 @@ export class InventoryReplenishmentScheduler {
     this.now = dependencies.now ?? (() => new Date());
     this.statusPublisher = dependencies.statusPublisher ?? setInventoryReplenishmentStatus;
     this.persistenceWriter = dependencies.persistenceWriter ?? recordReplenishmentRun;
+    this.status = { ...this.status, ...dependencies.initialStatus };
   }
 
   async start(): Promise<void> {
@@ -129,15 +135,19 @@ export class InventoryReplenishmentScheduler {
     const lockKey = 'traffic-control-plane:replenishment:inventory:lock';
     this.status = {
       ...this.status,
+      isExecuting: true,
       lastWindowId: runId,
       lastAttemptAt: this.now().toISOString(),
       retryCount: 0,
+      lastAddedQuantity: 0,
+      lastSkippedCount: 0,
+      lastFailedCount: 0,
     };
     await this.publishStatus();
 
     await this.redis.connect().catch(() => undefined);
     if (completedKey && await this.redis.get(completedKey)) {
-      this.status = { ...this.status, lastResult: 'COMPLETED' };
+      this.status = { ...this.status, isExecuting: false, lastResult: 'COMPLETED', lastCompletedAt: this.now().toISOString() };
       await this.publishStatus();
       return this.getStatus();
     }
@@ -145,7 +155,7 @@ export class InventoryReplenishmentScheduler {
     const lockToken = `${this.instanceId}:${runId}`;
     const acquired = await this.redis.set(lockKey, lockToken, 'EX', LOCK_TTL_SECONDS, 'NX');
     if (!acquired) {
-      this.status = { ...this.status, lastResult: 'SKIPPED' };
+      this.status = { ...this.status, isExecuting: false, lastResult: 'SKIPPED', lastCompletedAt: this.now().toISOString() };
       await this.publishStatus();
       log.info({ runId }, 'Inventory replenishment skipped because another worker holds the lock');
       return this.getStatus();
@@ -170,7 +180,9 @@ export class InventoryReplenishmentScheduler {
           }
           this.status = {
             ...this.status,
+            isExecuting: false,
             lastResult: 'COMPLETED',
+            lastCompletedAt: this.now().toISOString(),
             lastAddedQuantity: numberOrZero(data.addedQuantity),
             lastSkippedCount: numberOrZero(data.skippedCount),
             lastFailedCount: numberOrZero(data.failedCount),
@@ -185,7 +197,13 @@ export class InventoryReplenishmentScheduler {
           }
         }
       }
-      this.status = { ...this.status, lastResult: 'FAILED', retryCount: MAX_ATTEMPTS - 1 };
+      this.status = {
+        ...this.status,
+        isExecuting: false,
+        lastResult: 'FAILED',
+        lastCompletedAt: this.now().toISOString(),
+        retryCount: MAX_ATTEMPTS - 1,
+      };
       await this.publishStatus();
       await this.persistStatus(runId, correlationId, startedAt, 'FAILED', MAX_ATTEMPTS - 1, {});
       log.error({ runId, error: safeErrorMessage(lastError) }, 'Inventory replenishment failed');
@@ -272,9 +290,10 @@ export class InventoryReplenishmentScheduler {
 function extractReplenishmentData(response: ReplenishmentResponse): ReplenishmentData | null {
   if (!isSuccessfulCode(response.code)) return null;
   if (isReplenishmentEnvelope(response.data)) {
-    return isSuccessfulCode(response.data.code) ? response.data.data ?? {} : null;
+    return isSuccessfulCode(response.data.code) && isReplenishmentData(response.data.data)
+      ? response.data.data : null;
   }
-  return response.data ?? {};
+  return isReplenishmentData(response.data) ? response.data : null;
 }
 
 function isSuccessfulCode(code: string | number | undefined): boolean {
@@ -283,6 +302,13 @@ function isSuccessfulCode(code: string | number | undefined): boolean {
 
 function isReplenishmentEnvelope(value: ReplenishmentResponse['data']): value is ReplenishmentEnvelope<ReplenishmentData> {
   return typeof value === 'object' && value !== null && 'code' in value && 'data' in value;
+}
+
+function isReplenishmentData(value: unknown): value is ReplenishmentData {
+  if (typeof value !== 'object' || value === null) return false;
+  const data = value as ReplenishmentData;
+  return [data.addedQuantity, data.skippedCount, data.failedCount]
+    .every((count) => typeof count === 'number' && Number.isFinite(count));
 }
 
 function numberOrZero(value: number | undefined): number {
@@ -305,7 +331,7 @@ export function getInventoryReplenishmentScheduler(): InventoryReplenishmentSche
 export async function runManualInventoryReplenishment(
   correlationId: string,
 ): Promise<InventoryReplenishmentStatus> {
-  return new InventoryReplenishmentScheduler({
-    statusPublisher: async () => undefined,
-  }).executeManual(correlationId);
+  const initialStatus = await getInventoryReplenishmentStatus();
+  return new InventoryReplenishmentScheduler({ initialStatus: initialStatus ?? undefined })
+    .executeManual(correlationId);
 }

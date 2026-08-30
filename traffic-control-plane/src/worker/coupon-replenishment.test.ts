@@ -75,7 +75,7 @@ test('scheduler executes the current window before the lifecycle starts', async 
     gatewayThat(async (_path, _body, _traceId, _signal, headers) => {
       calls++;
       assert.match(headers?.['X-Replenishment-Run-Id'] ?? '', /^UTC-6H-/);
-      return { code: 200 };
+      return { code: 200, data: { addedCount: 0, skippedCount: 0, failedCount: 0 } };
     }),
     redis,
   ));
@@ -87,6 +87,9 @@ test('scheduler executes the current window before the lifecycle starts', async 
   assert.equal(calls, 1);
   assert.equal(status.lastResult, 'COMPLETED');
   assert.equal(status.running, true);
+  assert.equal(status.isExecuting, false);
+  assert.equal(status.lastAddedCount, 0);
+  assert.equal(status.lastCompletedAt, '2026-08-25T01:00:00.000Z');
   assert.match(status.lastWindowId ?? '', /^UTC-6H-/);
   assert.ok(status.nextExecutionAt);
 });
@@ -118,7 +121,7 @@ test('gateway failures retry within the same window and complete once', async ()
     gatewayThat(async () => {
       calls++;
       if (calls < 3) throw new Error('temporary gateway failure');
-      return { code: 200 };
+      return { code: 200, data: { addedCount: 0, skippedCount: 0, failedCount: 0 } };
     }),
     redis,
   ));
@@ -172,4 +175,45 @@ test('manual coupon execution is not skipped after a completed scheduled window'
 
   assert.equal(calls, 1);
   assert.equal(status.lastResult, 'COMPLETED');
+});
+
+test('coupon publishes running before its completed result', async () => {
+  const redis = new FakeRedis();
+  const publishedStatuses: Array<{ isExecuting: boolean; lastCompletedAt: string | null }> = [];
+  const scheduler = new CouponReplenishmentScheduler({
+    ...dependencies(
+      gatewayThat(async () => ({
+        code: 200,
+        data: { addedCount: 2, skippedCount: 0, failedCount: 0 },
+      })),
+      redis,
+    ),
+    statusPublisher: async (status) => {
+      publishedStatuses.push(status);
+    },
+  });
+
+  await scheduler.executeManual();
+
+  assert.equal(publishedStatuses[0]?.isExecuting, true);
+  assert.equal(publishedStatuses[publishedStatuses.length - 1]?.isExecuting, false);
+  assert.equal(publishedStatuses[publishedStatuses.length - 1]?.lastCompletedAt, '2026-08-25T01:00:00.000Z');
+});
+
+test('coupon treats a success response without replenishment data as a failure', async () => {
+  const redis = new FakeRedis();
+  let calls = 0;
+  const scheduler = new CouponReplenishmentScheduler(dependencies(
+    gatewayThat(async () => {
+      calls++;
+      return { code: 200 };
+    }),
+    redis,
+ ));
+
+  const status = await scheduler.executeManual();
+
+  assert.equal(calls, 3);
+  assert.equal(status.lastResult, 'FAILED');
+  assert.equal(status.isExecuting, false);
 });

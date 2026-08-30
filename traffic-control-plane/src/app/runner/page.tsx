@@ -41,6 +41,10 @@ export default function RunnerPage() {
   const [saving, setSaving] = useState(false);
   const [triggeringReplenishment, setTriggeringReplenishment] = useState<'inventory' | 'coupon' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [replenishmentMessages, setReplenishmentMessages] = useState<Record<'inventory' | 'coupon', string | null>>({
+    inventory: null,
+    coupon: null,
+  });
   const [activeView, setActiveView] = useState<'accounts' | 'scheduled' | 'data' | 'activity'>('accounts');
   const [warmup, setWarmup] = useState<WarmupProgressResponse | null>(null);
   const [warmupJobs, setWarmupJobs] = useState<WarmupJob[]>([]);
@@ -187,19 +191,31 @@ export default function RunnerPage() {
 
   const triggerReplenishment = async (type: 'inventory' | 'coupon') => {
     setTriggeringReplenishment(type);
-    setMessage(null);
+    setReplenishmentMessages((current) => ({ ...current, [type]: null }));
     try {
       const response = await fetchWithAuth(`/internal/traffic/runner/${type}-replenishment/trigger`, { method: 'POST' });
       const json = await response.json();
       if (json.code !== 0) throw new Error(json.message || 'Unable to run replenishment');
       if (type === 'inventory') {
-        setInventory(json.data.result as InventoryReplenishmentStatus);
+        const result = json.data.result as InventoryReplenishmentStatus;
+        setInventory(result);
+        setReplenishmentMessages((current) => ({
+          ...current,
+          inventory: `Inventory replenishment completed: ${result.lastAddedQuantity} added, ${result.lastSkippedCount} skipped, ${result.lastFailedCount} failed`,
+        }));
       } else {
-        setCouponReplenishment(json.data.result as CouponReplenishmentStatus);
+        const result = json.data.result as CouponReplenishmentStatus;
+        setCouponReplenishment(result);
+        setReplenishmentMessages((current) => ({
+          ...current,
+          coupon: `Coupon replenishment completed: ${result.lastAddedCount} added, ${result.lastSkippedCount} skipped, ${result.lastFailedCount} failed`,
+        }));
       }
-      setMessage(`${type === 'inventory' ? 'Inventory' : 'Coupon'} replenishment completed`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to run replenishment');
+      setReplenishmentMessages((current) => ({
+        ...current,
+        [type]: error instanceof Error ? error.message : 'Unable to run replenishment',
+      }));
     } finally {
       setTriggeringReplenishment(null);
     }
@@ -366,7 +382,7 @@ export default function RunnerPage() {
     <RunnerViewTabs activeView={activeView} onChange={setActiveView} />
 
     {activeView === 'accounts' && <AccountsPanel accountSummary={accountSummary} accountError={accountError} onToggleAccount={(label, enabled) => void toggleAccount(label, enabled)} />}
-    {activeView === 'scheduled' && <ScheduledTasksPanel inventory={inventory} couponReplenishment={couponReplenishment} workerUnavailable={workerUnavailable} triggeringReplenishment={triggeringReplenishment} onTrigger={(type) => void triggerReplenishment(type)} />}
+    {activeView === 'scheduled' && <ScheduledTasksPanel inventory={inventory} couponReplenishment={couponReplenishment} workerUnavailable={workerUnavailable} triggeringReplenishment={triggeringReplenishment} inventoryMessage={replenishmentMessages.inventory} couponMessage={replenishmentMessages.coupon} onTrigger={(type) => void triggerReplenishment(type)} />}
     {activeView === 'data' && <DataControlPanel
       warmup={warmup}
       jobs={warmupJobs}

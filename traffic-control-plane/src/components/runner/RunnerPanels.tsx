@@ -128,33 +128,43 @@ interface ScheduledTasksPanelProps {
   couponReplenishment: CouponReplenishmentStatus | null;
   workerUnavailable: boolean;
   triggeringReplenishment: 'inventory' | 'coupon' | null;
+  inventoryMessage: string | null;
+  couponMessage: string | null;
   onTrigger: (type: 'inventory' | 'coupon') => void;
 }
 
-export function ScheduledTasksPanel({ inventory, couponReplenishment, workerUnavailable, triggeringReplenishment, onTrigger }: ScheduledTasksPanelProps) {
+export function ScheduledTasksPanel({ inventory, couponReplenishment, workerUnavailable, triggeringReplenishment, inventoryMessage, couponMessage, onTrigger }: ScheduledTasksPanelProps) {
   return <div id="runner-scheduled" role="tabpanel" className="grid gap-4 md:grid-cols-2">
     <Card>
       <CardHeader className="!flex flex-row items-center justify-between gap-3 space-y-0 pb-3">
-        <CardTitle className="text-sm font-medium">Inventory replenishment</CardTitle>
+        <div className="flex min-w-0 items-center gap-2">
+          <CardTitle className="text-sm font-medium">Inventory replenishment</CardTitle>
+          <Badge variant={workerUnavailable || !inventory?.running ? 'secondary' : 'outline'}>{workerUnavailable ? 'Worker offline' : triggeringReplenishment === 'inventory' || inventory?.isExecuting ? 'Running' : inventory?.running ? 'Scheduled' : 'Stopped'}</Badge>
+        </div>
         <Button size="sm" variant="outline" onClick={() => onTrigger('inventory')} disabled={triggeringReplenishment !== null}>
           <RefreshCw className={triggeringReplenishment === 'inventory' ? 'animate-spin' : ''} />Run now
         </Button>
       </CardHeader>
       <CardContent>
         {!inventory && <p className="text-sm text-muted-foreground">{workerUnavailable ? 'Worker unavailable' : 'Loading...'}</p>}
-        {inventory && <div className="grid grid-cols-2 gap-3"><RunnerMetric title="Result" value={inventory.lastResult ?? 'pending'} /><RunnerMetric title="Window" value={inventory.lastWindowId ?? '—'} mono /><RunnerMetric title="Added" value={String(inventory.lastAddedQuantity)} /><RunnerMetric title="Retries" value={String(inventory.retryCount)} /></div>}
+        {inventory && <div className="grid grid-cols-2 gap-3 xl:grid-cols-3"><RunnerMetric title="Result" value={triggeringReplenishment === 'inventory' || inventory.isExecuting ? 'RUNNING' : inventory.lastResult ?? 'PENDING'} /><RunnerMetric title="Window" value={inventory.lastWindowId ?? '—'} mono /><RunnerMetric title="Started" value={formatTimestamp(inventory.lastAttemptAt)} /><RunnerMetric title="Last completed" value={formatTimestamp(inventory.lastCompletedAt)} /><RunnerMetric title="Next run" value={formatTimestamp(inventory.nextExecutionAt)} /><RunnerMetric title="Added" value={String(inventory.lastAddedQuantity)} /><RunnerMetric title="Skipped" value={String(inventory.lastSkippedCount)} /><RunnerMetric title="Failed" value={String(inventory.lastFailedCount)} /><RunnerMetric title="Retries" value={String(inventory.retryCount)} /></div>}
+        {inventoryMessage && <p className="mt-3 text-xs text-muted-foreground" role="status">{inventoryMessage}</p>}
       </CardContent>
     </Card>
     <Card>
       <CardHeader className="!flex flex-row items-center justify-between gap-3 space-y-0 pb-3">
-        <CardTitle className="text-sm font-medium">Coupon replenishment</CardTitle>
+        <div className="flex min-w-0 items-center gap-2">
+          <CardTitle className="text-sm font-medium">Coupon replenishment</CardTitle>
+          <Badge variant={workerUnavailable || !couponReplenishment?.running ? 'secondary' : 'outline'}>{workerUnavailable ? 'Worker offline' : triggeringReplenishment === 'coupon' || couponReplenishment?.isExecuting ? 'Running' : couponReplenishment?.running ? 'Scheduled' : 'Stopped'}</Badge>
+        </div>
         <Button size="sm" variant="outline" onClick={() => onTrigger('coupon')} disabled={triggeringReplenishment !== null}>
           <RefreshCw className={triggeringReplenishment === 'coupon' ? 'animate-spin' : ''} />Run now
         </Button>
       </CardHeader>
       <CardContent>
         {!couponReplenishment && <p className="text-sm text-muted-foreground">{workerUnavailable ? 'Worker unavailable' : 'Loading...'}</p>}
-        {couponReplenishment && <div className="grid grid-cols-2 gap-3"><RunnerMetric title="Result" value={couponReplenishment.lastResult ?? 'pending'} /><RunnerMetric title="Window" value={couponReplenishment.lastWindowId ?? '—'} mono /><RunnerMetric title="Next run" value={formatTimestamp(couponReplenishment.nextExecutionAt)} /><RunnerMetric title="Retries" value={String(couponReplenishment.retryCount)} /></div>}
+        {couponReplenishment && <div className="grid grid-cols-2 gap-3 xl:grid-cols-3"><RunnerMetric title="Result" value={triggeringReplenishment === 'coupon' || couponReplenishment.isExecuting ? 'RUNNING' : couponReplenishment.lastResult ?? 'PENDING'} /><RunnerMetric title="Window" value={couponReplenishment.lastWindowId ?? '—'} mono /><RunnerMetric title="Started" value={formatTimestamp(couponReplenishment.lastAttemptAt)} /><RunnerMetric title="Last completed" value={formatTimestamp(couponReplenishment.lastCompletedAt)} /><RunnerMetric title="Next run" value={formatTimestamp(couponReplenishment.nextExecutionAt)} /><RunnerMetric title="Added" value={String(couponReplenishment.lastAddedCount)} /><RunnerMetric title="Skipped" value={String(couponReplenishment.lastSkippedCount)} /><RunnerMetric title="Failed" value={String(couponReplenishment.lastFailedCount)} /><RunnerMetric title="Retries" value={String(couponReplenishment.retryCount)} /></div>}
+        {couponMessage && <p className="mt-3 text-xs text-muted-foreground" role="status">{couponMessage}</p>}
       </CardContent>
     </Card>
   </div>;

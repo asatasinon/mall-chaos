@@ -4,6 +4,7 @@ const CONTROL_KEY = 'traffic-control-plane:runner:control';
 const STATUS_KEY = 'traffic-control-plane:runner:status';
 const INVENTORY_REPLENISHMENT_STATUS_KEY = 'traffic-control-plane:replenishment:inventory:status';
 const COUPON_REPLENISHMENT_STATUS_KEY = 'traffic-control-plane:replenishment:coupon:status';
+const REPLENISHMENT_STATUS_TTL_SECONDS = 7 * 60 * 60;
 
 export interface RunnerControlState {
   paused: boolean;
@@ -120,9 +121,11 @@ export async function getRunnerStatus(): Promise<RunnerStatusState | null> {
 
 export interface InventoryReplenishmentStatusState {
   running: boolean;
+  isExecuting: boolean;
   lastWindowId: string | null;
   lastResult: 'COMPLETED' | 'FAILED' | 'SKIPPED' | null;
   lastAttemptAt: string | null;
+  lastCompletedAt: string | null;
   nextExecutionAt: string | null;
   retryCount: number;
   lastAddedQuantity: number;
@@ -135,7 +138,7 @@ export async function setInventoryReplenishmentStatus(
 ): Promise<void> {
   const redis = getRedis();
   await redis.connect().catch(() => undefined);
-  await redis.set(INVENTORY_REPLENISHMENT_STATUS_KEY, JSON.stringify(status), 'EX', 30);
+  await redis.set(INVENTORY_REPLENISHMENT_STATUS_KEY, JSON.stringify(status), 'EX', REPLENISHMENT_STATUS_TTL_SECONDS);
 }
 
 export async function getInventoryReplenishmentStatus(): Promise<InventoryReplenishmentStatusState | null> {
@@ -144,7 +147,12 @@ export async function getInventoryReplenishmentStatus(): Promise<InventoryReplen
   const value = await redis.get(INVENTORY_REPLENISHMENT_STATUS_KEY);
   if (!value) return null;
   try {
-    return JSON.parse(value) as InventoryReplenishmentStatusState;
+    const status = JSON.parse(value) as InventoryReplenishmentStatusState;
+    return {
+      ...status,
+      isExecuting: status.isExecuting ?? false,
+      lastCompletedAt: status.lastCompletedAt ?? null,
+    };
   } catch {
     return null;
   }
@@ -152,11 +160,16 @@ export async function getInventoryReplenishmentStatus(): Promise<InventoryReplen
 
 export interface CouponReplenishmentStatusState {
   running: boolean;
+  isExecuting: boolean;
   lastWindowId: string | null;
   lastResult: 'COMPLETED' | 'FAILED' | 'SKIPPED' | null;
   lastAttemptAt: string | null;
+  lastCompletedAt: string | null;
   nextExecutionAt: string | null;
   retryCount: number;
+  lastAddedCount: number;
+  lastSkippedCount: number;
+  lastFailedCount: number;
 }
 
 export async function setCouponReplenishmentStatus(
@@ -164,7 +177,7 @@ export async function setCouponReplenishmentStatus(
 ): Promise<void> {
   const redis = getRedis();
   await redis.connect().catch(() => undefined);
-  await redis.set(COUPON_REPLENISHMENT_STATUS_KEY, JSON.stringify(status), 'EX', 30);
+  await redis.set(COUPON_REPLENISHMENT_STATUS_KEY, JSON.stringify(status), 'EX', REPLENISHMENT_STATUS_TTL_SECONDS);
 }
 
 export async function getCouponReplenishmentStatus(): Promise<CouponReplenishmentStatusState | null> {
@@ -173,7 +186,15 @@ export async function getCouponReplenishmentStatus(): Promise<CouponReplenishmen
   const value = await redis.get(COUPON_REPLENISHMENT_STATUS_KEY);
   if (!value) return null;
   try {
-    return JSON.parse(value) as CouponReplenishmentStatusState;
+    const status = JSON.parse(value) as CouponReplenishmentStatusState;
+    return {
+      ...status,
+      isExecuting: status.isExecuting ?? false,
+      lastCompletedAt: status.lastCompletedAt ?? null,
+      lastAddedCount: status.lastAddedCount ?? 0,
+      lastSkippedCount: status.lastSkippedCount ?? 0,
+      lastFailedCount: status.lastFailedCount ?? 0,
+    };
   } catch {
     return null;
   }

@@ -4,7 +4,7 @@ import pino from 'pino';
 import { getGatewayClient, GatewayClient } from '../lib/gateway-client';
 import { getRedis } from '../lib/redis';
 import { recordReplenishmentRun, type ReplenishmentRunRecord } from '../lib/runner-persistence';
-import { setCouponReplenishmentStatus } from '../lib/runtime-state';
+import { getCouponReplenishmentStatus, setCouponReplenishmentStatus } from '../lib/runtime-state';
 
 const log = pino({ name: 'coupon-replenishment' });
 const CRON_EXPRESSION = '0 0 */6 * * *';
@@ -33,11 +33,16 @@ interface ReplenishmentEnvelope<T> {
 
 export interface CouponReplenishmentStatus {
   running: boolean;
+  isExecuting: boolean;
   lastWindowId: string | null;
   lastResult: 'COMPLETED' | 'FAILED' | 'SKIPPED' | null;
   lastAttemptAt: string | null;
+  lastCompletedAt: string | null;
   nextExecutionAt: string | null;
   retryCount: number;
+  lastAddedCount: number;
+  lastSkippedCount: number;
+  lastFailedCount: number;
 }
 
 export interface CouponReplenishmentDependencies {
@@ -47,6 +52,7 @@ export interface CouponReplenishmentDependencies {
   now?: () => Date;
   statusPublisher?: (status: CouponReplenishmentStatus) => Promise<void>;
   persistenceWriter?: (record: ReplenishmentRunRecord) => Promise<void>;
+  initialStatus?: Partial<CouponReplenishmentStatus>;
 }
 
 export class CouponReplenishmentScheduler {
@@ -61,11 +67,16 @@ export class CouponReplenishmentScheduler {
   private running = false;
   private status: CouponReplenishmentStatus = {
     running: false,
+    isExecuting: false,
     lastWindowId: null,
     lastResult: null,
     lastAttemptAt: null,
+    lastCompletedAt: null,
     nextExecutionAt: null,
     retryCount: 0,
+    lastAddedCount: 0,
+    lastSkippedCount: 0,
+    lastFailedCount: 0,
   };
 
   constructor(dependencies: CouponReplenishmentDependencies = {}) {
@@ -77,6 +88,7 @@ export class CouponReplenishmentScheduler {
     this.now = dependencies.now ?? (() => new Date());
     this.statusPublisher = dependencies.statusPublisher ?? setCouponReplenishmentStatus;
     this.persistenceWriter = dependencies.persistenceWriter ?? recordReplenishmentRun;
+    this.status = { ...this.status, ...dependencies.initialStatus };
   }
 
   async start(): Promise<void> {
@@ -123,15 +135,19 @@ export class CouponReplenishmentScheduler {
     const lockKey = 'traffic-control-plane:replenishment:coupon:lock';
     this.status = {
       ...this.status,
+      isExecuting: true,
       lastWindowId: runId,
       lastAttemptAt: this.now().toISOString(),
       retryCount: 0,
+      lastAddedCount: 0,
+      lastSkippedCount: 0,
+      lastFailedCount: 0,
     };
     await this.publishStatus();
 
     await this.redis.connect().catch(() => undefined);
     if (completedKey && await this.redis.get(completedKey)) {
-      this.status = { ...this.status, lastResult: 'COMPLETED' };
+      this.status = { ...this.status, isExecuting: false, lastResult: 'COMPLETED', lastCompletedAt: this.now().toISOString() };
       await this.publishStatus();
       return this.getStatus();
     }
@@ -139,7 +155,7 @@ export class CouponReplenishmentScheduler {
     const lockToken = `${this.instanceId}:${runId}`;
     const acquired = await this.redis.set(lockKey, lockToken, 'EX', LOCK_TTL_SECONDS, 'NX');
     if (!acquired) {
-      this.status = { ...this.status, lastResult: 'SKIPPED' };
+      this.status = { ...this.status, isExecuting: false, lastResult: 'SKIPPED', lastCompletedAt: this.now().toISOString() };
       await this.publishStatus();
       log.info({ runId }, 'Coupon replenishment skipped because another worker holds the lock');
       return this.getStatus();
@@ -162,7 +178,15 @@ export class CouponReplenishmentScheduler {
           if (completedKey) {
             await this.redis.set(completedKey, 'completed', 'EX', COMPLETION_TTL_SECONDS);
           }
-          this.status = { ...this.status, lastResult: 'COMPLETED' };
+          this.status = {
+            ...this.status,
+            isExecuting: false,
+            lastResult: 'COMPLETED',
+            lastCompletedAt: this.now().toISOString(),
+            lastAddedCount: numberOrZero(data.addedCount),
+            lastSkippedCount: numberOrZero(data.skippedCount),
+            lastFailedCount: numberOrZero(data.failedCount),
+          };
           await this.publishStatus();
           await this.persistStatus(runId, correlationId, startedAt, 'COMPLETED', attempt - 1, data);
           return this.getStatus();
@@ -173,7 +197,13 @@ export class CouponReplenishmentScheduler {
           }
         }
       }
-      this.status = { ...this.status, lastResult: 'FAILED', retryCount: MAX_ATTEMPTS - 1 };
+      this.status = {
+        ...this.status,
+        isExecuting: false,
+        lastResult: 'FAILED',
+        lastCompletedAt: this.now().toISOString(),
+        retryCount: MAX_ATTEMPTS - 1,
+      };
       await this.publishStatus();
       await this.persistStatus(runId, correlationId, startedAt, 'FAILED', MAX_ATTEMPTS - 1, {});
       log.error({ runId, error: safeErrorMessage(lastError) }, 'Coupon replenishment failed');
@@ -260,9 +290,10 @@ export class CouponReplenishmentScheduler {
 function extractReplenishmentData(response: ReplenishmentResponse): ReplenishmentData | null {
   if (!isSuccessfulCode(response.code)) return null;
   if (isReplenishmentEnvelope(response.data)) {
-    return isSuccessfulCode(response.data.code) ? response.data.data ?? {} : null;
+    return isSuccessfulCode(response.data.code) && isReplenishmentData(response.data.data)
+      ? response.data.data : null;
   }
-  return response.data ?? {};
+  return isReplenishmentData(response.data) ? response.data : null;
 }
 
 function isSuccessfulCode(code: string | number | undefined): boolean {
@@ -271,6 +302,13 @@ function isSuccessfulCode(code: string | number | undefined): boolean {
 
 function isReplenishmentEnvelope(value: ReplenishmentResponse['data']): value is ReplenishmentEnvelope<ReplenishmentData> {
   return typeof value === 'object' && value !== null && 'code' in value && 'data' in value;
+}
+
+function isReplenishmentData(value: unknown): value is ReplenishmentData {
+  if (typeof value !== 'object' || value === null) return false;
+  const data = value as ReplenishmentData;
+  return [data.addedCount, data.skippedCount, data.failedCount]
+    .every((count) => typeof count === 'number' && Number.isFinite(count));
 }
 
 function numberOrZero(value: number | undefined): number {
@@ -293,7 +331,7 @@ export function getCouponReplenishmentScheduler(): CouponReplenishmentScheduler 
 export async function runManualCouponReplenishment(
   correlationId: string,
 ): Promise<CouponReplenishmentStatus> {
-  return new CouponReplenishmentScheduler({
-    statusPublisher: async () => undefined,
-  }).executeManual(correlationId);
+  const initialStatus = await getCouponReplenishmentStatus();
+  return new CouponReplenishmentScheduler({ initialStatus: initialStatus ?? undefined })
+    .executeManual(correlationId);
 }

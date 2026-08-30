@@ -61,9 +61,11 @@ export interface ActivityEntry {
 
 export interface InventoryReplenishmentStatus {
   running: boolean;
+  isExecuting: boolean;
   lastWindowId: string | null;
   lastResult: 'COMPLETED' | 'FAILED' | 'SKIPPED' | null;
   lastAttemptAt: string | null;
+  lastCompletedAt: string | null;
   nextExecutionAt: string | null;
   retryCount: number;
   lastAddedQuantity: number;
@@ -73,11 +75,16 @@ export interface InventoryReplenishmentStatus {
 
 export interface CouponReplenishmentStatus {
   running: boolean;
+  isExecuting: boolean;
   lastWindowId: string | null;
   lastResult: 'COMPLETED' | 'FAILED' | 'SKIPPED' | null;
   lastAttemptAt: string | null;
+  lastCompletedAt: string | null;
   nextExecutionAt: string | null;
   retryCount: number;
+  lastAddedCount: number;
+  lastSkippedCount: number;
+  lastFailedCount: number;
 }
 
 export interface WarmupTable {
