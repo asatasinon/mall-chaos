@@ -54,7 +54,6 @@ interface LifecycleConfigurationProps {
   config: RunnerConfig | null;
   editing: boolean;
   saving: boolean;
-  message: string | null;
   form: ConfigForm;
   onEdit: () => void;
   onSave: () => void;
@@ -62,7 +61,7 @@ interface LifecycleConfigurationProps {
   onFormChange: (patch: Partial<ConfigForm>) => void;
 }
 
-export function LifecycleConfiguration({ config, editing, saving, message, form, onEdit, onSave, onCancel, onFormChange }: LifecycleConfigurationProps) {
+export function LifecycleConfiguration({ config, editing, saving, form, onEdit, onSave, onCancel, onFormChange }: LifecycleConfigurationProps) {
   return <Card className="!overflow-visible">
     <CardHeader className="!flex min-w-0 flex-row items-start justify-between gap-4 space-y-0 pb-3">
       <div className="min-w-0">
@@ -81,7 +80,6 @@ export function LifecycleConfiguration({ config, editing, saving, message, form,
       </div>
     </CardHeader>
     <CardContent className="space-y-4">
-      {message && <p className="text-xs text-muted-foreground">{message}</p>}
       {editing ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           <SelectField label="Interval" value={form.lifecycleIntervalSec} options={INTERVALS.map(String)} onChange={(value) => onFormChange({ lifecycleIntervalSec: value })} />

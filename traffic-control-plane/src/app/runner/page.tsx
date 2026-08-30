@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import DataControlPanel from '@/components/runner/RunnerDataControl';
 import {
@@ -40,7 +41,6 @@ export default function RunnerPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [triggeringReplenishment, setTriggeringReplenishment] = useState<'inventory' | 'coupon' | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [replenishmentMessages, setReplenishmentMessages] = useState<Record<'inventory' | 'coupon', string | null>>({
     inventory: null,
     coupon: null,
@@ -302,14 +302,19 @@ export default function RunnerPage() {
 
   const toggleEnabled = async () => {
     if (!config) return;
-    const response = await fetchWithAuth('/internal/traffic/runner/config', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ version: config.version, enabled: !config.enabled }),
-    });
-    const json = await response.json();
-    setMessage(json.code === 0 ? (json.data.enabled ? 'Lifecycle enabled' : 'Lifecycle disabled') : json.message);
-    await loadConfig();
-    await loadStatus();
+    try {
+      const response = await fetchWithAuth('/internal/traffic/runner/config', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: config.version, enabled: !config.enabled }),
+      });
+      const json = await response.json();
+      if (json.code !== 0) throw new Error(json.message || 'Unable to update lifecycle');
+      toast.success(json.data.enabled ? 'Lifecycle enabled' : 'Lifecycle disabled');
+      await loadConfig();
+      await loadStatus();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to update lifecycle');
+    }
   };
 
   const saveConfig = async () => {
@@ -330,11 +335,11 @@ export default function RunnerPage() {
       });
       const json = await response.json();
       if (json.code !== 0) throw new Error(json.message || 'Save failed');
-      setMessage(`Saved at version ${json.data.newVersion}`);
+      toast.success(`Saved at version ${json.data.newVersion}`);
       setEditing(false);
       await loadConfig();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Save failed');
+      toast.error(error instanceof Error ? error.message : 'Save failed');
     } finally {
       setSaving(false);
     }
@@ -372,11 +377,10 @@ export default function RunnerPage() {
       config={config}
       editing={editing}
       saving={saving}
-      message={message}
       form={form}
-      onEdit={() => { setEditing(true); setMessage(null); }}
+      onEdit={() => setEditing(true)}
       onSave={() => void saveConfig()}
-      onCancel={() => { setEditing(false); setMessage(null); }}
+      onCancel={() => setEditing(false)}
       onFormChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
     />
     <RunnerViewTabs activeView={activeView} onChange={setActiveView} />
