@@ -194,7 +194,8 @@ Inventory 新增受认证的内部“库存可用性报表”接口，从 `inven
 
 - 正常授权：支付继续；
 - Provider 明确拒付：映射为 `FAILED`；
-- HTTP 超时/不可达：映射为 `UNKNOWN` 并进入现有对账路径。
+- PSP 在收到 `TIMEOUT` 请求后延迟 60 秒再返回；payment-service 的 PSP HTTP 客户端默认 30 秒读超时，`PspTimeoutException` 技术异常直接上抛，不保存为 `UNKNOWN` 业务结果；
+- 场景可配置 `effectPercentage`（0-100），按授权次数累计配额生效，例如 40 表示每 10 次支付中 4 次执行所选 PSP 结果。
 
 从支付服务中移除与此冲突的随机进程内结果策略。支付演练期间复用既有 Runner 的真实支付请求，不新增专属支付 worker。PSP 是外部依赖，`payment-service` 不是泛化故障目标。
 

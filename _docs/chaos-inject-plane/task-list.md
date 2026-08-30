@@ -126,7 +126,7 @@
 ### B7. PSP 模拟服务与支付映射
 
 - [x] 新建 `psp-simulator` Maven 模块、Docker Compose 服务、Kubernetes Deployment/Service、健康端点和受认证固定运行控制端点。
-- [x] 在 payment-service 新建 `PspClient`，支付确认通过 HTTP 调用 PSP；正常授权继续支付、明确拒付映射 `FAILED`、超时/不可达映射 `UNKNOWN` 并进入现有对账路径。
+- [x] 在 payment-service 新建 `PspClient`，支付确认通过 HTTP 调用 PSP；正常授权继续支付、明确拒付映射 `FAILED`，PSP 超时由 payment-service 的 HTTP 客户端原始请求超时异常上抛。
 - [x] 移除 payment-service 中冲突的随机进程内支付结果策略；PSP 运行状态按 `faultRunId`、到期时间和 fencing token 管理。
 
 ---

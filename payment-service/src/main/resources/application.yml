@@ -19,7 +19,7 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:16379}
 
 payment:
-  psp-timeout-ms: 2000
+  psp-timeout-ms: 30000
 
 services:
   order-url: ${ORDER_SERVICE_URL:http://localhost:8084}

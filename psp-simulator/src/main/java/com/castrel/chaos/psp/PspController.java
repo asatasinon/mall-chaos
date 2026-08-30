@@ -26,15 +26,13 @@ public class PspController {
             @RequestHeader org.springframework.http.HttpHeaders headers,
             @RequestBody Map<String, Object> request) {
         requirePaymentAuthority(headers.getFirst("X-Internal-Service-Key"));
-        ScenarioRunContext context = contextFromHeaders(headers);
-        String outcome = state.authorize(context == null ? null : context.runId(),
-            context == null ? -1 : context.fencingToken());
+        String outcome = state.authorize();
         if ("TIMEOUT".equals(outcome)) {
             try {
-                Thread.sleep(10_000);
+                Thread.sleep(60_000);
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
-                throw new BizException("PSP_INTERRUPTED", "Provider request was interrupted", exception);
+                throw new IllegalStateException("Provider request was interrupted", exception);
             }
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.GATEWAY_TIMEOUT, "Provider timed out");
@@ -71,17 +69,6 @@ public class PspController {
         ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
         state.stop(context);
         return ApiResponse.ok(Map.of("cleaned", true));
-    }
-
-    private ScenarioRunContext contextFromHeaders(org.springframework.http.HttpHeaders headers) {
-        if (headers.getFirst("X-Fault-Run-Id") == null) return null;
-        try {
-            ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
-            context.validate(java.time.Instant.now());
-            return context;
-        } catch (IllegalArgumentException exception) {
-            throw new BizException("INVALID_PROVIDER_CONTEXT", "Provider context is invalid", exception);
-        }
     }
 
     private void requirePaymentAuthority(String suppliedKey) {

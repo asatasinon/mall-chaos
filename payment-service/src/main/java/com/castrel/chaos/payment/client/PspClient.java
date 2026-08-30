@@ -1,6 +1,5 @@
 package com.castrel.chaos.payment.client;
 
-import com.castrel.chaos.common.BizException;
 import com.castrel.chaos.common.TraceContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -27,7 +26,7 @@ public class PspClient {
             RestTemplateBuilder builder,
             @Value("${services.psp-url:http://localhost:8092}") String pspUrl,
             @Value("${CASTREL_INTERNAL_SERVICE_KEY:}") String serviceKey,
-            @Value("${payment.psp-timeout-ms:2000}") int timeoutMs) {
+            @Value("${payment.psp-timeout-ms:30000}") int timeoutMs) {
         this.client = builder
                 .setConnectTimeout(Duration.ofMillis(timeoutMs))
                 .setReadTimeout(Duration.ofMillis(timeoutMs))

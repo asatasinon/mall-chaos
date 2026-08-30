@@ -48,7 +48,13 @@ test('catalog rejects unknown scenarios and duration above scenario limit', () =
 test('catalog restricts PSP outcomes to the simulator contract', () => {
   assert.deepEqual(
     validateScenarioParameters('PSP_PROVIDER_OUTCOME', { durationSec: 600, providerOutcome: 'TIMEOUT' }),
-    { durationSec: 600, providerOutcome: 'TIMEOUT' },
+    { durationSec: 600, providerOutcome: 'TIMEOUT', effectPercentage: 100 },
+  );
+  assert.deepEqual(
+    validateScenarioParameters('PSP_PROVIDER_OUTCOME', {
+      durationSec: 600, providerOutcome: 'TIMEOUT', effectPercentage: 40,
+    }),
+    { durationSec: 600, providerOutcome: 'TIMEOUT', effectPercentage: 40 },
   );
   assert.throws(
     () => validateScenarioParameters('PSP_PROVIDER_OUTCOME', { durationSec: 600, providerOutcome: 'APPROVED' }),

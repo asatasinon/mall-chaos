@@ -13,6 +13,8 @@ public class PspScenarioState {
     private final ScenarioRunGuard runGuard;
     private volatile ScenarioRunContext activeRun;
     private volatile String outcome = "AUTHORIZED";
+    private int effectPercentage = 100;
+    private long authorizationCount;
 
     public PspScenarioState(ScenarioRunGuard runGuard) {
         this.runGuard = runGuard;
@@ -30,18 +32,24 @@ public class PspScenarioState {
                 || !("AUTHORIZED".equals(value) || "DECLINED".equals(value) || "TIMEOUT".equals(value))) {
             throw new BizException("INVALID_PROVIDER_OUTCOME", "providerOutcome must be AUTHORIZED, DECLINED or TIMEOUT");
         }
+        int configuredPercentage = parseEffectPercentage(parameters);
         activeRun = context;
         outcome = value;
+        effectPercentage = configuredPercentage;
+        authorizationCount = 0;
         runGuard.registerCleanup(context, () -> clear(context));
     }
 
+    public synchronized String authorize() {
+        if (activeRun == null || !activeRun.expiresAt().isAfter(Instant.now())) return "AUTHORIZED";
+        authorizationCount++;
+        long previousEffectQuota = ((authorizationCount - 1) * effectPercentage) / 100;
+        long currentEffectQuota = (authorizationCount * effectPercentage) / 100;
+        return currentEffectQuota > previousEffectQuota ? outcome : "AUTHORIZED";
+    }
+
     public String authorize(String runId, long fencingToken) {
-        ScenarioRunContext run = activeRun;
-        if (run == null) return "AUTHORIZED";
-        if (runId == null || !run.runId().equals(runId) || run.fencingToken() != fencingToken) {
-            return "AUTHORIZED";
-        }
-        return run.expiresAt().isAfter(Instant.now()) ? outcome : "AUTHORIZED";
+        return authorize();
     }
 
     public synchronized void stop(ScenarioRunContext context) {
@@ -54,6 +62,21 @@ public class PspScenarioState {
         if (activeRun != null && activeRun.runId().equals(context.runId())) {
             activeRun = null;
             outcome = "AUTHORIZED";
+            effectPercentage = 100;
+            authorizationCount = 0;
         }
+    }
+
+    private int parseEffectPercentage(Map<String, Object> parameters) {
+        Object configured = parameters == null ? null : parameters.get("effectPercentage");
+        if (configured == null) return 100;
+        if (!(configured instanceof Number number)) {
+            throw new BizException("INVALID_EFFECT_PERCENTAGE", "effectPercentage must be an integer between 0 and 100");
+        }
+        double value = number.doubleValue();
+        if (!Double.isFinite(value) || value != Math.rint(value) || value < 0 || value > 100) {
+            throw new BizException("INVALID_EFFECT_PERCENTAGE", "effectPercentage must be an integer between 0 and 100");
+        }
+        return number.intValue();
     }
 }

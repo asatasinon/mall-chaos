@@ -180,7 +180,8 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'TARGET',
     allowManualCleanup: false,
     parameters: [duration,
-      { name: 'providerOutcome', kind: 'string', required: true, default: 'TIMEOUT', options: ['AUTHORIZED', 'DECLINED', 'TIMEOUT'], maxLength: 16 }],
+      { name: 'providerOutcome', kind: 'string', required: true, default: 'TIMEOUT', options: ['AUTHORIZED', 'DECLINED', 'TIMEOUT'], maxLength: 16 },
+      { name: 'effectPercentage', kind: 'integer', default: 100, min: 0, max: 100 }],
   },
 };
 

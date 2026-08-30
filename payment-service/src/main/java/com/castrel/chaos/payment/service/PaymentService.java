@@ -164,9 +164,8 @@ public class PaymentService {
                 failCounter.increment();
             }
         } catch (PspClient.PspTimeoutException | PspClient.PspUnavailableException exception) {
-            payment.setStatus("UNKNOWN");
-            payment.setResultCode("PROVIDER_UNAVAILABLE");
             timeoutCounter.increment();
+            throw exception;
         }
         payment.setUpdatedAt(LocalDateTime.now());
         PaymentDTO result = toDTO(paymentRepository.save(payment));
