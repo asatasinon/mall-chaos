@@ -27,7 +27,8 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
             "/internal/gateway/fault-runs/stop",
             "/internal/gateway/fault-runs/cleanup",
             "/internal/gateway/fault-runs/cleanup-scenario",
-            "/internal/gateway/fault-runs/probe",
+            "/internal/gateway/inventory/availability",
+            "/internal/gateway/promotion/consistency",
             "/internal/gateway/fault-runs/restart-notification");
 
     private final String internalServiceKey;

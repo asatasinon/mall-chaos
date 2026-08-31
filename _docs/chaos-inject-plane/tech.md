@@ -176,7 +176,7 @@ seed 必须将 `users.id = 19` 的 Sam 加入 `TRAFFIC_EXERCISE` 演练账号白
 
 Promotion 新增受认证的内部“优惠券预留一致性核对”接口。该接口只作用于运行创建的、可识别的过期预留记录，并启动两条真实事务：优惠券预留路径按 `coupon -> coupon_reservation` 获取锁，过期核对路径按 `coupon_reservation -> coupon` 获取锁。接口在每次完成、回滚或出现死锁后恢复准备记录，不能污染客户真实优惠券。
 
-控制面的 `PromotionLockExerciseWorker` 在运行有效期内经 Gateway 持续调用该接口，按受限并发和速率创建竞争。它记录请求成功/失败、在途数、延迟、竞争次数和 MySQL 死锁受害事务数；到期或人工停止时先禁止新调用，再等待或取消在途调用。服务侧接口、方法、日志与注释使用中性的预留一致性/过期核对词汇。
+控制面的 `PromotionLockExerciseWorker` 在运行有效期内经 Gateway 持续调用固定的预留一致性能力入口，按受限并发和速率创建竞争。它记录请求成功/失败、在途数、延迟、竞争次数和 MySQL 死锁受害事务数；到期或人工停止时先禁止新调用，再等待或取消在途调用。持续观测请求不使用通用故障探针路由，请求体只携带运行上下文；服务侧接口、方法、日志与注释使用中性的预留一致性/过期核对词汇。
 
 Inventory 使用专用 JDBC 连接执行：
 
@@ -184,7 +184,7 @@ Inventory 使用专用 JDBC 连接执行：
 LOCK TABLES inventories WRITE
 ```
 
-Inventory 新增受认证的内部“库存可用性报表”接口，从 `inventories` 查询受限 SKU 集合并返回小型当前库存摘要。控制面的 `InventoryLockExerciseWorker` 在表锁持有期间经 Gateway 持续调用此接口，因而通过真实库存读取路径观测请求阻塞、超时和锁等待，而不是仅在后台持锁。
+Inventory 新增受认证的内部“库存可用性报表”接口，从 `inventories` 查询受限 SKU 集合并返回小型当前库存摘要。控制面的 `InventoryLockExerciseWorker` 在表锁持有期间经 Gateway 持续调用固定的库存可用性能力入口，因而通过真实库存读取路径观测请求阻塞、超时和锁等待，而不是仅在后台持锁。
 
 锁管理器只允许一个活动运行；停止、到期、异常和启动恢复路径均在 `finally` 中 `UNLOCK TABLES` 并关闭连接。停止顺序为：停止新库存报表调用、释放表锁、等待或取消在途调用并确认请求恢复。废弃旧的 Redis poller 及其竞争计时逻辑。
 

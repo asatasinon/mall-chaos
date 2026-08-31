@@ -67,11 +67,11 @@ export class ScenarioExerciseWorkers {
           operationId: `${run.faultRunId}:${randomUUID()}`,
         }, session, signal);
       } else {
-        await this.gateway.postInternal('/internal/gateway/fault-runs/probe', {
+        const observationPath = run.scenario === 'INVENTORY_TABLE_EXCLUSIVE'
+          ? '/internal/gateway/inventory/availability'
+          : '/internal/gateway/promotion/consistency';
+        await this.gateway.postInternal(observationPath, {
           faultRunId: run.faultRunId,
-          scenario: run.scenario,
-          operation: run.targetOperation,
-          parameters: run.parameters,
           expiresAt: run.expiresAt,
           fencingToken: run.fencingToken,
           idempotencyKey: run.idempotencyKey,

@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/internal/inventory/fault-runs")
+@RequestMapping("/internal/inventory")
 public class InventoryFaultRunController {
     private final InventoryLockExerciseService exerciseService;
 
@@ -17,7 +17,7 @@ public class InventoryFaultRunController {
         this.exerciseService = exerciseService;
     }
 
-    @PostMapping("/start")
+    @PostMapping("/fault-runs/start")
     public ApiResponse<Map<String, Object>> start(
             @RequestHeader("X-Fault-Run-Scenario") String scenario,
             @RequestHeader("X-Fault-Run-Operation") String operation,
@@ -28,7 +28,7 @@ public class InventoryFaultRunController {
         return ApiResponse.ok(Map.of("accepted", true, "operation", operation));
     }
 
-    @PostMapping("/stop")
+    @PostMapping("/fault-runs/stop")
     public ApiResponse<Map<String, Object>> stop(
             @RequestHeader("X-Fault-Run-Scenario") String scenario,
             @RequestHeader("X-Fault-Run-Operation") String operation,
@@ -39,7 +39,7 @@ public class InventoryFaultRunController {
         return ApiResponse.ok(Map.of("released", true, "faultRunId", context.runId()));
     }
 
-    @PostMapping("/cleanup")
+    @PostMapping("/fault-runs/cleanup")
     public ApiResponse<Map<String, Object>> cleanup(
             @RequestHeader("X-Fault-Run-Scenario") String scenario,
             @RequestHeader org.springframework.http.HttpHeaders headers) {
@@ -48,12 +48,9 @@ public class InventoryFaultRunController {
         return ApiResponse.ok(exerciseService.release(context));
     }
 
-    @PostMapping("/report")
-    public ApiResponse<Map<String, Object>> report(
-            @RequestHeader("X-Fault-Run-Scenario") String scenario,
-            @RequestHeader("X-Fault-Run-Operation") String operation,
+    @PostMapping("/availability")
+    public ApiResponse<Map<String, Object>> availability(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
-        requireOperation(scenario, operation);
         return ApiResponse.ok(exerciseService.report(ScenarioRunContext.fromHeaders(headers)));
     }
 

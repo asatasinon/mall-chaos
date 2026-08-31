@@ -3,7 +3,7 @@ package com.castrel.chaos.gateway.controller;
 import com.castrel.chaos.common.ApiResponse;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.gateway.service.FaultRunDispatchService;
-import com.castrel.chaos.gateway.service.FaultRunProbeService;
+import com.castrel.chaos.gateway.service.FixedOperationDispatchService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -16,7 +16,7 @@ import java.util.Set;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/internal/gateway/fault-runs")
+@RequestMapping("/internal/gateway")
 public class FaultRunDispatchController {
 
     private static final Map<String, Target> TARGETS = Map.ofEntries(
@@ -34,19 +34,22 @@ public class FaultRunDispatchController {
     private static final Set<String> REQUIRED_FIELDS = Set.of(
             "faultRunId", "scenario", "operation", "parameters", "expiresAt", "fencingToken", "idempotencyKey");
     private static final Set<String> CLEANUP_FIELDS = Set.of("faultRunId", "scenario", "targetService", "fencingToken");
-        private static final Map<String, String> SCENARIO_CLEANUP_PATHS = Map.of(
+    private static final Set<String> OBSERVATION_FIELDS = Set.of(
+            "faultRunId", "expiresAt", "fencingToken", "idempotencyKey");
+    private static final Map<String, String> SCENARIO_CLEANUP_PATHS = Map.of(
             "CART_REDIS_LARGE_VALUE", "/internal/cart/fault-runs/cleanup-scenario",
             "NOTIFICATION_STORAGE_APPEND", "/internal/notification/fault-runs/cleanup-scenario");
 
     private final FaultRunDispatchService dispatchService;
-    private final FaultRunProbeService probeService;
+    private final FixedOperationDispatchService operationService;
 
-    public FaultRunDispatchController(FaultRunDispatchService dispatchService, FaultRunProbeService probeService) {
+    public FaultRunDispatchController(FaultRunDispatchService dispatchService,
+                                      FixedOperationDispatchService operationService) {
         this.dispatchService = dispatchService;
-        this.probeService = probeService;
+        this.operationService = operationService;
     }
 
-    @PostMapping("/start")
+    @PostMapping("/fault-runs/start")
     public Mono<ApiResponse<Object>> start(
             @RequestBody Map<String, Object> body,
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
@@ -58,7 +61,7 @@ public class FaultRunDispatchController {
             .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
     }
 
-    @PostMapping("/stop")
+    @PostMapping("/fault-runs/stop")
     public Mono<ApiResponse<Object>> stop(
             @RequestBody Map<String, Object> body,
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
@@ -70,7 +73,7 @@ public class FaultRunDispatchController {
             .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
     }
 
-    @PostMapping("/cleanup")
+    @PostMapping("/fault-runs/cleanup")
     public Mono<ApiResponse<Object>> cleanup(
             @RequestBody Map<String, Object> body,
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
@@ -85,7 +88,7 @@ public class FaultRunDispatchController {
             .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
     }
 
-    @PostMapping("/cleanup-scenario")
+    @PostMapping("/fault-runs/cleanup-scenario")
     public Mono<ApiResponse<Object>> cleanupScenario(
             @RequestBody Map<String, Object> body,
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
@@ -103,7 +106,7 @@ public class FaultRunDispatchController {
                 .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
     }
 
-    @PostMapping("/restart-notification")
+    @PostMapping("/fault-runs/restart-notification")
     public Mono<ApiResponse<Object>> restartNotification(
             @RequestBody Map<String, Object> body,
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
@@ -121,24 +124,29 @@ public class FaultRunDispatchController {
             .onErrorMap(error -> targetUnavailable("Fixed notification target unavailable", error));
     }
 
-    @PostMapping("/probe")
-    public Mono<ApiResponse<Object>> probe(
+    @PostMapping("/inventory/availability")
+    public Mono<ApiResponse<Object>> inventoryAvailability(
             @RequestBody Map<String, Object> body,
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
-        Validation validation = validate(body, false);
+        return dispatchObservation(body, traceId, "inventory-service", "/internal/inventory/availability",
+                "Fixed inventory target unavailable");
+    }
+
+    @PostMapping("/promotion/consistency")
+    public Mono<ApiResponse<Object>> promotionConsistency(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
+        return dispatchObservation(body, traceId, "promotion-service", "/internal/promotion/consistency",
+                "Fixed promotion target unavailable");
+    }
+
+    private Mono<ApiResponse<Object>> dispatchObservation(
+            Map<String, Object> body, String traceId, String serviceName, String path, String unavailableMessage) {
+        Validation validation = validateObservation(body);
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
-        String scenario = String.valueOf(body.get("scenario"));
-        if ("PROMOTION_LOCK_CONTENTION".equals(scenario)) {
-            return probeService.probe("promotion-service", "/internal/promotion/fault-runs/check", body, traceIdOrEmpty(traceId))
-                    .map(ApiResponse::ok)
-                    .onErrorMap(error -> targetUnavailable("Fixed promotion target unavailable", error));
-        }
-        if ("INVENTORY_TABLE_EXCLUSIVE".equals(scenario)) {
-            return probeService.probe("inventory-service", "/internal/inventory/fault-runs/report", body, traceIdOrEmpty(traceId))
-                    .map(ApiResponse::ok)
-                    .onErrorMap(error -> targetUnavailable("Fixed inventory target unavailable", error));
-        }
-        return Mono.just(ApiResponse.error(400, "Scenario does not expose a probe"));
+        return operationService.dispatch(serviceName, path, body, traceIdOrEmpty(traceId))
+                .map(ApiResponse::ok)
+                .onErrorMap(error -> targetUnavailable(unavailableMessage, error));
     }
 
     private Validation validate(Map<String, Object> body, boolean cleanup) {
@@ -157,6 +165,13 @@ public class FaultRunDispatchController {
             return Validation.invalid("Fixed target operation does not match scenario");
         }
         return new Validation(true, "", target);
+    }
+
+    private Validation validateObservation(Map<String, Object> body) {
+        if (body == null || !body.keySet().equals(OBSERVATION_FIELDS)) {
+            return Validation.invalid("Invalid operation context");
+        }
+        return validateIdentity(body, true);
     }
 
     private Validation validateIdentity(Map<String, Object> body, boolean requireRuntimeFields) {

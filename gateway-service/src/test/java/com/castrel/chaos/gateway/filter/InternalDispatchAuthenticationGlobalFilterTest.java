@@ -14,6 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class InternalDispatchAuthenticationGlobalFilterTest {
 
     private static final String PATH = "/internal/gateway/inventory/demo-stock/replenish";
+        private static final String OPERATION_PATH = "/internal/gateway/inventory/availability";
 
     @Test
     void rejectsMissingInternalKey() {
@@ -25,6 +26,17 @@ class InternalDispatchAuthenticationGlobalFilterTest {
 
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
+
+        @Test
+        void rejectsMissingInternalKeyForFixedOperationPath() {
+                var exchange = MockServerWebExchange.from(MockServerHttpRequest.post(OPERATION_PATH).build());
+
+                new InternalDispatchAuthenticationGlobalFilter("internal-secret")
+                                .filter(exchange, ignored -> Mono.empty())
+                                .block();
+
+                assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        }
 
     @Test
     void rejectsCustomerAndBrowserHeadersEvenWithInternalKey() {
