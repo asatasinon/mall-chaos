@@ -24,7 +24,10 @@ export default function ScenarioCardWithActions({ scenario, activeRun, busy, onC
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(scenario.parameters.map((parameter) => [parameter.name, String(parameter.default ?? '')])));
   const setValue = (name: string, value: string) => setValues((current) => ({ ...current, [name]: value }));
   const submit = async () => {
-    const parameters = Object.fromEntries(Object.entries(values).filter(([, value]) => value !== '').map(([key, value]) => [key, scenario.parameters.find((parameter) => parameter.name === key)?.kind === 'string' ? value : Number(value)]));
+    const parameters = Object.fromEntries(Object.entries(values).filter(([, value]) => value !== '').map(([key, value]) => {
+      const parameter = scenario.parameters.find((item) => item.name === key);
+      return [key, parameter?.kind === 'string' || parameter?.unit === 'bytes' ? value : Number(value)];
+    }));
     await onCreate(scenario, parameters);
   };
   const isActiveScenario = activeRun?.scenario === scenario.scenario;
@@ -41,7 +44,8 @@ export default function ScenarioCardWithActions({ scenario, activeRun, busy, onC
       {['BROWSE_REPORT_SQL', 'ORDER_REPORT_SQL'].includes(scenario.scenario) && <div className="grid grid-cols-3 gap-2 rounded-md bg-muted/50 p-3 text-[11px]"><ScenarioDetail label="Data window" value="Today / 180-day partitions" /><ScenarioDetail label="Baseline" value="Historical scan" /><ScenarioDetail label="Fix status" value="Awaiting plan evidence" /></div>}
       <div className="grid grid-cols-2 gap-3">{scenario.parameters.map((parameter) => {
         const isProviderOutcome = parameter.name === 'providerOutcome';
-        return <label key={parameter.name} className="space-y-1.5 text-xs"><span className="flex justify-between gap-2 text-muted-foreground"><span>{isProviderOutcome ? 'Provider outcome' : parameter.name}</span><span>{parameter.required ? 'required' : 'optional'}</span></span>{isProviderOutcome ? <ProviderOutcomeSelect value={values[parameter.name] || ''} onChange={(value) => setValue(parameter.name, value)} options={parameter.options} disabled={locked || Boolean(busy)} /> : <input className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" type={parameter.kind === 'string' ? 'text' : 'number'} min={parameter.min} max={parameter.max} maxLength={parameter.maxLength} value={values[parameter.name] || ''} onChange={(event) => setValue(parameter.name, event.target.value)} disabled={locked || busy} />}</label>;
+        const isByteParameter = parameter.unit === 'bytes';
+        return <label key={parameter.name} className="space-y-1.5 text-xs"><span className="flex justify-between gap-2 text-muted-foreground"><span>{isProviderOutcome ? 'Provider outcome' : parameter.name}</span><span>{parameter.required ? 'required' : 'optional'}</span></span>{isProviderOutcome ? <ProviderOutcomeSelect value={values[parameter.name] || ''} onChange={(value) => setValue(parameter.name, value)} options={parameter.options} disabled={locked || Boolean(busy)} /> : <input className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" type={parameter.kind === 'string' || isByteParameter ? 'text' : 'number'} inputMode={isByteParameter ? 'text' : undefined} min={parameter.min} max={parameter.max} maxLength={parameter.maxLength} value={values[parameter.name] || ''} onChange={(event) => setValue(parameter.name, event.target.value)} disabled={locked || busy} />}</label>;
       })}</div>
       <div className="flex items-center justify-between gap-3"><span className="text-[11px] text-muted-foreground">{locked ? 'An active run is already locking this control.' : isActiveScenario ? 'The active run can be stopped from the target row.' : 'Parameters are validated by the scenario catalog.'}</span>{isActiveScenario && <button type="button" className="text-left text-xs text-primary hover:underline" onClick={() => void onDetails(activeRun)}>View current run details <span aria-hidden="true">→</span></button>}</div>
     </CardContent>

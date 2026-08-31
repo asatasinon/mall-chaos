@@ -22,10 +22,12 @@ export type FaultRunScenario =
 
 export type FaultRunRecoveryStrategy = 'TARGET' | 'WORKER' | 'NON_RELEASING' | 'MANUAL_CLEANUP';
 type ParameterKind = 'integer' | 'number' | 'string';
+type ParameterUnit = 'bytes';
 
 export interface FaultRunParameterDefinition {
   name: string;
   kind: ParameterKind;
+  unit?: ParameterUnit;
   required?: boolean;
   default?: number | string;
   options?: readonly string[];
@@ -70,6 +72,26 @@ const requestInterval: FaultRunParameterDefinition = {
   min: 0,
   max: 60_000,
 };
+
+const BYTE_UNIT_MULTIPLIERS: Record<string, number> = {
+  B: 1,
+  K: 1024,
+  KB: 1024,
+  M: 1024 ** 2,
+  MB: 1024 ** 2,
+  G: 1024 ** 3,
+  GB: 1024 ** 3,
+};
+
+function parseParameterNumber(parameter: FaultRunParameterDefinition, supplied: unknown): number | undefined {
+  if (typeof supplied === 'number') return supplied;
+  if (parameter.unit !== 'bytes' || typeof supplied !== 'string') return undefined;
+
+  const match = supplied.trim().match(/^(\d+(?:\.\d+)?)(B|KB?|MB?|GB?)?$/i);
+  if (!match) return undefined;
+  const multiplier = match[2] === undefined ? 1 : BYTE_UNIT_MULTIPLIERS[match[2].toUpperCase()];
+  return Number(match[1]) * multiplier;
+}
 
 const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   BROWSE_REPORT_SQL: {
@@ -119,8 +141,8 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     allowManualCleanup: true,
     parameters: [duration, boundedConcurrency, requestInterval,
       { name: 'fieldCount', kind: 'integer', default: 8, min: 1, max: 64 },
-      { name: 'fieldSizeBytes', kind: 'integer', default: 1024, min: 1, max: 65536 },
-      { name: 'totalSizeBytes', kind: 'integer', default: 8192, min: 1, max: 1048576 },
+      { name: 'fieldSizeBytes', kind: 'integer', unit: 'bytes', default: 1024, min: 1, max: 65536 },
+      { name: 'totalSizeBytes', kind: 'integer', unit: 'bytes', default: 8192, min: 1, max: 1048576 },
       { name: 'keyTtlSec', kind: 'integer', default: 600, min: 1, max: 3600 }],
   },
   CART_CATALOG_DEPENDENCY: {
@@ -140,7 +162,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'NON_RELEASING',
     allowManualCleanup: false,
     parameters: [duration, requestInterval,
-      { name: 'retainedBytesPerNotification', kind: 'integer', default: 65536, min: 1024, max: 1048576 }],
+      { name: 'retainedBytesPerNotification', kind: 'integer', unit: 'bytes', default: 65536, min: 1024, max: 1048576 }],
   },
   NOTIFICATION_STORAGE_APPEND: {
     scenario: 'NOTIFICATION_STORAGE_APPEND',
@@ -150,9 +172,9 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'MANUAL_CLEANUP',
     allowManualCleanup: true,
     parameters: [duration, requestInterval,
-      { name: 'totalBytes', kind: 'integer', default: 1048576, min: 1024, max: 1073741824 },
-      { name: 'appendBytes', kind: 'integer', default: 8192, min: 1, max: 1048576 },
-      { name: 'minFreeBytes', kind: 'integer', default: 1048576, min: 1, max: 1073741824 }],
+      { name: 'totalBytes', kind: 'integer', unit: 'bytes', default: 1048576, min: 1024, max: 1073741824 },
+      { name: 'appendBytes', kind: 'integer', unit: 'bytes', default: 8192, min: 1, max: 1048576 },
+      { name: 'minFreeBytes', kind: 'integer', unit: 'bytes', default: 1048576, min: 1, max: 1073741824 }],
   },
   PROMOTION_LOCK_CONTENTION: {
     scenario: 'PROMOTION_LOCK_CONTENTION',
@@ -234,13 +256,14 @@ export function validateScenarioParameters(
       result[parameter.name] = supplied;
       continue;
     }
-    if (typeof supplied !== 'number' || !Number.isFinite(supplied)
-        || (parameter.kind === 'integer' && !Number.isInteger(supplied))
-        || (parameter.min !== undefined && supplied < parameter.min)
-        || (parameter.max !== undefined && supplied > parameter.max)) {
+    const numericValue = parseParameterNumber(parameter, supplied);
+    if (numericValue === undefined || !Number.isFinite(numericValue)
+        || (parameter.kind === 'integer' && !Number.isInteger(numericValue))
+        || (parameter.min !== undefined && numericValue < parameter.min)
+        || (parameter.max !== undefined && numericValue > parameter.max)) {
       throw new FaultRunValidationError(`INVALID_PARAMETER:${parameter.name}`);
     }
-    result[parameter.name] = supplied;
+    result[parameter.name] = numericValue;
   }
 
   const durationSec = Number(result.durationSec);

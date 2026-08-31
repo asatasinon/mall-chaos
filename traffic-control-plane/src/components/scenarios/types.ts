@@ -1,6 +1,7 @@
 export type Parameter = {
   name: string;
   kind: 'integer' | 'number' | 'string';
+  unit?: 'bytes';
   required?: boolean;
   default?: number | string;
   options?: readonly string[];
