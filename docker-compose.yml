@@ -14,7 +14,7 @@ x-service-env: &service-env
   TZ: Asia/Shanghai
   CASTREL_JWT_SECRET: ${CASTREL_JWT_SECRET:?CASTREL_JWT_SECRET must be set}
   CASTREL_INTERNAL_SERVICE_KEY: ${CASTREL_INTERNAL_SERVICE_KEY:?CASTREL_INTERNAL_SERVICE_KEY must be set}
-  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-castrel}?useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=%2B08:00&allowPublicKeyRetrieval=true
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-castrel}?useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=%2B08:00&allowPublicKeyRetrieval=true&connectTimeout=30000&socketTimeout=30000
   SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-castrel}
   SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-castrel}
   SPRING_DATA_REDIS_HOST: redis

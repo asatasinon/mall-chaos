@@ -7,7 +7,7 @@ data:
   SPRING_PROFILES_ACTIVE: "docker"
   CASTREL_JWT_ISSUER: "castrel-user-service"
   CASTREL_JWT_AUDIENCE: "castrel-gateway"
-  SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/castrel?useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=%2B08:00&allowPublicKeyRetrieval=true"
+  SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/castrel?useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=%2B08:00&allowPublicKeyRetrieval=true&connectTimeout=30000&socketTimeout=30000"
   SPRING_DATA_REDIS_HOST: "redis"
   SPRING_DATA_REDIS_PORT: "6379"
   MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,prometheus"
