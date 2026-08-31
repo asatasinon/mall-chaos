@@ -5,17 +5,17 @@ spring:
   application:
     name: catalog-service
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:13306/castrel?useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=%2B08:00&allowPublicKeyRetrieval=true&connectTimeout=30000&socketTimeout=30000}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:13306/castrel?useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=%2B08:00&allowPublicKeyRetrieval=true&connectTimeout=60000&socketTimeout=60000}
     username: ${SPRING_DATASOURCE_USERNAME:castrel}
     password: ${SPRING_DATASOURCE_PASSWORD:castrel}
     hikari:
-      connection-timeout: 30000
+      connection-timeout: 60000
   jdbc:
     template:
-      query-timeout: 30s
+      query-timeout: 60s
   jpa:
     properties:
-      hibernate.jdbc.timeout: 30
+      hibernate.jdbc.timeout: 60
     hibernate:
       ddl-auto: none
     open-in-view: false
