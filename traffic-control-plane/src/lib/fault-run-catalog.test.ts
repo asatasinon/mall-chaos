@@ -37,7 +37,7 @@ test('catalog validates required duration and bounded optional parameters', () =
 test('catalog normalizes short and full byte units', () => {
   assert.deepEqual(
     validateScenarioParameters('CART_REDIS_LARGE_VALUE', {
-      durationSec: 30, fieldSizeBytes: '15KB', totalSizeBytes: '512KB',
+      durationSec: 30, fieldSizeBytes: '15kb', totalSizeBytes: '512kB',
     }),
     {
       durationSec: 30,
@@ -51,7 +51,7 @@ test('catalog normalizes short and full byte units', () => {
   );
   assert.deepEqual(
     validateScenarioParameters('NOTIFICATION_STORAGE_APPEND', {
-      durationSec: 30, totalBytes: '1G', appendBytes: '20K', minFreeBytes: '50MB',
+      durationSec: 30, totalBytes: '1g', appendBytes: '20k', minFreeBytes: '50mB',
     }),
     {
       durationSec: 30,
@@ -59,6 +59,16 @@ test('catalog normalizes short and full byte units', () => {
       totalBytes: 1024 ** 3,
       appendBytes: 20 * 1024,
       minFreeBytes: 50 * 1024 ** 2,
+    },
+  );
+  assert.deepEqual(
+    validateScenarioParameters('NOTIFICATION_STORAGE_APPEND', { durationSec: 30 }),
+    {
+      durationSec: 30,
+      requestIntervalMs: 1000,
+      totalBytes: 1024 ** 2,
+      appendBytes: 8 * 1024,
+      minFreeBytes: 1024 ** 2,
     },
   );
 });

@@ -93,6 +93,17 @@ function parseParameterNumber(parameter: FaultRunParameterDefinition, supplied: 
   return Number(match[1]) * multiplier;
 }
 
+function validateParameterNumber(parameter: FaultRunParameterDefinition, supplied: unknown): number | undefined {
+  const numericValue = parseParameterNumber(parameter, supplied);
+  if (numericValue === undefined || !Number.isFinite(numericValue)
+      || (parameter.kind === 'integer' && !Number.isInteger(numericValue))
+      || (parameter.min !== undefined && numericValue < parameter.min)
+      || (parameter.max !== undefined && numericValue > parameter.max)) {
+    return undefined;
+  }
+  return numericValue;
+}
+
 const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   BROWSE_REPORT_SQL: {
     scenario: 'BROWSE_REPORT_SQL',
@@ -141,8 +152,8 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     allowManualCleanup: true,
     parameters: [duration, boundedConcurrency, requestInterval,
       { name: 'fieldCount', kind: 'integer', default: 8, min: 1, max: 64 },
-      { name: 'fieldSizeBytes', kind: 'integer', unit: 'bytes', default: 1024, min: 1, max: 65536 },
-      { name: 'totalSizeBytes', kind: 'integer', unit: 'bytes', default: 8192, min: 1, max: 1048576 },
+      { name: 'fieldSizeBytes', kind: 'integer', unit: 'bytes', default: '1K', min: 1, max: 65536 },
+      { name: 'totalSizeBytes', kind: 'integer', unit: 'bytes', default: '8K', min: 1, max: 1048576 },
       { name: 'keyTtlSec', kind: 'integer', default: 600, min: 1, max: 3600 }],
   },
   CART_CATALOG_DEPENDENCY: {
@@ -162,7 +173,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'NON_RELEASING',
     allowManualCleanup: false,
     parameters: [duration, requestInterval,
-      { name: 'retainedBytesPerNotification', kind: 'integer', unit: 'bytes', default: 65536, min: 1024, max: 1048576 }],
+      { name: 'retainedBytesPerNotification', kind: 'integer', unit: 'bytes', default: '64K', min: 1024, max: 1048576 }],
   },
   NOTIFICATION_STORAGE_APPEND: {
     scenario: 'NOTIFICATION_STORAGE_APPEND',
@@ -172,9 +183,9 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'MANUAL_CLEANUP',
     allowManualCleanup: true,
     parameters: [duration, requestInterval,
-      { name: 'totalBytes', kind: 'integer', unit: 'bytes', default: 1048576, min: 1024, max: 1073741824 },
-      { name: 'appendBytes', kind: 'integer', unit: 'bytes', default: 8192, min: 1, max: 1048576 },
-      { name: 'minFreeBytes', kind: 'integer', unit: 'bytes', default: 1048576, min: 1, max: 1073741824 }],
+      { name: 'totalBytes', kind: 'integer', unit: 'bytes', default: '1M', min: 1024, max: 1073741824 },
+      { name: 'appendBytes', kind: 'integer', unit: 'bytes', default: '8K', min: 1, max: 1048576 },
+      { name: 'minFreeBytes', kind: 'integer', unit: 'bytes', default: '1M', min: 1, max: 1073741824 }],
   },
   PROMOTION_LOCK_CONTENTION: {
     scenario: 'PROMOTION_LOCK_CONTENTION',
@@ -244,7 +255,15 @@ export function validateScenarioParameters(
     const supplied = parameters[parameter.name];
     if (supplied === undefined) {
       if (parameter.required) throw new FaultRunValidationError(`MISSING_PARAMETER:${parameter.name}`);
-      if (parameter.default !== undefined) result[parameter.name] = parameter.default;
+      if (parameter.default !== undefined) {
+        if (parameter.kind === 'string') {
+          result[parameter.name] = parameter.default;
+        } else {
+          const defaultValue = validateParameterNumber(parameter, parameter.default);
+          if (defaultValue === undefined) throw new FaultRunValidationError(`INVALID_PARAMETER:${parameter.name}`);
+          result[parameter.name] = defaultValue;
+        }
+      }
       continue;
     }
     if (parameter.kind === 'string') {
@@ -256,11 +275,8 @@ export function validateScenarioParameters(
       result[parameter.name] = supplied;
       continue;
     }
-    const numericValue = parseParameterNumber(parameter, supplied);
-    if (numericValue === undefined || !Number.isFinite(numericValue)
-        || (parameter.kind === 'integer' && !Number.isInteger(numericValue))
-        || (parameter.min !== undefined && numericValue < parameter.min)
-        || (parameter.max !== undefined && numericValue > parameter.max)) {
+    const numericValue = validateParameterNumber(parameter, supplied);
+    if (numericValue === undefined) {
       throw new FaultRunValidationError(`INVALID_PARAMETER:${parameter.name}`);
     }
     result[parameter.name] = numericValue;
