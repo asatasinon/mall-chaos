@@ -79,6 +79,30 @@ test('selects an enabled account and creates one lifecycle session', async () =>
   assert.equal(gateway.loginCalls.length, 1);
 });
 
+test('allows the configured exercise account when explicitly enabled', async () => {
+  const gateway = fakeGateway({
+    async login(): Promise<CustomerAuthResponse> {
+      return auth(19);
+    },
+  });
+  const manager = new CustomerSessionManager({
+    accounts: [{
+      label: 'sam',
+      email: 'sam@example.com',
+      password: 'password',
+      expectedCustomerId: 19,
+      enabled: true,
+    }],
+    gateway,
+    allowExerciseAccounts: true,
+  });
+
+  const context = await manager.openSession('run-1', 'exercise-1', 'trace-1');
+
+  assert.equal(context.session.accountLabel, 'sam');
+  assert.equal(context.session.customerId, 19);
+});
+
 test('rejects an unexpected login customer id without retaining a session', async () => {
   const gateway = fakeGateway({
     async login(): Promise<CustomerAuthResponse> {

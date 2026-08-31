@@ -23,6 +23,7 @@ export interface CustomerSessionManagerDependencies {
   accounts?: LifecycleAccount[];
   gateway?: GatewayClient;
   random?: () => number;
+  allowExerciseAccounts?: boolean;
 }
 
 export interface SessionRunOptions {
@@ -35,12 +36,14 @@ export class CustomerSessionManager {
   private readonly configuredAccounts: LifecycleAccount[] | null;
   private readonly gateway: GatewayClient;
   private readonly random: () => number;
+  private readonly allowExerciseAccounts: boolean;
   private readonly sessions = new Map<string, ActiveSession>();
 
   constructor(dependencies: CustomerSessionManagerDependencies = {}) {
     this.configuredAccounts = dependencies.accounts ?? null;
     this.gateway = dependencies.gateway ?? getGatewayClient();
     this.random = dependencies.random ?? Math.random;
+    this.allowExerciseAccounts = dependencies.allowExerciseAccounts ?? false;
   }
 
   async openSession(
@@ -141,10 +144,12 @@ export class CustomerSessionManager {
 
   private async selectAccount(): Promise<LifecycleAccount> {
     const accounts = this.configuredAccounts ?? await loadLifecycleAccountsWithState();
-    const exerciseEmails = new Set(loadExerciseAccounts().map((account) => account.email));
+    const exerciseEmails = this.allowExerciseAccounts
+      ? new Set<string>()
+      : new Set(loadExerciseAccounts().map((account) => account.email));
     const enabled = accounts.filter((account) => account.enabled
-      && account.expectedCustomerId !== 19
-      && !exerciseEmails.has(account.email));
+      && (this.allowExerciseAccounts
+        || (account.expectedCustomerId !== 19 && !exerciseEmails.has(account.email))));
     if (enabled.length === 0) {
       throw new Error('LIFECYCLE_NO_ENABLED_ACCOUNT');
     }

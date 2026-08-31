@@ -50,6 +50,7 @@ export class ScenarioExerciseWorkers {
       sessionManager = new CustomerSessionManager({
         gateway: this.gateway,
         accounts: [sam],
+        allowExerciseAccounts: true,
       });
       session = await sessionManager.openSession(
         run.faultRunId,
@@ -80,6 +81,9 @@ export class ScenarioExerciseWorkers {
     const worker = new ControlledExerciseWorker(run, { concurrency, requestIntervalMs, request });
     const promise = setup()
       .then(() => worker.start())
+      .catch(async (error) => {
+        await appendWorkerFailure(run, error);
+      })
       .finally(async () => {
         if (session && sessionManager) await sessionManager.closeSession(session.lifecycleId, session.traceId).catch(() => undefined);
         await appendFaultRunEvent(run.faultRunId, 'SCENARIO_WORKER_DRAINED', worker.snapshot()).catch(() => undefined);
@@ -87,6 +91,12 @@ export class ScenarioExerciseWorkers {
       });
     this.workers.set(run.faultRunId, { worker, promise });
   }
+}
+
+async function appendWorkerFailure(run: FaultRunRecord, error: unknown): Promise<void> {
+  await appendFaultRunEvent(run.faultRunId, 'EXERCISE_WORKER_SETUP_FAILED', {
+    error: error instanceof Error ? error.message : String(error),
+  }).catch(() => undefined);
 }
 
 function boundedInteger(value: number | string | undefined, min: number, max: number, fallback: number): number {
