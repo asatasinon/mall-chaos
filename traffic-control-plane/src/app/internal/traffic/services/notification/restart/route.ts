@@ -19,43 +19,43 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json() as { faultRunId?: unknown; confirmed?: unknown };
   } catch {
-    return jsonError(400, 'faultRunId and confirmation are required', 400);
+    return jsonError(400, 'Confirmation is required', 400);
   }
-  if (body.confirmed !== true || typeof body.faultRunId !== 'string'
-      || !/^[0-9a-f-]{36}$/i.test(body.faultRunId)) {
-    return jsonError(400, 'faultRunId and confirmation are required', 400);
+  if (body.confirmed !== true || (body.faultRunId !== undefined
+      && (typeof body.faultRunId !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.faultRunId)))) {
+    return jsonError(400, 'Confirmation is required', 400);
   }
 
-  const run = await loadFaultRun(body.faultRunId);
-  if (!run) return jsonError(404, 'Fault Run not found', 404);
-  if (run.scenario !== 'NOTIFICATION_HEAP_PRESSURE') {
+  const run = typeof body.faultRunId === 'string' ? await loadFaultRun(body.faultRunId) : null;
+  if (body.faultRunId !== undefined && !run) return jsonError(404, 'Fault Run not found', 404);
+  if (run && run.scenario !== 'NOTIFICATION_HEAP_PRESSURE') {
     return jsonError(409, 'Notification restart is only available for an unavailable heap run', 409);
   }
-  getScenarioDefinition(run.scenario);
+  if (run && run.state !== 'SERVICE_UNAVAILABLE') {
+    return jsonError(409, 'Notification restart is only available for an unavailable heap run', 409);
+  }
+  if (run) getScenarioDefinition(run.scenario);
 
-  const prior = (await loadFaultRunEvents(run.faultRunId)).reverse()
-    .find((event) => event.eventType === 'NOTIFICATION_RESTART_COMPLETED'
-      && isRecord(event.payload) && event.payload.idempotencyKey === idempotencyKey);
+  const prior = run
+    ? (await loadFaultRunEvents(run.faultRunId)).reverse()
+      .find((event) => event.eventType === 'NOTIFICATION_RESTART_COMPLETED'
+        && isRecord(event.payload) && event.payload.idempotencyKey === idempotencyKey)
+    : undefined;
   if (prior && isRecord(prior.payload) && isRecord(prior.payload.result)) {
     const result = prior.payload.result as { healthy?: unknown };
-    if (result.healthy === true) return jsonOk({ faultRunId: run.faultRunId, result, run });
+    if (result.healthy === true && run) return jsonOk({ faultRunId: run.faultRunId, result, run });
     return jsonError(504, 'Notification service did not become healthy before the restart deadline', 504);
-  }
-  if (run.state !== 'SERVICE_UNAVAILABLE') {
-    return jsonError(409, 'Notification restart is only available for an unavailable heap run', 409);
   }
 
   const traceId = getOrCreateTraceId(request.headers);
   try {
     const result = await restartNotificationService({
-      faultRunId: run.faultRunId,
-      fencingToken: run.fencingToken,
+      ...(run ? { faultRunId: run.faultRunId, fencingToken: run.fencingToken } : {}),
       traceId,
     });
-    const recovered = result.healthy
-      ? await getFaultRunCoordinator().markServiceRecovered(run.faultRunId, { result })
-      : null;
-    await appendFaultRunEvent(run.faultRunId, 'NOTIFICATION_RESTART_COMPLETED', {
+    let recovered = run;
+    if (run && result.healthy) recovered = await getFaultRunCoordinator().markServiceRecovered(run.faultRunId, { result }) || run;
+    if (run) await appendFaultRunEvent(run.faultRunId, 'NOTIFICATION_RESTART_COMPLETED', {
       result,
       recovered: recovered?.state === 'RECOVERED',
       idempotencyKey,
@@ -64,20 +64,20 @@ export async function POST(request: NextRequest) {
       request,
       action: 'NOTIFICATION_SERVICE_RESTART',
       target: 'notification-service',
-      parameters: { faultRunId: run.faultRunId, idempotencyKey },
+      parameters: { ...(run ? { faultRunId: run.faultRunId } : {}), idempotencyKey, restarted: result.restarted },
       result: result.healthy ? 'SUCCESS' : 'FAILURE',
       correlationId: traceId,
     });
     return result.healthy
-      ? jsonOk({ faultRunId: run.faultRunId, result, run: recovered })
+      ? jsonOk({ faultRunId: run?.faultRunId ?? null, result, run: recovered })
       : jsonError(504, 'Notification service did not become healthy before the restart deadline', 504);
   } catch {
-    await appendFaultRunEvent(run.faultRunId, 'NOTIFICATION_RESTART_FAILED', { idempotencyKey }).catch(() => undefined);
+    if (run) await appendFaultRunEvent(run.faultRunId, 'NOTIFICATION_RESTART_FAILED', { idempotencyKey }).catch(() => undefined);
     await recordOperatorAudit({
       request,
       action: 'NOTIFICATION_SERVICE_RESTART',
       target: 'notification-service',
-      parameters: { faultRunId: run.faultRunId, idempotencyKey },
+      parameters: { ...(run ? { faultRunId: run.faultRunId } : {}), idempotencyKey },
       result: 'FAILURE',
       correlationId: traceId,
     }).catch(() => undefined);

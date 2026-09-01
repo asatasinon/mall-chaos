@@ -23,11 +23,25 @@ const server = createServer(async (request, response) => {
 
   try {
     const body = await readJson(request);
-    if (!isUuid(body.faultRunId) || !isPositiveInteger(body.fencingToken)
+    const hasFaultRunId = body.faultRunId !== undefined;
+    const hasFencingToken = body.fencingToken !== undefined;
+    if (hasFaultRunId !== hasFencingToken
+        || (hasFaultRunId && (!isUuid(body.faultRunId) || !isPositiveInteger(body.fencingToken)))
         || Object.keys(body).some((key) => !['faultRunId', 'fencingToken'].includes(key))) {
       return sendJson(response, 400, { error: 'invalid_restart_contract' });
     }
     const startedAt = Date.now();
+    const initialHealth = await probeHealth();
+    if (initialHealth.healthy) {
+      return sendJson(response, 200, {
+        accepted: true,
+        target: 'notification-service',
+        mode,
+        restarted: false,
+        ...initialHealth,
+        elapsedMs: Date.now() - startedAt,
+      });
+    }
     if (mode === 'compose') await restartComposeContainer();
     else await restartKubernetesDeployment();
     const health = await waitForHealthy();
@@ -35,6 +49,7 @@ const server = createServer(async (request, response) => {
       accepted: true,
       target: 'notification-service',
       mode,
+      restarted: true,
       ...health,
       elapsedMs: Date.now() - startedAt,
     });
@@ -130,14 +145,19 @@ async function waitForHealthy() {
   const deadline = Date.now() + deadlineMs;
   let healthStatus = 'DOWN';
   while (Date.now() < deadline) {
-    try {
-      const response = await fetch(healthUrl, { signal: AbortSignal.timeout(1500) });
-      healthStatus = response.ok ? 'UP' : `HTTP_${response.status}`;
-      if (response.ok) return { healthy: true, healthStatus };
-    } catch {
-      healthStatus = 'UNREACHABLE';
-    }
+    const health = await probeHealth();
+    healthStatus = health.healthStatus;
+    if (health.healthy) return health;
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
   return { healthy: false, healthStatus };
+}
+
+async function probeHealth() {
+  try {
+    const response = await fetch(healthUrl, { signal: AbortSignal.timeout(1500) });
+    return { healthy: response.ok, healthStatus: response.ok ? 'UP' : `HTTP_${response.status}` };
+  } catch {
+    return { healthy: false, healthStatus: 'UNREACHABLE' };
+  }
 }

@@ -133,14 +133,15 @@ export default function ScenarioControlPage() {
     });
   };
 
-  const executeRestartNotification = async (run: FaultRun) => {
-    const idempotencyKey = `restart-${run.faultRunId}-${createClientId()}`;
-    setBusy(run.faultRunId);
+  const executeRestartNotification = async (run?: FaultRun) => {
+    const busyKey = run?.faultRunId || 'NOTIFICATION_HEAP_PRESSURE';
+    const idempotencyKey = `restart-${run?.faultRunId || 'notification-service'}-${createClientId()}`;
+    setBusy(busyKey);
     try {
       const response = await fetchWithAuth('/internal/traffic/services/notification/restart', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': idempotencyKey },
-        body: JSON.stringify({ faultRunId: run.faultRunId, confirmed: true }),
+        body: JSON.stringify({ ...(run ? { faultRunId: run.faultRunId } : {}), confirmed: true }),
       });
       const result = await response.json() as { code: number; message: string };
       if (!response.ok || result.code !== 0) throw new Error(result.message);
@@ -152,10 +153,10 @@ export default function ScenarioControlPage() {
     }
   };
 
-  const restartNotification = async (run: FaultRun) => {
+  const restartNotification = async (run?: FaultRun) => {
     setConfirmation({
       title: 'Restart notification service?',
-      description: 'Restart the fixed notification-service target to recover this scenario.',
+      description: 'Check notification-service health and restart the fixed target only when it is unavailable.',
       confirmLabel: 'Confirm',
       destructive: true,
       action: () => executeRestartNotification(run),

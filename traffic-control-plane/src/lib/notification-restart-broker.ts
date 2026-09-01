@@ -4,6 +4,7 @@ export interface NotificationRestartResult {
   accepted: boolean;
   target: 'notification-service';
   mode: 'compose' | 'kubernetes';
+  restarted: boolean;
   healthy: boolean;
   healthStatus: string;
   elapsedMs: number;
@@ -17,8 +18,8 @@ export class NotificationRestartBrokerError extends Error {
 }
 
 export async function restartNotificationService(input: {
-  faultRunId: string;
-  fencingToken: number;
+  faultRunId?: string;
+  fencingToken?: number;
   traceId: string;
 }): Promise<NotificationRestartResult> {
   const controller = new AbortController();
@@ -31,13 +32,16 @@ export async function restartNotificationService(input: {
         'X-Restart-Broker-Key': env.NOTIFICATION_RESTART_BROKER_KEY,
         'X-Trace-Id': input.traceId,
       },
-      body: JSON.stringify({ faultRunId: input.faultRunId, fencingToken: input.fencingToken }),
+      body: JSON.stringify({
+        ...(input.faultRunId ? { faultRunId: input.faultRunId, fencingToken: input.fencingToken } : {}),
+      }),
       signal: controller.signal,
     });
     if (!response.ok) throw new NotificationRestartBrokerError(response.status);
     const result = await response.json() as Partial<NotificationRestartResult>;
     if (result.accepted !== true || result.target !== 'notification-service'
-        || typeof result.mode !== 'string' || typeof result.healthy !== 'boolean'
+      || typeof result.mode !== 'string' || typeof result.restarted !== 'boolean'
+      || typeof result.healthy !== 'boolean'
         || typeof result.healthStatus !== 'string' || typeof result.elapsedMs !== 'number') {
       throw new NotificationRestartBrokerError(502, 'Invalid notification restart broker response');
     }

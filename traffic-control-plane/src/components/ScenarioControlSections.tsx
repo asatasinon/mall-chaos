@@ -20,7 +20,7 @@ interface ScenarioWorkspaceProps {
   onDetails: (run: FaultRun) => Promise<void>;
   onStop: (run: FaultRun) => Promise<void>;
   onCleanup: (scenario: Scenario) => Promise<void>;
-  onRestart?: (run: FaultRun) => void;
+  onRestart?: (run?: FaultRun) => void;
 }
 
 export function ScenarioWorkspace({ scenarios, selectedScenario, setSelectedScenario, activeRun, unavailableRun, busy, onCreate, onDetails, onStop, onCleanup, onRestart }: ScenarioWorkspaceProps) {
