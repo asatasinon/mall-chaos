@@ -26,6 +26,10 @@ export const SCENARIO_META: Record<string, ScenarioMeta> = {
   PSP_PROVIDER_OUTCOME: { label: 'PSP external dependency', description: 'Inject an external PSP dependency outcome into the payment path.', icon: ShieldCheck, tone: 'text-blue-700 dark:text-blue-300' },
 };
 
+export function getScenarioLabel(scenario: string) {
+  return SCENARIO_META[scenario]?.label || scenario;
+}
+
 export const SCENARIO_GROUPS: ScenarioGroup[] = [
   { label: 'Slow SQL', scenarios: ['BROWSE_REPORT_SQL', 'ORDER_REPORT_SQL'] },
   { label: 'Traffic surge', scenarios: ['BROWSE_SURGE', 'ORDER_QUERY_SURGE'] },

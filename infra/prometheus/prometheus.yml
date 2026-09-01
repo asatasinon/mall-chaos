@@ -14,75 +14,75 @@ rule_files:
 
 scrape_configs:
 
-  - job_name: 'gateway'
+  - job_name: 'gateway-service'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['gateway-service:8080']
         labels:
-          service: 'gateway'
+          service: 'gateway-service'
 
-  - job_name: 'user'
+  - job_name: 'user-service'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['user-service:8081']
         labels:
-          service: 'user'
+          service: 'user-service'
 
-  - job_name: 'catalog'
+  - job_name: 'catalog-service'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['catalog-service:8082']
         labels:
-          service: 'catalog'
+          service: 'catalog-service'
 
-  - job_name: 'inventory'
+  - job_name: 'inventory-service'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['inventory-service:8083']
         labels:
-          service: 'inventory'
+          service: 'inventory-service'
 
-  - job_name: 'order'
+  - job_name: 'order-service'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['order-service:8084']
         labels:
-          service: 'order'
+          service: 'order-service'
 
-  - job_name: 'payment'
+  - job_name: 'payment-service'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['payment-service:8085']
         labels:
-          service: 'payment'
+          service: 'payment-service'
 
-  - job_name: 'promotion'
+  - job_name: 'promotion-service'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['promotion-service:8087']
         labels:
-          service: 'promotion'
+          service: 'promotion-service'
 
-  - job_name: 'risk'
+  - job_name: 'risk-service'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['risk-service:8088']
         labels:
-          service: 'risk'
+          service: 'risk-service'
 
-  - job_name: 'fulfillment'
+  - job_name: 'fulfillment-service'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['fulfillment-service:8089']
         labels:
-          service: 'fulfillment'
+          service: 'fulfillment-service'
 
-  - job_name: 'notification'
+  - job_name: 'notification-service'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['notification-service:8090']
         labels:
-          service: 'notification'
+          service: 'notification-service'
 
   - job_name: 'mysql'
     static_configs:

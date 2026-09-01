@@ -11,7 +11,7 @@ import {
   ScenarioMetric,
   ScenarioWorkspace,
 } from '@/components/ScenarioControlSections';
-import { ACTIVE_STATES, SCENARIO_META } from '@/components/scenarios/meta';
+import { ACTIVE_STATES, getScenarioLabel, SCENARIO_META } from '@/components/scenarios/meta';
 import type { ConsoleData, FaultRun, FaultRunDetails, Scenario } from '@/components/scenarios/types';
 import { fetchWithAuth } from '@/lib/auth-fetch';
 import { createClientId } from '@/lib/client-id';
@@ -116,7 +116,7 @@ export default function ScenarioControlPage() {
   const stopRun = async (run: FaultRun) => {
     setConfirmation({
       title: 'Stop active run?',
-      description: `Stop ${run.scenario}? The run will begin its recovery flow.`,
+      description: `Stop ${getScenarioLabel(run.scenario)}? The run will begin its recovery flow.`,
       confirmLabel: 'Stop run',
       destructive: true,
       action: () => executeStop(run),
@@ -186,7 +186,7 @@ export default function ScenarioControlPage() {
   return <div className="mx-auto max-w-7xl space-y-6">
     <section className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
       <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Operations console</p><h1 className="text-3xl font-semibold tracking-tight">Scenario control</h1><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Fixed targets, one active run at a time, and auditable recovery through the protected Fault Run API.</p></div>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className={`status-dot ${activeRun ? 'status-dot-yellow' : 'status-dot-green'}`} />{activeRun ? `Active · ${activeRun.scenario}` : 'No active run'}</div>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className={`status-dot ${activeRun ? 'status-dot-yellow' : 'status-dot-green'}`} />{activeRun ? `Active · ${getScenarioLabel(activeRun.scenario)}` : 'No active run'}</div>
     </section>
     {error && <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"><AlertTriangle className="size-4" />{error}</div>}
     <div className="grid gap-3 sm:grid-cols-3"><ScenarioMetric icon={<ShieldCheck className="size-4" />} label="Catalog scenarios" value={data ? String(data.scenarios.length) : '...'} /><ScenarioMetric icon={<Activity className="size-4" />} label="Active run" value={activeRun ? activeRun.state : 'NONE'} /><ScenarioMetric icon={<Clock3 className="size-4" />} label="Seven-day runs" value={data ? String(data.runs.length) : '...'} /></div>

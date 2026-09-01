@@ -40,6 +40,8 @@ data:
             target_label: pod
           - source_labels: [__meta_kubernetes_namespace]
             target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: service
 ---
 apiVersion: apps/v1
 kind: Deployment
