@@ -27,7 +27,20 @@ mvn clean package -pl order-service -DskipTests
 ./scripts/compose-up.sh
 
 # Start with locally built images (after build-all.sh)
-docker compose up -d --no-build
+docker compose up -d --no-build --pull never --force-recreate
+
+# Build and run local Docker Hub-style tags without pulling remote images
+./scripts/build-all.sh -s hub 
+REGISTRY=castrel docker compose up -d --no-build --pull never --force-recreate
+
+# Build, push, and start a Docker Hub tag
+./scripts/build-all.sh -s hub --tag <tag> --push
+IMAGE_TAG=<tag> ./scripts/compose-up.sh -s hub -- --force-recreate
+
+# Note: -s hub selects the image source; it does not select a service. build-all.sh
+# builds all images, and images are only uploaded when --push is provided. The
+# compose-up.sh helper pulls before starting, so use plain docker compose for
+# unpushed local images.
 
 # traffic-control-plane (Next.js) — local dev only
 cd traffic-control-plane
