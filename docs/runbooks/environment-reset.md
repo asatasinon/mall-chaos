@@ -26,4 +26,4 @@ kubectl -n castrel get pods
 
 ## 数据预热
 
-standalone worker 独占 Redis lease 后维护两个 180 天日分区窗口。每表每天目标 500,000 行，容量保护触发时状态为 `PAUSED_GUARD`。预热状态从控制面 worker API 查看，不手动删除窗口分区。
+standalone worker 独占 Redis lease 后维护两个 180 天日分区窗口。每表每天目标 500,000 行，直到达到 90,000,000 行目标。预热状态从控制面 worker API 查看，不手动删除窗口分区。

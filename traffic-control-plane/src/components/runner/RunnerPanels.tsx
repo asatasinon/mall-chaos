@@ -19,7 +19,7 @@ import { formatTimestamp } from '@/components/runner/utils';
 
 const INTERVALS = [60, 30, 20, 10];
 
-type RunnerView = 'accounts' | 'scheduled' | 'data' | 'activity';
+type RunnerView = 'accounts' | 'activity';
 
 export function RunnerHeader({ status, config, running, onToggleEnabled }: { status: RunnerStatus | null; config: RunnerConfig | null; running: boolean; onToggleEnabled: () => void }) {
   return <div className="flex flex-wrap items-start justify-between gap-3">
@@ -104,8 +104,6 @@ export function LifecycleConfiguration({ config, editing, saving, form, onEdit, 
 export function RunnerViewTabs({ activeView, onChange }: { activeView: RunnerView; onChange: (view: RunnerView) => void }) {
   return <div role="tablist" aria-label="Runner views" className="flex w-full items-center gap-5">
     <RunnerTabButton active={activeView === 'accounts'} onClick={() => onChange('accounts')}>Accounts</RunnerTabButton>
-    <RunnerTabButton active={activeView === 'scheduled'} onClick={() => onChange('scheduled')}>Scheduled tasks</RunnerTabButton>
-    <RunnerTabButton active={activeView === 'data'} onClick={() => onChange('data')}>Data control</RunnerTabButton>
     <RunnerTabButton active={activeView === 'activity'} onClick={() => onChange('activity')}>Activity</RunnerTabButton>
   </div>;
 }
@@ -132,7 +130,7 @@ interface ScheduledTasksPanelProps {
 }
 
 export function ScheduledTasksPanel({ inventory, couponReplenishment, workerUnavailable, triggeringReplenishment, inventoryMessage, couponMessage, onTrigger }: ScheduledTasksPanelProps) {
-  return <div id="runner-scheduled" role="tabpanel" className="grid gap-4 md:grid-cols-2">
+  return <div id="operations-scheduled" role="tabpanel" className="grid gap-4 md:grid-cols-2">
     <Card>
       <CardHeader className="!flex flex-row items-center justify-between gap-3 space-y-0 pb-3">
         <div className="flex min-w-0 items-center gap-2">

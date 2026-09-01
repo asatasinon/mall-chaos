@@ -185,7 +185,7 @@
 ### D2. 常驻预热 Worker
 
 - [x] 将 `DataWarmupService` 改为常驻 Redis 租约 worker，按表和日期重建配额，逐日填满 500,000 行，行为分区包含足量 `PAGE_VIEW`、`PRODUCT` 和真实 SKU 目标。
-- [x] 实现 `BACKFILLING`、`APPENDING`、`ROLLOVER_CLEANUP`、`PAUSED_GUARD`、`ERROR`、`DISABLED` 状态及进度持久化；重启不重复完整分区或跳过缺失分区。
+- [x] 实现 `BACKFILLING`、`APPENDING`、`ROLLOVER_CLEANUP`、`ERROR`、`DISABLED` 状态及进度持久化；重启不重复完整分区或跳过缺失分区。
 - [x] 日切后先创建当天分区并完成当天配额，再以 `DROP PARTITION` 删除窗口外最早整日分区；禁止以对 90M 表无界 `DELETE` 作为滚动机制。
 - [x] 保留空间、表大小、批大小、间隔、速率限制和退避保护；保护触发时不新增写入或破坏窗口外数据。
 

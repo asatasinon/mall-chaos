@@ -39,8 +39,5 @@ export const env = {
   DATA_WARMUP_TARGET_ROWS: parseInt(process.env.DATA_WARMUP_TARGET_ROWS || '90000000', 10),
   DATA_WARMUP_BATCH_SIZE: parseInt(process.env.DATA_WARMUP_BATCH_SIZE || '500', 10),
   DATA_WARMUP_BATCH_INTERVAL_MS: parseInt(process.env.DATA_WARMUP_BATCH_INTERVAL_MS || '1000', 10),
-  DATA_WARMUP_MIN_FREE_BYTES: parseInt(process.env.DATA_WARMUP_MIN_FREE_BYTES || '0', 10),
-  DATA_WARMUP_MIN_FREE_PERCENT: parseInt(process.env.DATA_WARMUP_MIN_FREE_PERCENT || '15', 10),
-  DATA_WARMUP_MAX_TABLE_BYTES: parseInt(process.env.DATA_WARMUP_MAX_TABLE_BYTES || '0', 10),
   APP_TIME_ZONE: process.env.APP_TIME_ZONE || 'Asia/Shanghai',
 } as const;

@@ -7,6 +7,7 @@ import { LogOut } from 'lucide-react';
 const LINKS = [
   { href: '/',       label: 'Exercises'     },
   { href: '/runner', label: 'Runner'     },
+  { href: '/operations', label: 'Operations' },
   { href: '/alerts', label: 'Alerts'     },
 ];
 

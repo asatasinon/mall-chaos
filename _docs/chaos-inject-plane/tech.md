@@ -225,7 +225,7 @@ $$180 \times 500{,}000 = 90{,}000{,}000$$
 3. 当前日期未达 500,000 时进入 `APPENDING`，按批大小、间隔和速率限制补足。
 4. 日期切换后先创建当天分区并完成当天配额，再进入 `ROLLOVER_CLEANUP`，使用 `DROP PARTITION` 删除窗口外最早整日分区。
 5. 完成后保持租约并定期检查当天配额；当天已完成时等待下一日期或租约/配置变化。
-6. 发生 MySQL 错误按有上限的退避重试；空间/表大小阈值触发时进入 `PAUSED_GUARD`。
+6. 发生 MySQL 错误按有上限的退避重试；worker 持续补数直到达到固定窗口目标。
 
 配额状态必须持久化或可从表和分区元数据可靠重建，键至少包含表名和日期。重启时不得重复完整日期分区，也不得跳过缺失日期分区。
 
@@ -240,9 +240,6 @@ DATA_WARMUP_ROWS_PER_DAY=500000
 DATA_WARMUP_TARGET_ROWS=90000000
 DATA_WARMUP_BATCH_SIZE=500
 DATA_WARMUP_BATCH_INTERVAL_MS=1000
-DATA_WARMUP_MIN_FREE_BYTES=<environment value>
-DATA_WARMUP_MIN_FREE_PERCENT=15
-DATA_WARMUP_MAX_TABLE_BYTES=<environment value>
 APP_TIME_ZONE=Asia/Shanghai
 ```
 

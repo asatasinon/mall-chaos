@@ -46,12 +46,6 @@ spec:
               value: "500"
             - name: DATA_WARMUP_BATCH_INTERVAL_MS
               value: "1000"
-            - name: DATA_WARMUP_MIN_FREE_BYTES
-              value: "0"
-            - name: DATA_WARMUP_MIN_FREE_PERCENT
-              value: "15"
-            - name: DATA_WARMUP_MAX_TABLE_BYTES
-              value: "0"
           resources:
             requests:
               memory: "256Mi"

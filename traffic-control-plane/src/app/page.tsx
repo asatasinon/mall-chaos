@@ -127,7 +127,7 @@ export default function ScenarioControlPage() {
     setConfirmation({
       title: 'Stop active run?',
       description: `Stop ${getScenarioLabel(run.scenario)}? The run will begin its recovery flow.`,
-      confirmLabel: 'Stop run',
+      confirmLabel: 'Confirm',
       destructive: true,
       action: () => executeStop(run),
     });
@@ -156,7 +156,7 @@ export default function ScenarioControlPage() {
     setConfirmation({
       title: 'Restart notification service?',
       description: 'Restart the fixed notification-service target to recover this scenario.',
-      confirmLabel: 'Restart service',
+      confirmLabel: 'Confirm',
       destructive: true,
       action: () => executeRestartNotification(run),
     });

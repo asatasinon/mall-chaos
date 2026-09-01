@@ -6,7 +6,7 @@ export async function GET() {
   try {
     const tables = await loadWarmupProgress();
     return jsonOk({
-      status: tables.some((table) => table.status === 'ERROR') ? 'ERROR' : tables.some((table) => table.status === 'PAUSED_GUARD') ? 'PAUSED_GUARD' : tables.some((table) => table.status === 'BACKFILLING') ? 'BACKFILLING' : tables.some((table) => table.status === 'APPENDING') ? 'APPENDING' : 'ROLLOVER_CLEANUP',
+      status: tables.some((table) => table.status === 'ERROR') ? 'ERROR' : tables.some((table) => table.status === 'BACKFILLING') ? 'BACKFILLING' : tables.some((table) => table.status === 'APPENDING') ? 'APPENDING' : 'ROLLOVER_CLEANUP',
       windowDays: env.DATA_WARMUP_WINDOW_DAYS,
       rowsPerDay: env.DATA_WARMUP_ROWS_PER_DAY,
       targetRows: env.DATA_WARMUP_TARGET_ROWS,

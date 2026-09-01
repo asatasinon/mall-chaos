@@ -104,7 +104,7 @@ export interface WarmupJob {
   tableName: string;
   dates: string[];
   rowsPerDay: number;
-  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'PAUSED_GUARD';
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
   processedDays: number;
   processedRows: number;
   errorMessage: string | null;
