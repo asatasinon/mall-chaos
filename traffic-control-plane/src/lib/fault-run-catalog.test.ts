@@ -18,7 +18,7 @@ test('catalog exposes one fixed target for every scenario', () => {
 test('catalog validates required duration and bounded optional parameters', () => {
   assert.deepEqual(
     validateScenarioParameters('BROWSE_SURGE', { durationSec: 30 }),
-    { durationSec: 30, concurrency: 4, requestIntervalMs: 1000, pageSize: 20 },
+    { durationSec: 30, concurrency: 4, requestIntervalMs: 100, pageSize: 20 },
   );
   assert.deepEqual(
     validateScenarioParameters('BROWSE_SURGE', { durationSec: 30, concurrency: 4, requestIntervalMs: 100 }),
@@ -42,7 +42,7 @@ test('catalog normalizes short and full byte units', () => {
     {
       durationSec: 30,
       concurrency: 4,
-      requestIntervalMs: 1000,
+      requestIntervalMs: 100,
       fieldCount: 8,
       fieldSizeBytes: 15 * 1024,
       totalSizeBytes: 512 * 1024,
@@ -55,7 +55,7 @@ test('catalog normalizes short and full byte units', () => {
     }),
     {
       durationSec: 30,
-      requestIntervalMs: 1000,
+      requestIntervalMs: 100,
       totalBytes: 1024 ** 3,
       appendBytes: 20 * 1024,
       minFreeBytes: 50 * 1024 ** 2,
@@ -65,11 +65,46 @@ test('catalog normalizes short and full byte units', () => {
     validateScenarioParameters('NOTIFICATION_STORAGE_APPEND', { durationSec: 30 }),
     {
       durationSec: 30,
-      requestIntervalMs: 1000,
+      requestIntervalMs: 100,
       totalBytes: 1024 ** 2,
       appendBytes: 8 * 1024,
       minFreeBytes: 1024 ** 2,
     },
+  );
+});
+
+test('catalog uses bounded JVM memory defaults', () => {
+  assert.deepEqual(
+    validateScenarioParameters('NOTIFICATION_HEAP_PRESSURE', { durationSec: 30 }),
+    {
+      durationSec: 30,
+      requestIntervalMs: 100,
+      retainedBytesPerNotification: 1024 ** 2,
+    },
+  );
+  assert.deepEqual(
+    validateScenarioParameters('NOTIFICATION_HEAP_PRESSURE', {
+      durationSec: 30, retainedBytesPerNotification: '10M',
+    }),
+    {
+      durationSec: 30,
+      requestIntervalMs: 100,
+      retainedBytesPerNotification: 10 * 1024 ** 2,
+    },
+  );
+  assert.throws(
+    () => validateScenarioParameters('NOTIFICATION_HEAP_PRESSURE', {
+      durationSec: 30, retainedBytesPerNotification: '1023B',
+    }),
+    (error: unknown) => error instanceof FaultRunValidationError
+      && error.message === 'INVALID_PARAMETER:retainedBytesPerNotification',
+  );
+  assert.throws(
+    () => validateScenarioParameters('NOTIFICATION_HEAP_PRESSURE', {
+      durationSec: 30, retainedBytesPerNotification: '10M+1',
+    }),
+    (error: unknown) => error instanceof FaultRunValidationError
+      && error.message === 'INVALID_PARAMETER:retainedBytesPerNotification',
   );
 });
 

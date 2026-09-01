@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, Clock3, RefreshCw, ServerCog, ShieldCheck } from 'lucide-react';
+import { Activity, AlertTriangle, Clock3, ServerCog, ShieldCheck } from 'lucide-react';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,6 +15,15 @@ import { ACTIVE_STATES, getScenarioLabel, SCENARIO_META } from '@/components/sce
 import type { ConsoleData, FaultRun, FaultRunDetails, Scenario } from '@/components/scenarios/types';
 import { fetchWithAuth } from '@/lib/auth-fetch';
 import { createClientId } from '@/lib/client-id';
+import { listScenarioDefinitions } from '@/lib/fault-run-catalog';
+
+const FALLBACK_DATA: ConsoleData = {
+  scenarios: listScenarioDefinitions().map((scenario) => ({
+    ...scenario,
+    parameters: [...scenario.parameters],
+  })),
+  runs: [],
+};
 
 type ConfirmationRequest = {
   title: string;
@@ -26,7 +35,7 @@ type ConfirmationRequest = {
 };
 
 export default function ScenarioControlPage() {
-  const [data, setData] = useState<ConsoleData | null>(null);
+  const [data, setData] = useState<ConsoleData>(FALLBACK_DATA);
   const [selectedRun, setSelectedRun] = useState<FaultRunDetails | null>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,8 +50,9 @@ export default function ScenarioControlPage() {
       const response = await fetchWithAuth('/internal/fault-runs');
       const result = await response.json() as { code: number; message: string; data: ConsoleData };
       if (!response.ok || result.code !== 0) throw new Error(result.message);
+      const runningScenario = result.data.runs.find((run) => ACTIVE_STATES.includes(run.state))?.scenario;
       setData(result.data);
-      setSelectedScenario((current) => current || result.data.scenarios[0]?.scenario || '');
+      setSelectedScenario((current) => current || runningScenario || result.data.scenarios[0]?.scenario || '');
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load Fault Runs');
@@ -192,9 +202,8 @@ export default function ScenarioControlPage() {
     <div className="grid gap-3 sm:grid-cols-3"><ScenarioMetric icon={<ShieldCheck className="size-4" />} label="Catalog scenarios" value={data ? String(data.scenarios.length) : '...'} /><ScenarioMetric icon={<Activity className="size-4" />} label="Active run" value={activeRun ? activeRun.state : 'NONE'} /><ScenarioMetric icon={<Clock3 className="size-4" />} label="Seven-day runs" value={data ? String(data.runs.length) : '...'} /></div>
     {activeRun && <ActiveRunBanner run={activeRun} remainingMs={new Date(activeRun.expiresAt).getTime() - now} onDetails={() => void openDetails(activeRun)} onStop={() => void stopRun(activeRun)} busy={busy === activeRun.faultRunId} />}
     {unavailableHeapRun && <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3"><div><p className="text-sm font-medium">Notification service unavailable</p><p className="mt-1 text-xs text-muted-foreground">Only a confirmed restart of the fixed notification-service target is allowed.</p></div><Button size="sm" onClick={() => void restartNotification(unavailableHeapRun)} disabled={busy === unavailableHeapRun.faultRunId}><ServerCog className="size-3.5" />{busy === unavailableHeapRun.faultRunId ? 'Restarting...' : 'Restart notification'}</Button></div>}
-    {data && <ScenarioWorkspace scenarios={data.scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} activeRun={activeRun} busy={busy} onCreate={createRun} onDetails={openDetails} onStop={stopRun} onCleanup={cleanupScenario} />}
-    {!data && !error && <div className="py-16 text-center text-sm text-muted-foreground"><RefreshCw className="mx-auto mb-3 size-5 animate-spin" />Loading scenario catalog...</div>}
-    {data && <RunHistory runs={visibleRuns} scenarios={data.scenarios} filterState={filterState} filterScenario={filterScenario} setFilterState={setFilterState} setFilterScenario={setFilterScenario} onDetails={openDetails} />}
+    <ScenarioWorkspace key={selectedScenario || 'scenario-workspace'} scenarios={data.scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} activeRun={activeRun} unavailableRun={unavailableHeapRun} busy={busy} onCreate={createRun} onDetails={openDetails} onStop={stopRun} onCleanup={cleanupScenario} onRestart={restartNotification} />
+    <RunHistory runs={visibleRuns} scenarios={data.scenarios} filterState={filterState} filterScenario={filterScenario} setFilterState={setFilterState} setFilterScenario={setFilterScenario} onDetails={openDetails} />
     {selectedRun && <RunDetails details={selectedRun} onClose={() => setSelectedRun(null)} />}
     {confirmation && <ConfirmDialog title={confirmation.title} description={confirmation.description} confirmLabel={confirmation.confirmLabel} confirmVariant={confirmation.confirmVariant} destructive={confirmation.destructive} onCancel={() => setConfirmation(null)} onConfirm={async () => { await confirmation.action(); setConfirmation(null); }} />}
   </div>;

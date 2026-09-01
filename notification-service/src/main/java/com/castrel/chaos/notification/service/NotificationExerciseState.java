@@ -16,7 +16,8 @@ public class NotificationExerciseState {
     private final AtomicLong storageBytes = new AtomicLong();
     private volatile ScenarioRunContext heapRun;
     private volatile ScenarioRunContext storageRun;
-    private volatile int retainedBytesPerNotification = 4096;
+    private volatile long requestIntervalMs = 100;
+    private volatile int retainedBytesPerNotification = 1024 * 1024;
     private volatile long totalStorageBytes = 16L * 1024 * 1024;
     private volatile long appendBytes = 1024;
     private volatile long minFreeBytes = 1;
@@ -33,7 +34,8 @@ public class NotificationExerciseState {
             }
             if (heapRun != null && heapRun.runId().equals(context.runId())) return;
             heapRun = context;
-            retainedBytesPerNotification = (int) bounded(parameters, "retainedBytesPerNotification", 4096, 1024, 1048576);
+            requestIntervalMs = bounded(parameters, "requestIntervalMs", 100, 0, 60000);
+            retainedBytesPerNotification = (int) bounded(parameters, "retainedBytesPerNotification", 1024 * 1024, 1024, 10L * 1024 * 1024);
             guard.registerCleanup(context, () -> heapRun = null);
         } else if ("NOTIFICATION_STORAGE_APPEND".equals(scenario)) {
             if (storageRun != null && !storageRun.runId().equals(context.runId())) {
@@ -41,6 +43,7 @@ public class NotificationExerciseState {
             }
             if (storageRun != null && storageRun.runId().equals(context.runId())) return;
             storageRun = context;
+            requestIntervalMs = bounded(parameters, "requestIntervalMs", 100, 0, 60000);
             totalStorageBytes = bounded(parameters, "totalBytes", 16L * 1024 * 1024, 1024, 1073741824);
             appendBytes = bounded(parameters, "appendBytes", 1024, 1, 1048576);
             minFreeBytes = bounded(parameters, "minFreeBytes", 1, 1, 1073741824);
@@ -69,8 +72,7 @@ public class NotificationExerciseState {
         ScenarioRunContext run = heapRun;
         if (run == null || !run.expiresAt().isAfter(Instant.now())) return false;
         long now = System.currentTimeMillis();
-        long interval = 100;
-        if (now - lastRetainedAt < interval) return false;
+        if (now - lastRetainedAt < requestIntervalMs) return false;
         lastRetainedAt = now;
         retainedObjects.add(new byte[retainedBytesPerNotification]);
         return true;
@@ -84,7 +86,7 @@ public class NotificationExerciseState {
     public long reserveStorage(long payloadBytes) {
         if (storageRunId() == null) return 0;
         long now = System.currentTimeMillis();
-        if (now - lastAppendedAt < 100) throw new BizException("STORAGE_APPEND_RATE_LIMIT", "Notification append rate is limited");
+        if (now - lastAppendedAt < requestIntervalMs) throw new BizException("STORAGE_APPEND_RATE_LIMIT", "Notification append rate is limited");
         long next = storageBytes.addAndGet(Math.max(payloadBytes, appendBytes));
         if (next > totalStorageBytes || totalStorageBytes - next < minFreeBytes) {
             storageBytes.addAndGet(-Math.max(payloadBytes, appendBytes));

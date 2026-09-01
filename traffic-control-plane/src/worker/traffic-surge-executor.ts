@@ -41,7 +41,7 @@ export class TrafficSurgeExecutor {
   private startRun(run: FaultRunRecord): void {
     const target = getTrafficExerciseTarget(run.scenario);
     const concurrency = boundedInteger(run.parameters.concurrency, 1, 32, 1);
-    const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 1000);
+    const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
     const pageSize = boundedInteger(run.parameters.pageSize, 1, 50, 20);
     let session: CustomerRequestContext | null = null;
     let sessionManager: CustomerSessionManager | null = null;

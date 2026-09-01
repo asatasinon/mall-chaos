@@ -68,7 +68,7 @@ const requestInterval: FaultRunParameterDefinition = {
   name: 'requestIntervalMs',
   kind: 'integer',
   required: false,
-  default: 1000,
+  default: 100,
   min: 0,
   max: 60_000,
 };
@@ -173,7 +173,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'NON_RELEASING',
     allowManualCleanup: false,
     parameters: [duration, requestInterval,
-      { name: 'retainedBytesPerNotification', kind: 'integer', unit: 'bytes', default: '64K', min: 1024, max: 1048576 }],
+      { name: 'retainedBytesPerNotification', kind: 'integer', unit: 'bytes', default: '1M', min: 1024, max: 10 * 1024 * 1024 }],
   },
   NOTIFICATION_STORAGE_APPEND: {
     scenario: 'NOTIFICATION_STORAGE_APPEND',

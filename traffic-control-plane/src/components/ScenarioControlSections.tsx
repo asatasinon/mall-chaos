@@ -14,14 +14,16 @@ interface ScenarioWorkspaceProps {
   selectedScenario: string;
   setSelectedScenario: (value: string) => void;
   activeRun?: FaultRun;
+  unavailableRun?: FaultRun;
   busy: string | null;
   onCreate: (scenario: Scenario, parameters: Record<string, number | string>) => Promise<void>;
   onDetails: (run: FaultRun) => Promise<void>;
   onStop: (run: FaultRun) => Promise<void>;
   onCleanup: (scenario: Scenario) => Promise<void>;
+  onRestart?: (run: FaultRun) => void;
 }
 
-export function ScenarioWorkspace({ scenarios, selectedScenario, setSelectedScenario, activeRun, busy, onCreate, onDetails, onStop, onCleanup }: ScenarioWorkspaceProps) {
+export function ScenarioWorkspace({ scenarios, selectedScenario, setSelectedScenario, activeRun, unavailableRun, busy, onCreate, onDetails, onStop, onCleanup, onRestart }: ScenarioWorkspaceProps) {
   const scenario = scenarios.find((item) => item.scenario === selectedScenario) || scenarios[0];
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => Object.fromEntries(SCENARIO_GROUPS.map((group) => [group.label, group.scenarios.includes(scenario?.scenario || '')])));
   if (!scenario) return null;
@@ -48,7 +50,7 @@ export function ScenarioWorkspace({ scenarios, selectedScenario, setSelectedScen
         })}
       </div>
     </div>
-    <ScenarioCardWithActions key={scenario.scenario} scenario={scenario} activeRun={activeRun} busy={busy === scenario.scenario || busy === activeRun?.faultRunId || busy === `cleanup:${scenario.scenario}`} onCreate={onCreate} onDetails={onDetails} onStop={onStop} onCleanup={onCleanup} />
+    <ScenarioCardWithActions key={scenario.scenario} scenario={scenario} activeRun={activeRun} unavailableRun={unavailableRun} busy={busy === scenario.scenario || busy === activeRun?.faultRunId || busy === unavailableRun?.faultRunId || busy === `cleanup:${scenario.scenario}`} onCreate={onCreate} onDetails={onDetails} onStop={onStop} onCleanup={onCleanup} onRestart={onRestart} />
   </section>;
 }
 

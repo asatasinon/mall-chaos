@@ -4,6 +4,7 @@ import { loadRunnerConfigFromDb, RunnerConfig } from '../lib/runner-config';
 import { completeTrafficRun, ensureTrafficRun } from '../lib/runner-persistence';
 import { appendFaultRunEvent, loadActiveFaultRun } from '../lib/fault-run-repository';
 import { createFaultRunContext } from '../lib/fault-run-context';
+import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
 import { getRunnerControlState, pushActivity, setRunnerStatus } from '../lib/runtime-state';
 import {
   RunnerActionResult,
@@ -208,6 +209,12 @@ export class RunnerEngine {
       });
     await this.lifecyclePromise;
     const result = this.lastLifecycleResult!;
+    if (runnerFaultRun?.scenario === 'NOTIFICATION_HEAP_PRESSURE' && result.status === 'FAILED') {
+      await getFaultRunCoordinator().markServiceUnavailable(runnerFaultRun.faultRunId, {
+        lifecycleId: result.lifecycleId,
+        errorCode: result.errorCode,
+      }).catch((error) => log.warn({ error, faultRunId: runnerFaultRun.faultRunId }, 'Failed to mark notification service unavailable'));
+    }
     if (runnerFaultRun) {
       await appendFaultRunEvent(runnerFaultRun.faultRunId, 'RUNNER_LIFECYCLE_SUMMARY', {
         trafficRunId,

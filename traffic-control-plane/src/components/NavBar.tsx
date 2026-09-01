@@ -10,13 +10,24 @@ const LINKS = [
   { href: '/alerts', label: 'Alerts'     },
 ];
 
+const localDateTimeFormatter = new Intl.DateTimeFormat('sv-SE', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+  timeZoneName: 'short',
+});
+
 export default function NavBar() {
   const path = usePathname();
   const router = useRouter();
   const [time, setTime] = useState('');
 
   useEffect(() => {
-    const tick = () => setTime(new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC');
+    const tick = () => setTime(localDateTimeFormatter.format(new Date()));
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);

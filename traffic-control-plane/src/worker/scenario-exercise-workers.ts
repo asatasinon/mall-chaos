@@ -40,7 +40,7 @@ export class ScenarioExerciseWorkers {
 
   private startRun(run: FaultRunRecord): void {
     const concurrency = boundedInteger(run.parameters.concurrency, 1, 32, 1);
-    const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 1000);
+    const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
     let sessionManager: CustomerSessionManager | null = null;
     let session: import('../lib/gateway-client').CustomerRequestContext | null = null;
     const setup = async () => {
