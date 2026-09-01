@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 
 const OPERATOR_COOKIE = 'operator_session';
 const CSRF_COOKIE = 'operator_csrf';
-const SESSION_MAX_AGE = 8 * 60 * 60;
+export const OPERATOR_SESSION_MAX_AGE = 7 * 24 * 60 * 60;
 const DEFAULT_USERNAME = 'castrel';
 const DEFAULT_PASSWORD = 'C@stre1_best_ai';
 
@@ -75,7 +75,7 @@ export function csrfCookieOptions(maxAge: number) {
 }
 
 export async function createOperatorSession(): Promise<string> {
-  const expiresAt = Date.now() + SESSION_MAX_AGE * 1000;
+  const expiresAt = Date.now() + OPERATOR_SESSION_MAX_AGE * 1000;
   const payload = String(expiresAt);
   const key = await signingKey();
   const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));

@@ -5,6 +5,7 @@ import {
   createOperatorSession,
   csrfCookieOptions,
   isOperatorAuthConfigured,
+  OPERATOR_SESSION_MAX_AGE,
   operatorCookieOptions,
   operatorCredentials,
 } from '@/lib/operator-auth';
@@ -32,8 +33,8 @@ export async function POST(request: NextRequest) {
   }
 
   const response = NextResponse.json(ok({ authenticated: true }));
-  response.cookies.set({ ...operatorCookieOptions(8 * 60 * 60), value: await createOperatorSession() });
-  response.cookies.set({ ...csrfCookieOptions(8 * 60 * 60), value: createCsrfToken() });
+  response.cookies.set({ ...operatorCookieOptions(OPERATOR_SESSION_MAX_AGE), value: await createOperatorSession() });
+  response.cookies.set({ ...csrfCookieOptions(OPERATOR_SESSION_MAX_AGE), value: createCsrfToken() });
   return response;
 }
 
