@@ -45,15 +45,15 @@ scrape_configs:
       - json:
           expressions:
             log_level: level
-            trace_id:  traceId
-            otel_trace_id: trace_id
-            otel_span_id:  span_id
+            business_trace_id: traceId
+            trace_id:          trace_id
+            span_id:           span_id
             log_msg:   message
       - labels:
           log_level:
-          trace_id:
+          business_trace_id:
       - template:
           source: log_msg
-          template: '{{ if .otel_trace_id }}[trace_id={{ .otel_trace_id }} span_id={{ .otel_span_id }}] {{ end }}{{ .log_msg }}'
+          template: '{{ if .trace_id }}[trace_id={{ .trace_id }} span_id={{ .span_id }}] {{ end }}{{ .log_msg }}'
       - output:
           source: log_msg
