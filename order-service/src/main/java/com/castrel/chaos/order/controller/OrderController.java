@@ -55,7 +55,7 @@ public class OrderController {
                 customerId, PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100))));
     }
 
-    @GetMapping("/api/orders/query-report")
+    @GetMapping("/api/reports/order-query")
     public ApiResponse<List<OrderQueryReportDTO>> queryReport(
             @RequestHeader("X-User-Id") Long customerId) {
         return ApiResponse.ok(orderService.queryReport(customerId));

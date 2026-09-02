@@ -42,7 +42,7 @@ public class CatalogController {
         return ApiResponse.ok(catalogService.validateListedProduct(sku));
     }
 
-    @GetMapping("/api/products/browse-report")
+    @GetMapping("/api/reports/product-browse")
     public ApiResponse<List<ProductBrowseReportDTO>> browseReport() {
         return ApiResponse.ok(catalogService.browseReport());
     }

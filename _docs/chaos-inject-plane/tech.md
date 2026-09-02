@@ -102,7 +102,7 @@ Gateway 使用硬编码/配置化的场景到单目标映射，拒绝未知场�
 
 #### 商品浏览当日报表
 
-新增 `GET /api/products/browse-report`，以正常网关公开路径进入 Catalog。初始 SQL 使用 `user_behavior_log` 与 `products` 的等值关联，统计 `PAGE_VIEW`、`PRODUCT` 记录，但遗漏“今天”时间条件，因此语义为今日、实际聚合 180 天历史。
+新增 `GET /api/reports/product-browse`，以正常网关公开路径进入 Catalog。初始 SQL 使用 `user_behavior_log` 与 `products` 的等值关联，统计 `PAGE_VIEW`、`PRODUCT` 记录，但遗漏“今天”时间条件，因此语义为今日、实际聚合 180 天历史。
 
 初版 Schema 不包含：
 
@@ -124,7 +124,7 @@ WHERE ubl.action_type = 'PAGE_VIEW'
 
 #### 客户今日订单报表
 
-新增 `GET /api/orders/query-report`，从 Gateway 可信身份读取客户 ID。初版读取该客户全部历史订单，按创建时间排序后逐订单查询明细。
+新增 `GET /api/reports/order-query`，从 Gateway 可信身份读取客户 ID。初版读取该客户全部历史订单，按创建时间排序后逐订单查询明细。
 
 优化版本：
 

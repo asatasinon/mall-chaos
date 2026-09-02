@@ -21,7 +21,7 @@ public class CustomerAuthenticationGlobalFilter implements GlobalFilter, Ordered
 
     private static final Set<String> PROTECTED_PREFIXES = Set.of(
             "/api/me", "/api/cart", "/api/checkout", "/api/orders",
-            "/api/payments", "/api/notifications");
+            "/api/payments", "/api/notifications", "/api/reports/order-query");
 
     private final JwtTokenService jwtTokenService;
     private final Counter customerApiErrorCounter;

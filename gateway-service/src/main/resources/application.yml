@@ -40,6 +40,10 @@ spring:
           uri: ${PAYMENT_SERVICE_URL:http://localhost:8085}
           predicates:
             - Path=/api/orders/*/payment-intents
+        - id: report-order-query
+          uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/reports/order-query
         - id: orders
           uri: ${ORDER_SERVICE_URL:http://localhost:8084}
           predicates:
@@ -60,6 +64,10 @@ spring:
           uri: ${FULFILLMENT_SERVICE_URL:http://localhost:8089}
           predicates:
             - Path=/api/orders/*/shipment/**
+        - id: report-product-browse
+          uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/reports/product-browse
         - id: products
           uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
           predicates:

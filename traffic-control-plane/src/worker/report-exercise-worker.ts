@@ -63,9 +63,9 @@ export class ReportExerciseWorker {
         requests++;
         try {
           if (run.scenario === 'BROWSE_REPORT_SQL') {
-            await this.gateway.get('/api/products/browse-report', undefined, { traceId: run.traceId ?? undefined });
+            await this.gateway.get('/api/reports/product-browse', undefined, { traceId: run.traceId ?? undefined });
           } else if (session) {
-            await this.gateway.customerGet('/api/orders/query-report', undefined, session);
+            await this.gateway.customerGet('/api/reports/order-query', undefined, session);
           }
           successes++;
         } catch (error) {
