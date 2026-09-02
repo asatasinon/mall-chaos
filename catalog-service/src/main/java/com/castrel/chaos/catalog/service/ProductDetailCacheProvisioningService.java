@@ -222,7 +222,7 @@ public class ProductDetailCacheProvisioningService {
         }
         int durationSec = integer(parameters, "durationSec", 600, 1, 1800);
         int memberCount = integer(parameters, "memberCount", 8, 1, properties.getMaxMemberCount());
-        int memberSizeBytes = integer(parameters, "memberSizeBytes", 64 * 1024,
+        int memberSizeBytes = integer(parameters, "memberSizeBytes", 32 * 1024 * 1024,
                 1, properties.getMaxMemberSizeBytes());
         int keyTtlSec = integer(parameters, "keyTtlSec", 900, 1, 3600);
         int grace = Math.max(0, properties.getCleanupGraceSeconds());

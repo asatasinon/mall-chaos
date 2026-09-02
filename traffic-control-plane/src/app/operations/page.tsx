@@ -262,7 +262,6 @@ export default function OperationsPage() {
     {warmupCleanupConfirmation && <ConfirmDialog
       title="Clear selected data partitions?"
       description={`Delete all data partitions for ${warmupCleanupConfirmation.dates.length} selected day(s) from ${warmupCleanupConfirmation.tableName}? This cannot be undone.`}
-      confirmLabel="Confirm"
       confirmVariant="default"
       destructive
       onCancel={() => setWarmupCleanupConfirmation(null)}

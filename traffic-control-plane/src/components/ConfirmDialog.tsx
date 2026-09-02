@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 type ConfirmDialogProps = {
   title: string;
   description: string;
-  confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
   confirmVariant?: 'default' | 'destructive';
@@ -15,7 +14,7 @@ type ConfirmDialogProps = {
   onCancel: () => void;
 };
 
-export default function ConfirmDialog({ title, description, confirmLabel = 'Confirm', cancelLabel = 'Cancel', destructive = false, confirmVariant, onConfirm, onCancel }: ConfirmDialogProps) {
+export default function ConfirmDialog({ title, description, cancelLabel = 'Cancel', destructive = false, confirmVariant, onConfirm, onCancel }: ConfirmDialogProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -77,7 +76,7 @@ export default function ConfirmDialog({ title, description, confirmLabel = 'Conf
       </div>
       <div className="flex justify-end gap-2 border-t border-border/80 bg-background/25 px-6 py-3.5">
         <Button ref={cancelButtonRef} variant="outline" onClick={onCancel} disabled={pending}>{cancelLabel}</Button>
-        <Button ref={confirmButtonRef} variant={resolvedConfirmVariant} className={resolvedConfirmVariant === 'destructive' ? 'bg-destructive text-[#141413] hover:bg-destructive/85' : undefined} onClick={() => void handleConfirm()} disabled={pending}>{pending ? 'Working...' : confirmLabel}</Button>
+        <Button ref={confirmButtonRef} variant={resolvedConfirmVariant} className={resolvedConfirmVariant === 'destructive' ? 'bg-destructive text-[#141413] hover:bg-destructive/85' : undefined} onClick={() => void handleConfirm()} disabled={pending}>{pending ? 'Working...' : 'Confirm'}</Button>
       </div>
     </div>
   </div>;

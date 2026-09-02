@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Activity, Check, ChevronDown, Database, Gauge, Play, Search, ServerCog, Square, Timer } from 'lucide-react';
+import { Activity, Check, ChevronDown, Database, Gauge, Play, RefreshCw, Search, Square, Timer } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,28 +43,55 @@ export default function ScenarioCardWithActions({ scenario, activeRun, unavailab
   return <Card className={`!overflow-visible transition-opacity ${locked ? 'opacity-70' : ''}`}>
     <CardHeader className="gap-3 border-b border-border/70 pb-4">
       <div className="flex items-start justify-between gap-4"><div className="flex gap-3"><span className={`mt-0.5 rounded-md bg-muted p-2 ${meta.tone}`}><Icon className="size-5" /></span><div><CardTitle className="text-base">{meta.label}</CardTitle><p className="mt-1 text-xs leading-5 text-muted-foreground">{meta.description}</p></div></div><Badge variant="outline">{scenario.recoveryStrategy}</Badge></div>
-      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground"><span>Target <strong className="font-medium text-foreground">{scenario.targetService}</strong></span><span>Operation <strong className="font-medium text-foreground">{scenario.targetOperation}</strong></span><span>Limit <strong className="font-medium text-foreground">{scenario.maxDurationSec}s</strong></span></div><div className="flex items-center gap-2"><Button variant={isActiveScenario ? 'destructive' : 'default'} size="sm" onClick={() => isActiveScenario && activeRun ? void onStop(activeRun) : void submit()} disabled={locked || Boolean(restartRun) || busy || !providerOutcomeIsValid}>{isActiveScenario ? <Square className="size-3.5" /> : <Play className="size-3.5" />}{busy ? (isActiveScenario ? 'Stopping...' : 'Starting...') : isActiveScenario ? 'Stop' : restartRun ? 'Unavailable' : locked ? 'Locked' : 'Start'}</Button>{scenario.scenario === 'NOTIFICATION_HEAP_PRESSURE' && onRestart && <Button variant="destructive" size="sm" onClick={() => onRestart(restartRun)} disabled={busy}><ServerCog className="size-3.5" />{busy ? 'Restarting...' : 'Restart notification'}</Button>}</div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground"><span>Target <strong className="font-medium text-foreground">{scenario.targetService}</strong></span><span>Operation <strong className="font-medium text-foreground">{scenario.targetOperation}</strong></span><span>Limit <strong className="font-medium text-foreground">{scenario.maxDurationSec}s</strong></span></div><div className="flex items-center gap-2"><Button variant={isActiveScenario ? 'destructive' : 'default'} size="sm" onClick={() => isActiveScenario && activeRun ? void onStop(activeRun) : void submit()} disabled={locked || Boolean(restartRun) || busy || !providerOutcomeIsValid}>{isActiveScenario ? <Square className="size-3.5" /> : <Play className="size-3.5" />}{busy ? (isActiveScenario ? 'Stopping...' : 'Starting...') : isActiveScenario ? 'Stop' : restartRun ? 'Unavailable' : locked ? 'Locked' : 'Start'}</Button>{scenario.scenario === 'NOTIFICATION_HEAP_PRESSURE' && onRestart && <Button variant="destructive" size="sm" onClick={() => onRestart(restartRun)} disabled={busy}><RefreshCw className={`size-3.5 ${busy ? 'animate-spin' : ''}`} />{busy ? 'Restarting...' : 'Restart notification'}</Button>}</div></div>
     </CardHeader>
     <CardContent className="space-y-4 pt-4">
       {['BROWSE_REPORT_SQL', 'ORDER_REPORT_SQL'].includes(scenario.scenario) && <div className="grid grid-cols-3 gap-2 rounded-md bg-muted/50 p-3 text-[11px]"><ScenarioDetail label="Data window" value="Today / 180-day partitions" /><ScenarioDetail label="Baseline" value="Historical scan" /><ScenarioDetail label="Fix status" value="Awaiting plan evidence" /></div>}
       {isCatalogHashScenario ? <CatalogHashParameters scenario={scenario} values={values} onChange={setValue} disabled={locked || busy} /> : <div className="grid grid-cols-2 gap-3">{scenario.parameters.map((parameter) => {
         const isProviderOutcome = parameter.name === 'providerOutcome';
         const isByteParameter = parameter.unit === 'bytes';
-        return <label key={parameter.name} className="space-y-1.5 text-xs"><span className="flex justify-between gap-2 text-muted-foreground"><span>{isProviderOutcome ? 'Provider outcome' : parameter.name}</span><span>{parameter.required ? 'required' : 'optional'}</span></span>{isProviderOutcome ? <ProviderOutcomeSelect value={values[parameter.name] || ''} onChange={(value) => setValue(parameter.name, value)} options={parameter.options} disabled={locked || Boolean(busy)} /> : <input className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" type={parameter.kind === 'string' || isByteParameter ? 'text' : 'number'} inputMode={isByteParameter ? 'text' : undefined} min={parameter.min} max={parameter.max} maxLength={parameter.maxLength} value={values[parameter.name] || ''} onChange={(event) => setValue(parameter.name, event.target.value)} disabled={locked || busy} />}</label>;
+        const copy = getParameterCopy(scenario.scenario, parameter.name);
+        return <label key={parameter.name} className="space-y-1.5 text-xs"><span className="flex justify-between gap-2 text-muted-foreground"><span>{copy.label}</span><span>{parameter.required ? 'required' : 'optional'}</span></span><span className="block min-h-8 text-[11px] leading-4 text-muted-foreground">{copy.description}</span>{isProviderOutcome ? <ProviderOutcomeSelect value={values[parameter.name] || ''} onChange={(value) => setValue(parameter.name, value)} options={parameter.options} disabled={locked || Boolean(busy)} /> : <input className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" type={parameter.kind === 'string' || isByteParameter ? 'text' : 'number'} inputMode={isByteParameter ? 'text' : undefined} min={parameter.min} max={parameter.max} maxLength={parameter.maxLength} value={values[parameter.name] || ''} onChange={(event) => setValue(parameter.name, event.target.value)} disabled={locked || busy} />}</label>;
       })}</div>}
       <div className="flex items-center justify-between gap-3"><span className="text-[11px] text-muted-foreground">{restartRun ? 'Notification service is unavailable; restart the fixed target before starting another run.' : locked ? 'An active run is already locking this control.' : isActiveScenario ? 'The active run can be stopped from the target row.' : isCatalogHashScenario ? 'One Hash, N SKU fields. The service performs the final budget and SKU validation.' : 'Parameters are validated by the scenario catalog.'}</span>{isActiveScenario && <button type="button" className="text-left text-xs text-primary hover:underline" onClick={() => void onDetails(activeRun)}>View current run details <span aria-hidden="true">→</span></button>}</div>
     </CardContent>
   </Card>;
 }
 
-const CATALOG_PARAMETER_COPY: Record<string, { label: string; description: string }> = {
-  durationSec: { label: 'Run duration', description: 'How long the target stays active.' },
-  concurrency: { label: 'Read concurrency', description: 'In-flight detail requests, not field count.' },
-  requestIntervalMs: { label: 'Request interval', description: 'Pause between reader batches.' },
-  memberCount: { label: 'Hash fields (N)', description: 'SKU fields generated in one Hash.' },
-  memberSizeBytes: { label: 'Value size (S)', description: 'Logical UTF-8 bytes per field.' },
-  keyTtlSec: { label: 'Safety TTL', description: 'Target-side cleanup fallback.' },
+const PARAMETER_COPY: Record<string, { label: string; description: string }> = {
+  durationSec: { label: 'Run duration', description: '1-3600 seconds; the scenario limit is shown above.' },
+  concurrency: { label: 'Concurrency', description: '1-32 concurrent requests.' },
+  requestIntervalMs: { label: 'Request interval', description: '0-60000 ms pause between request batches.' },
+  pageSize: { label: 'Page size', description: '1-100 records returned per request; larger pages increase response work, not concurrency.' },
+  retainedBytesPerNotification: { label: 'Retained bytes per notification', description: '1KB-10MB retained per notification.' },
+  totalBytes: { label: 'Total storage bytes', description: '1KB-1GB total data to append.' },
+  appendBytes: { label: 'Append size', description: '1B-1MB written per append.' },
+  minFreeBytes: { label: 'Minimum free space', description: '1B-1GB free-space floor for the target volume.' },
+  providerOutcome: { label: 'Provider outcome', description: 'Choose the simulated payment-provider result.' },
+  effectPercentage: { label: 'Effect percentage', description: '0-100% of matching payment requests affected.' },
 };
+
+const TRAFFIC_SURGE_PARAMETER_COPY: Record<string, { label: string; description: string }> = {
+  durationSec: { label: 'Run duration', description: '1-1800 seconds; the scenario limit is shown above.' },
+  concurrency: { label: 'Concurrency', description: 'Positive safe integer; higher values create more traffic pressure.' },
+  pageSize: { label: 'Page size', description: '1-100 records returned per request; larger pages increase response work, not concurrency.' },
+};
+
+const CATALOG_PARAMETER_COPY: Record<string, { label: string; description: string }> = {
+  durationSec: { label: 'Run duration', description: '1-1800 seconds; TTL must cover the run plus 60 seconds.' },
+  concurrency: { label: 'Read concurrency', description: '1-32 in-flight requests; does not change field count.' },
+  requestIntervalMs: { label: 'Request interval', description: '0-60000 ms pause between reader batches.' },
+  memberCount: { label: 'Hash fields (N)', description: '1-47 SKU fields; one additional sellable SKU stays as the probe.' },
+  memberSizeBytes: { label: 'Value size (S)', description: '256B-128M per field; N × S must stay at or below 512M.' },
+  keyTtlSec: { label: 'Safety TTL', description: '1-3600 seconds; must be at least run duration + 60 seconds.' },
+};
+
+function getParameterCopy(scenario: string, parameterName: string) {
+  return (scenario === 'CATALOG_REDIS_LARGE_VALUE' ? CATALOG_PARAMETER_COPY[parameterName] : undefined)
+    || (scenario === 'BROWSE_SURGE' || scenario === 'ORDER_QUERY_SURGE' ? TRAFFIC_SURGE_PARAMETER_COPY[parameterName] : undefined)
+    || PARAMETER_COPY[parameterName]
+    || { label: parameterName, description: 'Validated by the scenario catalog.' };
+}
 
 function CatalogHashParameters({ scenario, values, onChange, disabled }: { scenario: Scenario; values: Record<string, string>; onChange: (name: string, value: string) => void; disabled: boolean }) {
   const memberCount = parseInteger(values.memberCount);
@@ -86,11 +113,11 @@ function CatalogHashParameters({ scenario, values, onChange, disabled }: { scena
       </div>
     </div>
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{scenario.parameters.map((parameter) => {
-      const copy = CATALOG_PARAMETER_COPY[parameter.name] || { label: parameter.name, description: 'Catalog-validated parameter.' };
+      const copy = getParameterCopy(scenario.scenario, parameter.name);
       const isBytes = parameter.unit === 'bytes';
       return <label key={parameter.name} className="min-w-0 space-y-1.5 text-xs"><span className="block font-medium text-foreground">{copy.label}</span><span className="block min-h-8 text-[11px] leading-4 text-muted-foreground">{copy.description}</span><input aria-label={copy.label} className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" type={isBytes ? 'text' : 'number'} inputMode={isBytes ? 'text' : 'numeric'} min={parameter.min} max={parameter.max} maxLength={parameter.maxLength} value={values[parameter.name] || ''} onChange={(event) => onChange(parameter.name, event.target.value)} disabled={disabled} /></label>;
     })}</div>
-    <div className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/40 px-3 py-2.5 text-[11px] leading-4 text-muted-foreground"><Timer className="mt-0.5 size-3.5 shrink-0 text-primary" /><span>Logical payload = N × S. Read concurrency only controls pressure; it never creates more fields. The Catalog target rejects values outside the server budget.</span></div>
+    <div className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/40 px-3 py-2.5 text-[11px] leading-4 text-muted-foreground"><Timer className="mt-0.5 size-3.5 shrink-0 text-primary" /><span>Use B, K, KB, M, MB, G, or GB for byte values (case-insensitive). Each field is capped at 128M and the whole Hash at 512M: N × S must fit both limits. Read concurrency only controls pressure.</span></div>
   </div>;
 }
 

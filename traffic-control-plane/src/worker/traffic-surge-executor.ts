@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { appendFaultRunEvent, listActiveFaultRuns, type FaultRunRecord } from '../lib/fault-run-repository';
+import { TRAFFIC_SURGE_MAX_PAGE_SIZE } from '../lib/fault-run-catalog';
 import { getGatewayClient, type CustomerRequestContext } from '../lib/gateway-client';
 import { getTrafficExerciseTarget } from '../lib/fault-run-targets';
 import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
@@ -40,9 +41,9 @@ export class TrafficSurgeExecutor {
 
   private startRun(run: FaultRunRecord): void {
     const target = getTrafficExerciseTarget(run.scenario);
-    const concurrency = boundedInteger(run.parameters.concurrency, 1, 32, 1);
+    const concurrency = boundedInteger(run.parameters.concurrency, 1, undefined, 1);
     const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
-    const pageSize = boundedInteger(run.parameters.pageSize, 1, 50, 20);
+    const pageSize = boundedInteger(run.parameters.pageSize, 1, TRAFFIC_SURGE_MAX_PAGE_SIZE, 20);
     let session: CustomerRequestContext | null = null;
     let sessionManager: CustomerSessionManager | null = null;
     const setup = async () => {
@@ -86,9 +87,9 @@ async function appendWorkerFailure(run: FaultRunRecord, error: unknown): Promise
   }).catch(() => undefined);
 }
 
-function boundedInteger(value: number | string | undefined, min: number, max: number, fallback: number): number {
+function boundedInteger(value: number | string | undefined, min: number, max: number | undefined, fallback: number): number {
   const numeric = typeof value === 'number' ? value : Number(value);
-  return Number.isInteger(numeric) && numeric >= min && numeric <= max ? numeric : fallback;
+  return Number.isSafeInteger(numeric) && numeric >= min && (max === undefined || numeric <= max) ? numeric : fallback;
 }
 
 let executor: TrafficSurgeExecutor | null = null;

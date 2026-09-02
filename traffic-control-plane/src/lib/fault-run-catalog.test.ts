@@ -17,7 +17,7 @@ test('catalog exposes one fixed target for every scenario', () => {
   assert.equal(getScenarioDefinition('INVENTORY_TABLE_EXCLUSIVE').targetOperation, 'inventory-availability-report');
 });
 
-test('catalog validates required duration and bounded optional parameters', () => {
+test('catalog validates required duration and optional parameters', () => {
   assert.deepEqual(
     validateScenarioParameters('BROWSE_SURGE', { durationSec: 30 }),
     { durationSec: 30, concurrency: 4, requestIntervalMs: 100, pageSize: 20 },
@@ -25,6 +25,14 @@ test('catalog validates required duration and bounded optional parameters', () =
   assert.deepEqual(
     validateScenarioParameters('BROWSE_SURGE', { durationSec: 30, concurrency: 4, requestIntervalMs: 100 }),
     { durationSec: 30, concurrency: 4, requestIntervalMs: 100, pageSize: 20 },
+  );
+  assert.deepEqual(
+    validateScenarioParameters('BROWSE_SURGE', { durationSec: 30, concurrency: 1024, pageSize: 100 }),
+    { durationSec: 30, concurrency: 1024, requestIntervalMs: 100, pageSize: 100 },
+  );
+  assert.throws(
+    () => validateScenarioParameters('ORDER_QUERY_SURGE', { durationSec: 30, pageSize: 101 }),
+    (error: unknown) => error instanceof FaultRunValidationError && error.message === 'INVALID_PARAMETER:pageSize',
   );
   assert.throws(
     () => validateScenarioParameters('BROWSE_SURGE', { durationSec: 0 }),
@@ -37,6 +45,17 @@ test('catalog validates required duration and bounded optional parameters', () =
 });
 
 test('catalog normalizes short and full byte units', () => {
+  assert.deepEqual(
+    validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', { durationSec: 30 }),
+    {
+      durationSec: 30,
+      concurrency: 4,
+      requestIntervalMs: 100,
+      memberCount: 8,
+      memberSizeBytes: 32 * 1024 ** 2,
+      keyTtlSec: 900,
+    },
+  );
   assert.deepEqual(
     validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', {
       durationSec: 30, memberSizeBytes: '64kb',

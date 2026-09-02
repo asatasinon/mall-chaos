@@ -28,7 +28,6 @@ const FALLBACK_DATA: ConsoleData = {
 type ConfirmationRequest = {
   title: string;
   description: string;
-  confirmLabel: string;
   action: () => Promise<void>;
   destructive?: boolean;
   confirmVariant?: 'default' | 'destructive';
@@ -112,7 +111,6 @@ export default function ScenarioControlPage() {
     setConfirmation({
       title: `Start ${scenarioLabel}?`,
       description,
-      confirmLabel: 'Start run',
       action: () => executeCreateRun(scenario, parameters),
     });
   };
@@ -140,8 +138,6 @@ export default function ScenarioControlPage() {
     setConfirmation({
       title: 'Stop active run?',
       description: `Stop ${getScenarioLabel(run.scenario)}? The run will begin its recovery flow.`,
-      confirmLabel: 'Confirm',
-      destructive: true,
       action: () => executeStop(run),
     });
   };
@@ -170,7 +166,6 @@ export default function ScenarioControlPage() {
     setConfirmation({
       title: 'Restart notification service?',
       description: 'Check notification-service health and restart the fixed target only when it is unavailable.',
-      confirmLabel: 'Confirm',
       destructive: true,
       action: () => executeRestartNotification(run),
     });
@@ -201,7 +196,6 @@ export default function ScenarioControlPage() {
     setConfirmation({
       title: 'Clean this Fault Run?',
       description: `Remove resources created by ${scenarioLabel} run ${run.faultRunId.slice(0, 8)}. Only this run namespace is addressed; the default cache and business data are not targeted.`,
-      confirmLabel: 'Clean run',
       destructive: true,
       confirmVariant: 'default',
       action: () => executeCleanupRun(run),
@@ -220,6 +214,6 @@ export default function ScenarioControlPage() {
     <ScenarioWorkspace key={selectedScenario || 'scenario-workspace'} scenarios={data.scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} activeRun={activeRun} unavailableRun={unavailableHeapRun} busy={busy} onCreate={createRun} onDetails={openDetails} onStop={stopRun} onRestart={restartNotification} />
     <RunHistory runs={visibleRuns} scenarios={data.scenarios} filterState={filterState} filterScenario={filterScenario} setFilterState={setFilterState} setFilterScenario={setFilterScenario} onDetails={openDetails} onCleanup={cleanupRun} />
     {selectedRun && <RunDetails details={selectedRun} onClose={() => setSelectedRun(null)} onCleanup={cleanupRun} allowManualCleanup={Boolean(data.scenarios.find((scenario) => scenario.scenario === selectedRun.run.scenario)?.allowManualCleanup)} />}
-    {confirmation && <ConfirmDialog title={confirmation.title} description={confirmation.description} confirmLabel={confirmation.confirmLabel} confirmVariant={confirmation.confirmVariant} destructive={confirmation.destructive} onCancel={() => setConfirmation(null)} onConfirm={async () => { await confirmation.action(); setConfirmation(null); }} />}
+    {confirmation && <ConfirmDialog title={confirmation.title} description={confirmation.description} confirmVariant={confirmation.confirmVariant} destructive={confirmation.destructive} onCancel={() => setConfirmation(null)} onConfirm={async () => { await confirmation.action(); setConfirmation(null); }} />}
   </div>;
 }

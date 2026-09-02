@@ -64,6 +64,16 @@ const boundedConcurrency: FaultRunParameterDefinition = {
   max: 32,
 };
 
+export const TRAFFIC_SURGE_MAX_PAGE_SIZE = 100;
+
+const trafficSurgeConcurrency: FaultRunParameterDefinition = {
+  name: 'concurrency',
+  kind: 'integer',
+  required: false,
+  default: 4,
+  min: 1,
+};
+
 const requestInterval: FaultRunParameterDefinition = {
   name: 'requestIntervalMs',
   kind: 'integer',
@@ -99,7 +109,7 @@ function parseParameterNumber(parameter: FaultRunParameterDefinition, supplied: 
 function validateParameterNumber(parameter: FaultRunParameterDefinition, supplied: unknown): number | undefined {
   const numericValue = parseParameterNumber(parameter, supplied);
   if (numericValue === undefined || !Number.isFinite(numericValue)
-      || (parameter.kind === 'integer' && !Number.isInteger(numericValue))
+      || (parameter.kind === 'integer' && !Number.isSafeInteger(numericValue))
       || (parameter.min !== undefined && numericValue < parameter.min)
       || (parameter.max !== undefined && numericValue > parameter.max)) {
     return undefined;
@@ -133,8 +143,8 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     maxDurationSec: 1800,
     recoveryStrategy: 'WORKER',
     allowManualCleanup: false,
-    parameters: [duration, boundedConcurrency, requestInterval,
-      { name: 'pageSize', kind: 'integer', default: 20, min: 1, max: 50 }],
+    parameters: [duration, trafficSurgeConcurrency, requestInterval,
+      { name: 'pageSize', kind: 'integer', default: 20, min: 1, max: TRAFFIC_SURGE_MAX_PAGE_SIZE }],
   },
   ORDER_QUERY_SURGE: {
     scenario: 'ORDER_QUERY_SURGE',
@@ -143,8 +153,8 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     maxDurationSec: 1800,
     recoveryStrategy: 'WORKER',
     allowManualCleanup: false,
-    parameters: [duration, boundedConcurrency, requestInterval,
-      { name: 'pageSize', kind: 'integer', default: 20, min: 1, max: 50 }],
+    parameters: [duration, trafficSurgeConcurrency, requestInterval,
+      { name: 'pageSize', kind: 'integer', default: 20, min: 1, max: TRAFFIC_SURGE_MAX_PAGE_SIZE }],
   },
   CATALOG_REDIS_LARGE_VALUE: {
     scenario: 'CATALOG_REDIS_LARGE_VALUE',
@@ -155,7 +165,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     allowManualCleanup: true,
     parameters: [duration, boundedConcurrency, requestInterval,
       { name: 'memberCount', kind: 'integer', default: 8, min: 1, max: 47 },
-      { name: 'memberSizeBytes', kind: 'integer', unit: 'bytes', default: '64K', min: 256, max: 128 * 1024 * 1024 },
+      { name: 'memberSizeBytes', kind: 'integer', unit: 'bytes', default: '32M', min: 256, max: 128 * 1024 * 1024 },
       { name: 'keyTtlSec', kind: 'integer', default: 900, min: 1, max: 3600 }],
   },
   CART_CATALOG_DEPENDENCY: {
