@@ -75,7 +75,7 @@ function CatalogHashParameters({ scenario, values, onChange, disabled }: { scena
   return <div className="space-y-4">
     <div className="overflow-hidden rounded-lg border border-primary/20 bg-primary/[0.04]">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-primary/10 px-4 py-3">
-        <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Database className="size-4.5" /></span><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Hash topology</p><p className="mt-1 text-sm font-medium">1 Redis Hash <span className="text-muted-foreground">·</span> {memberCount ?? 'N'} SKU fields</p></div></div>
+        <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Database className="size-4.5" /></span><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Configuration preview</p><p className="mt-1 text-sm font-medium">1 Redis Hash <span className="text-muted-foreground">·</span> {memberCount ?? 'N'} SKU fields</p></div></div>
         <Badge variant="outline" className="border-primary/30 text-primary">Catalog-owned</Badge>
       </div>
       <div className="grid grid-cols-2 divide-x divide-primary/10 sm:grid-cols-4">
