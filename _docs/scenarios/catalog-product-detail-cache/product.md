@@ -101,6 +101,7 @@ HSET 运行 Hash probeSku -> 返回详情
 | Redis 不可用 | 有界地绕过缓存查询数据库；数据库成功时仍返回详情 | `CACHE_BACKEND_ERROR` |
 | 商品不存在 | 返回既有商品不存在错误 | `PRODUCT_NOT_FOUND` |
 | 数据库或详情请求超过 deadline | 返回稳定错误，不无限等待 | `PRODUCT_DETAIL_TIMEOUT` 或下游错误码 |
+| 商品数据库不可用 | 返回稳定的服务错误，不把异常细节暴露给客户 | `PRODUCT_DETAIL_DB_ERROR` |
 
 缓存命中只表示商品详情缓存有效，不改变商品详情 API 的响应 envelope。商品库存可能随交易变化，缓存必须采用短 TTL 或逻辑过期；checkout、库存预占和优惠券校验仍以各领域服务的实时数据为准。
 

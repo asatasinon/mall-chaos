@@ -18,7 +18,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BizException.class)
     public ApiResponse<Void> handleBizException(BizException ex) {
-        int code = "PRODUCT_NOT_FOUND".equals(ex.getErrorCode()) ? 404 : 400;
+        int code = switch (ex.getErrorCode()) {
+            case "PRODUCT_NOT_FOUND" -> 404;
+            case "PRODUCT_DETAIL_TIMEOUT" -> 504;
+            case "PRODUCT_DETAIL_DB_ERROR" -> 503;
+            default -> 400;
+        };
         log.warn("BizException [{}]: {}", ex.getErrorCode(), ex.getMessage());
         return ApiResponse.error(code, ex.getMessage());
     }

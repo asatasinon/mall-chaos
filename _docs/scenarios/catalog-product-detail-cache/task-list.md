@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 待实施 |
+| 状态 | Phase A 已完成，Phase B-G 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-09-02 CST |
+| 更新时间 | 2026-09-02 CST（Phase A 完成） |
 | 关联产品规格 | [product.md](product.md) |
 | 关联技术设计 | [tech.md](tech.md) |
 
@@ -30,21 +30,21 @@
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
-| A | 商品详情缓存契约与 Cache Resolver | 待实施 | 0 / 5 | 无 |
+| A | 商品详情缓存契约与 Cache Resolver | 已完成 | 5 / 5 | 无 |
 | B | 正常生命周期商品详情步骤 | 待实施 | 0 / 4 | A |
 | C | Fault Run Catalog、Gateway 与 Coordinator | 待实施 | 0 / 5 | A |
 | D | Catalog Hash 生成、Marker、Fencing 与清理 | 待实施 | 0 / 6 | A、C |
 | E | 大值读取 Worker、停止与观测 | 待实施 | 0 / 4 | C、D |
 | F | Traffic/Fault Run 页面与文档同步 | 待实施 | 0 / 4 | C、D、E |
 | G | 测试、Smoke、恢复与发布验收 | 待实施 | 0 / 7 | A 至 F |
-| **合计** |  | **待实施** | **0 / 35** |  |
+| **合计** |  | **进行中** | **5 / 35** |  |
 
 ---
 
 ## Phase A：商品详情缓存契约与 Cache Resolver
 
-**阶段状态：待实施**
-**阶段进度：0 / 5**
+**阶段状态：已完成**
+**阶段进度：5 / 5**
 
 **当前问题**
 
@@ -60,68 +60,68 @@
 
 ### A1. 定义商品详情 Redis 缓存协议
 
-- [ ] 明确默认 Hash、运行级 Hash、active marker、fencing key 的固定命名空间。
-- [ ] 明确正常缓存、运行缓存、marker 和 fencing 的 TTL、逻辑过期和清理责任。
-- [ ] 明确 `CACHE_HIT`、`CACHE_MISS_DB_FALLBACK`、`CACHE_INVALID_FALLBACK`、`CACHE_BACKEND_ERROR`、`PRODUCT_NOT_FOUND` 和 `PRODUCT_DETAIL_TIMEOUT` 结果码。
-- [ ] 更新 `tech.md` 与本清单，记录协议确认、未决项和最终选择。
+- [x] 明确默认 Hash、运行级 Hash、active marker、fencing key 的固定命名空间。
+- [x] 明确正常缓存、运行缓存、marker 和 fencing 的 TTL、逻辑过期和清理责任。
+- [x] 明确 `CACHE_HIT`、`CACHE_MISS_DB_FALLBACK`、`CACHE_INVALID_FALLBACK`、`CACHE_BACKEND_ERROR`、`PRODUCT_NOT_FOUND` 和 `PRODUCT_DETAIL_TIMEOUT` 结果码。
+- [x] 更新 `tech.md` 与本清单，记录协议确认、未决项和最终选择。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：按 `tech.md` 第 5、6、10 节执行；若 key/TTL 需要调整，先更新技术文档再改代码。
+- 进度：`1 / 1`
+- 问题：active marker 的原子发布和 fencing 删除属于 Phase D，当前阶段只需要固定协议和 resolver 校验规则。
+- 可能的解决方案：默认 Hash 使用 `catalog:product-detail:cache`，运行 Hash 使用 `catalog:product-detail:exercise:{faultRunId}`，marker 使用 `catalog:product-detail:active`；正常 Hash 使用逻辑 TTL，运行 Hash/marker 使用运行 TTL 和按 run 清理。Phase D 沿用这些常量实现原子发布。
 
 ### A2. 实现商品详情 cache envelope 与序列化器
 
-- [ ] 定义包含 `schemaVersion`、`sku`、`cachedAt`、`expiresAt`、`product` 和可选 `padding` 的 envelope。
-- [ ] 实现 JSON 序列化、反序列化、字段类型校验和 envelope schema 版本校验。
-- [ ] 实现 UTF-8 logical bytes 计算和精确 padding；拒绝小于无 padding envelope 最小长度的 `memberSizeBytes`。
-- [ ] 确保大值 payload 仍能还原为对外一致的 `ProductDTO`，不把 padding 暴露到 API 响应。
+- [x] 定义包含 `schemaVersion`、`sku`、`cachedAt`、`expiresAt`、`product` 和可选 `padding` 的 envelope。
+- [x] 实现 JSON 序列化、反序列化、字段类型校验和 envelope schema 版本校验。
+- [x] 实现 UTF-8 logical bytes 计算和精确 padding；拒绝小于无 padding envelope 最小长度的 `memberSizeBytes`。
+- [x] 确保大值 payload 仍能还原为对外一致的 `ProductDTO`，不把 padding 暴露到 API 响应。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：先序列化业务字段，再计算 padding；以 UTF-8 字节而非 Java 字符数作为验收口径。
+- 进度：`1 / 1`
+- 问题：缓存 envelope 的最小大小由 ProductDTO 实际 JSON 字段决定，不能在控制面写死。
+- 可能的解决方案：serializer 先计算带空 padding envelope 的 UTF-8 大小，再按 ASCII `x` 补齐；target 小于最小大小时由 Catalog target 拒绝。已通过 Unicode DTO、精确目标字节数和非法 envelope 测试。
 
 ### A3. 实现 Redis-first 商品详情读取
 
-- [ ] 修改 `CatalogService.getProduct()` 或其委托 service，先解析 active marker，再执行一次目标 Hash `HGET(sku)`。
-- [ ] 合法且未逻辑过期的 value 直接返回；field miss、逻辑过期或非法 envelope 回源 `ProductRepository.findBySku()`。
-- [ ] 数据库成功后回填当前目标 Hash；Redis write 失败不得覆盖已经获得的业务结果。
-- [ ] 保持 `ApiResponse<ProductDTO>`、商品不存在错误和既有公开接口路径不变。
+- [x] 修改 `CatalogService.getProduct()` 或其委托 service，先解析 active marker，再执行一次目标 Hash `HGET(sku)`。
+- [x] 合法且未逻辑过期的 value 直接返回；field miss、逻辑过期或非法 envelope 回源 `ProductRepository.findBySku()`。
+- [x] 数据库成功后回填当前目标 Hash；Redis write 失败不得覆盖已经获得的业务结果。
+- [x] 保持 `ApiResponse<ProductDTO>`、商品不存在错误和既有公开接口路径不变。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：将“选择 Hash”和“读写 envelope”封装在 Catalog service 内，避免 Controller 感知缓存布局。
+- 进度：`1 / 1`
+- 问题：active marker 尚未由 Phase D provisioning 发布；当前 resolver 已支持 marker 校验，但无 marker 时回退默认 Hash。
+- 可能的解决方案：由 Catalog cache service 封装 marker 选择和 Hash 读写，Controller 保持现有公开商品详情接口；Phase D 只负责发布/撤销 marker，不改变公开读取契约。
 
 ### A4. 处理缓存异常、库存 freshness 和 timeout
 
-- [ ] 为 marker 读取、HGET、HSET、反序列化和数据库 fallback 定义有界 timeout。
-- [ ] Redis backend error 时按约定记录结果并有界回源；数据库/详情请求超时返回稳定错误，不无限等待。
-- [ ] 对 `availableQty` 的短暂陈旧策略补充配置、逻辑 TTL 或明确文档说明。
-- [ ] 增加低基数 Micrometer 指标和结构化日志，不把 SKU、run ID、完整 key/value 或 token 作为高基数标签/日志内容。
+- [x] 为 marker 读取、HGET、HSET、反序列化和数据库 fallback 定义有界 timeout。
+- [x] Redis backend error 时按约定记录结果并有界回源；数据库/详情请求超时返回稳定错误，不无限等待。
+- [x] 对 `availableQty` 的短暂陈旧策略补充配置、逻辑 TTL 或明确文档说明。
+- [x] 增加低基数 Micrometer 指标和结构化日志，不把 SKU、run ID、完整 key/value 或 token 作为高基数标签/日志内容。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：缓存只作为商品详情展示优化；库存服务、checkout 和商品校验保留权威职责。
+- 进度：`1 / 1`
+- 问题：Catalog 服务内部 deadline 已固定为 Redis connect/read 1s/2s、商品 JPA 查询 2s 和库存 JDBC statement 2s；调用方 lifecycle 的 AbortController deadline 仍属于 Phase B。
+- 可能的解决方案：当前使用 Redis driver timeout、逻辑 TTL、JPA query hint、JDBC statement timeout 和稳定的 `PRODUCT_DETAIL_TIMEOUT`/`PRODUCT_DETAIL_DB_ERROR` 映射；Phase B 再补调用方 deadline，避免 HTTP 请求无限等待。
 
 ### A5. 完成 Phase A 阶段验收
 
-- [ ] 验证 Redis hit 不访问商品数据库。
-- [ ] 验证 field miss 查询数据库并回填，第二次读取命中。
-- [ ] 验证 invalid envelope、逻辑过期、Redis 读写异常、商品不存在和数据库超时的结果码。
-- [ ] 验证默认 Hash 不设置会连带删除所有商品 field 的 key-level TTL。
+- [x] 验证 Redis hit 不访问商品数据库。
+- [x] 验证 field miss 查询数据库并回填，第二次读取命中。
+- [x] 验证 invalid envelope、逻辑过期、Redis 读写异常、商品不存在和数据库超时的结果码。
+- [x] 验证默认 Hash 不设置会连带删除所有商品 field 的 key-level TTL。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：使用 Catalog 单元测试加 Redis 集成测试；阶段验收前不进入 lifecycle/Fault Run 改造。
+- 进度：`1 / 1`
+- 问题：无新增问题；真实 Redis TTL/故障注入仍需在 Phase G Compose smoke 中复核。
+- 可能的解决方案：已通过 `ProductDetailCacheSerializerTest`、`ProductDetailCacheServiceTest` 和 `CatalogServiceProductDetailCacheTest`；Phase G 再用小参数 Redis smoke 验证真实 driver timeout、marker 和运行 Hash。
 
 ---
 
@@ -636,13 +636,14 @@
 
 | 更新时间 | 已完成 | 总任务 | 当前阶段 | 主要问题 | 可能的解决方案 |
 | --- | ---: | ---: | --- | --- | --- |
-| 2026-09-02 CST | 0 | 35 | 待实施 | 现有商品详情不是 Redis-first，旧大值场景仍绑定 Cart/Sam | 按 Phase A-G 顺序实施；先建立 Catalog cache resolver，再迁移 target/worker/UI，最后执行真实 Redis/Gateway/Compose 验收 |
+| 2026-09-02 CST | 5 | 35 | Phase B：正常生命周期商品详情步骤 | Phase D 尚未发布 active marker；真实 Redis/Compose 行为仍待验收 | Phase A 已建立 Catalog cache resolver、合法 envelope、marker 解析、timeout 和稳定错误码；下一步在 Phase B 接入必经 `PRODUCT_DETAIL_READ`，再由 Phase D 发布运行 marker |
 
 ## 变更记录
 
 | 日期 | 变更 | 原因 | 影响/解决方案 |
 | --- | --- | --- | --- |
 | 2026-09-02 CST | 创建专题任务清单，按 `tech.md` 拆分为 7 个阶段、35 个任务 | 为实现商品详情 cache-aside 和 Hash 大值场景提供可追踪执行入口 | 新增状态/进度/问题/解决方案/验收记录；旧 Cart/Sam 大值方案按迁移任务处理 |
+| 2026-09-02 CST | 完成 Phase A：缓存协议、envelope、Redis-first 读取、数据库 timeout 和 focused tests | 开始按任务清单实施 | A1-A5 标记完成，进度更新为 5/35；Phase D 的 marker provisioning 和真实 Compose 验证保留为后续任务 |
 
 ## 完成定义
 

@@ -24,6 +24,15 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:16379}
+      connect-timeout: ${SPRING_DATA_REDIS_CONNECT_TIMEOUT:1s}
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:2s}
+
+catalog:
+  product-detail-cache:
+    default-key: ${CATALOG_PRODUCT_DETAIL_CACHE_KEY:catalog:product-detail:cache}
+    active-marker-key: ${CATALOG_PRODUCT_DETAIL_ACTIVE_MARKER_KEY:catalog:product-detail:active}
+    logical-ttl: ${CATALOG_PRODUCT_DETAIL_CACHE_TTL:PT5M}
+    database-timeout-sec: ${CATALOG_PRODUCT_DETAIL_DB_TIMEOUT_SEC:2}
 
 reports:
   optimized: ${REPORTS_OPTIMIZED:false}

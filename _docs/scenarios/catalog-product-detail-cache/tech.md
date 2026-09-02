@@ -229,6 +229,7 @@ Redis read、反序列化和数据库 fallback 必须有明确的 request deadli
 | `CACHE_BACKEND_ERROR` | marker 或 HGET/HSET 发生 Redis 错误 |
 | `PRODUCT_NOT_FOUND` | 数据库没有对应 SKU |
 | `PRODUCT_DETAIL_TIMEOUT` | 详情读取超过调用方明确 deadline |
+| `PRODUCT_DETAIL_DB_ERROR` | 商品数据库查询失败 |
 
 Catalog 日志只记录 trace、结果类型、耗时、是否运行缓存和非敏感摘要；不记录 authorization、密码、token 或完整 payload。Fault Run 事件记录 field count、逻辑字节、观测字节、请求统计和清理状态，不记录 value 内容。
 
