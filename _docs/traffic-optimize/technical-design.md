@@ -10,6 +10,8 @@
 | 范围 | `traffic-control-plane` 生命周期流量 runner |
 | 配套规格 | [product.md](product.md) |
 
+> 商品详情 cache-aside、运行级 Hash、probe field 和大值读取 worker 的完整跨服务设计见 [商品详情缓存专题技术设计](../scenarios/catalog-product-detail-cache/tech.md)。
+
 ## 1. 设计目标与约束
 
 本设计将现有按权重执行单一 `RunnerAction` 的 runner 调整为“完整客户生命周期”优先。生命周期使用真实客户 token 访问与 Shopfront 相同的 Gateway 客户 API，覆盖登录、浏览、加购、checkout、订单查询及支付成功或取消。
@@ -29,7 +31,7 @@
 | `src/lib/env.ts` | 解析并校验登录流量模式、服务端演示账号与 Secret 来源。 |
 | `src/lib/gateway-client.ts` | 提供登录、刷新、登出与 bearer-authenticated 请求；请求头按认证模式互斥。 |
 | `src/worker/customer-session-manager.ts` | 选择账号、维护生命周期内客户会话、刷新 token 和失效处理。 |
-| `src/worker/traffic-action-orchestrator.ts` | 执行完整生命周期及子步骤，不再为每个子动作随机选择客户。 |
+| `src/worker/traffic-action-orchestrator.ts` | 执行完整生命周期及子步骤；在登录和目录浏览后必经 `PRODUCT_DETAIL_READ`，不再为每个子动作随机选择客户。 |
 | `src/worker/runner-engine.ts` | 以生命周期作为主调度单位，按固定串行间隔调度并记录父子步骤。 |
 | `src/worker/coupon-replenishment.ts` | 启动时及每 6 小时触发一次演示券池补齐，复用 Redis 锁和 GatewayClient 调用模式。 |
 | `src/worker/inventory-replenishment.ts` | 启动时及每 6 小时触发一次库存基线补齐，取代 runner 对库存 reset 的依赖。 |
@@ -152,7 +154,9 @@ stateDiagram-v2
     [*] --> LOGIN
     LOGIN --> BROWSE: customer session established
     LOGIN --> FAILED: authentication failed
-    BROWSE --> ADD_CART: sellable products found
+    BROWSE --> DETAIL: sellable products found
+    DETAIL --> ADD_CART: product detail read
+    DETAIL --> FAILED: cache/db/detail timeout
     BROWSE --> NOOP: no sellable product
     ADD_CART --> COUPON_SELECT: cart ready
     COUPON_SELECT --> CHECKOUT: coupon selected or no-coupon branch
@@ -184,6 +188,10 @@ executeLifecycle(runId, config):
   candidates = browse/search paginated catalog with bounded retries
   eligible = candidates where status is sellable and availableQty > 0
   if eligible is empty: record NOOP and finish
+
+  probeSku = chooseStableProbeSku(eligible)
+  GET /api/products/{probeSku}
+  require response.data.sku == probeSku
 
   existingCart = GET /api/cart
   eligible = eligible excluding existingCart item SKUs

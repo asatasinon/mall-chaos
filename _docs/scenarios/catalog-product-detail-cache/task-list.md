@@ -1,0 +1,658 @@
+# 商品详情 Redis 回源与 Hash 大值场景实施任务清单
+
+## 文档信息
+
+| 项目 | 内容 |
+| --- | --- |
+| 状态 | 待实施 |
+| 版本 | 1.0 |
+| 更新时间 | 2026-09-02 CST |
+| 关联产品规格 | [product.md](product.md) |
+| 关联技术设计 | [tech.md](tech.md) |
+
+## 任务规则
+
+1. 开始任务时将 `- [ ]` 改为 `- [-]`；实现和对应验证全部完成后改为 `- [x]`。
+2. 每完成一个任务，更新所属阶段的进度、问题、可能的解决方案和文档更新时间。
+3. 每个阶段完成后更新阶段状态；只有该阶段所有任务和阶段验收完成后，才标记为已完成。
+4. 发现问题时必须记录影响范围、复现条件和当前解决方案；尚未决定的内容标记为“待决策”，不能静默跳过。
+5. 业务请求必须经 `gateway-service`；traffic-control-plane、Runner 和 Fault Run worker 不得直连 Catalog、Redis 或 MySQL 业务表。
+6. 商品详情缓存和 Redis 数据结构只能由 `catalog-service` 管理；控制面不得直接写商品详情 Hash 或 active marker。
+7. 一个运行只创建一个 Redis Hash；`memberCount` 是 field/member 数，不是顶层 key 数，也不是读取并发数。
+8. 大值 payload 必须是可解析的商品详情 cache envelope；`memberSizeBytes` 代表序列化 value 的逻辑 UTF-8 字节数，不包含 Redis 内部开销。
+9. 正常生命周期保留数据库登录；不缓存密码、JWT、session token 或 refresh token，不依赖客户端伪造的 Fault Run header。
+10. 全环境同一时刻只允许一条 `CREATING`、`ACTIVE` 或 `RECOVERING` Fault Run；停止、到期、补偿和重启恢复必须遵循 fencing 与按运行清理规则。
+11. 页面不得允许输入任意 Redis key、服务地址、URL、完整 value 或未受控 SKU 集合；所有参数由 catalog 和目标服务双重校验。
+12. 不将“变慢”或“超时”写成所有参数组合必然满足的断言；只有明确 request deadline 被触发时才记录 timeout。
+13. 完成任务时同步维护本文件，不修改产品/技术契约而不留下变更记录。
+
+## 阶段总览
+
+| 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
+| --- | --- | --- | --- | --- |
+| A | 商品详情缓存契约与 Cache Resolver | 待实施 | 0 / 5 | 无 |
+| B | 正常生命周期商品详情步骤 | 待实施 | 0 / 4 | A |
+| C | Fault Run Catalog、Gateway 与 Coordinator | 待实施 | 0 / 5 | A |
+| D | Catalog Hash 生成、Marker、Fencing 与清理 | 待实施 | 0 / 6 | A、C |
+| E | 大值读取 Worker、停止与观测 | 待实施 | 0 / 4 | C、D |
+| F | Traffic/Fault Run 页面与文档同步 | 待实施 | 0 / 4 | C、D、E |
+| G | 测试、Smoke、恢复与发布验收 | 待实施 | 0 / 7 | A 至 F |
+| **合计** |  | **待实施** | **0 / 35** |  |
+
+---
+
+## Phase A：商品详情缓存契约与 Cache Resolver
+
+**阶段状态：待实施**
+**阶段进度：0 / 5**
+
+**当前问题**
+
+- `CatalogService.getProduct()` 当前先查数据库，再调用 `LocalQueryCacheManager`；没有商品详情 Redis 命中、miss、回源和回填语义。
+- 现有 `LocalQueryCacheManager` 是本地 JVM retention 组件，不适合承担商品详情响应缓存。
+- `availableQty` 来自库存表，完整缓存 `ProductDTO` 会引入库存短暂陈旧问题。
+
+**可能的解决方案**
+
+- 新增 Catalog 专用商品详情 cache service、serializer 和 envelope，不复用 `LocalQueryCacheManager`。
+- 使用 Hash field `sku` 存储商品详情；Redis 异常时只做有界数据库 fallback，不无限重试缓存。
+- 为 envelope 增加逻辑过期时间，采用短 TTL/短 freshness 窗口；checkout 和库存预占继续使用领域服务的实时校验。
+
+### A1. 定义商品详情 Redis 缓存协议
+
+- [ ] 明确默认 Hash、运行级 Hash、active marker、fencing key 的固定命名空间。
+- [ ] 明确正常缓存、运行缓存、marker 和 fencing 的 TTL、逻辑过期和清理责任。
+- [ ] 明确 `CACHE_HIT`、`CACHE_MISS_DB_FALLBACK`、`CACHE_INVALID_FALLBACK`、`CACHE_BACKEND_ERROR`、`PRODUCT_NOT_FOUND` 和 `PRODUCT_DETAIL_TIMEOUT` 结果码。
+- [ ] 更新 `tech.md` 与本清单，记录协议确认、未决项和最终选择。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：按 `tech.md` 第 5、6、10 节执行；若 key/TTL 需要调整，先更新技术文档再改代码。
+
+### A2. 实现商品详情 cache envelope 与序列化器
+
+- [ ] 定义包含 `schemaVersion`、`sku`、`cachedAt`、`expiresAt`、`product` 和可选 `padding` 的 envelope。
+- [ ] 实现 JSON 序列化、反序列化、字段类型校验和 envelope schema 版本校验。
+- [ ] 实现 UTF-8 logical bytes 计算和精确 padding；拒绝小于无 padding envelope 最小长度的 `memberSizeBytes`。
+- [ ] 确保大值 payload 仍能还原为对外一致的 `ProductDTO`，不把 padding 暴露到 API 响应。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：先序列化业务字段，再计算 padding；以 UTF-8 字节而非 Java 字符数作为验收口径。
+
+### A3. 实现 Redis-first 商品详情读取
+
+- [ ] 修改 `CatalogService.getProduct()` 或其委托 service，先解析 active marker，再执行一次目标 Hash `HGET(sku)`。
+- [ ] 合法且未逻辑过期的 value 直接返回；field miss、逻辑过期或非法 envelope 回源 `ProductRepository.findBySku()`。
+- [ ] 数据库成功后回填当前目标 Hash；Redis write 失败不得覆盖已经获得的业务结果。
+- [ ] 保持 `ApiResponse<ProductDTO>`、商品不存在错误和既有公开接口路径不变。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：将“选择 Hash”和“读写 envelope”封装在 Catalog service 内，避免 Controller 感知缓存布局。
+
+### A4. 处理缓存异常、库存 freshness 和 timeout
+
+- [ ] 为 marker 读取、HGET、HSET、反序列化和数据库 fallback 定义有界 timeout。
+- [ ] Redis backend error 时按约定记录结果并有界回源；数据库/详情请求超时返回稳定错误，不无限等待。
+- [ ] 对 `availableQty` 的短暂陈旧策略补充配置、逻辑 TTL 或明确文档说明。
+- [ ] 增加低基数 Micrometer 指标和结构化日志，不把 SKU、run ID、完整 key/value 或 token 作为高基数标签/日志内容。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：缓存只作为商品详情展示优化；库存服务、checkout 和商品校验保留权威职责。
+
+### A5. 完成 Phase A 阶段验收
+
+- [ ] 验证 Redis hit 不访问商品数据库。
+- [ ] 验证 field miss 查询数据库并回填，第二次读取命中。
+- [ ] 验证 invalid envelope、逻辑过期、Redis 读写异常、商品不存在和数据库超时的结果码。
+- [ ] 验证默认 Hash 不设置会连带删除所有商品 field 的 key-level TTL。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：使用 Catalog 单元测试加 Redis 集成测试；阶段验收前不进入 lifecycle/Fault Run 改造。
+
+---
+
+## Phase B：正常生命周期商品详情步骤
+
+**阶段状态：待实施**
+**阶段进度：0 / 4**
+
+**当前问题**
+
+- 生命周期当前只在购物车商品不在初始目录结果中时，条件性调用商品详情；不能稳定覆盖商品详情缓存路径。
+- 如果 probe SKU 与大值 target 的选择规则不一致，生命周期可能误命中已生成 field，无法验证 miss 回源。
+- 当前 Gateway 请求没有统一的商品详情内部 deadline，慢请求可能依赖下游默认超时。
+
+**可能的解决方案**
+
+- 在 `LOGIN -> BROWSE_CATALOG` 后增加必经 `PRODUCT_DETAIL_READ`，从真实目录响应选择 SKU。
+- Catalog target 固定保留一个不生成的 probe SKU；生命周期使用同一稳定选择规则。
+- 在 lifecycle orchestrator 为该步骤使用明确 request budget，并将中断与 timeout 分开记录。
+
+### B1. 增加必经 `PRODUCT_DETAIL_READ` 步骤
+
+- [ ] 在 `TrafficActionOrchestrator.executeLifecycle()` 的登录和商品浏览成功后插入商品详情读取。
+- [ ] 使用现有 `GatewayClient.customerGet('/api/products/{sku}')`，保持 bearer session、trace 和 caller signal。
+- [ ] 详情步骤完成后才进入 `CART_READ_INITIAL`，失败不能悄悄跳过并报告完整生命周期成功。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：复用现有 `runStep()`，使详情请求自动写入父子 activity 和 latency。
+
+### B2. 实现稳定 probe SKU 选择和响应校验
+
+- [ ] 从 `findSellableProducts()` 的实际结果中选择 probe SKU，不使用固定下架 SKU 或独立猜测的 SKU。
+- [ ] 与 Catalog target 约定稳定排序/保留规则，并在页面或 summary 中记录 probe 摘要。
+- [ ] 校验 `response.data.sku` 与请求 SKU 一致，缺失或错配返回稳定错误码。
+- [ ] 确保详情读取不改变后续购物车选品集合。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：以实际目录结果为唯一候选来源；如果有界浏览未包含 probe，则记录明确 NOOP/失败，不请求固定未知 SKU。
+
+### B3. 增加详情请求 deadline 和 timeout 结果
+
+- [ ] 为商品详情请求增加可配置但服务端受限的 request deadline。
+- [ ] 区分 `LIFECYCLE_INTERRUPTED`、`PRODUCT_DETAIL_TIMEOUT`、HTTP 错误和响应格式错误。
+- [ ] 确保 timeout 后 session 仍按既有 finally 路径关闭，订单/购物车状态不被错误重试。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：使用 `AbortController` 派生 deadline signal，并在 `GatewayClient`/orchestrator 之间明确 signal 所有权。
+
+### B4. 完成 Phase B 阶段验收
+
+- [ ] 验证 lifecycle 步骤顺序为 `LOGIN -> BROWSE_CATALOG -> PRODUCT_DETAIL_READ -> CART_READ_INITIAL`。
+- [ ] 验证商品详情请求经 Gateway、使用当前客户会话和 trace，不发送伪造 Fault Run header。
+- [ ] 验证商品详情失败/timeout 被记录为子步骤失败，后续不伪造成功结果。
+- [ ] 更新 `traffic-lifecycle-orchestrator.test.ts` 和相关 activity 断言。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：先补最小 mock，再补 response 校验和 timeout 测试，保持购物车/checkout 分支测试不变。
+
+---
+
+## Phase C：Fault Run Catalog、Gateway 与 Coordinator
+
+**阶段状态：待实施**
+**阶段进度：0 / 5**
+
+**当前问题**
+
+- 现有 `CART_REDIS_LARGE_VALUE` 固定指向 Cart/Sam；场景定义参数使用 `fieldCount`，与本方案的 Hash field 语义和 Catalog 目标不一致。
+- `FaultRunCoordinator` 当前会丢弃 target start 的返回值，worker 和详情页面无法得到实际 member、bytes、probe 和 namespace。
+- 旧 Cart 场景可能仍有 ACTIVE/RECOVERING 运行，直接改名会造成停止/清理兼容问题。
+
+**可能的解决方案**
+
+- 将可创建场景不兼容替换为 `CATALOG_REDIS_LARGE_VALUE`，固定 Catalog start/stop/cleanup target。
+- 扩展 target summary 的持久化/事件模型，至少保留 field 数、逻辑/观测字节、probe 和成员摘要。
+- 发布前清理旧 Cart 运行；如需迁移窗口，只保留受保护的固定旧 stop/cleanup，不允许创建新旧场景。
+
+### C1. 替换 Fault Run 场景定义
+
+- [ ] 在 `fault-run-catalog.ts` 将 `CART_REDIS_LARGE_VALUE` 替换为 `CATALOG_REDIS_LARGE_VALUE`。
+- [ ] 固定 `targetService=catalog-service`、`targetOperation=catalog-product-detail-large-value`、`recoveryStrategy=TARGET` 和 manual cleanup 能力。
+- [ ] 参数改为 `durationSec`、`memberCount`、`memberSizeBytes`、`concurrency`、`requestIntervalMs`、`keyTtlSec`。
+- [ ] 保证参数名称、默认值、单位、错误码和页面提示与 `tech.md` 一致。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：删除旧场景的创建入口，不保留两个可以同时创建的 Redis 大值实现。
+
+### C2. 增加 N/S/总预算/TTL 交叉校验
+
+- [ ] 校验所有参数为有限整数，并分别限制 member 数、单 member 大小、读取并发、读取间隔和运行时长。
+- [ ] 校验 `memberCount` 不超过可售 SKU 数减一，始终保留 probe SKU。
+- [ ] 校验 `memberCount * memberSizeBytes` 不超过部署侧 aggregate logical budget。
+- [ ] 校验 `keyTtlSec` 覆盖 `durationSec` 和清理余量，不允许用短 TTL 让 ACTIVE 运行自然丢失数据。
+- [ ] 在 Catalog target 重复执行权威校验，不依赖前端归一化。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：控制面负责快速反馈，Catalog 负责最终拒绝；推荐默认 logical budget 设为 64 MiB，并允许部署侧收紧。
+
+### C3. 更新 Gateway 固定映射与内部 contract
+
+- [ ] 更新 `FaultRunDispatchController` 的 Catalog start/stop/cleanup 固定映射和 operation 校验。
+- [ ] 保持 `ScenarioRunContext`、内部服务认证、expiresAt、fencingToken 和 idempotencyKey 的转发。
+- [ ] 拒绝错误 scenario、错误 operation、错误 target service、任意 URL、任意 Redis key 和批量 targets。
+- [ ] 确认公开 `/api/products/{sku}` 路由仍只转发正常商品详情请求。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：继续使用 Gateway 硬编码/固定映射，不让 target 由 UI 或 request body 决定。
+
+### C4. 扩展 target summary 持久化
+
+- [ ] 修改 Coordinator/Repository/Event 类型，使 target start 返回值可以写入 `TARGET_CONFIRMED` 或等价 detail summary。
+- [ ] 保存 `layout=HASH`、Hash namespace、memberCount、memberSizeBytes、logicalBytes、observedBytes、probeSku、member SKU 摘要和 TTL。
+- [ ] 限制成员摘要长度，禁止保存完整 value、密码、token 或 authorization header。
+- [ ] 让控制面重启后仍能为 worker 和详情页面提供已确认的成员集合。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：优先扩展现有 `fault_run_events` payload，只有查询/大小需要时才扩充主表字段。
+
+### C5. 完成 Phase C 阶段验收和旧运行迁移检查
+
+- [ ] 验证旧 Cart 场景不再出现在可创建 catalog 中。
+- [ ] 验证新场景的参数未知项、边界值、总预算和 TTL 错误均被拒绝。
+- [ ] 验证 Gateway 只能分发到 Catalog 固定目标。
+- [ ] 盘点并停止/清理旧 `CART_REDIS_LARGE_VALUE` ACTIVE/RECOVERING 运行，记录迁移结果。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：迁移前查询 Fault Run 状态；旧运行只走受保护清理路径，不让新 Catalog marker 与旧 Cart key 并存为可操作场景。
+
+---
+
+## Phase D：Catalog Hash 生成、Marker、Fencing 与清理
+
+**阶段状态：待实施**
+**阶段进度：0 / 6**
+
+**当前问题**
+
+- Catalog 当前没有运行级商品详情 Hash，也没有可信 active marker 来让正常商品详情请求选择运行缓存。
+- 直接 `putAll` 后再发布 marker 可能让请求看到半成品；无条件删除 marker 可能误删新运行。
+- 运行 Hash 清理和正常商品缓存共享商品 SKU，必须严格隔离 key namespace 和 fencing。
+
+**可能的解决方案**
+
+- 在 Catalog 增加固定内部 Fault Run controller/service，按运行 ID 派生 key，不接受 caller key。
+- 先写临时 Hash、校验数量和 logical bytes、设置 TTL，再原子切换正式 key，最后 compare-and-set 发布 marker。
+- stop 先 compare-and-delete marker，再删除本 run Hash；目标 TTL 作为控制面崩溃兜底。
+
+### D1. 实现 Catalog target start/stop/cleanup Controller
+
+- [ ] 新增固定的 `/internal/catalog/fault-runs/start`、`/stop` 和 `/cleanup` 入口或等价 service。
+- [ ] 校验 scenario、operation、内部认证、`ScenarioRunContext`、expiresAt 和 fencing token。
+- [ ] 使用 `ScenarioRunGuard.acceptStart()`，拒绝过期或旧 fencing token。
+- [ ] stop/cleanup 只接受服务端派生的 run ID namespace，不接受任意 key/path/body 参数。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：沿用现有 Cart Fault Run controller 的内部协议和 fencing 约定，但将所有业务对象改为 Catalog 商品详情 Hash。
+
+### D2. 实现可售 SKU 选择和 probe 保留
+
+- [ ] 查询当前可售且库存为正的 SKU，并按确定性顺序排序。
+- [ ] 预留一个 probe SKU 不写入大 Hash，其余前 N 个 SKU 作为注入 members。
+- [ ] 在 start summary 保存 probe 和有界 member SKU 摘要，供 worker 使用。
+- [ ] 可售 SKU 不足、无法保留 probe 或选择结果不稳定时拒绝 start。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：以 Catalog 数据库为唯一 SKU 来源；不接受 UI 传入的完整 SKU 集合，防止绕过上架和库存边界。
+
+### D3. 实现 Hash field 大值生成
+
+- [ ] 为每个注入 SKU 生成合法商品详情 envelope。
+- [ ] 通过 padding 让每个 value 的 UTF-8 logical bytes 精确等于 `memberSizeBytes`。
+- [ ] 计算并保存 logical bytes，另行读取/记录 Redis `MEMORY USAGE`，不混淆两个口径。
+- [ ] 生成过程中不写入商品、库存、购物车、订单或用户数据。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：使用与正常 resolver 相同的 serializer；大值只改变 padding，不改变 ProductDTO 的业务字段。
+
+### D4. 实现原子建立和 active marker 发布
+
+- [ ] 使用临时运行 key 批量写入 fields，校验 `HLEN`、逻辑大小和必要的实际内存占用。
+- [ ] 设置运行 Hash TTL，保证覆盖运行期、停止窗口和控制面故障恢复时间。
+- [ ] 使用原子 rename/transaction 或等价方案发布正式运行 key。
+- [ ] 在 Hash 完整可读后，以 compare-and-set 语义最后写入 `catalog:product-detail:active` marker。
+- [ ] 任一步骤失败都不发布 marker，并删除临时/正式运行 key。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：用 Lua/事务保证 marker 只在预期 fencing 下发布；若 Redis 不支持跨命令原子性，至少让 marker 最后写入并带完整校验信息。
+
+### D5. 实现 resolver 对 active marker 的选择
+
+- [ ] 无有效 marker 时读取默认商品详情 Hash。
+- [ ] marker schema、expiresAt、fencing、run namespace 校验通过时读取运行 Hash。
+- [ ] 注入 field 命中大 envelope，probe field miss 后回源数据库并回填运行 Hash。
+- [ ] marker 缺失、过期或读取异常按约定 fallback，不根据客户端 Fault header 猜测运行状态。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：将 marker 解析放在 Catalog cache resolver 内，并对 marker 读取失败记录 `CACHE_BACKEND_ERROR`。
+
+### D6. 实现 fencing、stop、cleanup 和重启恢复
+
+- [ ] marker 删除使用 run ID + fencing token compare-and-delete，禁止无条件删除 active marker。
+- [ ] 运行 Hash 按 run namespace 删除，重复 stop/cleanup 视为幂等成功，错误 token 不得影响新运行。
+- [ ] 控制面停止顺序与目标 stop 顺序一致：先 drain worker，再撤销 marker，再清理 Hash。
+- [ ] 控制面和 Catalog 重启后扫描/识别 ACTIVE、RECOVERING、过期 marker 和未完成清理。
+- [ ] 目标本地 TTL 能在控制面不可用时阻止过期 Hash 继续影响正常详情请求。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：以 `ScenarioRunGuard` 保存最近 token，结合 marker TTL 和运行 key TTL，所有删除操作都带资源归属条件。
+
+---
+
+## Phase E：大值读取 Worker、停止与观测
+
+**阶段状态：待实施**
+**阶段进度：0 / 4**
+
+**当前问题**
+
+- 当前 `ScenarioExerciseWorkers` 的 Redis 大值分支登录 Sam 并调用 Cart 加购，不符合商品详情目标。
+- `ControlledExerciseWorker` 需要明确商品详情请求 deadline 和 stop/drain 与 target cleanup 的协作。
+- 单个 Hash field 的 HGET 不会读取全部 N 个 field；只 provisioning 不足以保证请求变慢或超时。
+
+**可能的解决方案**
+
+- 删除 Cart/Sam 业务副作用，改为使用 target summary 的 member SKU 通过 Gateway 调用商品详情 API。
+- 复用受控 worker 的并发、间隔、AbortController 和 drain；每个请求独立 trace 并使用统一 deadline。
+- 将 worker 统计与正常 lifecycle activity 分开写入 Fault Run events，超时只在 deadline 触发时记录。
+
+### E1. 改造 ScenarioExerciseWorkers 为 Catalog reader
+
+- [ ] 将 `CART_REDIS_LARGE_VALUE` 分支替换为 `CATALOG_REDIS_LARGE_VALUE`。
+- [ ] 不再加载 Sam、创建 customer session、写入购物车或发送 customer bearer token。
+- [ ] 从 target summary 读取 member SKU；summary 缺失时 setup failure，不猜测 SKU。
+- [ ] 通过 `GatewayClient.get('/api/products/{sku}')` 调用公开商品详情接口。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：worker 只使用公开详情读取，业务服务仍由 Gateway 和 Catalog resolver 处理运行 marker。
+
+### E2. 增加并发、间隔和单请求 deadline
+
+- [ ] `concurrency` 只限制同时在途详情请求，不能改变已生成 field 数。
+- [ ] `requestIntervalMs` 控制请求节奏，运行到期或进入 RECOVERING 后不再发起新请求。
+- [ ] 每个请求使用独立 trace 和 per-request deadline，区分 timeout、HTTP error 和 worker stop。
+- [ ] 复用或扩展 `ControlledExerciseWorker`，避免未排空请求在 target cleanup 后继续访问。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：由 worker 统一创建 AbortController；停止时先停止生产，再等待 bounded drain，超出 deadline 才取消。
+
+### E3. 增加 Fault Run 读取统计和事件
+
+- [ ] 记录请求总数、成功数、失败数、timeout 数、在途数、latency 摘要和 stop reason。
+- [ ] 记录 cache hit/miss/error 的低基数结果汇总，但不保存完整 response value。
+- [ ] 记录 `SCENARIO_WORKER_SETUP_FAILED`、`SCENARIO_WORKER_DRAINED` 和周期性 summary。
+- [ ] 将 target summary、worker summary 和清理结果关联到 faultRunId/traceId。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：沿用 `fault_run_events`，采用计数器/分位数摘要，不将每个 SKU 或每个请求写成高基数指标标签。
+
+### E4. 完成 Phase E 阶段验收
+
+- [ ] 验证 worker 只经 Gateway 读取已生成 SKU，不直连 Catalog、Redis、MySQL。
+- [ ] 验证 worker 不创建客户 session、不使用 Sam、不产生 Cart/CartItem 数据。
+- [ ] 验证 stop/expiry 时先停止新请求、排空在途请求，再进入 target stop/cleanup。
+- [ ] 验证 Hash 读取压力、详情响应延迟、错误和 timeout 可以被事件/指标观察到，但不保证固定超时。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：用 baseline、active Hash、停止后三组对照数据验证影响，不用单一运行结果证明必然超时。
+
+---
+
+## Phase F：Traffic/Fault Run 页面与文档同步
+
+**阶段状态：待实施**
+**阶段进度：0 / 4**
+
+**当前问题**
+
+- 现有场景页面仍显示 Cart/Sam、`fieldCount` 和 Cart 加购语义。
+- target start summary 当前不完整，页面无法显示实际 field 数、logical/observed bytes、probe 和读取统计。
+- 旧的 scenario-wide Cart cleanup 不符合按运行清理要求。
+
+**可能的解决方案**
+
+- 复用现有 Scenario Card、Fault Run detail、CSRF、确认、幂等和 audit 结构，只替换本场景参数与摘要。
+- 页面明确显示“1 个 Hash + N 个 field”，把读取并发单独命名为 concurrency。
+- 详情只展示非敏感摘要，使用 per-run cleanup，不展示完整 value 或内部秘密。
+
+### F1. 更新 Scenario Card 参数和说明
+
+- [ ] 更新 `ScenarioCardWithActions` 和场景 catalog UI，移除 Cart/Sam 大值文案。
+- [ ] 展示 `memberCount`、`memberSizeBytes`、`durationSec`、`concurrency`、`requestIntervalMs` 和 `keyTtlSec`。
+- [ ] 显示 `1 个 Redis Hash + N 个 SKU field`、预计 logical budget 和 field/并发的区别。
+- [ ] 前端提交前做友好提示，但不替代服务端校验，不允许编辑 Hash key/value。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：让页面从 catalog definition 动态渲染字段，避免 UI 重新维护一套参数 schema。
+
+### F2. 更新 Fault Run 详情、事件和 cleanup 操作
+
+- [ ] 展示 target summary、Hash namespace 摘要、field 数、logical/observed bytes、probe、TTL 和 marker 状态。
+- [ ] 展示读取成功/失败/timeout、延迟摘要、worker drain、恢复和清理结果。
+- [ ] 修正详情 response/type 不一致，确保 summary/event/audit 类型一致。
+- [ ] 将页面 cleanup 改为 per-run cleanup，禁止继续调用旧 scenario-wide Cart cleanup。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：扩展现有 FaultRunDetails 类型和详情组件，保留统一事件时间线。
+
+### F3. 保持控制面权限和敏感信息边界
+
+- [ ] 创建、停止、清理操作继续要求运营会话、CSRF、confirmation、idempotency 和 audit。
+- [ ] 服务端拒绝任意服务名、URL、Redis key、完整 value 和未经允许的 SKU 集合。
+- [ ] 页面不展示密码、access token、session token、refresh token、authorization header 或完整缓存 value。
+- [ ] 校验消费者 Shopfront 路径无法访问 Fault Run 页面和内部 provisioning endpoint。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：沿用 middleware、auth-fetch 和固定 Gateway internal contract；新增字段先经过服务端 allowlist。
+
+### F4. 同步专题和既有规格文档
+
+- [ ] 将本任务清单的状态和进度与 `product.md`、`tech.md` 保持一致。
+- [ ] 更新 `_docs/chaos-inject-plane/` 和 `_docs/traffic-optimize/` 中的 Redis 大值、商品详情生命周期和旧 Cart/Sam 描述。
+- [ ] 更新 API、流程图、场景名称、参数名称和验收条件，删除已失效的旧实现描述。
+- [ ] 记录每次设计变更的原因、影响和解决方案，避免只修改任务状态而不更新契约。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：已知既有 task-list 仍保留旧 Cart/Sam 验收任务，需要在实现迁移时同步处理。
+- 可能的解决方案：专题文档作为新大值方案唯一事实来源；既有文档保留历史说明时明确标注已被替换。
+
+---
+
+## Phase G：测试、Smoke、恢复与发布验收
+
+**阶段状态：待实施**
+**阶段进度：0 / 7**
+
+**当前问题**
+
+- 当前 Catalog 测试覆盖不足，缺少 Redis cache hit/miss、envelope、Hash provisioning、marker、fencing 和 cleanup 测试。
+- 当前 lifecycle 测试没有必经商品详情步骤和 deadline 断言。
+- 当前控制面没有覆盖商品详情 Fault Run 的 API/页面/Compose smoke；Redis 512MB 与控制面状态共享，过大预算可能影响租约和运行状态。
+
+**可能的解决方案**
+
+- 先做 service/unit/contract 测试，再用小参数短时 Compose smoke 验证真实 Redis、Gateway、Catalog 和正常 Runner。
+- 使用 logical bytes 做输入预算，使用 `MEMORY USAGE` 做观测，不以 Redis 内部占用反推用户输入大小。
+- 以无 Fault Run、Hash active、停止/到期后三组对照验证影响和恢复；将超时作为明确 deadline 的条件结果。
+
+### G1. 完成 TypeScript catalog、Coordinator 和 lifecycle 测试
+
+- [ ] 测试新场景名称、固定 target、未知参数、边界值、N/S 总预算和 TTL 规则。
+- [ ] 测试 target start summary 保存、Fault Run detail 读取、stop/compensation/recovery 和旧 run 迁移行为。
+- [ ] 测试 lifecycle 步骤顺序、probe 详情请求、response SKU 校验、失败/timeout 和 session cleanup。
+- [ ] 测试 worker 使用 summary member SKU、并发/间隔/deadline、停止 drain 和不创建 customer session。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：在现有 `test:runner` 之外补齐被 package script 漏掉的 worker/catalog/coordinator 测试，并保持测试使用依赖注入。
+
+### G2. 完成 Catalog Java cache resolver 测试
+
+- [ ] 测试 Redis hit 不访问 `ProductRepository`。
+- [ ] 测试 miss 查询数据库、生成 DTO、HSET 回填和第二次 hit。
+- [ ] 测试 invalid envelope、逻辑过期、marker 缺失/过期、Redis read/write error、商品不存在和数据库 timeout。
+- [ ] 测试公开响应仍为既有 `ApiResponse<ProductDTO>`，padding 不进入响应。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：使用 Mockito 验证 repository/Redis 调用次数，必要时用 Testcontainers/Compose Redis 做序列化和 TTL 验证。
+
+### G3. 完成 Catalog provisioning、fencing 和 cleanup 测试
+
+- [ ] 测试可售 SKU 选择、probe 排除、Hash field 数量和精确 logical bytes。
+- [ ] 测试 aggregate budget、envelope 最小长度、TTL、错误 operation、错误 scenario 和错误 fencing。
+- [ ] 测试 marker 最后发布、半成品失败回滚、compare-and-delete、重复 cleanup 和旧 token 不影响新 run。
+- [ ] 测试控制面/Catalog 重启后过期 marker、未完成清理和运行 TTL 行为。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：把 Redis 命令交互封装为可替换 adapter；对 Lua/transaction 使用集成测试验证原子语义。
+
+### G4. API 和控制台 smoke
+
+- [ ] 使用运营 session、CSRF、confirmation 和 idempotency 创建短时 `CATALOG_REDIS_LARGE_VALUE`。
+- [ ] 验证 Gateway 固定转发到 Catalog，Fault Run 进入 `ACTIVE`，target summary、event 和 audit 可查询。
+- [ ] 验证页面显示 Hash/field/N/S/concurrency 的正确含义，不显示 value/secret。
+- [ ] 验证停止、per-run cleanup 和页面状态更新。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：优先使用 API smoke，再补 Traffic/Fault Run 页面 Playwright；测试用小 N、低 S 和短 duration，避免影响共享 Redis。
+
+### G5. Redis、商品详情和生命周期对照验证
+
+- [ ] 用 Redis 只读命令验证运行 key 类型为 Hash、field 数为 N、每个 value logical bytes 为 S。
+- [ ] 另行记录 `MEMORY USAGE`、marker、TTL、Hash namespace 和默认缓存隔离。
+- [ ] 注入 SKU 详情请求验证 cache hit；probe 第一次验证 miss -> DB -> HSET，第二次验证 hit。
+- [ ] 无 Fault Run 验证正常生命周期包含 `LOGIN -> BROWSE_CATALOG -> PRODUCT_DETAIL_READ -> CART`。
+- [ ] 有 Fault Run 验证正常 lifecycle 和 worker 的详情 latency、DB query、Redis memory、错误和 timeout 变化。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：Hash 单 field HGET 不会自动传输全部 N 个 members，单纯增大 N 不代表单请求必然变慢。
+- 可能的解决方案：同时运行 bounded reader worker 产生真实读取/响应压力；验收比较趋势，不把 504 写成固定结果。
+
+### G6. 停止、到期、故障和重启恢复验证
+
+- [ ] 验证停止顺序为停止新 worker 请求、排空/取消在途请求、撤销 marker、删除本 run Hash。
+- [ ] 验证到期、手动 stop、target start compensation 和控制面重启使用一致的清理语义。
+- [ ] 验证 Catalog/控制面重启后过期 marker 不会重新激活，旧 fencing 不会删除新 Hash。
+- [ ] 验证默认商品缓存、products/inventories、Cart、订单和其它运行数据不受清理影响。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：待开始。
+- 可能的解决方案：在 stop/expiry/restart 场景中保留 Redis、Fault Run events 和 Catalog 日志证据，按时间顺序核对 marker、worker 和 Hash 状态。
+
+### G7. 发布前检查
+
+- [ ] 执行 `mvn clean install -pl common -DskipTests` 和 Catalog/Gateway 相关 Maven tests。
+- [ ] 执行 `cd traffic-control-plane && pnpm test:runner && pnpm typecheck && pnpm lint && pnpm build`。
+- [ ] 执行 `./scripts/integration-test.sh`，补充商品详情 Hash 场景 smoke 并确认显式 lifecycle Secret/内部 key 前置条件。
+- [ ] 全仓搜索旧 `CART_REDIS_LARGE_VALUE` 创建入口、Cart/Sam 大值 worker、旧 scenario-wide cleanup 和错误文案。
+- [ ] 更新本清单、`product.md`、`tech.md`、既有规格和发布记录；Phase G 全部通过后将状态改为“已完成”。
+
+**完成记录**
+
+- 进度：`0 / 1`
+- 问题：当前 `_docs/tasks/` 不存在，仓库现行专题文档位于 `_docs/scenarios/`、`_docs/chaos-inject-plane/` 和 `_docs/traffic-optimize/`。
+- 可能的解决方案：以本专题 `product.md`、`tech.md`、`task-list.md` 为商品详情 Redis 场景的实施入口，并在发布检查中注明文档来源。
+
+---
+
+## 总体进度记录
+
+| 更新时间 | 已完成 | 总任务 | 当前阶段 | 主要问题 | 可能的解决方案 |
+| --- | ---: | ---: | --- | --- | --- |
+| 2026-09-02 CST | 0 | 35 | 待实施 | 现有商品详情不是 Redis-first，旧大值场景仍绑定 Cart/Sam | 按 Phase A-G 顺序实施；先建立 Catalog cache resolver，再迁移 target/worker/UI，最后执行真实 Redis/Gateway/Compose 验收 |
+
+## 变更记录
+
+| 日期 | 变更 | 原因 | 影响/解决方案 |
+| --- | --- | --- | --- |
+| 2026-09-02 CST | 创建专题任务清单，按 `tech.md` 拆分为 7 个阶段、35 个任务 | 为实现商品详情 cache-aside 和 Hash 大值场景提供可追踪执行入口 | 新增状态/进度/问题/解决方案/验收记录；旧 Cart/Sam 大值方案按迁移任务处理 |
+
+## 完成定义
+
+本专题只有在以下条件全部满足后才能标记为完成：
+
+- Phase A 至 F 的实现、阶段验收和文档同步完成。
+- Phase G 的单元、契约、API、Redis、Compose、停止/到期/重启恢复检查全部通过。
+- 正常生命周期可以稳定执行 `LOGIN -> BROWSE_CATALOG -> PRODUCT_DETAIL_READ`，并验证商品详情的 Redis hit、miss 回源和回填。
+- 商品详情大值运行只创建一个 Hash、N 个 field，每个 field 的逻辑 value 大小为 S，worker 通过 Gateway 读取已生成 members。
+- probe field 第一次读取可观察到 `Redis miss -> DB query -> HSET`，后续读取可观察到 hit。
+- stop/expiry/restart 不会删除默认缓存或业务数据；旧 fencing 不能删除新运行资源。
+- 运行页面、Fault Run 事件和文档不泄露密码、token、完整 value 或任意内部连接信息。
+- 构建、类型检查、lint、Maven tests、integration smoke 和发布前旧引用清理检查全部通过。

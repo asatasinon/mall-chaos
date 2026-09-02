@@ -9,6 +9,8 @@
 | 更新时间 | 2026-08-26 |
 | 配套文档 | [product.md](product.md) |
 
+> 商品详情 Redis 回源与 Hash 大值的跨域增量设计见 [商品详情缓存专题技术设计](../scenarios/catalog-product-detail-cache/tech.md)；它不兼容替换本文原有的 Cart/Sam Redis 大值实现。
+
 ## 1. 架构与约束
 
 本设计以不兼容替换方式废弃现有通用混沌协议。控制流保持：
@@ -82,7 +84,7 @@ flowchart LR
 | `ORDER_REPORT_SQL` | order-service | 启停订单报表持续调用的目标侧状态/状态查询。 |
 | `BROWSE_SURGE` | traffic-control-plane worker | 不需要业务服务控制；worker 经 Gateway 调用公开 API。 |
 | `ORDER_QUERY_SURGE` | traffic-control-plane worker | 同上。 |
-| `CART_REDIS_LARGE_VALUE` | cart-service | 建立、读取、清理运行专属 Redis key；由控制面持续调用公开加购 API。 |
+| `CATALOG_REDIS_LARGE_VALUE` | catalog-service | 建立、读取、清理运行级商品详情 Hash；由控制面持续调用公开商品详情 API。 |
 | `CART_CATALOG_DEPENDENCY` | catalog-service | 控制 Cart 商品校验依赖的暂态响应。 |
 | `NOTIFICATION_HEAP_PRESSURE` | notification-service | 通知保留路径的运行状态。 |
 | `NOTIFICATION_STORAGE_APPEND` | notification-service | 通知存储追加与运行专属清理。 |
@@ -156,13 +158,17 @@ WHERE o.user_id = :customerId
 - 终止时等待在途请求排空或到达超时；
 - 不改写 Runner 的配置版本、生命周期间隔或串行执行模型。
 
-### 4.3 Redis 大 key 与加购依赖失败
+### 4.3 商品详情 Redis 大 key 与加购依赖失败
 
-Cart 侧建立运行 ID 命名空间的 Redis key。参数限制字段数、单字段大小、总大小和 TTL；`CartService.addItem` 仅在对应运行活动时读取该 key，记录读取延迟和字节数。
+#### 商品详情 Redis 大 key
 
-`CartLargeValueExerciseWorker` 在运行有效期内通过 `GatewayClient` 持续调用现有公开 `POST /api/cart/items`，不新增“读取大 key”专用业务 API。每个请求固定使用第 19 个 seed 账号 Sam、Sam 的独立演练购物车、上架 SKU、正数量和唯一操作标识，使完整链路依次经过 Gateway、Cart 商品校验、Redis 大 key 读取、购物车项目写入与响应。参数限制并发、请求间隔和持续时间，结果写入 `fault_run_events`。到期/停止顺序为：禁止新加购请求、等待或取消在途请求、按 `faultRunId` 清理 Sam 的购物车项、删除该运行 key。正常 Runner 配置不被改写。
+`CATALOG_REDIS_LARGE_VALUE` 在 `catalog-service` 创建一个运行级 Hash，例如 `catalog:product-detail:exercise:{faultRunId}`，以 SKU 作为 field。`memberCount=N` 表示 field 数，`memberSizeBytes=S` 表示每个合法商品详情 envelope 的逻辑 UTF-8 字节数；`concurrency` 只控制持续读取请求数。目标服务从可售 SKU 中预留一个 probe SKU 不写入大值，写入完成并校验后才发布 active marker。
 
-seed 必须将 `users.id = 19` 的 Sam 加入 `TRAFFIC_EXERCISE` 演练账号白名单并授予同名业务角色；Runner 的客户选择查询显式排除该角色和账号 ID，任何串行生命周期、订单生成、库存重置或正常 Runner 状态都不得使用 Sam。Cart 仅在请求携带有效运行上下文、账号为 Sam 且该运行活动时读取运行专属大 key；其他客户和未授权请求走完全正常路径。
+正常的 `GET /api/products/{sku}` 由 Catalog resolver 根据服务端 marker 选择默认 Hash 或运行 Hash。注入 field 命中大 envelope；probe field 首次 HGET miss 后查询商品数据库并回填同一运行 Hash，后续读取转为 hit。控制面 `ScenarioExerciseWorkers` 通过 Gateway 持续访问公开商品详情 API，不登录 Sam、不写入购物车，也不直连 Redis 或 MySQL。
+
+启动、停止和清理使用固定 Catalog target、`ScenarioRunContext`、fencing 和运行 TTL。停止顺序为：停止新的详情读取、排空或取消在途请求、compare-and-delete active marker、删除本运行 Hash，并将 field 数、逻辑/观测字节、读取统计和清理结果写入 `fault_run_events`。完整的缓存 envelope、marker、原子发布、错误降级和验证规则见 [商品详情缓存专题技术设计](../scenarios/catalog-product-detail-cache/tech.md)。
+
+#### 加购依赖失败
 
 加购前新增 Cart 到 Catalog 的认证 HTTP 商品校验客户端。只有 SKU 存在且上架时才执行 Cart/CartItem 持久化；Catalog 依赖行为被控制时，返回真实下游 HTTP 失败，Cart 不写入任何变更。结算仍保留既有的服务端目录重校验。
 
@@ -284,7 +290,7 @@ Compose 和 Kubernetes 中所有 Java 服务设置 `TZ=Asia/Shanghai` 与 `-Duse
 每个场景将以下最小证据写入 `fault_run_events` 的结构化 payload：
 
 - 场景启动、目标确认、Runner 请求汇总、停止与恢复结果；
-- Redis key 大小、Sam 购物车清理结果；
+- 商品详情运行 Hash 的 field 数、逻辑/观测字节和清理结果；
 - 通知服务健康状态和存储清理结果；
 - 死锁受害事务、表锁释放、PSP 返回结果；
 - 预热日期分区、每日配额和过期分区删除结果。
@@ -307,7 +313,7 @@ Compose 和 Kubernetes 中所有 Java 服务设置 `TZ=Asia/Shanghai` 与 `-Duse
 1. 运行创建、到期停止、人工停止、控制面重启恢复和 Gateway 目标拒绝均有自动化测试。
 2. 预热初始化后每表存在 180 个东八区日期分区、每分区 50 万，合计约 90M；日切新增分区并删除最早分区；worker 重启可续跑，双 worker 只有一个租约拥有者。
 3. 报表初版返回历史数据并显示差执行计划；部署修复与索引后只返回当天数据，验证范围索引访问和无 N+1。
-4. Redis 大 key 运行只使用第 19 个账号 Sam，验证 Sam 不在 Runner 选择集、加购后按运行 ID 清理购物车项且仅运行专属 key 被删除。Promotion 死锁运行持续调用优惠券预留一致性核对接口，验证真实 MySQL 死锁与停止后在途事务收敛；Inventory 表锁运行持续调用库存可用性报表接口，验证真实读取阻塞、释放后请求恢复。通知与 PSP 场景复用既有 Runner 的真实请求；其余流量突增和 Cart 依赖也均通过真实依赖路径验证。
+4. Redis 大值运行只使用 Catalog 商品详情 API，验证一个 Hash 的 N 个 SKU fields、每个 value 的逻辑大小、probe miss 回源与清理隔离。Promotion 死锁运行持续调用优惠券预留一致性核对接口，验证真实 MySQL 死锁与停止后在途事务收敛；Inventory 表锁运行持续调用库存可用性报表接口，验证真实读取阻塞、释放后请求恢复。通知与 PSP 场景复用既有 Runner 的真实请求；其余流量突增和 Cart 依赖也均通过真实依赖路径验证。
 5. 内存场景只验证服务不可用和受限重启后的健康恢复，不验证自动释放或自动恢复。
 6. 验证创建并发请求至多产生一条活动运行、控制面断连后目标侧按 `expiresAt` 自行恢复、旧 fencing token 被拒绝、所有服务及 MySQL 会话均为 `+08:00`；验证已终止运行与关联事件在第 7 天后被清理。
 7. Maven touched-module tests、`pnpm lint`、控制面目标测试与 Compose 场景 smoke tests 通过；最后执行旧端点、旧 DTO、旧 UI、旧网络控制和旧文案全仓搜索，确保无遗留引用。
