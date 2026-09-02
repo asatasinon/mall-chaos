@@ -32,12 +32,12 @@
 | --- | --- | --- | --- | --- |
 | A | 商品详情缓存契约与 Cache Resolver | 已完成 | 5 / 5 | 无 |
 | B | 正常生命周期商品详情步骤 | 已完成 | 4 / 4 | A |
-| C | Fault Run Catalog、Gateway 与 Coordinator | 进行中 | 3 / 5 | A |
+| C | Fault Run Catalog、Gateway 与 Coordinator | 进行中 | 4 / 5 | A |
 | D | Catalog Hash 生成、Marker、Fencing 与清理 | 待实施 | 0 / 6 | A、C |
 | E | 大值读取 Worker、停止与观测 | 待实施 | 0 / 4 | C、D |
 | F | Traffic/Fault Run 页面与文档同步 | 待实施 | 0 / 4 | C、D、E |
 | G | 测试、Smoke、恢复与发布验收 | 待实施 | 0 / 7 | A 至 F |
-| **合计** |  | **进行中** | **12 / 35** |  |
+| **合计** |  | **进行中** | **13 / 35** |  |
 
 ---
 
@@ -269,13 +269,13 @@
 - [x] 验证旧 Cart 场景不再出现在可创建 catalog 中。
 - [x] 验证新场景的参数未知项、边界值、总预算和 TTL 错误均被拒绝。
 - [x] 验证 Gateway 只能分发到 Catalog 固定目标。
-- [-] 盘点并停止/清理旧 `CART_REDIS_LARGE_VALUE` ACTIVE/RECOVERING 运行，记录迁移结果。
+- [x] 盘点并停止/清理旧 `CART_REDIS_LARGE_VALUE` ACTIVE/RECOVERING 运行，记录迁移结果。
 
 **完成记录**
 
-- 进度：`进行中（3 / 4 条检查完成）`
-- 问题：当前 Compose 没有运行服务，且本机 MySQL `127.0.0.1:13306` 连接被拒绝，无法查询 `fault_runs` 判断旧 `CART_REDIS_LARGE_VALUE` 是否存在 ACTIVE/RECOVERING 运行，也不能执行真实 stop/cleanup。
-- 可能的解决方案：代码层已移除旧创建入口和 scenario-wide cleanup，保留 per-run release/cleanup 兼容；启动干净 Compose 后执行只读状态盘点，若有旧活动运行则逐条用受保护 per-run stop/cleanup 处理并记录结果。
+- 进度：`1 / 1`
+- 问题：无新增问题；MySQL 旧运行查询和 Redis 旧 key 扫描均为空，因此没有需要执行的真实 stop/cleanup。
+- 可能的解决方案：已在 MySQL 中确认没有旧 `CART_REDIS_LARGE_VALUE` 的 `CREATING/ACTIVE/RECOVERING` 记录，在 Redis 中确认 `cart:exercise:*:large-value` 数量为 0；代码层保留 per-run release/cleanup 兼容，但不再提供旧场景创建和 scenario-wide cleanup。
 
 ---
 
@@ -636,7 +636,7 @@
 
 | 更新时间 | 已完成 | 总任务 | 当前阶段 | 主要问题 | 可能的解决方案 |
 | --- | ---: | ---: | --- | --- | --- |
-| 2026-09-02 CST | 12 | 35 | Phase C：Fault Run Catalog、Gateway 与 Coordinator | C2 的 Catalog target 权威校验和 C5 旧 Fault Run ACTIVE/RECOVERING 数据库盘点仍未完成；本机 MySQL `127.0.0.1:13306` 连接被拒绝，Phase D 尚未发布 active marker | Phase A-B 已建立 Catalog cache resolver、必经 `PRODUCT_DETAIL_READ`、稳定 probe 选择和受限 timeout；C1、C3、C4 已完成，C2 target 校验留给 Phase D；启动可用 Compose 后再盘点/清理旧运行 |
+| 2026-09-02 CST | 13 | 35 | Phase C：Fault Run Catalog、Gateway 与 Coordinator | C2 的 Catalog target 权威校验仍留给 Phase D；Phase D 尚未发布 active marker | Phase A-B 已建立 Catalog cache resolver、必经 `PRODUCT_DETAIL_READ`、稳定 probe 选择和受限 timeout；C1、C3、C4、C5 已完成，旧 Cart ACTIVE/RECOVERING 与 Redis key 盘点均为空 |
 
 ## 变更记录
 
@@ -645,8 +645,9 @@
 | 2026-09-02 CST | 创建专题任务清单，按 `tech.md` 拆分为 7 个阶段、35 个任务 | 为实现商品详情 cache-aside 和 Hash 大值场景提供可追踪执行入口 | 新增状态/进度/问题/解决方案/验收记录；旧 Cart/Sam 大值方案按迁移任务处理 |
 | 2026-09-02 CST | 完成 Phase A：缓存协议、envelope、Redis-first 读取、数据库 timeout 和 focused tests | 开始按任务清单实施 | A1-A5 标记完成，进度更新为 5/35；Phase D 的 marker provisioning 和真实 Compose 验证保留为后续任务 |
 | 2026-09-02 CST | 完成 Phase B：必经商品详情读取、probe 选择、响应校验、request deadline 和 lifecycle tests | 让正常生命周期稳定触发商品详情缓存链路，并为大值运行保留未生成 probe field | B1-B4 标记完成，进度更新为 9/35；Catalog target 的实际 marker/Hash provisioning 仍在 Phase D |
-| 2026-09-02 CST | 完成 Phase C1、C3、C4，并完成 C2 控制面校验 | 将旧 Cart 大值创建契约迁移到 Catalog，并让 worker/UI 后续能够识别安全的运行摘要 | C1、C3、C4 标记完成；C2 的 Catalog target 权威校验留给 Phase D，C5 旧运行盘点因本机 MySQL 未启动暂缓，整体进度为 12/35 |
+| 2026-09-02 CST | 完成 Phase C1、C3、C4，并完成 C2 控制面校验 | 将旧 Cart 大值创建契约迁移到 Catalog，并让 worker/UI 后续能够识别安全的运行摘要 | C1、C3、C4 标记完成；C2 的 Catalog target 权威校验留给 Phase D，整体进度为 12/35 |
 | 2026-09-02 CST | 收紧旧 Cart release-only 边界并更新 Catalog 场景 UI 元数据 | 避免旧 scenario-wide cleanup 继续影响新商品详情场景 | Gateway 仅允许旧 Cart per-run stop/cleanup 兼容；旧 Cart start 和 scenario-wide cleanup 被拒绝；相关 focused Gateway 测试通过 |
+| 2026-09-02 CST | 完成 C5 旧 Cart 运行迁移盘点 | Redis/MySQL 已启动后确认旧场景没有活动运行或遗留 Redis key | MySQL 中旧场景 `CREATING/ACTIVE/RECOVERING` 查询为空，Redis `cart:exercise:*:large-value` 扫描为 0；无需执行 cleanup，C5 标记完成，整体进度更新为 13/35 |
 
 ## 完成定义
 
