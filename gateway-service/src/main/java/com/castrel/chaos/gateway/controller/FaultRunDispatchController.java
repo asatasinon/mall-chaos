@@ -38,11 +38,6 @@ public class FaultRunDispatchController {
             "faultRunId", "expiresAt", "fencingToken", "idempotencyKey");
     private static final Map<String, String> SCENARIO_CLEANUP_PATHS = Map.of(
             "NOTIFICATION_STORAGE_APPEND", "/internal/notification/fault-runs/cleanup-scenario");
-    private static final Map<String, Target> LEGACY_RELEASE_TARGETS = Map.of(
-            "CART_REDIS_LARGE_VALUE", new Target(
-                    "cart-service", "cart-large-value", "/internal/cart/fault-runs/start",
-                    "/internal/cart/fault-runs/stop", "/internal/cart/fault-runs/cleanup"));
-
     private final FaultRunDispatchService dispatchService;
     private final FixedOperationDispatchService operationService;
 
@@ -160,8 +155,6 @@ public class FaultRunDispatchController {
         if (!identity.valid()) return identity;
         String scenario = String.valueOf(body.get("scenario"));
         Target target = TARGETS.get(scenario);
-        if (target == null && allowLegacyRelease && !cleanup) target = LEGACY_RELEASE_TARGETS.get(scenario);
-        if (target == null && allowLegacyRelease && cleanup) target = LEGACY_RELEASE_TARGETS.get(scenario);
         if (target == null) return Validation.invalid("Unknown Fault Run scenario");
         if (cleanup && !target.service().equals(body.get("targetService"))) {
             return Validation.invalid("Fixed target service does not match scenario");

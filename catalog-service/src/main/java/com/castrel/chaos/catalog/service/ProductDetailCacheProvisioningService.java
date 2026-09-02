@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 public class ProductDetailCacheProvisioningService {
@@ -157,7 +158,7 @@ public class ProductDetailCacheProvisioningService {
             summary.put("memberSkus", members.stream().map(ProductDTO::getSku).toList());
             return Collections.unmodifiableMap(summary);
         } catch (RuntimeException exception) {
-            if (markerPublished) clearMarker(context);
+            if (markerPublished) clearMarker(context.runId(), context.fencingToken());
             redisTemplate.delete(temporaryHash);
             redisTemplate.delete(runHash);
             try {
@@ -181,23 +182,37 @@ public class ProductDetailCacheProvisioningService {
 
     public Map<String, Object> cleanup(ScenarioRunContext context) {
         context.validateForRelease();
-        assertMarkerOwnershipOrAbsent(context);
-        boolean markerRemoved = clearMarker(context);
-        boolean hashRemoved = Boolean.TRUE.equals(redisTemplate.delete(cacheService.runHashKey(context.runId())));
+        return cleanup(context.runId(), context.fencingToken());
+    }
+
+    public Map<String, Object> cleanup(String runId, long fencingToken) {
+        validateCleanupIdentity(runId, fencingToken);
+        assertMarkerOwnershipOrAbsent(runId, fencingToken);
+        boolean markerRemoved = clearMarker(runId, fencingToken);
+        boolean hashRemoved = Boolean.TRUE.equals(redisTemplate.delete(cacheService.runHashKey(runId)));
         return Map.of(
                 "released", true,
                 "markerRemoved", markerRemoved,
                 "hashRemoved", hashRemoved,
-                "faultRunId", context.runId());
+                "faultRunId", runId);
     }
 
-    private void assertMarkerOwnershipOrAbsent(ScenarioRunContext context) {
+    private void assertMarkerOwnershipOrAbsent(String runId, long fencingToken) {
         String marker = redisTemplate.opsForValue().get(cacheService.activeMarkerKey());
         String owner = redisTemplate.opsForValue().get(cacheService.activeMarkerOwnerKey());
         String fence = redisTemplate.opsForValue().get(cacheService.activeMarkerFenceKey());
         if (marker == null && owner == null && fence == null) return;
-        if (context.runId().equals(owner) && String.valueOf(context.fencingToken()).equals(fence)) return;
+        if (runId.equals(owner) && String.valueOf(fencingToken).equals(fence)) return;
         throw new BizException("STALE_SCENARIO_RUN", "Product detail marker belongs to another run");
+    }
+
+    private void validateCleanupIdentity(String runId, long fencingToken) {
+        try {
+            UUID.fromString(runId);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("Invalid scenario cleanup context", exception);
+        }
+        if (fencingToken < 1) throw new IllegalArgumentException("Invalid scenario cleanup context");
     }
 
     private ProvisioningParameters validateParameters(
@@ -277,11 +292,11 @@ public class ProductDetailCacheProvisioningService {
         }
     }
 
-    private boolean clearMarker(ScenarioRunContext context) {
+    private boolean clearMarker(String runId, long fencingToken) {
         Long cleared = redisTemplate.execute(
                 CLEAR_MARKER_SCRIPT,
                 List.of(cacheService.activeMarkerKey(), cacheService.activeMarkerOwnerKey(), cacheService.activeMarkerFenceKey()),
-                context.runId(), String.valueOf(context.fencingToken()));
+                runId, String.valueOf(fencingToken));
         return Long.valueOf(1L).equals(cleared);
     }
 

@@ -82,13 +82,39 @@ class CatalogFaultRunControllerTest {
                 .isEqualTo("INTERNAL_AUTH_REQUIRED");
     }
 
+        @Test
+        void rejectsCatalogScenarioWithAnUnexpectedOperation() {
+                assertThatThrownBy(() -> controller.start(
+                                ProductDetailCacheProvisioningService.SCENARIO,
+                                "unexpected-operation",
+                                headers,
+                                Map.of(),
+                                request))
+                                .isInstanceOf(BizException.class)
+                                .extracting("errorCode")
+                                .isEqualTo("SCENARIO_OPERATION_MISMATCH");
+        }
+
+        @Test
+        void rejectsUnexpectedScenarioForTheCatalogLargeValueOperation() {
+                assertThatThrownBy(() -> controller.start(
+                                "CART_CATALOG_DEPENDENCY",
+                                OPERATION,
+                                headers,
+                                Map.of(),
+                                request))
+                                .isInstanceOf(BizException.class)
+                                .extracting("errorCode")
+                                .isEqualTo("SCENARIO_OPERATION_MISMATCH");
+        }
+
     @Test
     void routesCatalogStopAndCleanupToProvisioningService() {
         var context = new ScenarioRunContext(
                 RUN_ID, Instant.parse(headers.getFirst("X-Fault-Run-Expires-At")), 7,
                 "phase-d-controller-001");
         when(provisioningService.stop(context)).thenReturn(Map.of("released", true));
-        when(provisioningService.cleanup(context)).thenReturn(Map.of("hashRemoved", true));
+        when(provisioningService.cleanup(RUN_ID, 7)).thenReturn(Map.of("hashRemoved", true));
 
         var stopResponse = controller.stop(
                 ProductDetailCacheProvisioningService.SCENARIO, OPERATION, headers, request);
@@ -98,6 +124,21 @@ class CatalogFaultRunControllerTest {
         assertThat(stopResponse.getData()).containsEntry("released", true);
         assertThat(cleanupResponse.getData()).containsEntry("hashRemoved", true);
         verify(provisioningService).stop(context);
-        verify(provisioningService).cleanup(context);
+        verify(provisioningService).cleanup(RUN_ID, 7L);
+    }
+
+    @Test
+    void allowsCatalogCleanupWithTheMinimalGatewayCleanupHeaders() {
+        HttpHeaders cleanupHeaders = new HttpHeaders();
+        cleanupHeaders.set("X-Fault-Run-Id", RUN_ID);
+        cleanupHeaders.set("X-Fault-Run-Fencing-Token", "7");
+        when(provisioningService.cleanup(RUN_ID, 7L)).thenReturn(Map.of(
+                "released", true, "hashRemoved", false));
+
+        var response = controller.cleanup(
+                ProductDetailCacheProvisioningService.SCENARIO, cleanupHeaders, request);
+
+        assertThat(response.getData()).containsEntry("released", true);
+        verify(provisioningService).cleanup(RUN_ID, 7L);
     }
 }

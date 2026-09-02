@@ -121,3 +121,45 @@ test('event summaries do not expose raw error payloads', () => {
   assert.equal(summary, 'A reader request failed');
   assert.equal(summary.includes('password'), false);
 });
+
+test('prefers recovery cleanup over an idempotent manual cleanup result', () => {
+  const view = buildFaultRunView({
+    run: {
+      faultRunId,
+      scenario: 'CATALOG_REDIS_LARGE_VALUE',
+      targetService: 'catalog-service',
+      targetOperation: 'catalog-product-detail-large-value',
+      state: 'STOPPED',
+      parameters: {},
+      expiresAt: '2026-09-02T07:00:00.000Z',
+      createdAt: '2026-09-02T06:59:00.000Z',
+      recoveryResult: null,
+    },
+    events: [
+      {
+        id: 1,
+        eventType: 'RECOVERY_COMPLETED',
+        payload: {
+          code: 200,
+          data: {
+            code: 200,
+            data: { released: true, hashRemoved: true, markerRemoved: true },
+          },
+          workerDrain: { registered: false, drained: true },
+        },
+        createdAt: '2026-09-02T06:59:01.000Z',
+      },
+      {
+        id: 2,
+        eventType: 'MANUAL_CLEANUP_COMPLETED',
+        payload: {
+          result: { released: true, hashRemoved: false, markerRemoved: false },
+        },
+        createdAt: '2026-09-02T06:59:02.000Z',
+      },
+    ],
+  });
+
+  assert.equal(view.cleanup?.hashRemoved, true);
+  assert.equal(view.cleanup?.markerRemoved, true);
+});

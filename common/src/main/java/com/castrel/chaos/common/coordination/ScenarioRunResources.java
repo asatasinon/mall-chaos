@@ -8,7 +8,6 @@ public final class ScenarioRunResources {
     }
 
     public static final Map<String, String> OWNERS = Map.of(
-            "CART_REDIS_LARGE_VALUE", "cart-run-key-and-sam-cart",
             "INVENTORY_TABLE_EXCLUSIVE", "inventory-lock-connection",
             "PSP_PROVIDER_OUTCOME", "psp-provider-state",
             "NOTIFICATION_STORAGE_APPEND", "notification-run-storage",

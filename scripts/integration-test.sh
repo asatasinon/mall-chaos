@@ -37,4 +37,8 @@ if [[ "${RUN_SCHEMA_VERSION_SMOKE:-false}" == "true" ]]; then
   ./scripts/schema-version-smoke-test.sh
 fi
 
+if [[ "${RUN_CATALOG_PRODUCT_DETAIL_SMOKE:-false}" == "true" ]]; then
+  ./scripts/catalog-product-detail-smoke.sh
+fi
+
 echo "integration-test: passed"

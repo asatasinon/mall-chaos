@@ -35,6 +35,7 @@ export function buildFaultRunView(details: FaultRunDetails): FaultRunViewModel {
   const drain = readDrain(recoveryPayload?.workerDrain);
   const cleanup = readCleanup(
     recoveryPayload?.result,
+    recoveryPayload,
     details.events.find((event) => event.eventType === 'MANUAL_CLEANUP_COMPLETED')?.payload,
     details.run.recoveryResult,
   );
@@ -116,15 +117,15 @@ function findTargetSummary(events: Event[], faultRunId: string): FaultRunTargetS
     if (event.eventType !== 'TARGET_CONFIRMED') continue;
     const payload = asRecord(event.payload);
     const candidate = asRecord(payload.targetSummary);
-    const memberSkus = Array.isArray(candidate.memberSkus)
-      ? candidate.memberSkus.filter((sku): sku is string => typeof sku === 'string' && SKU_PATTERN.test(sku))
-      : [];
+    const rawMemberSkus = Array.isArray(candidate.memberSkus) ? candidate.memberSkus : [];
+    const memberSkus = rawMemberSkus.filter(
+      (sku): sku is string => typeof sku === 'string' && SKU_PATTERN.test(sku));
     if (candidate.layout !== 'HASH'
       || typeof candidate.hashKey !== 'string'
       || candidate.hashKey !== `catalog:product-detail:exercise:${faultRunId}`
       || !safeInteger(candidate.memberCount, 1)
       || memberSkus.length !== candidate.memberCount
-      || memberSkus.some((sku, index) => sku !== candidate.memberSkus?.[index])
+      || memberSkus.some((sku, index) => sku !== rawMemberSkus[index])
       || new Set(memberSkus).size !== memberSkus.length
       || typeof candidate.probeSku !== 'string'
       || !SKU_PATTERN.test(candidate.probeSku)

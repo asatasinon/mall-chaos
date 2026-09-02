@@ -27,7 +27,8 @@ flowchart LR
 |---|---|---|
 | 慢报表 | catalog-service / order-service | 当日语义、180 天分区窗口、baseline/修复执行计划 |
 | 流量突增 | Gateway 公开商品或订单路径 | worker 请求汇总、延迟、停止原因 |
-| 购物车 | cart-service，Sam 19 独立购物车 | Redis key 大小、加购结果、运行项清理 |
+| 购物车 | cart-service，正常客户购物车 | 商品校验、Cart/CartItem 业务状态和结算归属 |
+| 商品详情大值 | catalog-service，`GET /api/products/{sku}` | 一个运行级 Redis Hash、N 个 SKU fields、命中/miss 回源、TTL 和按运行清理 |
 | 目录依赖 | cart-service -> catalog-service | 依赖失败时无 Cart 写入 |
 | 通知压力 | notification-service | 保留/存储事件、健康状态、重启结果 |
 | 锁竞争 | promotion-service / inventory-service | 竞争事务、死锁受害、锁释放与请求恢复 |

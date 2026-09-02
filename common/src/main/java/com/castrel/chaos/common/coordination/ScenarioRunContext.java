@@ -42,6 +42,12 @@ public record ScenarioRunContext(
         }
     }
 
+    public void validateForCleanup() {
+        if (runId == null || !isUuid(runId) || fencingToken < 1) {
+            throw new IllegalArgumentException("Invalid scenario cleanup context");
+        }
+    }
+
     private static Instant parseInstant(String value) {
         try {
             return value == null ? null : Instant.parse(value);

@@ -422,6 +422,8 @@ RECOVERING
 
 ### 12.3 API/Compose smoke
 
+可复现的商品详情 Hash 验收入口为 `RUN_CATALOG_PRODUCT_DETAIL_SMOKE=true ./scripts/integration-test.sh`；该开关只在已有 Gateway、Catalog 和控制面可用时追加业务 smoke，默认 integration test 仍只检查 MySQL/Redis 基线。
+
 1. 用运营 session 和 CSRF 创建短时 `CATALOG_REDIS_LARGE_VALUE`。
 2. 验证 Gateway 只转发到 Catalog 固定 target，Fault Run 进入 `ACTIVE`，target summary 可查询。
 3. 使用 Redis 只读命令确认运行 key 类型为 Hash、field 数为 N、value 逻辑字节为 S、marker 指向当前 run、TTL 覆盖运行期；另记录 `MEMORY USAGE`。
@@ -437,13 +439,13 @@ RECOVERING
 3. 将场景 catalog、Gateway fixed mapping 和 Catalog target 改为 `CATALOG_REDIS_LARGE_VALUE`，实现 N/S/预算/TTL 双重校验。
 4. 扩展 Fault Run target summary 持久化，接入 Catalog Hash provisioning、active marker、fencing、stop/cleanup 和 worker drain。
 5. 更新 Traffic/Fault Run 页面与详情事件，移除 Cart/Sam 大值文案和 scenario-wide cleanup。
-6. 完成 API/Compose smoke、停止/到期/重启恢复验证后，再删除旧 Cart Redis exercise 代码和文档引用。
+6. 完成 API/Compose smoke、停止/到期/重启恢复验证，并确认旧 Cart Redis exercise 代码和文档引用已删除或明确标注为迁移历史。
 
 ## 14. 兼容性与迁移
 
 这是针对 Redis 大值场景的不兼容替换：
 
 - 新代码不应同时维护 Cart 大值和 Catalog 大值两个可创建场景，否则 UI、active marker 和单运行语义会产生歧义。
-- 发布前停止并清理旧的 `CART_REDIS_LARGE_VALUE` ACTIVE/RECOVERING 运行；短期迁移窗口如需兼容 stop，只允许受保护的固定旧 cleanup，不得继续创建旧运行。
+- 发布前停止并清理旧的 `CART_REDIS_LARGE_VALUE` ACTIVE/RECOVERING 运行；本次盘点确认没有遗留运行或 key，因此旧 Cart controller、worker、ownership 和 cleanup 代码已删除，不保留旧运行兼容入口。
 - 删除或停用 Cart 的 `CartFaultRunController`、Sam exercise worker、运行购物车写入和 scenario-wide Cart cleanup 后，普通 Cart 业务路径保持不变。
 - 更新 `fault-run-catalog.ts`、Gateway 固定映射、场景页面、Fault Run 详情、任务清单和 `_docs/chaos-inject-plane/` 中的旧描述，使 Catalog 专题成为唯一有效的大值设计。

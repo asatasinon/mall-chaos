@@ -123,6 +123,29 @@ class ProductDetailCacheServiceTest {
     }
 
     @Test
+    void fallsBackToDefaultHashWhenMarkerHasExpired() throws Exception {
+        String runId = UUID.randomUUID().toString();
+        ProductDetailCacheMarker marker = new ProductDetailCacheMarker();
+        marker.setSchemaVersion(ProductDetailCacheSerializer.SCHEMA_VERSION);
+        marker.setFaultRunId(runId);
+        marker.setFencingToken(3);
+        marker.setHashKey(ProductDetailCacheService.RUN_HASH_PREFIX + runId);
+        marker.setProbeSku("SKU-050");
+        marker.setExpiresAt(Instant.now().minusSeconds(1).toString());
+        when(valueOperations.get(MARKER_KEY)).thenReturn(new ObjectMapper().writeValueAsString(marker));
+        when(valueOperations.get(MARKER_OWNER_KEY)).thenReturn(runId);
+        when(valueOperations.get(MARKER_FENCE_KEY)).thenReturn("3");
+        when(hashOperations.get(DEFAULT_HASH, "SKU-050")).thenReturn(null);
+
+        var result = cacheService.lookup("SKU-050");
+
+        assertThat(result.status()).isEqualTo(ProductDetailCacheService.CacheStatus.MISS);
+        assertThat(result.hashKey()).isEqualTo(DEFAULT_HASH);
+        verify(hashOperations).get(DEFAULT_HASH, "SKU-050");
+        verify(hashOperations, never()).get(ProductDetailCacheService.RUN_HASH_PREFIX + runId, "SKU-050");
+    }
+
+    @Test
     void invalidatesMalformedValueAndRemovesOnlyThatField() {
         when(valueOperations.get(MARKER_KEY)).thenReturn(null);
         when(hashOperations.get(DEFAULT_HASH, "SKU-001")).thenReturn("malformed");

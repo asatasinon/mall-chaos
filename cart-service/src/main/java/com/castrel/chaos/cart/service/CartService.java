@@ -11,8 +11,6 @@ import com.castrel.chaos.cart.entity.CartItem;
 import com.castrel.chaos.cart.repository.CartItemRepository;
 import com.castrel.chaos.cart.repository.CartRepository;
 import com.castrel.chaos.common.BizException;
-import com.castrel.chaos.common.coordination.ScenarioRunContext;
-import com.castrel.chaos.common.coordination.ScenarioRunGuard;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -23,11 +21,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.time.Duration;
-import org.springframework.http.HttpHeaders;
-import java.time.Instant;
 
 @Service
 public class CartService {
@@ -37,21 +32,19 @@ public class CartService {
     private final CartItemRepository itemRepository;
     private final Counter mutationCounter;
     private final CatalogProductClient catalogProductClient;
-    private final ScenarioRunGuard scenarioRunGuard;
-        private final StringRedisTemplate redisTemplate;
-        private static final Duration FREEZE_TTL = Duration.ofMinutes(10);
-        private static final DefaultRedisScript<Long> RELEASE_SCRIPT = new DefaultRedisScript<>(
+    private final StringRedisTemplate redisTemplate;
+    private static final Duration FREEZE_TTL = Duration.ofMinutes(10);
+    private static final DefaultRedisScript<Long> RELEASE_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", Long.class);
 
     public CartService(CartRepository cartRepository, CartItemRepository itemRepository,
                        StringRedisTemplate redisTemplate, MeterRegistry meterRegistry,
-                       CatalogProductClient catalogProductClient, ScenarioRunGuard scenarioRunGuard) {
+                       CatalogProductClient catalogProductClient) {
         this.cartRepository = cartRepository;
         this.itemRepository = itemRepository;
         this.redisTemplate = redisTemplate;
         this.mutationCounter = Counter.builder("cart_item_mutation_total").register(meterRegistry);
         this.catalogProductClient = catalogProductClient;
-        this.scenarioRunGuard = scenarioRunGuard;
     }
 
     @Transactional
@@ -61,85 +54,17 @@ public class CartService {
 
     @Transactional
     public CartDTO addItem(Long customerId, CartItemRequest request) {
-        return addItem(customerId, request, null, new HttpHeaders());
-    }
-
-    @Transactional
-    public CartDTO addItem(Long customerId, CartItemRequest request, String scenario, HttpHeaders headers) {
         mutationCounter.increment();
         validateItem(request);
-        ScenarioRunContext runContext = validateExerciseContext(customerId, scenario, headers);
-        if (runContext != null && (request.getOperationId() == null
-                || !request.getOperationId().matches("[A-Za-z0-9._:-]{8,128}"))) {
-            throw new BizException("EXERCISE_OPERATION_REQUIRED", "Exercise operation id is required");
-        }
         catalogProductClient.requireListed(request.getSku().trim());
-        if (runContext != null) readExerciseValue(runContext);
         Cart cart = getOrCreate(customerId);
         CartItem item = itemRepository.findByCartIdAndSku(cart.getId(), request.getSku().trim())
                 .orElseGet(() -> newItem(cart, request.getSku().trim()));
-        if (runContext != null && item.getExerciseRunId() != null
-                && !runContext.runId().equals(item.getExerciseRunId())) {
-            throw new BizException("EXERCISE_CART_ITEM_CONFLICT", "Cart item belongs to another run");
-        }
-        if (runContext != null && item.getId() != null && item.getExerciseRunId() == null) {
-            throw new BizException("EXERCISE_CART_ITEM_CONFLICT", "SKU already belongs to Sam's normal cart");
-        }
-        if (runContext != null) item.setExerciseRunId(runContext.runId());
-        if (runContext != null) item.setExerciseOperationId(request.getOperationId());
         item.setQuantity(item.getQuantity() + request.getQuantity());
         item.setUpdatedAt(LocalDateTime.now());
         itemRepository.save(item);
         touch(cart);
         return toDto(cartRepository.save(cart));
-    }
-
-    @Transactional
-    public Map<String, Object> cleanExerciseRun(ScenarioRunContext context) {
-        context.validateForRelease();
-        scenarioRunGuard.release(context);
-        Cart cart = cartRepository.findByCustomerIdAndStatus(19L, ACTIVE).orElse(null);
-        if (cart != null) itemRepository.deleteByCartIdAndExerciseRunId(cart.getId(), context.runId());
-        return Map.of("cleaned", true, "faultRunId", context.runId());
-    }
-
-    @Transactional
-    public Map<String, Object> cleanExerciseScenario() {
-        long deletedItems = itemRepository.deleteByExerciseRunIdIsNotNull();
-        Set<String> keys = redisTemplate.keys("cart:exercise:*:large-value");
-        long deletedKeys = keys == null || keys.isEmpty() ? 0 : redisTemplate.delete(keys);
-        return Map.of("cleaned", true, "deletedItems", deletedItems, "deletedKeys", deletedKeys);
-    }
-
-    private ScenarioRunContext validateExerciseContext(Long customerId, String scenario, HttpHeaders headers) {
-        if (!"CART_REDIS_LARGE_VALUE".equals(scenario)) return null;
-        if (!Long.valueOf(19L).equals(customerId)) {
-            throw new BizException("EXERCISE_CART_FORBIDDEN", "Only Sam's active exercise cart may use this path");
-        }
-        ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
-        try {
-            context.validate(Instant.now());
-        } catch (IllegalArgumentException exception) {
-            throw new BizException("EXERCISE_RUN_INVALID", "Exercise run context is invalid", exception);
-        }
-        if (!scenarioRunGuard.isAccepted(context)) {
-            throw new BizException("EXERCISE_RUN_INACTIVE", "Exercise run is not active");
-        }
-        return context;
-    }
-
-    private void readExerciseValue(ScenarioRunContext context) {
-        String key = exerciseKey(context.runId());
-        Map<Object, Object> value = redisTemplate.opsForHash().entries(key);
-        if (value.isEmpty()) throw new BizException("EXERCISE_VALUE_MISSING", "Exercise value is missing");
-        long bytes = value.entrySet().stream().mapToLong(entry ->
-                String.valueOf(entry.getKey()).getBytes(java.nio.charset.StandardCharsets.UTF_8).length
-                        + String.valueOf(entry.getValue()).getBytes(java.nio.charset.StandardCharsets.UTF_8).length).sum();
-        if (bytes <= 0) throw new BizException("EXERCISE_VALUE_EMPTY", "Exercise value is empty");
-    }
-
-    public String exerciseKey(String runId) {
-        return "cart:exercise:" + runId + ":large-value";
     }
 
     @Transactional

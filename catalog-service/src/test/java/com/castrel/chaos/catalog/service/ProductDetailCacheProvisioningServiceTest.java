@@ -137,6 +137,44 @@ class ProductDetailCacheProvisioningServiceTest {
     }
 
     @Test
+    void rejectsAggregateLogicalBytesAboveTheServiceBudget() {
+        properties.setMaxLogicalBytes(1024);
+
+        assertThatThrownBy(() -> provisioningService.start(context(), parameters(2, 1024)))
+                .isInstanceOf(BizException.class)
+                .extracting("errorCode")
+                .isEqualTo("AGGREGATE_LOGICAL_BYTES_EXCEEDS_LIMIT");
+
+        verify(hashOperations, never()).putAll(anyString(), any());
+    }
+
+    @Test
+    void rejectsMemberSizeThatCannotContainAProductDetailEnvelope() {
+        when(catalogService.listSellableProducts()).thenReturn(List.of(
+                product("SKU-001"), product("SKU-002")));
+
+        assertThatThrownBy(() -> provisioningService.start(context(), parameters(1, 1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("smaller");
+
+        verify(hashOperations, never()).putAll(anyString(), any());
+    }
+
+    @Test
+    void rejectsTtlThatDoesNotCoverTheRunAndCleanupGrace() {
+        Map<String, Object> shortTtl = new java.util.LinkedHashMap<>(parameters(1, 1024));
+        shortTtl.put("durationSec", 30);
+        shortTtl.put("keyTtlSec", 89);
+
+        assertThatThrownBy(() -> provisioningService.start(context(), shortTtl))
+                .isInstanceOf(BizException.class)
+                .extracting("errorCode")
+                .isEqualTo("KEY_TTL_TOO_SHORT");
+
+        verify(hashOperations, never()).putAll(anyString(), any());
+    }
+
+    @Test
     void rollsBackTheRunHashWhenMarkerPublicationIsRejected() {
         when(catalogService.listSellableProducts()).thenReturn(List.of(
                 product("SKU-001"), product("SKU-002"), product("SKU-003")));
@@ -164,6 +202,20 @@ class ProductDetailCacheProvisioningServiceTest {
 
         verify(redisTemplate, never()).delete(RUN_HASH);
     }
+
+        @Test
+        void refusesCleanupWhenTheCurrentOwnerHasAStaleFence() {
+                when(valueOperations.get(MARKER_KEY)).thenReturn("marker");
+                when(valueOperations.get(OWNER_KEY)).thenReturn(RUN_ID);
+                when(valueOperations.get(FENCE_KEY)).thenReturn("8");
+
+                assertThatThrownBy(() -> provisioningService.cleanup(context()))
+                                .isInstanceOf(BizException.class)
+                                .extracting("errorCode")
+                                .isEqualTo("STALE_SCENARIO_RUN");
+
+                verify(redisTemplate, never()).delete(RUN_HASH);
+        }
 
     @Test
     void cleanupIsIdempotentWhenMarkerAlreadyDisappeared() {

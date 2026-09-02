@@ -305,7 +305,7 @@ Compose 和 Kubernetes 中所有 Java 服务设置 `TZ=Asia/Shanghai` 与 `-Duse
 2. 替换 Gateway 分发为单目标场景映射，删除旧协议。
 3. 改造固定 180 天/90M 日分区预热 worker、Redis 租约、状态 API、东八区配置与分区迁移。
 4. 实现两条报表及其独立优化迁移/修复版本，再实现持续报表 worker。
-5. 实现流量突增、Cart Redis/依赖、通知内存/存储、Promotion 死锁和 Inventory 表锁。
+5. 实现流量突增、Cart 依赖、通知内存/存储、Promotion 死锁和 Inventory 表锁。
 6. 新增 PSP 服务与 Payment PSP Client。
 7. 实现安全的通知服务重启 adapter、Compose broker、Kubernetes RBAC。
 8. 替换控制台、数据库运行记录留存任务、脚本和运行手册，最后删除旧代码与引用。

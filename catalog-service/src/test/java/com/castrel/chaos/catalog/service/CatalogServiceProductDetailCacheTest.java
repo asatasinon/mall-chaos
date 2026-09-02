@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -94,6 +95,69 @@ class CatalogServiceProductDetailCacheTest {
         assertThat(catalogService.getProduct("SKU-001").getSku()).isEqualTo("SKU-001");
         verify(productRepository).findBySku("SKU-001");
     }
+
+    @Test
+    void missesThenRefillsAndHitsWithoutQueryingProductDatabaseAgain() {
+        Product product = product("SKU-001");
+        ProductDTO expected = dto("SKU-001");
+        when(cacheService.lookup("SKU-001")).thenReturn(
+                new ProductDetailCacheService.CacheLookup(
+                        ProductDetailCacheService.CacheStatus.MISS, null, "catalog:product-detail:cache"),
+                new ProductDetailCacheService.CacheLookup(
+                        ProductDetailCacheService.CacheStatus.HIT, expected, "catalog:product-detail:cache"));
+        when(productRepository.findBySku("SKU-001")).thenReturn(Optional.of(product));
+        when(jdbcTemplate.query(any(PreparedStatementCreator.class), any(ResultSetExtractor.class)))
+                .thenReturn(expected.getAvailableQty());
+        when(cacheService.store(any(), any())).thenReturn(ProductDetailCacheService.CacheWriteStatus.STORED);
+
+        assertThat(catalogService.getProductDetail("SKU-001").cacheResult())
+                .isEqualTo("CACHE_MISS_DB_FALLBACK");
+        assertThat(catalogService.getProductDetail("SKU-001").cacheResult())
+                .isEqualTo("CACHE_HIT");
+
+        verify(productRepository).findBySku("SKU-001");
+        verify(cacheService).store(any(), eq(dto("SKU-001")));
+    }
+
+    @Test
+    void mapsInvalidCacheFallbackToStableResult() {
+        Product product = product("SKU-001");
+        when(cacheService.lookup("SKU-001")).thenReturn(new ProductDetailCacheService.CacheLookup(
+                ProductDetailCacheService.CacheStatus.INVALID, null, "catalog:product-detail:cache"));
+        when(productRepository.findBySku("SKU-001")).thenReturn(Optional.of(product));
+        when(cacheService.store(any(), any())).thenReturn(ProductDetailCacheService.CacheWriteStatus.STORED);
+
+        assertThat(catalogService.getProductDetail("SKU-001").cacheResult())
+                .isEqualTo("CACHE_INVALID_FALLBACK");
+        verify(productRepository).findBySku("SKU-001");
+        verify(cacheService).store(any(), any(ProductDTO.class));
+    }
+
+    @Test
+    void mapsCacheBackendFailureWithoutAttemptingCacheWrite() {
+        Product product = product("SKU-001");
+        when(cacheService.lookup("SKU-001")).thenReturn(new ProductDetailCacheService.CacheLookup(
+                ProductDetailCacheService.CacheStatus.BACKEND_ERROR, null, null));
+        when(productRepository.findBySku("SKU-001")).thenReturn(Optional.of(product));
+
+        assertThat(catalogService.getProductDetail("SKU-001").cacheResult())
+                .isEqualTo("CACHE_BACKEND_ERROR");
+        verify(productRepository).findBySku("SKU-001");
+        verify(cacheService).store(any(), any(ProductDTO.class));
+    }
+
+    @Test
+    void mapsMissingProductWithoutWritingAPlaceholder() {
+        when(cacheService.lookup("SKU-404")).thenReturn(new ProductDetailCacheService.CacheLookup(
+                ProductDetailCacheService.CacheStatus.MISS, null, "catalog:product-detail:cache"));
+        when(productRepository.findBySku("SKU-404")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> catalogService.getProductDetail("SKU-404"))
+                .isInstanceOf(com.castrel.chaos.common.BizException.class)
+                .extracting("errorCode")
+                .isEqualTo("PRODUCT_NOT_FOUND");
+        verify(cacheService, never()).store(any(), any());
+        }
 
     @Test
     void mapsDatabaseTimeoutToStableProductDetailError() {

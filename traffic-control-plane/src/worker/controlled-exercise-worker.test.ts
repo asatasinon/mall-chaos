@@ -57,6 +57,33 @@ test('controlled worker respects concurrency and drains aborted requests', async
   assert.equal(stats.p50LatencyMs > 0, true);
 });
 
+test('controlled worker waits for the configured interval between batches', async () => {
+  const requestStartedAt: number[] = [];
+  let resolveSecondRequest!: () => void;
+  const secondRequest = new Promise<void>((resolve) => {
+    resolveSecondRequest = resolve;
+  });
+  const worker = new ControlledExerciseWorker({
+    ...run,
+    expiresAt: new Date(Date.now() + 500).toISOString(),
+  }, {
+    concurrency: 1,
+    requestIntervalMs: 40,
+    request: async () => {
+      requestStartedAt.push(Date.now());
+      if (requestStartedAt.length === 2) resolveSecondRequest();
+    },
+  }, async () => undefined);
+
+  const running = worker.start();
+  await secondRequest;
+  const stats = await worker.stop('INTERVAL_TEST');
+  await running;
+
+  assert.equal(stats.requests >= 2, true);
+  assert.equal(requestStartedAt[1] - requestStartedAt[0] >= 30, true);
+});
+
 test('controlled worker counts timeout requests and records low-cardinality results', async () => {
   const timeoutWorker = new ControlledExerciseWorker({
     ...run,

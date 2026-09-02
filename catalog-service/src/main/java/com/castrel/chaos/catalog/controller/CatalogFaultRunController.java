@@ -82,11 +82,12 @@ public class CatalogFaultRunController {
             @RequestHeader org.springframework.http.HttpHeaders headers,
             HttpServletRequest request) {
         ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
-        context.validateForRelease();
         if (ProductDetailCacheProvisioningService.SCENARIO.equals(scenario)) {
             requireFaultRunControl(request);
-            return ApiResponse.ok(productDetailProvisioning.cleanup(context));
+            context.validateForCleanup();
+            return ApiResponse.ok(productDetailProvisioning.cleanup(context.runId(), context.fencingToken()));
         }
+        context.validateForRelease();
         if (!"CART_CATALOG_DEPENDENCY".equals(scenario)) {
             throw new BizException("SCENARIO_OPERATION_MISMATCH", "Unsupported catalog cleanup scenario");
         }

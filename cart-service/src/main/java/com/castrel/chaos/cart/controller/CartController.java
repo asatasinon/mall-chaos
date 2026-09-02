@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.http.HttpHeaders;
 
 @RestController
 @RequestMapping("/api/cart")
@@ -34,10 +33,8 @@ public class CartController {
     @PostMapping("/items")
     public ApiResponse<CartDTO> addItem(
             @RequestHeader("X-User-Id") Long customerId,
-            @RequestHeader(value = "X-Fault-Run-Scenario", required = false) String scenario,
-            HttpHeaders headers,
             @RequestBody CartItemRequest request) {
-        return ApiResponse.ok(cartService.addItem(customerId, request, scenario, headers));
+        return ApiResponse.ok(cartService.addItem(customerId, request));
     }
 
     @PatchMapping("/items/{itemId}")

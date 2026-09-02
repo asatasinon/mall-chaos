@@ -10,6 +10,8 @@
 | 关联规格 | [product.md](product.md) |
 | 关联设计 | [tech.md](tech.md) |
 
+> 迁移说明：本清单早期的 Cart/Sam Redis 大值任务已由 [商品详情 Redis Hash 专题](../scenarios/catalog-product-detail-cache/product.md) 不兼容替换。当前可创建的大值场景只属于 `catalog-service`；下方旧 Cart 条目保留为历史实施记录，不代表当前可用入口。
+
 ## 任务规则
 
 1. 开始任务时将 `- [ ]` 改为 `- [-]`；通过最终验收后改为 `- [x]`。
@@ -151,7 +153,7 @@
 
 ### C3. Cart、Promotion 与 Inventory Exercise Worker
 
-- [x] 实现 `CartLargeValueExerciseWorker`，在运行期经 Gateway 持续调用 `POST /api/cart/items`，固定传递 Sam、运行上下文和唯一操作标识。
+- [x] 删除旧 `CartLargeValueExerciseWorker`、Sam 大值加购和 Cart exercise Hash 路径；当前 Redis 大值读取由 Catalog 商品详情 worker 负责。
 - [x] 实现 `PromotionLockExerciseWorker`，在运行期经 Gateway 持续调用优惠券预留一致性核对接口，限制竞争并发与速率。
 - [x] 实现 `InventoryLockExerciseWorker`，在表锁持有期经 Gateway 持续调用库存可用性报表接口，并在释放锁后收敛调用。
 
@@ -159,8 +161,8 @@
 
 - [x] 更新 seed，使 `users.id = 19` 固定为 Sam，并加入 `TRAFFIC_EXERCISE` 演练账号白名单及同名业务角色；补齐其可登录凭证、地址、独立购物车和可加购演示 SKU 前置数据。
 - [x] 修改 Runner 演示客户选择、会话创建、订单生成、库存补齐关联与正常运行状态，显式排除账号 ID `19` 和 `TRAFFIC_EXERCISE` 角色。
-- [x] Cart 仅在请求携带有效运行上下文、账号为 Sam 且 Fault Run 活动时读取大 key；其他客户和未授权请求保持既有正常路径。
-- [x] 为 Sam 加购运行实现运行 ID 标记、停止时购物车项清理和失败后的补偿清理，不删除 Sam 的非演练数据。
+- [x] 移除 Cart 对 Redis 大值和 Sam 演练购物车的专用读取/写入；普通 Cart/CartItem 业务路径不再依赖 Fault Run。
+- [x] 盘点旧 Cart 运行和 `cart:exercise:*:large-value` key，确认无活动运行或遗留资源后完成不兼容替换。
 
 ### C5. Runner 复用的通知与 PSP 触发
 

@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase A-F 已完成，Phase G 待实施 |
+| 状态 | Phase A-F 已完成，Phase G 进行中 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-09-02 CST（Phase F 完成） |
+| 更新时间 | 2026-09-02 CST（Phase G 进行中） |
 | 关联产品规格 | [product.md](product.md) |
 | 关联技术设计 | [tech.md](tech.md) |
 
@@ -37,7 +37,7 @@
 | E | 大值读取 Worker、停止与观测 | 已完成 | 4 / 4 | C、D |
 | F | Traffic/Fault Run 页面与文档同步 | 已完成 | 4 / 4 | C、D、E |
 | G | 测试、Smoke、恢复与发布验收 | 待实施 | 0 / 7 | A 至 F |
-| **合计** |  | **进行中** | **28 / 35** |  |
+| **合计** |  | **进行中** | **31 / 35** |  |
 
 ---
 
@@ -275,7 +275,7 @@
 
 - 进度：`1 / 1`
 - 问题：无新增问题；MySQL 旧运行查询和 Redis 旧 key 扫描均为空，因此没有需要执行的真实 stop/cleanup。
-- 可能的解决方案：已在 MySQL 中确认没有旧 `CART_REDIS_LARGE_VALUE` 的 `CREATING/ACTIVE/RECOVERING` 记录，在 Redis 中确认 `cart:exercise:*:large-value` 数量为 0；代码层保留 per-run release/cleanup 兼容，但不再提供旧场景创建和 scenario-wide cleanup。
+- 可能的解决方案：已在 MySQL 中确认没有旧 `CART_REDIS_LARGE_VALUE` 的 `CREATING/ACTIVE/RECOVERING` 记录，在 Redis 中确认 `cart:exercise:*:large-value` 数量为 0；无需执行 cleanup，旧 Cart controller、worker、ownership 和 cleanup 代码已删除。
 
 ---
 
@@ -522,14 +522,14 @@
 
 ## Phase G：测试、Smoke、恢复与发布验收
 
-**阶段状态：待实施**
-**阶段进度：0 / 7**
+**阶段状态：进行中**
+**阶段进度：3 / 7**
 
 **当前问题**
 
-- 当前 Catalog 测试覆盖不足，缺少 Redis cache hit/miss、envelope、Hash provisioning、marker、fencing 和 cleanup 测试。
-- 当前 lifecycle 测试没有必经商品详情步骤和 deadline 断言。
-- 当前控制面没有覆盖商品详情 Fault Run 的 API/页面/Compose smoke；Redis 512MB 与控制面状态共享，过大预算可能影响租约和运行状态。
+- G1、G2 和 G4 的测试/页面/API smoke 已完成；G3、G5、G6、G7 仍有部分运行态或自动化检查未完成。
+- 完整正常 Runner lifecycle 需要 user/cart/order 等全栈服务；当前已有 lifecycle contract 测试和商品详情真实 API smoke，但尚未完成完整 Compose 对照。
+- Catalog 重启后的 active marker/Hash 已完成真实验证；控制面重启恢复、过期 marker 和双运行 fencing 的完整运行态验收仍待补充。
 
 **可能的解决方案**
 
@@ -539,96 +539,96 @@
 
 ### G1. 完成 TypeScript catalog、Coordinator 和 lifecycle 测试
 
-- [ ] 测试新场景名称、固定 target、未知参数、边界值、N/S 总预算和 TTL 规则。
-- [ ] 测试 target start summary 保存、Fault Run detail 读取、stop/compensation/recovery 和旧 run 迁移行为。
-- [ ] 测试 lifecycle 步骤顺序、probe 详情请求、response SKU 校验、失败/timeout 和 session cleanup。
-- [ ] 测试 worker 使用 summary member SKU、并发/间隔/deadline、停止 drain 和不创建 customer session。
+- [x] 测试新场景名称、固定 target、未知参数、边界值、N/S 总预算和 TTL 规则。
+- [x] 测试 target start summary 保存、Fault Run detail 读取、stop/compensation/recovery 和旧 run 迁移行为。
+- [x] 测试 lifecycle 步骤顺序、probe 详情请求、response SKU 校验、失败/timeout 和 session cleanup。
+- [x] 测试 worker 使用 summary member SKU、并发/间隔/deadline、停止 drain 和不创建 customer session。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：在现有 `test:runner` 之外补齐被 package script 漏掉的 worker/catalog/coordinator 测试，并保持测试使用依赖注入。
+- 进度：`1 / 1`
+- 问题：未发现阻塞问题；worker interval 行为和 Fault Run 兼容路径已经纳入可重复测试入口。
+- 可能的解决方案：`pnpm test:runner` 已纳入 lib/catalog/coordinator/account/lifecycle/presenter 测试，本轮结果为 67 passed；测试继续使用依赖注入，不连接真实业务数据。
 
 ### G2. 完成 Catalog Java cache resolver 测试
 
-- [ ] 测试 Redis hit 不访问 `ProductRepository`。
-- [ ] 测试 miss 查询数据库、生成 DTO、HSET 回填和第二次 hit。
-- [ ] 测试 invalid envelope、逻辑过期、marker 缺失/过期、Redis read/write error、商品不存在和数据库 timeout。
-- [ ] 测试公开响应仍为既有 `ApiResponse<ProductDTO>`，padding 不进入响应。
+- [x] 测试 Redis hit 不访问 `ProductRepository`。
+- [x] 测试 miss 查询数据库、生成 DTO、HSET 回填和第二次 hit。
+- [x] 测试 invalid envelope、逻辑过期、marker 缺失/过期、Redis read/write error、商品不存在和数据库 timeout。
+- [x] 测试公开响应仍为既有 `ApiResponse<ProductDTO>`，padding 不进入响应。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：使用 Mockito 验证 repository/Redis 调用次数，必要时用 Testcontainers/Compose Redis 做序列化和 TTL 验证。
+- 进度：`1 / 1`
+- 问题：未发现阻塞问题；真实 Redis TTL/driver 故障注入仍由 G5/G7 smoke 覆盖。
+- 可能的解决方案：Catalog resolver 已补充 miss→store→hit、invalid fallback、backend error、not-found 和公开响应 contract 测试；serializer/cache service focused tests 继续验证 UTF-8 envelope、marker 和 TTL。
 
 ### G3. 完成 Catalog provisioning、fencing 和 cleanup 测试
 
-- [ ] 测试可售 SKU 选择、probe 排除、Hash field 数量和精确 logical bytes。
-- [ ] 测试 aggregate budget、envelope 最小长度、TTL、错误 operation、错误 scenario 和错误 fencing。
-- [ ] 测试 marker 最后发布、半成品失败回滚、compare-and-delete、重复 cleanup 和旧 token 不影响新 run。
-- [ ] 测试控制面/Catalog 重启后过期 marker、未完成清理和运行 TTL 行为。
+- [x] 测试可售 SKU 选择、probe 排除、Hash field 数量和精确 logical bytes。
+- [x] 测试 aggregate budget、envelope 最小长度、TTL、错误 operation、错误 scenario 和错误 fencing。
+- [x] 测试 marker 最后发布、半成品失败回滚、compare-and-delete、重复 cleanup 和旧 token 不影响新 run。
+- [-] 测试控制面/Catalog 重启后过期 marker、未完成清理和运行 TTL 行为。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：把 Redis 命令交互封装为可替换 adapter；对 Lua/transaction 使用集成测试验证原子语义。
+- 进度：`进行中（3 / 4 条检查完成）`
+- 问题：单元/Mock 已覆盖 fencing、回滚、预算、TTL 和错误输入；完整 Lua 原子语义及控制面重启后的自动恢复还没有独立自动化测试。
+- 可能的解决方案：当前真实 smoke 已验证 Hash/TTL/marker/cleanup 和 Catalog restart；下一步在隔离 Redis/Testcontainers 中补双运行 fencing、过期 marker 和控制面 worker restart 测试。
 
 ### G4. API 和控制台 smoke
 
-- [ ] 使用运营 session、CSRF、confirmation 和 idempotency 创建短时 `CATALOG_REDIS_LARGE_VALUE`。
-- [ ] 验证 Gateway 固定转发到 Catalog，Fault Run 进入 `ACTIVE`，target summary、event 和 audit 可查询。
-- [ ] 验证页面显示 Hash/field/N/S/concurrency 的正确含义，不显示 value/secret。
-- [ ] 验证停止、per-run cleanup 和页面状态更新。
+- [x] 使用运营 session、CSRF、confirmation 和 idempotency 创建短时 `CATALOG_REDIS_LARGE_VALUE`。
+- [x] 验证 Gateway 固定转发到 Catalog，Fault Run 进入 `ACTIVE`，target summary、event 和 audit 可查询。
+- [x] 验证页面显示 Hash/field/N/S/concurrency 的正确含义，不显示 value/secret。
+- [x] 验证停止、per-run cleanup 和页面状态更新。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：优先使用 API smoke，再补 Traffic/Fault Run 页面 Playwright；测试用小 N、低 S 和短 duration，避免影响共享 Redis。
+- 进度：`1 / 1`
+- 问题：未发现阻塞问题；页面级交互已在隔离 control-plane 验证，完整 Compose 页面验收仍可在发布环境复跑。
+- 可能的解决方案：新增 `scripts/catalog-product-detail-smoke.sh`，并由 `RUN_CATALOG_PRODUCT_DETAIL_SMOKE=true ./scripts/integration-test.sh` 显式调用；API smoke 和浏览器验收均使用小 N、低 S、短 duration。
 
 ### G5. Redis、商品详情和生命周期对照验证
 
-- [ ] 用 Redis 只读命令验证运行 key 类型为 Hash、field 数为 N、每个 value logical bytes 为 S。
-- [ ] 另行记录 `MEMORY USAGE`、marker、TTL、Hash namespace 和默认缓存隔离。
-- [ ] 注入 SKU 详情请求验证 cache hit；probe 第一次验证 miss -> DB -> HSET，第二次验证 hit。
-- [ ] 无 Fault Run 验证正常生命周期包含 `LOGIN -> BROWSE_CATALOG -> PRODUCT_DETAIL_READ -> CART`。
-- [ ] 有 Fault Run 验证正常 lifecycle 和 worker 的详情 latency、DB query、Redis memory、错误和 timeout 变化。
+- [x] 用 Redis 只读命令验证运行 key 类型为 Hash、field 数为 N、每个 value logical bytes 为 S。
+- [x] 另行记录 `MEMORY USAGE`、marker、TTL、Hash namespace 和默认缓存隔离。
+- [x] 注入 SKU 详情请求验证 cache hit；probe 第一次验证 miss -> DB -> HSET，第二次验证 hit。
+- [-] 无 Fault Run 验证正常生命周期包含 `LOGIN -> BROWSE_CATALOG -> PRODUCT_DETAIL_READ -> CART`。
+- [-] 有 Fault Run 验证正常 lifecycle 和 worker 的详情 latency、DB query、Redis memory、错误和 timeout 变化。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：Hash 单 field HGET 不会自动传输全部 N 个 members，单纯增大 N 不代表单请求必然变慢。
-- 可能的解决方案：同时运行 bounded reader worker 产生真实读取/响应压力；验收比较趋势，不把 504 写成固定结果。
+- 进度：`进行中（3 / 5 条检查完成）`
+- 问题：Hash 单 field HGET 不会自动传输全部 N 个 members，单纯增大 N 不代表单请求必然变慢；当前环境没有 user/cart/order 全栈服务，无法完成正常 Runner lifecycle 与 active Fault Run 对照。
+- 可能的解决方案：Redis/member/probe 三项已由 `catalog-product-detail-smoke.sh` 真实验证，生命周期顺序由 TypeScript contract test 覆盖；启动完整 Compose 后，再运行正常 Runner 与 bounded reader，对比详情 latency、DB query、Redis memory、错误和 timeout，不把 504 写成固定结果。
 
 ### G6. 停止、到期、故障和重启恢复验证
 
-- [ ] 验证停止顺序为停止新 worker 请求、排空/取消在途请求、撤销 marker、删除本 run Hash。
-- [ ] 验证到期、手动 stop、target start compensation 和控制面重启使用一致的清理语义。
-- [ ] 验证 Catalog/控制面重启后过期 marker 不会重新激活，旧 fencing 不会删除新 Hash。
-- [ ] 验证默认商品缓存、products/inventories、Cart、订单和其它运行数据不受清理影响。
+- [x] 验证停止顺序为停止新 worker 请求、排空/取消在途请求、撤销 marker、删除本 run Hash。
+- [x] 验证到期、手动 stop、target start compensation 和控制面重启使用一致的清理语义。
+- [-] 验证 Catalog/控制面重启后过期 marker 不会重新激活，旧 fencing 不会删除新 Hash。
+- [x] 验证默认商品缓存、products/inventories、Cart、订单和其它运行数据不受清理影响。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：在 stop/expiry/restart 场景中保留 Redis、Fault Run events 和 Catalog 日志证据，按时间顺序核对 marker、worker 和 Hash 状态。
+- 进度：`进行中（3 / 4 条检查完成）`
+- 问题：手动 stop、幂等 cleanup、Coordinator drain、Catalog restart 和业务表/默认缓存隔离已有证据；控制面 restart recovery、过期 marker 和双运行 fencing 尚未完成全栈验收。
+- 可能的解决方案：保留 Redis、Fault Run events 和 Catalog 日志证据；在完整 worker/Compose 环境中重启控制面并验证 ACTIVE/RECOVERING 扫描、过期 marker 和新旧 fencing 资源隔离。
 
 ### G7. 发布前检查
 
-- [ ] 执行 `mvn clean install -pl common -DskipTests` 和 Catalog/Gateway 相关 Maven tests。
-- [ ] 执行 `cd traffic-control-plane && pnpm test:runner && pnpm typecheck && pnpm lint && pnpm build`。
-- [ ] 执行 `./scripts/integration-test.sh`，补充商品详情 Hash 场景 smoke 并确认显式 lifecycle Secret/内部 key 前置条件。
-- [ ] 全仓搜索旧 `CART_REDIS_LARGE_VALUE` 创建入口、Cart/Sam 大值 worker、旧 scenario-wide cleanup 和错误文案。
-- [ ] 更新本清单、`product.md`、`tech.md`、既有规格和发布记录；Phase G 全部通过后将状态改为“已完成”。
+- [x] 执行 `mvn clean install -pl common -DskipTests` 和 Catalog/Gateway 相关 Maven tests。
+- [x] 执行 `cd traffic-control-plane && pnpm test:runner && pnpm typecheck && pnpm lint && pnpm build`。
+- [x] 执行 `./scripts/integration-test.sh`，补充商品详情 Hash 场景 smoke 并确认显式 lifecycle Secret/内部 key 前置条件。
+- [x] 全仓搜索旧 `CART_REDIS_LARGE_VALUE` 创建入口、Cart/Sam 大值 worker、旧 scenario-wide cleanup 和错误文案。
+- [-] 更新本清单、`product.md`、`tech.md`、既有规格和发布记录；Phase G 全部通过后将状态改为“已完成”。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：当前 `_docs/tasks/` 不存在，仓库现行专题文档位于 `_docs/scenarios/`、`_docs/chaos-inject-plane/` 和 `_docs/traffic-optimize/`。
-- 可能的解决方案：以本专题 `product.md`、`tech.md`、`task-list.md` 为商品详情 Redis 场景的实施入口，并在发布检查中注明文档来源。
+- 进度：`进行中（4 / 5 条检查完成）`
+- 问题：完整 Compose lifecycle、控制面 restart recovery 和过期 marker 的发布验收仍未完成；`_docs/tasks/` 不存在，仓库现行专题文档位于 `_docs/scenarios/`、`_docs/chaos-inject-plane/` 和 `_docs/traffic-optimize/`。
+- 可能的解决方案：Common/Catalog/Gateway、控制面 test/typecheck/lint/build、基础 integration 和带 `RUN_CATALOG_PRODUCT_DETAIL_SMOKE=true` 的业务 smoke 均已通过；旧 Cart 大值源码入口已删除，历史文档/拒绝测试明确标注迁移关系。完整环境可用后补 G5/G6，再将 Phase G 改为已完成。
 
 ---
 
@@ -636,7 +636,7 @@
 
 | 更新时间 | 已完成 | 总任务 | 当前阶段 | 主要问题 | 可能的解决方案 |
 | --- | ---: | ---: | --- | --- | --- |
-| 2026-09-02 CST | 28 | 35 | Phase G：测试、Smoke、恢复与发布验收 | Phase G 尚未开始；实际变慢或 timeout 仍需按运行参数观测 | Phase F 已完成 Catalog Hash 参数卡片、确认流程、target/worker/recovery/audit 详情、per-run cleanup、敏感字段白名单 presenter 和专题文档同步 |
+| 2026-09-02 CST | 31 | 35 | Phase G：测试、Smoke、恢复与发布验收 | G5 完整正常 Runner 对照、G6 控制面 restart/过期 marker、G7 最终全栈发布验收尚未完成 | G1/G2/G4 已完成；G3/G5/G6/G7 的已完成检查已通过 67 项 control-plane tests、Catalog/Gateway Maven、integration smoke、真实 Redis/详情/cleanup 和 Catalog restart 证据；剩余检查需完整 Compose/worker 环境 |
 
 ## 变更记录
 
@@ -652,6 +652,9 @@
 | 2026-09-02 CST | 完成 Phase E1-E3：Catalog reader、成员 summary、deadline、timeout/cache/latency 统计和 drain 接入 | 让大值运行通过真实商品详情 API 读取已生成 members，并将影响与恢复结果纳入 Fault Run 事件 | E1-E3 标记完成，新增 8 项 focused worker/summary 测试，`pnpm test:runner` 44/44 通过；E4 真实 Gateway/Catalog 压力对照待运行环境完成，整体进度更新为 23/35 |
 | 2026-09-02 CST | 完成 Phase E4：Gateway/Catalog 真实商品详情、Hash hit/probe miss、TTL/marker/cleanup 和 reader drain smoke | 验证大值 worker 的真实业务链路、低基数 cache result、延迟统计和停止顺序 | E4 标记完成；真实 reader smoke 4 次计划请求、3 次完成、停止后 `inFlight=0` 且 Coordinator 状态为 `STOPPED`；HTTP error/timeout 计数由 focused tests 覆盖，整体进度更新为 24/35 |
 | 2026-09-02 CST | 完成 Phase F1-F4：Catalog Hash 场景卡片、Fault Run 详情/事件、per-run cleanup、权限边界和文档同步 | 让运营人员可以安全配置、确认、观察和清理一个具体商品详情 Hash 运行 | F1-F4 标记完成；新增白名单 presenter 测试，页面不调用旧 scenario-wide cleanup，专题及既有规格同步完成，整体进度更新为 28/35 |
+| 2026-09-02 CST | 推进 Phase G1-G4/G7：补齐 control-plane 测试入口、Catalog resolver/provisioning/controller 边界测试、API/Redis smoke 和页面验收 | 将 Phase F 的实现转为可重复的测试与运行验证 | `pnpm test:runner` 67/67、控制面 typecheck/lint/build、Catalog/Gateway Maven 和 `integration-test.sh` 基线通过；新增 `scripts/catalog-product-detail-smoke.sh`，验证运营登录、CSRF、固定 target、Hash/TTL/marker、member/probe、stop/cleanup 和业务数据隔离；整体进度更新为 31/35 |
+| 2026-09-02 CST | 修复 Catalog per-run cleanup 的最小 Gateway contract，并移除旧 Cart/Sam Redis 大值实现 | 真实 smoke 发现 stop 后重复 cleanup 返回 502，且旧 Cart controller 仍暴露可调用创建入口 | cleanup 现在只验证 run ID + fencing token 并保持 CAS/幂等语义；删除 Cart Fault Run controller、Sam 大值读写和 Gateway legacy target，普通购物车路径保持不变；Cart/Gateway focused tests 与真实 stop/cleanup smoke 通过 |
+| 2026-09-02 CST | 完成 Catalog restart smoke 和页面 presenter 回归修复 | 验证 Catalog 重启后 active marker/Hash 保持可读，并避免幂等 cleanup 的 `hashRemoved=false` 被页面显示为失败 | Catalog 重启后注入 SKU 仍返回 `CACHE_HIT`，stop/重复 cleanup 返回成功，默认 Hash 与 products/inventories/carts/orders 行数保持不变；详情页正确显示 recovery cleanup complete；G5 完整 lifecycle 和控制面 restart 仍待全栈环境 |
 
 ## 完成定义
 
