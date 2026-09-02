@@ -120,6 +120,41 @@ test('coordinator completes active, manual stop, and expiry lifecycles without a
   assert.equal(target.stops, 1);
 });
 
+test('coordinator drains a registered worker before stopping its target', async () => {
+  const store = new MemoryFaultRunStore();
+  const target = new MemoryTargetAdapter();
+  const order: string[] = [];
+  target.stop = async () => {
+    order.push('target-stop');
+    target.stops++;
+    return { released: true };
+  };
+  const coordinator = new FaultRunCoordinator(target, store);
+  await coordinator.create({
+    scenario: 'BROWSE_REPORT_SQL',
+    parameters: { durationSec: 30 },
+    idempotencyKey: 'drain-order-001',
+    traceId: 'trace-drain',
+  });
+  coordinator.registerRunDrain(runId, async () => {
+    order.push('worker-drain');
+    return { requests: 3, inFlight: 0 };
+  });
+
+  const stopped = await coordinator.stop(runId);
+
+  assert.equal(stopped?.state, 'STOPPED');
+  assert.deepEqual(order, ['worker-drain', 'target-stop']);
+  const recoveryPayload = store.eventPayloads[store.events.lastIndexOf('RECOVERY_COMPLETED')] as {
+    workerDrain?: { registered?: boolean; drained?: boolean; result?: unknown };
+  };
+  assert.deepEqual(recoveryPayload.workerDrain, {
+    registered: true,
+    drained: true,
+    result: { requests: 3, inFlight: 0 },
+  });
+});
+
 test('coordinator stores a bounded catalog target summary in TARGET_CONFIRMED', async () => {
   const store = new MemoryFaultRunStore();
   const target = new MemoryTargetAdapter();

@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase A-B 已完成，Phase C 进行中，Phase D-G 待实施 |
+| 状态 | Phase A-D 已完成，Phase E-G 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-09-02 CST（Phase C 进行中） |
+| 更新时间 | 2026-09-02 CST（Phase D 完成） |
 | 关联产品规格 | [product.md](product.md) |
 | 关联技术设计 | [tech.md](tech.md) |
 
@@ -32,12 +32,12 @@
 | --- | --- | --- | --- | --- |
 | A | 商品详情缓存契约与 Cache Resolver | 已完成 | 5 / 5 | 无 |
 | B | 正常生命周期商品详情步骤 | 已完成 | 4 / 4 | A |
-| C | Fault Run Catalog、Gateway 与 Coordinator | 进行中 | 4 / 5 | A |
-| D | Catalog Hash 生成、Marker、Fencing 与清理 | 待实施 | 0 / 6 | A、C |
+| C | Fault Run Catalog、Gateway 与 Coordinator | 已完成 | 5 / 5 | A |
+| D | Catalog Hash 生成、Marker、Fencing 与清理 | 已完成 | 6 / 6 | A、C |
 | E | 大值读取 Worker、停止与观测 | 待实施 | 0 / 4 | C、D |
 | F | Traffic/Fault Run 页面与文档同步 | 待实施 | 0 / 4 | C、D、E |
 | G | 测试、Smoke、恢复与发布验收 | 待实施 | 0 / 7 | A 至 F |
-| **合计** |  | **进行中** | **13 / 35** |  |
+| **合计** |  | **进行中** | **20 / 35** |  |
 
 ---
 
@@ -230,13 +230,13 @@
 - [x] 校验 `memberCount` 不超过可售 SKU 数减一，始终保留 probe SKU。
 - [x] 校验 `memberCount * memberSizeBytes` 不超过部署侧 aggregate logical budget。
 - [x] 校验 `keyTtlSec` 覆盖 `durationSec` 和清理余量，不允许用短 TTL 让 ACTIVE 运行自然丢失数据。
-- [ ] 在 Catalog target 重复执行权威校验，不依赖前端归一化。
+- [x] 在 Catalog target 重复执行权威校验，不依赖前端归一化。
 
 **完成记录**
 
-- 进度：`进行中（3 / 4 条检查完成）`
-- 问题：控制面无法读取 Catalog 当前可售 SKU 数，因此只能先使用静态上限 47；Catalog target 尚未实现，无法执行最终的 envelope 最小长度、实时可售 SKU 和服务端 aggregate budget 复核。旧运行盘点还需要可用的 Fault Run 数据库。
-- 可能的解决方案：控制面已实现 47、256B-4MiB、64MiB aggregate budget 和 TTL+60s 校验；将 Catalog target 的最终校验放入 Phase D D1-D3，并让 start 在服务端再次拒绝不合法请求。catalog focused tests 已覆盖控制面预算、TTL、N/S 和旧参数拒绝。
+- 进度：`1 / 1`
+- 问题：无新增问题；控制面静态校验与 Catalog target 的实时可售 SKU、envelope 最小大小、服务端 aggregate budget 校验已形成双重边界。
+- 可能的解决方案：控制面负责快速反馈，Catalog provisioning service 在 start 时再次校验 47、member size、logical budget、TTL 和实时可售集合；已通过 catalog/provisioning focused tests。
 
 ### C3. 更新 Gateway 固定映射与内部 contract
 
@@ -281,100 +281,100 @@
 
 ## Phase D：Catalog Hash 生成、Marker、Fencing 与清理
 
-**阶段状态：待实施**
-**阶段进度：0 / 6**
+**阶段状态：已完成**
+**阶段进度：6 / 6**
 
 **当前问题**
 
-- Catalog 当前没有运行级商品详情 Hash，也没有可信 active marker 来让正常商品详情请求选择运行缓存。
-- 直接 `putAll` 后再发布 marker 可能让请求看到半成品；无条件删除 marker 可能误删新运行。
-- 运行 Hash 清理和正常商品缓存共享商品 SKU，必须严格隔离 key namespace 和 fencing。
+- Catalog target、运行级商品详情 Hash、active marker、owner/fence companion keys 和按 run 清理已实现。
+- 临时 Hash 完整写入并校验后才 rename 和发布 marker；marker 发布/删除使用 Lua CAS。
+- Coordinator 已提供 worker drain hook，运行 Hash 与默认商品缓存使用不同 namespace。
 
 **可能的解决方案**
 
-- 在 Catalog 增加固定内部 Fault Run controller/service，按运行 ID 派生 key，不接受 caller key。
-- 先写临时 Hash、校验数量和 logical bytes、设置 TTL，再原子切换正式 key，最后 compare-and-set 发布 marker。
-- stop 先 compare-and-delete marker，再删除本 run Hash；目标 TTL 作为控制面崩溃兜底。
+- Catalog 增加固定内部 Fault Run controller/service，按运行 ID 派生 key，不接受 caller key，并校验 `FAULT_RUN_CONTROL` scope。
+- 先写临时 Hash、校验数量和 logical bytes、设置 TTL，再原子 rename，最后使用 owner/fence CAS 发布 marker。
+- stop/cleanup 先 compare-and-delete marker，再删除本 run Hash；运行 key、marker 和回填均有 TTL 兜底。
 
 ### D1. 实现 Catalog target start/stop/cleanup Controller
 
-- [ ] 新增固定的 `/internal/catalog/fault-runs/start`、`/stop` 和 `/cleanup` 入口或等价 service。
-- [ ] 校验 scenario、operation、内部认证、`ScenarioRunContext`、expiresAt 和 fencing token。
-- [ ] 使用 `ScenarioRunGuard.acceptStart()`，拒绝过期或旧 fencing token。
-- [ ] stop/cleanup 只接受服务端派生的 run ID namespace，不接受任意 key/path/body 参数。
+- [x] 新增固定的 `/internal/catalog/fault-runs/start`、`/stop` 和 `/cleanup` 入口或等价 service。
+- [x] 校验 scenario、operation、内部认证、`ScenarioRunContext`、expiresAt 和 fencing token。
+- [x] 使用 `ScenarioRunGuard.acceptStart()`，拒绝过期或旧 fencing token。
+- [x] stop/cleanup 只接受服务端派生的 run ID namespace，不接受任意 key/path/body 参数。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：沿用现有 Cart Fault Run controller 的内部协议和 fencing 约定，但将所有业务对象改为 Catalog 商品详情 Hash。
+- 进度：`1 / 1`
+- 问题：无新增问题；Catalog target 已复用现有内部运行上下文，并额外要求 `FAULT_RUN_CONTROL` downstream scope。
+- 可能的解决方案：已由 `CatalogFaultRunController` 固定路由到 provisioning service；所有 key 由 run ID 派生，参数和请求来源由服务端校验。
 
 ### D2. 实现可售 SKU 选择和 probe 保留
 
-- [ ] 查询当前可售且库存为正的 SKU，并按确定性顺序排序。
-- [ ] 预留一个 probe SKU 不写入大 Hash，其余前 N 个 SKU 作为注入 members。
-- [ ] 在 start summary 保存 probe 和有界 member SKU 摘要，供 worker 使用。
-- [ ] 可售 SKU 不足、无法保留 probe 或选择结果不稳定时拒绝 start。
+- [x] 查询当前可售且库存为正的 SKU，并按确定性顺序排序。
+- [x] 预留一个 probe SKU 不写入大 Hash，其余前 N 个 SKU 作为注入 members。
+- [x] 在 start summary 保存 probe 和有界 member SKU 摘要，供 worker 使用。
+- [x] 可售 SKU 不足、无法保留 probe 或选择结果不稳定时拒绝 start。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：以 Catalog 数据库为唯一 SKU 来源；不接受 UI 传入的完整 SKU 集合，防止绕过上架和库存边界。
+- 进度：`1 / 1`
+- 问题：无新增问题；可售 SKU 由 Catalog 数据库和库存快照共同决定。
+- 可能的解决方案：已按 SKU 稳定排序保留最后一个 probe，并在集合不足时返回 `INSUFFICIENT_SELLABLE_PRODUCTS`；provisioning test 已验证顺序和 probe 排除。
 
 ### D3. 实现 Hash field 大值生成
 
-- [ ] 为每个注入 SKU 生成合法商品详情 envelope。
-- [ ] 通过 padding 让每个 value 的 UTF-8 logical bytes 精确等于 `memberSizeBytes`。
-- [ ] 计算并保存 logical bytes，另行读取/记录 Redis `MEMORY USAGE`，不混淆两个口径。
-- [ ] 生成过程中不写入商品、库存、购物车、订单或用户数据。
+- [x] 为每个注入 SKU 生成合法商品详情 envelope。
+- [x] 通过 padding 让每个 value 的 UTF-8 logical bytes 精确等于 `memberSizeBytes`。
+- [x] 计算并保存 logical bytes，另行读取/记录 Redis `MEMORY USAGE`，不混淆两个口径。
+- [x] 生成过程中不写入商品、库存、购物车、订单或用户数据。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：使用与正常 resolver 相同的 serializer；大值只改变 padding，不改变 ProductDTO 的业务字段。
+- 进度：`1 / 1`
+- 问题：Redis `MEMORY USAGE` 在单测中可为空，真实 observed bytes 需要运行 Redis 验证。
+- 可能的解决方案：已复用正常 resolver serializer，logical bytes 作为强约束，`MEMORY USAGE` 作为非阻断观测；生成过程只写 Redis Hash。
 
 ### D4. 实现原子建立和 active marker 发布
 
-- [ ] 使用临时运行 key 批量写入 fields，校验 `HLEN`、逻辑大小和必要的实际内存占用。
-- [ ] 设置运行 Hash TTL，保证覆盖运行期、停止窗口和控制面故障恢复时间。
-- [ ] 使用原子 rename/transaction 或等价方案发布正式运行 key。
-- [ ] 在 Hash 完整可读后，以 compare-and-set 语义最后写入 `catalog:product-detail:active` marker。
-- [ ] 任一步骤失败都不发布 marker，并删除临时/正式运行 key。
+- [x] 使用临时运行 key 批量写入 fields，校验 `HLEN`、逻辑大小和必要的实际内存占用。
+- [x] 设置运行 Hash TTL，保证覆盖运行期、停止窗口和控制面故障恢复时间。
+- [x] 使用原子 rename/transaction 或等价方案发布正式运行 key。
+- [x] 在 Hash 完整可读后，以 compare-and-set 语义最后写入 `catalog:product-detail:active` marker。
+- [x] 任一步骤失败都不发布 marker，并删除临时/正式运行 key。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：用 Lua/事务保证 marker 只在预期 fencing 下发布；若 Redis 不支持跨命令原子性，至少让 marker 最后写入并带完整校验信息。
+- 进度：`1 / 1`
+- 问题：`MEMORY USAGE` 依赖 Redis 版本/权限，观测值可能为空；逻辑 payload、HLEN、TTL 和 marker CAS 不依赖该命令成功。
+- 可能的解决方案：已采用临时 Hash + atomic rename，使用 Lua 同步设置 marker/owner/fence 和 TTL；start 失败会清理临时/正式 Hash，provisioning test 已覆盖 marker 拒绝回滚。
 
 ### D5. 实现 resolver 对 active marker 的选择
 
-- [ ] 无有效 marker 时读取默认商品详情 Hash。
-- [ ] marker schema、expiresAt、fencing、run namespace 校验通过时读取运行 Hash。
-- [ ] 注入 field 命中大 envelope，probe field miss 后回源数据库并回填运行 Hash。
-- [ ] marker 缺失、过期或读取异常按约定 fallback，不根据客户端 Fault header 猜测运行状态。
+- [x] 无有效 marker 时读取默认商品详情 Hash。
+- [x] marker schema、expiresAt、fencing、run namespace 校验通过时读取运行 Hash。
+- [x] 注入 field 命中大 envelope，probe field miss 后回源数据库并回填运行 Hash。
+- [x] marker 缺失、过期或读取异常按约定 fallback，不根据客户端 Fault header 猜测运行状态。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：将 marker 解析放在 Catalog cache resolver 内，并对 marker 读取失败记录 `CACHE_BACKEND_ERROR`。
+- 进度：`1 / 1`
+- 问题：无新增问题；resolver 已同时校验 marker schema、过期时间、run namespace、owner 和 fencing，运行 Hash 被淘汰后回填会恢复兜底 TTL。
+- 可能的解决方案：已通过 marker 缺失、owner 不匹配、invalid/expired envelope 和运行 Hash TTL 恢复 focused tests。
 
 ### D6. 实现 fencing、stop、cleanup 和重启恢复
 
-- [ ] marker 删除使用 run ID + fencing token compare-and-delete，禁止无条件删除 active marker。
-- [ ] 运行 Hash 按 run namespace 删除，重复 stop/cleanup 视为幂等成功，错误 token 不得影响新运行。
-- [ ] 控制面停止顺序与目标 stop 顺序一致：先 drain worker，再撤销 marker，再清理 Hash。
-- [ ] 控制面和 Catalog 重启后扫描/识别 ACTIVE、RECOVERING、过期 marker 和未完成清理。
-- [ ] 目标本地 TTL 能在控制面不可用时阻止过期 Hash 继续影响正常详情请求。
+- [x] marker 删除使用 run ID + fencing token compare-and-delete，禁止无条件删除 active marker。
+- [x] 运行 Hash 按 run namespace 删除，重复 stop/cleanup 视为幂等成功，错误 token 不得影响新运行。
+- [x] 控制面停止顺序与目标 stop 顺序一致：先 drain worker，再撤销 marker，再清理 Hash。
+- [x] 控制面和 Catalog 重启后扫描/识别 ACTIVE、RECOVERING、过期 marker 和未完成清理。
+- [x] 目标本地 TTL 能在控制面不可用时阻止过期 Hash 继续影响正常详情请求。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：以 `ScenarioRunGuard` 保存最近 token，结合 marker TTL 和运行 key TTL，所有删除操作都带资源归属条件。
+- 进度：`1 / 1`
+- 问题：无新增问题；Catalog target 的 marker/hash CAS 清理、按 run 删除、TTL 兜底和 Coordinator worker drain hook 已实现。
+- 可能的解决方案：Coordinator 在 target stop 前调用已注册 drain 并将结果写入 recovery event；Phase E 的商品详情 reader 注册同一 hook，Phase G 继续做真实重启/TTL 验收。已通过 stop 顺序 focused test。
 
 ---
 
@@ -636,7 +636,7 @@
 
 | 更新时间 | 已完成 | 总任务 | 当前阶段 | 主要问题 | 可能的解决方案 |
 | --- | ---: | ---: | --- | --- | --- |
-| 2026-09-02 CST | 13 | 35 | Phase C：Fault Run Catalog、Gateway 与 Coordinator | C2 的 Catalog target 权威校验仍留给 Phase D；Phase D 尚未发布 active marker | Phase A-B 已建立 Catalog cache resolver、必经 `PRODUCT_DETAIL_READ`、稳定 probe 选择和受限 timeout；C1、C3、C4、C5 已完成，旧 Cart ACTIVE/RECOVERING 与 Redis key 盘点均为空 |
+| 2026-09-02 CST | 20 | 35 | Phase E：大值读取 Worker、停止与观测 | Phase E 尚未实现 Catalog reader 和读取统计；Phase F/G 尚未开始 | Phase A-D 已完成 Catalog cache resolver、Fault Run target、Hash/marker/fencing/cleanup 和 Coordinator drain hook；下一步接入商品详情 reader |
 
 ## 变更记录
 
@@ -648,6 +648,7 @@
 | 2026-09-02 CST | 完成 Phase C1、C3、C4，并完成 C2 控制面校验 | 将旧 Cart 大值创建契约迁移到 Catalog，并让 worker/UI 后续能够识别安全的运行摘要 | C1、C3、C4 标记完成；C2 的 Catalog target 权威校验留给 Phase D，整体进度为 12/35 |
 | 2026-09-02 CST | 收紧旧 Cart release-only 边界并更新 Catalog 场景 UI 元数据 | 避免旧 scenario-wide cleanup 继续影响新商品详情场景 | Gateway 仅允许旧 Cart per-run stop/cleanup 兼容；旧 Cart start 和 scenario-wide cleanup 被拒绝；相关 focused Gateway 测试通过 |
 | 2026-09-02 CST | 完成 C5 旧 Cart 运行迁移盘点 | Redis/MySQL 已启动后确认旧场景没有活动运行或遗留 Redis key | MySQL 中旧场景 `CREATING/ACTIVE/RECOVERING` 查询为空，Redis `cart:exercise:*:large-value` 扫描为 0；无需执行 cleanup，C5 标记完成，整体进度更新为 13/35 |
+| 2026-09-02 CST | 完成 Phase D：Catalog Hash provisioning、active marker、owner/fence CAS、按 run 清理、TTL 兜底和 Coordinator worker drain hook | 让商品详情请求能够切换到运行 Hash，并保证 stop/recovery 不误删新运行 | D1-D6 标记完成，C2 的 Catalog target 权威校验由 provisioning service 执行；Catalog focused tests、Runner/typecheck/lint、Gateway tests 和隔离 Redis CAS smoke 通过，整体进度更新为 20/35 |
 
 ## 完成定义
 

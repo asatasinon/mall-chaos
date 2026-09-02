@@ -13,6 +13,8 @@ import org.springframework.data.redis.core.ValueOperations;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,6 +31,8 @@ class ProductDetailCacheServiceTest {
 
     private static final String DEFAULT_HASH = "catalog:product-detail:cache";
     private static final String MARKER_KEY = "catalog:product-detail:active";
+    private static final String MARKER_OWNER_KEY = "catalog:product-detail:active:owner";
+    private static final String MARKER_FENCE_KEY = "catalog:product-detail:active:fence";
 
     @Mock
     private StringRedisTemplate redisTemplate;
@@ -84,6 +88,8 @@ class ProductDetailCacheServiceTest {
         marker.setProbeSku("SKU-050");
         marker.setExpiresAt(Instant.now().plusSeconds(60).toString());
         when(valueOperations.get(MARKER_KEY)).thenReturn(new ObjectMapper().writeValueAsString(marker));
+        when(valueOperations.get(MARKER_OWNER_KEY)).thenReturn(runId);
+        when(valueOperations.get(MARKER_FENCE_KEY)).thenReturn("3");
         when(hashOperations.get(runHash, "SKU-050")).thenReturn(null);
 
         var result = cacheService.lookup("SKU-050");
@@ -92,6 +98,28 @@ class ProductDetailCacheServiceTest {
         assertThat(result.hashKey()).isEqualTo(runHash);
         verify(hashOperations).get(runHash, "SKU-050");
         verify(hashOperations, never()).get(DEFAULT_HASH, "SKU-050");
+    }
+
+    @Test
+    void fallsBackToDefaultHashWhenMarkerOwnerDoesNotMatch() throws Exception {
+        String runId = UUID.randomUUID().toString();
+        ProductDetailCacheMarker marker = new ProductDetailCacheMarker();
+        marker.setSchemaVersion(ProductDetailCacheSerializer.SCHEMA_VERSION);
+        marker.setFaultRunId(runId);
+        marker.setFencingToken(3);
+        marker.setHashKey(ProductDetailCacheService.RUN_HASH_PREFIX + runId);
+        marker.setProbeSku("SKU-050");
+        marker.setExpiresAt(Instant.now().plusSeconds(60).toString());
+        when(valueOperations.get(MARKER_KEY)).thenReturn(new ObjectMapper().writeValueAsString(marker));
+        when(valueOperations.get(MARKER_OWNER_KEY)).thenReturn("another-run");
+        when(valueOperations.get(MARKER_FENCE_KEY)).thenReturn("3");
+        when(hashOperations.get(DEFAULT_HASH, "SKU-050")).thenReturn(null);
+
+        var result = cacheService.lookup("SKU-050");
+
+        assertThat(result.status()).isEqualTo(ProductDetailCacheService.CacheStatus.MISS);
+        assertThat(result.hashKey()).isEqualTo(DEFAULT_HASH);
+        verify(hashOperations).get(DEFAULT_HASH, "SKU-050");
     }
 
     @Test
@@ -135,6 +163,22 @@ class ProductDetailCacheServiceTest {
         assertThat(cacheService.store(backendError, product))
                 .isEqualTo(ProductDetailCacheService.CacheWriteStatus.SKIPPED);
     }
+
+        @Test
+        void restoresFallbackTtlWhenADeletedRunHashIsRecreated() {
+        ProductDTO product = product("SKU-001");
+        String runHash = ProductDetailCacheService.RUN_HASH_PREFIX + "123e4567-e89b-12d3-a456-426614174000";
+        when(serializer.serialize(eq("SKU-001"), eq(product), any(Instant.class), any(Instant.class)))
+            .thenReturn("serialized");
+        when(redisTemplate.getExpire(runHash, TimeUnit.SECONDS)).thenReturn(-2L);
+        when(redisTemplate.expire(eq(runHash), any(Duration.class))).thenReturn(true);
+        var lookup = new ProductDetailCacheService.CacheLookup(
+            ProductDetailCacheService.CacheStatus.MISS, null, runHash);
+
+        assertThat(cacheService.store(lookup, product))
+            .isEqualTo(ProductDetailCacheService.CacheWriteStatus.STORED);
+        verify(redisTemplate).expire(eq(runHash), any(Duration.class));
+        }
 
     private ProductDTO product(String sku) {
         ProductDTO result = new ProductDTO();

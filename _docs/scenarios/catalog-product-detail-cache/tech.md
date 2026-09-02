@@ -120,6 +120,8 @@ Catalog 内部 provisioning 不复用公开请求的认证头，也不要求正�
 | --- | --- | --- | --- |
 | `catalog:product-detail:cache` | Hash | 无 Fault Run 时的默认商品详情缓存 | 通过 envelope 的逻辑过期控制；不能用 key TTL 删除全部商品 field |
 | `catalog:product-detail:active` | String/JSON | 当前 ACTIVE 商品详情运行的可信 marker | marker TTL 覆盖运行期；停止时 compare-and-delete |
+| `catalog:product-detail:active:owner` | String | active marker 的 run owner | 与 marker 同步设置/删除；用于防止旧 run 清理新 run |
+| `catalog:product-detail:active:fence` | String/数值 | active marker 的 fencing token | 与 owner 同步设置/删除；用于 CAS 发布/清理 |
 | `catalog:product-detail:exercise:{faultRunId}` | Hash | 单个 Fault Run 的 N 个大 field 和后续 probe 回填 | 运行级 TTL；按 run 删除 |
 | `castrel:scenario:fence:catalog-service` | String/数值 | 目标侧 fencing 保护 | 沿用 `ScenarioRunGuard` 规则 |
 
@@ -173,6 +175,8 @@ marker 是 Catalog 自己写入的服务端状态，不接受请求头中的等�
 - `memberSizeBytes` 统计整个 JSON value 的 UTF-8 字节数，不统计 Hash key、field name、Redis object overhead 或网络协议开销。
 - target 用 UTF-8 序列化后计算长度，逐步调整 padding 直到达到精确 S；S 小于无 padding envelope 的最小长度时拒绝请求。
 - `availableQty` 是动态库存快照，使用短逻辑 TTL；缓存详情不替代库存服务的实时校验。
+- 运行 Hash 因 Redis 淘汰或重启后由 probe 回源重新创建时，resolver 会在回填后恢复有限的 `run-fallback-ttl`；默认值为 `PT31M`，覆盖最大运行时长和清理宽限期。
+- 运行 Hash 被淘汰或重启后由 probe 回源重新创建时，resolver 会使用 `run-fallback-ttl` 恢复有限 key TTL；默认配置为 `PT31M`，覆盖最大运行时长和清理宽限期。
 
 ## 6. 商品详情 Cache Resolver
 
@@ -305,6 +309,8 @@ start 操作的顺序：
 3. 使用 `GatewayClient.get('/api/products/{sku}')` 调用公开商品详情 API；worker 不直连 Catalog、Redis 或 MySQL。
 4. 每个请求创建独立 trace，并使用统一 per-request deadline；将成功、HTTP 错误、timeout、latency 和 in-flight 数放入运行事件汇总。
 5. 运行进入 `RECOVERING`、停止或到期后不再发起新请求，等待或取消 in-flight 请求后写 `SCENARIO_WORKER_DRAINED`。
+
+Coordinator 提供 `registerRunDrain(faultRunId, drain)` 注册接口。已注册的 worker 在 target stop 前被调用并等待完成，drain 结果与恢复结果一起写入 `RECOVERY_COMPLETED`/`RECOVERY_FAILED` 事件；worker finally 中注销注册，避免已结束的 worker 被重复调用。
 
 worker 的请求并发不改变 Hash 的 field 数，也不在请求中携带 `X-Fault-Run-*` 头。大值影响来自真实商品详情响应经过 Catalog、Gateway 和网络返回，而不是 worker 自己读取并丢弃 Redis value。
 

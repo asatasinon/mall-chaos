@@ -1,5 +1,6 @@
 import { getGatewayClient } from '../lib/gateway-client';
 import { appendFaultRunEvent, listActiveFaultRuns, type FaultRunRecord } from '../lib/fault-run-repository';
+import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
 import { ControlledExerciseWorker } from './controlled-exercise-worker';
 
 export class ScenarioExerciseWorkers {
@@ -48,11 +49,14 @@ export class ScenarioExerciseWorkers {
       }, run.traceId ?? undefined, signal);
     };
     const worker = new ControlledExerciseWorker(run, { concurrency, requestIntervalMs, request });
+    const unregisterDrain = getFaultRunCoordinator().registerRunDrain(
+      run.faultRunId, () => worker.stop('COORDINATOR_RECOVERY'));
     const promise = worker.start()
       .catch(async (error) => {
         await appendWorkerFailure(run, error);
       })
       .finally(async () => {
+        unregisterDrain();
         await appendFaultRunEvent(run.faultRunId, 'SCENARIO_WORKER_DRAINED', worker.snapshot()).catch(() => undefined);
         this.workers.delete(run.faultRunId);
       });

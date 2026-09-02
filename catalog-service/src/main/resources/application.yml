@@ -31,8 +31,15 @@ catalog:
   product-detail-cache:
     default-key: ${CATALOG_PRODUCT_DETAIL_CACHE_KEY:catalog:product-detail:cache}
     active-marker-key: ${CATALOG_PRODUCT_DETAIL_ACTIVE_MARKER_KEY:catalog:product-detail:active}
+    active-marker-owner-key: ${CATALOG_PRODUCT_DETAIL_ACTIVE_MARKER_OWNER_KEY:catalog:product-detail:active:owner}
+    active-marker-fence-key: ${CATALOG_PRODUCT_DETAIL_ACTIVE_MARKER_FENCE_KEY:catalog:product-detail:active:fence}
     logical-ttl: ${CATALOG_PRODUCT_DETAIL_CACHE_TTL:PT5M}
+    run-fallback-ttl: ${CATALOG_PRODUCT_DETAIL_RUN_FALLBACK_TTL:PT31M}
     database-timeout-sec: ${CATALOG_PRODUCT_DETAIL_DB_TIMEOUT_SEC:2}
+    max-logical-bytes: ${CATALOG_PRODUCT_DETAIL_MAX_LOGICAL_BYTES:67108864}
+    max-member-count: ${CATALOG_PRODUCT_DETAIL_MAX_MEMBER_COUNT:47}
+    max-member-size-bytes: ${CATALOG_PRODUCT_DETAIL_MAX_MEMBER_SIZE_BYTES:4194304}
+    cleanup-grace-seconds: ${CATALOG_PRODUCT_DETAIL_CLEANUP_GRACE_SECONDS:60}
 
 reports:
   optimized: ${REPORTS_OPTIMIZED:false}

@@ -181,6 +181,15 @@ public class CatalogService {
         }).collect(Collectors.toList());
     }
 
+    public List<ProductDTO> listSellableProducts() {
+        return productRepository.findAll(Sort.by(Sort.Direction.ASC, "sku")).stream()
+                .map(this::toDTO)
+                .filter(product -> Integer.valueOf(1).equals(product.getStatus()))
+                .filter(product -> product.getAvailableQty() != null && product.getAvailableQty() > 0)
+                .filter(product -> product.getPrice() != null && product.getPrice().signum() > 0)
+                .toList();
+    }
+
     public List<ProductBrowseReportDTO> browseReportBaseline() {
         return jdbcTemplate.query(
                 "SELECT p.sku, p.name, p.category, p.price, COUNT(ubl.id) AS browse_count, "

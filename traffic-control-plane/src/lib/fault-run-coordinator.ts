@@ -75,11 +75,17 @@ export interface CreateFaultRunCommand {
 export class FaultRunCoordinator {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly recoveryPromises = new Map<string, Promise<FaultRunRecord | null>>();
+  private readonly runDrains = new Map<string, () => Promise<unknown>>();
 
   constructor(
     private readonly targetAdapter: FaultRunTargetAdapter = new GatewayFaultRunTargetAdapter(),
     private readonly store: FaultRunStore = new SqlFaultRunStore(),
   ) {}
+
+  registerRunDrain(faultRunId: string, drain: () => Promise<unknown>): () => void {
+    this.runDrains.set(faultRunId, drain);
+    return () => this.runDrains.delete(faultRunId);
+  }
 
   async create(command: CreateFaultRunCommand): Promise<{ run: FaultRunRecord; created: boolean }> {
     const definition = getScenarioDefinition(command.scenario);
@@ -224,13 +230,18 @@ export class FaultRunCoordinator {
         { eventType: 'RECOVERY_STARTED', payload: { reason }, stopReason: reason },
       );
     if (!recovering || isTerminal(recovering.state)) return recovering;
+    const workerDrain = await this.drainRun(run.faultRunId);
     try {
       const result = await this.targetAdapter.stop(recovering);
       return this.store.transition(
         run.faultRunId,
         ['RECOVERING'],
         reason === 'MANUAL' ? 'STOPPED' : 'RECOVERED',
-        { eventType: 'RECOVERY_COMPLETED', payload: result ?? {}, recoveryResult: result ?? { stopped: true } },
+        {
+          eventType: 'RECOVERY_COMPLETED',
+          payload: { ...(asRecord(result)), workerDrain },
+          recoveryResult: { ...(asRecord(result)), workerDrain, stopped: true },
+        },
       );
     } catch (error) {
       return this.store.transition(
@@ -239,8 +250,8 @@ export class FaultRunCoordinator {
         'FAILED',
         {
           eventType: 'RECOVERY_FAILED',
-          payload: { error: errorMessage(error) },
-          recoveryResult: { stopped: false },
+          payload: { error: errorMessage(error), workerDrain },
+          recoveryResult: { stopped: false, workerDrain },
           recoveryError: errorMessage(error),
           stopReason: 'RECOVERY_FAILED',
         },
@@ -274,6 +285,16 @@ export class FaultRunCoordinator {
     const timer = this.timers.get(faultRunId);
     if (timer) clearTimeout(timer);
     this.timers.delete(faultRunId);
+  }
+
+  private async drainRun(faultRunId: string): Promise<Record<string, unknown>> {
+    const drain = this.runDrains.get(faultRunId);
+    if (!drain) return { registered: false, drained: true };
+    try {
+      return { registered: true, drained: true, result: asRecord(await drain()) };
+    } catch (error) {
+      return { registered: true, drained: false, error: errorMessage(error) };
+    }
   }
 }
 

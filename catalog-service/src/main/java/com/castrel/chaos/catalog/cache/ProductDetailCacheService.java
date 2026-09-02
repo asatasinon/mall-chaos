@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class ProductDetailCacheService {
@@ -68,9 +69,25 @@ public class ProductDetailCacheService {
         if (logicalTtl == null || logicalTtl.isNegative() || logicalTtl.isZero()) {
             return CacheWriteStatus.FAILED;
         }
+        boolean restoreRunExpiry = false;
+        if (lookup.hashKey().startsWith(RUN_HASH_PREFIX)) {
+            try {
+                Long currentTtl = redisTemplate.getExpire(lookup.hashKey(), TimeUnit.SECONDS);
+                restoreRunExpiry = currentTtl == null || currentTtl < 0;
+            } catch (RuntimeException exception) {
+                log.debug("Unable to inspect product detail run cache TTL", exception);
+            }
+        }
         try {
             String payload = serializer.serialize(product.getSku(), product, cachedAt, cachedAt.plus(logicalTtl));
             redisTemplate.opsForHash().put(lookup.hashKey(), product.getSku(), payload);
+            if (restoreRunExpiry) {
+                Duration runFallbackTtl = properties.getRunFallbackTtl();
+                if (runFallbackTtl == null || runFallbackTtl.isNegative() || runFallbackTtl.isZero()
+                        || !Boolean.TRUE.equals(redisTemplate.expire(lookup.hashKey(), runFallbackTtl))) {
+                    return CacheWriteStatus.FAILED;
+                }
+            }
             return CacheWriteStatus.STORED;
         } catch (RuntimeException exception) {
             log.debug("Product detail cache write failed", exception);
@@ -78,12 +95,34 @@ public class ProductDetailCacheService {
         }
     }
 
+    public String runHashKey(String faultRunId) {
+        return RUN_HASH_PREFIX + faultRunId;
+    }
+
+    public String activeMarkerKey() {
+        return configuredActiveMarkerKey();
+    }
+
+    public String activeMarkerOwnerKey() {
+        return nonBlankOrDefault(properties.getActiveMarkerOwnerKey(), "catalog:product-detail:active:owner");
+    }
+
+    public String activeMarkerFenceKey() {
+        return nonBlankOrDefault(properties.getActiveMarkerFenceKey(), "catalog:product-detail:active:fence");
+    }
+
     private String resolveHashKey(Instant now) {
-        String markerPayload = redisTemplate.opsForValue().get(activeMarkerKey());
+        String markerPayload = redisTemplate.opsForValue().get(configuredActiveMarkerKey());
         if (markerPayload == null || markerPayload.isBlank()) return defaultHashKey();
         try {
             ProductDetailCacheMarker marker = objectMapper.readValue(markerPayload, ProductDetailCacheMarker.class);
-            if (isValidMarker(marker, now)) return marker.getHashKey();
+            String owner = redisTemplate.opsForValue().get(activeMarkerOwnerKey());
+            String fence = redisTemplate.opsForValue().get(activeMarkerFenceKey());
+            if (isValidMarker(marker, now)
+                    && marker.getFaultRunId().equals(owner)
+                    && String.valueOf(marker.getFencingToken()).equals(fence)) {
+                return marker.getHashKey();
+            }
             return defaultHashKey();
         } catch (JsonProcessingException | RuntimeException exception) {
             log.debug("Ignoring invalid product detail cache marker", exception);
@@ -109,7 +148,7 @@ public class ProductDetailCacheService {
         return nonBlankOrDefault(properties.getDefaultKey(), "catalog:product-detail:cache");
     }
 
-    private String activeMarkerKey() {
+    private String configuredActiveMarkerKey() {
         return nonBlankOrDefault(properties.getActiveMarkerKey(), "catalog:product-detail:active");
     }
 
