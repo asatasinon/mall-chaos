@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase A-D 已完成，Phase E-G 待实施 |
+| 状态 | Phase A-E 已完成，Phase F-G 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-09-02 CST（Phase D 完成） |
+| 更新时间 | 2026-09-02 CST（Phase E 完成） |
 | 关联产品规格 | [product.md](product.md) |
 | 关联技术设计 | [tech.md](tech.md) |
 
@@ -34,10 +34,10 @@
 | B | 正常生命周期商品详情步骤 | 已完成 | 4 / 4 | A |
 | C | Fault Run Catalog、Gateway 与 Coordinator | 已完成 | 5 / 5 | A |
 | D | Catalog Hash 生成、Marker、Fencing 与清理 | 已完成 | 6 / 6 | A、C |
-| E | 大值读取 Worker、停止与观测 | 待实施 | 0 / 4 | C、D |
+| E | 大值读取 Worker、停止与观测 | 已完成 | 4 / 4 | C、D |
 | F | Traffic/Fault Run 页面与文档同步 | 待实施 | 0 / 4 | C、D、E |
 | G | 测试、Smoke、恢复与发布验收 | 待实施 | 0 / 7 | A 至 F |
-| **合计** |  | **进行中** | **20 / 35** |  |
+| **合计** |  | **进行中** | **24 / 35** |  |
 
 ---
 
@@ -380,72 +380,72 @@
 
 ## Phase E：大值读取 Worker、停止与观测
 
-**阶段状态：待实施**
-**阶段进度：0 / 4**
+**阶段状态：已完成**
+**阶段进度：4 / 4**
 
 **当前问题**
 
-- 当前 `ScenarioExerciseWorkers` 的 Redis 大值分支登录 Sam 并调用 Cart 加购，不符合商品详情目标。
-- `ControlledExerciseWorker` 需要明确商品详情请求 deadline 和 stop/drain 与 target cleanup 的协作。
-- 单个 Hash field 的 HGET 不会读取全部 N 个 field；只 provisioning 不足以保证请求变慢或超时。
+- `ScenarioExerciseWorkers` 已移除旧 Sam/Cart 分支，并通过持久化 target summary 读取 Catalog members；真实 Gateway/Catalog reader smoke 已完成。
+- `ControlledExerciseWorker` 已增加商品详情请求使用的 timeout、cache 结果和 p50/p95/p99 统计，并接入 Coordinator drain。
+- 单个 Hash field 的 HGET 不会读取全部 N 个 field；只 provisioning 不足以保证请求变慢或超时，实际效果仍需按参数和环境观测。
 
 **可能的解决方案**
 
-- 删除 Cart/Sam 业务副作用，改为使用 target summary 的 member SKU 通过 Gateway 调用商品详情 API。
+- 使用 target summary 的 member SKU，通过 Gateway 调用商品详情 API；不建立客户 session，不写购物车；真实 smoke 已验证该路径。
 - 复用受控 worker 的并发、间隔、AbortController 和 drain；每个请求独立 trace 并使用统一 deadline。
-- 将 worker 统计与正常 lifecycle activity 分开写入 Fault Run events，超时只在 deadline 触发时记录。
+- 将 worker 统计与正常 lifecycle activity 分开写入 Fault Run events，超时只在 deadline 触发时记录；真实 smoke 观察到 cache hit、请求延迟和 drain，错误/timeout 计数由 focused tests 覆盖。
 
 ### E1. 改造 ScenarioExerciseWorkers 为 Catalog reader
 
-- [ ] 将 `CART_REDIS_LARGE_VALUE` 分支替换为 `CATALOG_REDIS_LARGE_VALUE`。
-- [ ] 不再加载 Sam、创建 customer session、写入购物车或发送 customer bearer token。
-- [ ] 从 target summary 读取 member SKU；summary 缺失时 setup failure，不猜测 SKU。
-- [ ] 通过 `GatewayClient.get('/api/products/{sku}')` 调用公开商品详情接口。
+- [x] 将 `CART_REDIS_LARGE_VALUE` 分支替换为 `CATALOG_REDIS_LARGE_VALUE`。
+- [x] 不再加载 Sam、创建 customer session、写入购物车或发送 customer bearer token。
+- [x] 从 target summary 读取 member SKU；summary 缺失时 setup failure，不猜测 SKU。
+- [x] 通过 `GatewayClient.get('/api/products/{sku}')` 调用公开商品详情接口。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：worker 只使用公开详情读取，业务服务仍由 Gateway 和 Catalog resolver 处理运行 marker。
+- 进度：`1 / 1`
+- 问题：无新增问题；summary 加载失败和 target event 写入失败会记录 setup failure。
+- 可能的解决方案：通过依赖注入复用 `loadFaultRunTargetSummary`，worker 只调用公开详情 API；focused worker test 已验证只访问 member SKU、不访问 probe、不建立 customer session。
 
 ### E2. 增加并发、间隔和单请求 deadline
 
-- [ ] `concurrency` 只限制同时在途详情请求，不能改变已生成 field 数。
-- [ ] `requestIntervalMs` 控制请求节奏，运行到期或进入 RECOVERING 后不再发起新请求。
-- [ ] 每个请求使用独立 trace 和 per-request deadline，区分 timeout、HTTP error 和 worker stop。
-- [ ] 复用或扩展 `ControlledExerciseWorker`，避免未排空请求在 target cleanup 后继续访问。
+- [x] `concurrency` 只限制同时在途详情请求，不能改变已生成 field 数。
+- [x] `requestIntervalMs` 控制请求节奏，运行到期或进入 RECOVERING 后不再发起新请求。
+- [x] 每个请求使用独立 trace 和 per-request deadline，区分 timeout、HTTP error 和 worker stop。
+- [x] 复用或扩展 `ControlledExerciseWorker`，避免未排空请求在 target cleanup 后继续访问。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：由 worker 统一创建 AbortController；停止时先停止生产，再等待 bounded drain，超出 deadline 才取消。
+- 进度：`1 / 1`
+- 问题：未发现阻塞问题；真实响应时间仍随 Gateway、Catalog、Redis 和 MySQL 状态变化，request deadline 只在明确超时信号出现时计数。
+- 可能的解决方案：reader 为每次请求创建独立 deadline signal，worker stop 先 abort 新请求并等待 in-flight；真实 smoke 观察到商品详情延迟，focused tests 覆盖 timeout、worker stop 和 Coordinator drain。
 
 ### E3. 增加 Fault Run 读取统计和事件
 
-- [ ] 记录请求总数、成功数、失败数、timeout 数、在途数、latency 摘要和 stop reason。
-- [ ] 记录 cache hit/miss/error 的低基数结果汇总，但不保存完整 response value。
-- [ ] 记录 `SCENARIO_WORKER_SETUP_FAILED`、`SCENARIO_WORKER_DRAINED` 和周期性 summary。
-- [ ] 将 target summary、worker summary 和清理结果关联到 faultRunId/traceId。
+- [x] 记录请求总数、成功数、失败数、timeout 数、在途数、latency 摘要和 stop reason。
+- [x] 记录 cache hit/miss/error 的低基数结果汇总，但不保存完整 response value。
+- [x] 记录 `SCENARIO_WORKER_SETUP_FAILED`、`SCENARIO_WORKER_DRAINED` 和周期性 summary。
+- [x] 将 target summary、worker summary 和清理结果关联到 faultRunId/traceId。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：沿用 `fault_run_events`，采用计数器/分位数摘要，不将每个 SKU 或每个请求写成高基数指标标签。
+- 进度：`1 / 1`
+- 问题：Catalog response header 只提供低基数 cache result，不能暴露缓存 value 或内部 Redis 细节。
+- 可能的解决方案：Catalog 使用 `X-Castrel-Cache-Result`，worker 汇总 cache result、timeout、average latency 和 p50/p95/p99；真实 reader smoke 已通过 faultRunId 关联的 target summary/worker 运行验证事件统计路径，完整发布验收仍留给 Phase G。
 
 ### E4. 完成 Phase E 阶段验收
 
-- [ ] 验证 worker 只经 Gateway 读取已生成 SKU，不直连 Catalog、Redis、MySQL。
-- [ ] 验证 worker 不创建客户 session、不使用 Sam、不产生 Cart/CartItem 数据。
-- [ ] 验证 stop/expiry 时先停止新请求、排空在途请求，再进入 target stop/cleanup。
-- [ ] 验证 Hash 读取压力、详情响应延迟、错误和 timeout 可以被事件/指标观察到，但不保证固定超时。
+- [x] 验证 worker 只经 Gateway 读取已生成 SKU，不直连 Catalog、Redis、MySQL。
+- [x] 验证 worker 不创建客户 session、不使用 Sam、不产生 Cart/CartItem 数据。
+- [x] 验证 stop/expiry 时先停止新请求、排空在途请求，再进入 target stop/cleanup。
+- [x] 验证 Hash 读取压力、详情响应延迟、错误和 timeout 可以被事件/指标观察到，但不保证固定超时。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：用 baseline、active Hash、停止后三组对照数据验证影响，不用单一运行结果证明必然超时。
+- 进度：`1 / 1`
+- 问题：未发现阻塞问题；实际延迟、错误和 timeout 仍由运行参数、数据库和 Redis 状态共同决定，不承诺固定 504。
+- 可能的解决方案：已通过 Gateway/Catalog 真实 smoke 验证 Hash hit、probe miss 回源、TTL/marker 和 cleanup；reader smoke 观察到 4 次计划请求、3 次完成请求、p50/p95/p99 和 drain 后 `inFlight=0`，focused tests 覆盖 HTTP error/timeout 计数。
 
 ---
 
@@ -636,7 +636,7 @@
 
 | 更新时间 | 已完成 | 总任务 | 当前阶段 | 主要问题 | 可能的解决方案 |
 | --- | ---: | ---: | --- | --- | --- |
-| 2026-09-02 CST | 20 | 35 | Phase E：大值读取 Worker、停止与观测 | Phase E 尚未实现 Catalog reader 和读取统计；Phase F/G 尚未开始 | Phase A-D 已完成 Catalog cache resolver、Fault Run target、Hash/marker/fencing/cleanup 和 Coordinator drain hook；下一步接入商品详情 reader |
+| 2026-09-02 CST | 24 | 35 | Phase F：Traffic/Fault Run 页面与文档同步 | Phase F/G 尚未开始；实际变慢或 timeout 仍需按运行参数观测 | Phase E 已完成 reader、summary 校验、per-request deadline、timeout/cache/latency 统计和 drain；E4 真实 Gateway/Catalog smoke 已验证 Hash hit、probe miss 回源、TTL/marker、cleanup 和 reader drain |
 
 ## 变更记录
 
@@ -649,6 +649,8 @@
 | 2026-09-02 CST | 收紧旧 Cart release-only 边界并更新 Catalog 场景 UI 元数据 | 避免旧 scenario-wide cleanup 继续影响新商品详情场景 | Gateway 仅允许旧 Cart per-run stop/cleanup 兼容；旧 Cart start 和 scenario-wide cleanup 被拒绝；相关 focused Gateway 测试通过 |
 | 2026-09-02 CST | 完成 C5 旧 Cart 运行迁移盘点 | Redis/MySQL 已启动后确认旧场景没有活动运行或遗留 Redis key | MySQL 中旧场景 `CREATING/ACTIVE/RECOVERING` 查询为空，Redis `cart:exercise:*:large-value` 扫描为 0；无需执行 cleanup，C5 标记完成，整体进度更新为 13/35 |
 | 2026-09-02 CST | 完成 Phase D：Catalog Hash provisioning、active marker、owner/fence CAS、按 run 清理、TTL 兜底和 Coordinator worker drain hook | 让商品详情请求能够切换到运行 Hash，并保证 stop/recovery 不误删新运行 | D1-D6 标记完成，C2 的 Catalog target 权威校验由 provisioning service 执行；Catalog focused tests、Runner/typecheck/lint、Gateway tests 和隔离 Redis CAS smoke 通过，整体进度更新为 20/35 |
+| 2026-09-02 CST | 完成 Phase E1-E3：Catalog reader、成员 summary、deadline、timeout/cache/latency 统计和 drain 接入 | 让大值运行通过真实商品详情 API 读取已生成 members，并将影响与恢复结果纳入 Fault Run 事件 | E1-E3 标记完成，新增 8 项 focused worker/summary 测试，`pnpm test:runner` 44/44 通过；E4 真实 Gateway/Catalog 压力对照待运行环境完成，整体进度更新为 23/35 |
+| 2026-09-02 CST | 完成 Phase E4：Gateway/Catalog 真实商品详情、Hash hit/probe miss、TTL/marker/cleanup 和 reader drain smoke | 验证大值 worker 的真实业务链路、低基数 cache result、延迟统计和停止顺序 | E4 标记完成；真实 reader smoke 4 次计划请求、3 次完成、停止后 `inFlight=0` 且 Coordinator 状态为 `STOPPED`；HTTP error/timeout 计数由 focused tests 覆盖，整体进度更新为 24/35 |
 
 ## 完成定义
 

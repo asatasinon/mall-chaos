@@ -5,6 +5,7 @@ import com.castrel.chaos.catalog.dto.ProductDTO;
 import com.castrel.chaos.catalog.dto.ProductBrowseReportDTO;
 import com.castrel.chaos.catalog.service.CatalogService;
 import com.castrel.chaos.common.ApiResponse;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.*;
@@ -30,8 +31,10 @@ public class CatalogController {
     }
 
     @GetMapping("/api/products/{sku}")
-    public ApiResponse<ProductDTO> getProduct(@PathVariable String sku) {
-        return ApiResponse.ok(catalogService.getProduct(sku));
+    public ApiResponse<ProductDTO> getProduct(@PathVariable String sku, HttpServletResponse response) {
+        CatalogService.ProductDetailResult result = catalogService.getProductDetail(sku);
+        response.setHeader("X-Castrel-Cache-Result", result.cacheResult());
+        return ApiResponse.ok(result.product());
     }
 
     @GetMapping("/internal/catalog/products/{sku}/validate")

@@ -322,6 +322,64 @@ export async function loadFaultRunEvents(faultRunId: string): Promise<FaultRunEv
   }));
 }
 
+export async function loadFaultRunTargetSummary(
+  faultRunId: string,
+): Promise<FaultRunTargetSummary | null> {
+  const events = await loadFaultRunEvents(faultRunId);
+  for (const event of [...events].reverse()) {
+    if (event.eventType !== 'TARGET_CONFIRMED') continue;
+    const summary = extractFaultRunTargetSummary(faultRunId, event.payload);
+    if (summary) return summary;
+  }
+  return null;
+}
+
+export function extractFaultRunTargetSummary(
+  faultRunId: string,
+  payload: unknown,
+): FaultRunTargetSummary | null {
+  const event = asRecord(payload);
+  const summary = asRecord(event.targetSummary);
+  if (summary.layout !== 'HASH'
+      || summary.hashKey !== `catalog:product-detail:exercise:${faultRunId}`
+      || !isSafeInteger(summary.memberCount, 1, 47)
+      || !isSafeInteger(summary.memberSizeBytes, 256, 4 * 1024 * 1024)
+      || !isSafeInteger(summary.logicalBytes, 1, 64 * 1024 * 1024)
+      || !isSafeInteger(summary.keyTtlSec, 1, 3600)
+      || typeof summary.probeSku !== 'string'
+      || !isSku(summary.probeSku)
+      || !Array.isArray(summary.memberSkus)) {
+    return null;
+  }
+  const rawMemberSkus = summary.memberSkus as unknown[];
+  const memberSkus = rawMemberSkus.filter((value): value is string => isSku(value));
+  if (memberSkus.length !== rawMemberSkus.length
+      || memberSkus.length !== summary.memberCount
+      || new Set(memberSkus).size !== memberSkus.length
+      || memberSkus.includes(summary.probeSku)) {
+    return null;
+  }
+  if (summary.logicalBytes !== summary.memberCount * summary.memberSizeBytes) return null;
+
+  const result: FaultRunTargetSummary = {
+    layout: 'HASH',
+    hashKey: summary.hashKey,
+    memberCount: summary.memberCount,
+    memberSizeBytes: summary.memberSizeBytes,
+    logicalBytes: summary.logicalBytes,
+    keyTtlSec: summary.keyTtlSec,
+    probeSku: summary.probeSku,
+    memberSkus,
+  };
+  if (isSafeInteger(summary.observedBytes, 1, Number.MAX_SAFE_INTEGER)) {
+    result.observedBytes = summary.observedBytes;
+  }
+  if (typeof summary.expiresAt === 'string' && !Number.isNaN(Date.parse(summary.expiresAt))) {
+    result.expiresAt = summary.expiresAt;
+  }
+  return result;
+}
+
 export async function loadFaultRunAudit(faultRunId: string): Promise<FaultRunAuditRecord | null> {
   await ensureFaultRunSchema();
   const [rows] = await getPool().query(
@@ -426,6 +484,23 @@ function toFaultRun(row: Record<string, unknown>): FaultRunRecord {
 
 function asRecords(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value as Record<string, unknown>[] : [];
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function isSku(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
+}
+
+function isSafeInteger(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === 'number'
+    && Number.isSafeInteger(value)
+    && value >= minimum
+    && value <= maximum;
 }
 
 function parseJson(value: unknown): unknown {

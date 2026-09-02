@@ -103,6 +103,10 @@ public class CatalogService {
     }
 
     public ProductDTO getProduct(String sku) {
+        return getProductDetail(sku).product();
+    }
+
+    public ProductDetailResult getProductDetail(String sku) {
         singleCount.increment();
         String normalizedSku = normalizeSku(sku);
         ProductDetailCacheService.CacheLookup lookup;
@@ -114,7 +118,7 @@ public class CatalogService {
         }
         if (lookup.status() == ProductDetailCacheService.CacheStatus.HIT) {
             cacheHitCount.increment();
-            return lookup.product();
+            return new ProductDetailResult(lookup.product(), "CACHE_HIT");
         }
 
         ProductDTO result;
@@ -136,12 +140,14 @@ public class CatalogService {
         if (lookup.status() == ProductDetailCacheService.CacheStatus.BACKEND_ERROR
                 || writeStatus == ProductDetailCacheService.CacheWriteStatus.FAILED) {
             cacheBackendErrorCount.increment();
+            return new ProductDetailResult(result, "CACHE_BACKEND_ERROR");
         } else if (lookup.status() == ProductDetailCacheService.CacheStatus.INVALID) {
             cacheInvalidFallbackCount.increment();
+            return new ProductDetailResult(result, "CACHE_INVALID_FALLBACK");
         } else {
             cacheMissFallbackCount.increment();
+            return new ProductDetailResult(result, "CACHE_MISS_DB_FALLBACK");
         }
-        return result;
     }
 
     private String normalizeSku(String sku) {
@@ -150,6 +156,9 @@ public class CatalogService {
             throw new BizException("PRODUCT_NOT_FOUND", "SKU is required");
         }
         return sku.trim();
+    }
+
+    public record ProductDetailResult(ProductDTO product, String cacheResult) {
     }
 
     public ProductDTO validateListedProduct(String sku) {

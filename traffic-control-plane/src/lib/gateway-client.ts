@@ -117,6 +117,15 @@ export class GatewayClient {
     params?: Record<string, string>,
     options?: string | GatewayRequestOptions,
   ): Promise<T> {
+    const response = await this.getWithMetadata<T>(path, params, options);
+    return response.body;
+  }
+
+  async getWithMetadata<T = unknown>(
+    path: string,
+    params?: Record<string, string>,
+    options?: string | GatewayRequestOptions,
+  ): Promise<GatewayResponse<T>> {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
     const url = `${this.baseUrl}${path}${qs}`;
     const requestOptions = normalizeOptions(options);
@@ -128,7 +137,10 @@ export class GatewayClient {
     if (!res.ok) {
       throw new GatewayRequestError('GET', path, res.status);
     }
-    return res.json();
+    return {
+      body: await res.json() as T,
+      cacheResult: res.headers.get('X-Castrel-Cache-Result') ?? undefined,
+    };
   }
 
   async patch<T = unknown>(
@@ -312,6 +324,11 @@ function shouldRefresh(expiresAt: Date, now: number): boolean {
 export interface GatewayRequestOptions {
   traceId?: string;
   signal?: AbortSignal;
+}
+
+export interface GatewayResponse<T> {
+  body: T;
+  cacheResult?: string;
 }
 
 function normalizeOptions(

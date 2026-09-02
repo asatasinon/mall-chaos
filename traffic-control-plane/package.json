@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 13086",
     "worker": "tsx src/worker/index.ts",
-    "test:runner": "tsx --test src/worker/customer-session-manager.test.ts src/worker/gateway-customer-contract.test.ts src/worker/coupon-replenishment.test.ts src/worker/inventory-replenishment.test.ts src/worker/traffic-lifecycle-orchestrator.test.ts src/worker/data-warmup.test.ts",
+    "test:runner": "tsx --test src/worker/customer-session-manager.test.ts src/worker/gateway-customer-contract.test.ts src/worker/coupon-replenishment.test.ts src/worker/inventory-replenishment.test.ts src/worker/traffic-lifecycle-orchestrator.test.ts src/worker/data-warmup.test.ts src/worker/controlled-exercise-worker.test.ts src/worker/scenario-exercise-workers.test.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },

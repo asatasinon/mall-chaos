@@ -314,6 +314,8 @@ Coordinator 提供 `registerRunDrain(faultRunId, drain)` 注册接口。已注�
 
 worker 的请求并发不改变 Hash 的 field 数，也不在请求中携带 `X-Fault-Run-*` 头。大值影响来自真实商品详情响应经过 Catalog、Gateway 和网络返回，而不是 worker 自己读取并丢弃 Redis value。
 
+Catalog 商品详情响应通过 `X-Castrel-Cache-Result` 返回低基数结果，允许 reader 统计 `CACHE_HIT`、`CACHE_MISS_DB_FALLBACK`、`CACHE_INVALID_FALLBACK` 和 `CACHE_BACKEND_ERROR`；该 header 不包含 SKU、run ID 或缓存 value。`ControlledExerciseWorker` 汇总 requests、successes、failures、timeouts、inFlight、average latency、p50/p95/p99 latency 和各 cache result 计数，并在 `EXERCISE_WORKER_STOPPED`/`SCENARIO_WORKER_DRAINED` 事件中保存非敏感摘要。
+
 ## 9. 生命周期新增详情步骤
 
 `TrafficActionOrchestrator.executeLifecycle()` 在 `BROWSE_CATALOG` 成功后执行：

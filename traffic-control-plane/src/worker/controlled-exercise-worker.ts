@@ -5,15 +5,45 @@ export interface ExerciseWorkerStats {
   requests: number;
   successes: number;
   failures: number;
+  timeouts: number;
   inFlight: number;
   stopReason: string | null;
   averageLatencyMs: number;
+  p50LatencyMs: number;
+  p95LatencyMs: number;
+  p99LatencyMs: number;
+  cacheResults: Record<CacheResult, number>;
+}
+
+export type CacheResult =
+  | 'CACHE_HIT'
+  | 'CACHE_MISS_DB_FALLBACK'
+  | 'CACHE_INVALID_FALLBACK'
+  | 'CACHE_BACKEND_ERROR'
+  | 'CACHE_UNKNOWN';
+
+export interface ExerciseRequestResult {
+  cacheResult?: CacheResult;
+}
+
+export class ExerciseRequestTimeoutError extends Error {
+  constructor(message = 'EXERCISE_REQUEST_TIMEOUT') {
+    super(message);
+    this.name = 'ExerciseRequestTimeoutError';
+  }
+}
+
+export class ExerciseRequestCacheError extends Error {
+  constructor(public readonly cacheResult: Exclude<CacheResult, 'CACHE_UNKNOWN'> = 'CACHE_BACKEND_ERROR') {
+    super(cacheResult);
+    this.name = 'ExerciseRequestCacheError';
+  }
 }
 
 export interface ControlledExerciseOptions {
   concurrency: number;
   requestIntervalMs: number;
-  request: (signal: AbortSignal) => Promise<void>;
+  request: (signal: AbortSignal) => Promise<void | ExerciseRequestResult>;
 }
 
 export class ControlledExerciseWorker {
@@ -22,11 +52,23 @@ export class ControlledExerciseWorker {
     requests: 0,
     successes: 0,
     failures: 0,
+    timeouts: 0,
     inFlight: 0,
     stopReason: null,
     averageLatencyMs: 0,
+    p50LatencyMs: 0,
+    p95LatencyMs: 0,
+    p99LatencyMs: 0,
+    cacheResults: {
+      CACHE_HIT: 0,
+      CACHE_MISS_DB_FALLBACK: 0,
+      CACHE_INVALID_FALLBACK: 0,
+      CACHE_BACKEND_ERROR: 0,
+      CACHE_UNKNOWN: 0,
+    },
   };
   private totalLatencyMs = 0;
+  private readonly latencySamples: number[] = [];
   private running: Promise<void> | null = null;
 
   constructor(
@@ -50,7 +92,10 @@ export class ControlledExerciseWorker {
   }
 
   snapshot(): ExerciseWorkerStats {
-    return { ...this.stats };
+    return {
+      ...this.stats,
+      cacheResults: { ...this.stats.cacheResults },
+    };
   }
 
   private async execute(): Promise<void> {
@@ -69,7 +114,7 @@ export class ControlledExerciseWorker {
         ? 'EXPIRED'
         : 'STOP_REQUESTED';
     } finally {
-      if (this.stats.requests > 0) this.stats.averageLatencyMs = Math.round(this.totalLatencyMs / this.stats.requests);
+      this.updateLatencySummary();
       await this.eventWriter(this.run.faultRunId, 'EXERCISE_WORKER_STOPPED', this.stats).catch(() => undefined);
     }
   }
@@ -80,20 +125,51 @@ export class ControlledExerciseWorker {
     this.stats.inFlight++;
     const startedAt = Date.now();
     try {
-      await this.options.request(this.controller.signal);
+      const result = await this.options.request(this.controller.signal);
       this.stats.successes++;
+      const cacheResult = result?.cacheResult ?? 'CACHE_UNKNOWN';
+      this.stats.cacheResults[cacheResult]++;
     } catch (error) {
       if (!this.controller.signal.aborted) {
         this.stats.failures++;
+        const timeout = error instanceof ExerciseRequestTimeoutError;
+        if (timeout) this.stats.timeouts++;
+        if (error instanceof ExerciseRequestCacheError) this.stats.cacheResults[error.cacheResult]++;
         await this.eventWriter(this.run.faultRunId, 'EXERCISE_REQUEST_FAILED', {
-          error: error instanceof Error ? error.message : String(error),
+          error: timeout ? 'EXERCISE_REQUEST_TIMEOUT' : error instanceof Error ? error.message : String(error),
+          errorCode: timeout ? 'EXERCISE_REQUEST_TIMEOUT' : 'EXERCISE_REQUEST_FAILED',
+          timeout,
+          ...(error instanceof ExerciseRequestCacheError ? { cacheResult: error.cacheResult } : {}),
         }).catch(() => undefined);
       }
     } finally {
       this.stats.inFlight--;
-      this.totalLatencyMs += Date.now() - startedAt;
+      const latencyMs = Date.now() - startedAt;
+      this.totalLatencyMs += latencyMs;
+      this.latencySamples.push(latencyMs);
+      if (this.latencySamples.length > 1000) this.latencySamples.shift();
     }
   }
+
+  private updateLatencySummary(): void {
+    this.stats.averageLatencyMs = this.stats.requests === 0
+      ? 0 : Math.round(this.totalLatencyMs / this.stats.requests);
+    if (this.latencySamples.length === 0) {
+      this.stats.p50LatencyMs = 0;
+      this.stats.p95LatencyMs = 0;
+      this.stats.p99LatencyMs = 0;
+      return;
+    }
+    const sorted = [...this.latencySamples].sort((left, right) => left - right);
+    this.stats.p50LatencyMs = percentile(sorted, 0.50);
+    this.stats.p95LatencyMs = percentile(sorted, 0.95);
+    this.stats.p99LatencyMs = percentile(sorted, 0.99);
+  }
+}
+
+function percentile(sorted: number[], ratio: number): number {
+  const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * ratio) - 1);
+  return sorted[Math.max(0, index)] ?? 0;
 }
 
 function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {

@@ -57,7 +57,8 @@ class CatalogServiceProductDetailCacheTest {
         when(cacheService.lookup("SKU-001")).thenReturn(new ProductDetailCacheService.CacheLookup(
                 ProductDetailCacheService.CacheStatus.HIT, cached, "catalog:product-detail:cache"));
 
-        assertThat(catalogService.getProduct(" SKU-001 ")).isSameAs(cached);
+        assertThat(catalogService.getProductDetail(" SKU-001 ").product()).isSameAs(cached);
+        assertThat(catalogService.getProductDetail("SKU-001").cacheResult()).isEqualTo("CACHE_HIT");
 
         verify(productRepository, never()).findBySku(any());
         verify(cacheService, never()).store(any(), any());

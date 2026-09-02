@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ControlledExerciseWorker } from './controlled-exercise-worker';
+import { ControlledExerciseWorker, ExerciseRequestTimeoutError } from './controlled-exercise-worker';
 import type { FaultRunRecord } from '../lib/fault-run-repository';
 
 const run = {
@@ -52,4 +52,42 @@ test('controlled worker respects concurrency and drains aborted requests', async
   assert.equal(stats.inFlight, 0);
   assert.equal(stats.stopReason, 'MANUAL');
   assert.equal(active, 0);
+  assert.equal(stats.timeouts, 0);
+  assert.equal(stats.cacheResults.CACHE_UNKNOWN, stats.successes);
+  assert.equal(stats.p50LatencyMs > 0, true);
+});
+
+test('controlled worker counts timeout requests and records low-cardinality results', async () => {
+  const timeoutWorker = new ControlledExerciseWorker({
+    ...run,
+    expiresAt: new Date(Date.now() + 100).toISOString(),
+  }, {
+    concurrency: 1,
+    requestIntervalMs: 0,
+    request: async () => {
+      throw new ExerciseRequestTimeoutError();
+    },
+  }, async () => undefined);
+
+  const stats = await timeoutWorker.start().then(() => timeoutWorker.snapshot());
+
+  assert.equal(stats.requests > 0, true);
+  assert.equal(stats.timeouts, stats.failures);
+  assert.equal(stats.cacheResults.CACHE_UNKNOWN, 0);
+});
+
+test('controlled worker aggregates cache results returned by a request', async () => {
+  const cacheWorker = new ControlledExerciseWorker({
+    ...run,
+    expiresAt: new Date(Date.now() + 40).toISOString(),
+  }, {
+    concurrency: 1,
+    requestIntervalMs: 0,
+    request: async () => ({ cacheResult: 'CACHE_HIT' }),
+  }, async () => undefined);
+
+  const stats = await cacheWorker.start().then(() => cacheWorker.snapshot());
+
+  assert.equal(stats.cacheResults.CACHE_HIT, stats.successes);
+  assert.equal(stats.cacheResults.CACHE_UNKNOWN, 0);
 });
