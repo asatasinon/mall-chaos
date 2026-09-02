@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Activity, CheckCircle2, ChevronDown, Gauge, Hash, Square, Timer, Trash2, XCircle } from 'lucide-react';
+import { Activity, Check, CheckCircle2, ChevronDown, Copy, Gauge, Hash, Square, Timer, Trash2, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,6 +9,7 @@ import ScenarioCardWithActions from '@/components/ScenarioCardWithActions';
 import { buildFaultRunView, formatBytes, formatHashNamespace, formatMemberSkus, summarizeFaultRunEvent } from '@/components/scenarios/fault-run-view';
 import { getScenarioLabel, SCENARIO_GROUPS, SCENARIO_META } from '@/components/scenarios/meta';
 import type { FaultRun, FaultRunDetails, Scenario } from '@/components/scenarios/types';
+import { toast } from 'sonner';
 
 interface ScenarioWorkspaceProps {
   scenarios: Scenario[];
@@ -74,8 +75,21 @@ export function RunDetails({ details, onClose, onCleanup, allowManualCleanup = f
 
 function TargetSummaryPanel({ details, view }: { details: FaultRunDetails; view: ReturnType<typeof buildFaultRunView> }) {
   const summary = view.targetSummary;
+  const [copied, setCopied] = useState(false);
   if (!summary) return null;
-  return <section aria-labelledby="target-summary-title" className="overflow-hidden rounded-lg border border-primary/20 bg-primary/[0.035]"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-primary/10 px-4 py-3"><div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Hash className="size-4.5" /></span><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Target footprint</p><h3 id="target-summary-title" className="mt-1 text-sm font-medium">One Catalog Hash · {summary.memberCount} fields</h3></div></div><Badge variant="outline" className="border-primary/30 text-primary">{view.markerState === 'PUBLISHED' ? 'Marker published' : view.markerState === 'RELEASED' ? 'Marker released' : 'Marker unknown'}</Badge></div><div className="grid grid-cols-2 divide-x divide-y divide-primary/10 sm:grid-cols-4 sm:divide-y-0"><ScenarioDetail label="Namespace" value={formatHashNamespace(summary.hashKey, details.run.faultRunId)} /><ScenarioDetail label="Value size" value={formatBytes(summary.memberSizeBytes)} /><ScenarioDetail label="Logical bytes" value={formatBytes(summary.logicalBytes)} /><ScenarioDetail label="Observed bytes" value={formatBytes(summary.observedBytes)} /><ScenarioDetail label="Probe SKU" value={summary.probeSku} /><ScenarioDetail label="Safety TTL" value={`${summary.keyTtlSec}s`} /><ScenarioDetail label="Target expiry" value={summary.expiresAt ? formatTime(summary.expiresAt) : 'n/a'} /><ScenarioDetail label="Layout" value="HASH" /></div><div className="border-t border-primary/10 px-4 py-3"><p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Injected members</p><p className="mt-1 truncate font-mono text-xs text-foreground" title={summary.memberSkus.join(', ')}>{formatMemberSkus(summary)}</p></div></section>;
+  const hashKey = summary.hashKey;
+  async function copyHashKey() {
+    try {
+      await navigator.clipboard.writeText(hashKey);
+      setCopied(true);
+      toast.success('Redis key copied');
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      toast.error('Unable to copy Redis key');
+    }
+  }
+
+  return <section aria-labelledby="target-summary-title" className="overflow-hidden rounded-lg border border-primary/20 bg-primary/[0.035]"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-primary/10 px-4 py-3"><div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Hash className="size-4.5" /></span><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Target footprint</p><h3 id="target-summary-title" className="mt-1 text-sm font-medium">One Catalog Hash · {summary.memberCount} fields</h3></div></div><Badge variant="outline" className="border-primary/30 text-primary">{view.markerState === 'PUBLISHED' ? 'Marker published' : view.markerState === 'RELEASED' ? 'Marker released' : 'Marker unknown'}</Badge></div><div className="grid grid-cols-2 divide-x divide-y divide-primary/10 sm:grid-cols-4 sm:divide-y-0"><div className="min-w-0"><div className="flex items-center gap-1.5"><p className="text-[11px] uppercase tracking-wider text-muted-foreground">Namespace</p><Button type="button" variant="ghost" size="icon-xs" className="text-muted-foreground hover:text-foreground" title={copied ? 'Redis key copied' : 'Copy full Redis key'} aria-label={copied ? 'Redis key copied' : 'Copy full Redis key'} onClick={() => void copyHashKey()}>{copied ? <Check /> : <Copy />}</Button></div><p className="mt-1 truncate font-mono text-sm font-medium" title={summary.hashKey}>{formatHashNamespace(summary.hashKey, details.run.faultRunId)}</p></div><ScenarioDetail label="Value size" value={formatBytes(summary.memberSizeBytes)} /><ScenarioDetail label="Logical bytes" value={formatBytes(summary.logicalBytes)} /><ScenarioDetail label="Observed bytes" value={formatBytes(summary.observedBytes)} /><ScenarioDetail label="Probe SKU" value={summary.probeSku} /><ScenarioDetail label="Safety TTL" value={`${summary.keyTtlSec}s`} /><ScenarioDetail label="Target expiry" value={summary.expiresAt ? formatTime(summary.expiresAt) : 'n/a'} /><ScenarioDetail label="Layout" value="HASH" /></div><div className="border-t border-primary/10 px-4 py-3"><p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Injected members</p><p className="mt-1 truncate font-mono text-xs text-foreground" title={summary.memberSkus.join(', ')}>{formatMemberSkus(summary)}</p></div></section>;
 }
 
 function RunParametersPanel({ run }: { run: FaultRun }) {
