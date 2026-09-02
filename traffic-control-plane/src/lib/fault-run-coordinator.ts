@@ -8,12 +8,13 @@ import {
   transitionFaultRun,
   type CreateFaultRunInput,
   type FaultRunRecord,
+  type FaultRunTargetSummary,
 } from './fault-run-repository';
 import { getScenarioDefinition, validateScenarioParameters } from './fault-run-catalog';
 import { createFaultRunContext } from './fault-run-context';
 
 export interface FaultRunTargetAdapter {
-  start(run: FaultRunRecord): Promise<void>;
+  start(run: FaultRunRecord): Promise<unknown>;
   stop(run: FaultRunRecord): Promise<unknown>;
   compensate(run: FaultRunRecord): Promise<void>;
 }
@@ -44,9 +45,10 @@ export class SqlFaultRunStore implements FaultRunStore {
 }
 
 export class GatewayFaultRunTargetAdapter implements FaultRunTargetAdapter {
-  async start(run: FaultRunRecord): Promise<void> {
-    if (run.targetService === 'traffic-control-plane') return;
-    await getGatewayClient().postInternal('/internal/gateway/fault-runs/start', toGatewayPayload(run), run.traceId ?? undefined);
+  async start(run: FaultRunRecord): Promise<unknown> {
+    if (run.targetService === 'traffic-control-plane') return { accepted: true, target: 'worker' };
+    return getGatewayClient().postInternal(
+      '/internal/gateway/fault-runs/start', toGatewayPayload(run), run.traceId ?? undefined);
   }
 
   async stop(run: FaultRunRecord): Promise<unknown> {
@@ -102,12 +104,19 @@ export class FaultRunCoordinator {
     }
 
     try {
-      await this.targetAdapter.start(result.run);
+      const targetResponse = await this.targetAdapter.start(result.run);
+      const targetSummary = sanitizeTargetSummary(result.run, targetResponse);
       const active = await this.store.transition(
         result.run.faultRunId,
         ['CREATING'],
         'ACTIVE',
-        { eventType: 'TARGET_CONFIRMED', payload: { targetService: result.run.targetService } },
+        {
+          eventType: 'TARGET_CONFIRMED',
+          payload: {
+            targetService: result.run.targetService,
+            ...(targetSummary ? { targetSummary } : {}),
+          },
+        },
       );
       if (!active) throw new Error('FAULT_RUN_ACTIVATION_READBACK_FAILED');
       this.schedule(active);
@@ -289,6 +298,57 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function sanitizeTargetSummary(run: FaultRunRecord, response: unknown): FaultRunTargetSummary | undefined {
+  if (run.scenario !== 'CATALOG_REDIS_LARGE_VALUE') return undefined;
+  const envelope = asRecord(response);
+  const firstData = asRecord(envelope.data);
+  const nested = asRecord(firstData.data);
+  const source = Object.keys(nested).length > 0
+    ? nested
+    : Object.keys(firstData).length > 0 ? firstData : envelope;
+  const summary: FaultRunTargetSummary = {};
+
+  if (source.accepted === true) summary.accepted = true;
+  if (source.layout === 'HASH') summary.layout = 'HASH';
+  if (typeof source.hashKey === 'string'
+      && source.hashKey === `catalog:product-detail:exercise:${run.faultRunId}`) {
+    summary.hashKey = source.hashKey;
+  }
+  assignSafeInteger(source.memberCount, 1, 47, (value) => { summary.memberCount = value; });
+  assignSafeInteger(source.memberSizeBytes, 256, 4 * 1024 * 1024,
+    (value) => { summary.memberSizeBytes = value; });
+  assignSafeInteger(source.logicalBytes, 1, 64 * 1024 * 1024,
+    (value) => { summary.logicalBytes = value; });
+  assignSafeInteger(source.observedBytes, 1, Number.MAX_SAFE_INTEGER,
+    (value) => { summary.observedBytes = value; });
+  if (typeof source.probeSku === 'string' && source.probeSku.length > 0 && source.probeSku.length <= 128) {
+    summary.probeSku = source.probeSku;
+  }
+  if (Array.isArray(source.memberSkus)) {
+    const memberSkus = source.memberSkus
+      .filter((value): value is string => typeof value === 'string' && value.length > 0 && value.length <= 128)
+      .slice(0, 64);
+    if (memberSkus.length > 0) summary.memberSkus = memberSkus;
+  }
+  if (typeof source.expiresAt === 'string' && !Number.isNaN(Date.parse(source.expiresAt))) {
+    summary.expiresAt = source.expiresAt;
+  }
+  assignSafeInteger(source.keyTtlSec, 1, 3600, (value) => { summary.keyTtlSec = value; });
+
+  return Object.keys(summary).length > 0 ? summary : undefined;
+}
+
+function assignSafeInteger(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+  assign: (value: number) => void,
+): void {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum && value <= maximum) {
+    assign(value);
+  }
 }
 
 let coordinator: FaultRunCoordinator | null = null;

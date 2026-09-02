@@ -6,7 +6,6 @@ import {
   LockKeyhole,
   ServerCog,
   ShieldCheck,
-  WalletCards,
 } from 'lucide-react';
 
 export type ScenarioMeta = { label: string; description: string; icon: LucideIcon; tone: string };
@@ -17,7 +16,7 @@ export const SCENARIO_META: Record<string, ScenarioMeta> = {
   ORDER_REPORT_SQL: { label: 'Order report SQL', description: 'Exercise the customer order report range and detail aggregation path.', icon: DatabaseZap, tone: 'text-amber-700 dark:text-amber-300' },
   BROWSE_SURGE: { label: 'Browse traffic surge', description: 'Sustain controlled concurrency against the real product API through Gateway.', icon: Flame, tone: 'text-orange-700 dark:text-orange-300' },
   ORDER_QUERY_SURGE: { label: 'Order query surge', description: 'Sustain compliant demo-customer traffic against the order query path.', icon: Flame, tone: 'text-orange-700 dark:text-orange-300' },
-  CART_REDIS_LARGE_VALUE: { label: 'Cart large Redis value', description: 'Create and read a large run-scoped Redis value through the fixed Sam cart.', icon: WalletCards, tone: 'text-emerald-700 dark:text-emerald-300' },
+  CATALOG_REDIS_LARGE_VALUE: { label: 'Product detail Redis Hash', description: 'Create and read a bounded product-detail Hash through the real catalog API.', icon: DatabaseZap, tone: 'text-emerald-700 dark:text-emerald-300' },
   CART_CATALOG_DEPENDENCY: { label: 'Cart dependency failure', description: 'Fail the real Cart-to-Catalog dependency before a cart write.', icon: ServerCog, tone: 'text-rose-700 dark:text-rose-300' },
   NOTIFICATION_HEAP_PRESSURE: { label: 'JVM memory leak', description: 'Retain high-cardinality objects until the notification JVM runs out of heap.', icon: AlertTriangle, tone: 'text-red-700 dark:text-red-300' },
   NOTIFICATION_STORAGE_APPEND: { label: 'Notification storage growth', description: 'Grow persistent storage with run-scoped notification transaction data.', icon: DatabaseZap, tone: 'text-violet-700 dark:text-violet-300' },
@@ -33,7 +32,7 @@ export function getScenarioLabel(scenario: string) {
 export const SCENARIO_GROUPS: ScenarioGroup[] = [
   { label: 'Slow SQL', scenarios: ['BROWSE_REPORT_SQL', 'ORDER_REPORT_SQL'] },
   { label: 'Traffic surge', scenarios: ['BROWSE_SURGE', 'ORDER_QUERY_SURGE'] },
-  { label: 'Large value', scenarios: ['CART_REDIS_LARGE_VALUE'] },
+  { label: 'Large value', scenarios: ['CATALOG_REDIS_LARGE_VALUE'] },
   { label: 'Dependency failure', scenarios: ['CART_CATALOG_DEPENDENCY'] },
   { label: 'Memory leak', scenarios: ['NOTIFICATION_HEAP_PRESSURE'] },
   { label: 'Storage growth', scenarios: ['NOTIFICATION_STORAGE_APPEND'] },

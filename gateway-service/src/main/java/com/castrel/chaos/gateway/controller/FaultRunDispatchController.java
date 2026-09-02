@@ -22,7 +22,7 @@ public class FaultRunDispatchController {
     private static final Map<String, Target> TARGETS = Map.ofEntries(
             Map.entry("BROWSE_REPORT_SQL", new Target("catalog-service", "products-browse-report", "/internal/catalog/fault-runs/start", "/internal/catalog/fault-runs/stop", "/internal/catalog/fault-runs/cleanup")),
             Map.entry("ORDER_REPORT_SQL", new Target("order-service", "orders-query-report", "/internal/orders/fault-runs/start", "/internal/orders/fault-runs/stop", "/internal/orders/fault-runs/cleanup")),
-            Map.entry("CART_REDIS_LARGE_VALUE", new Target("cart-service", "cart-large-value", "/internal/cart/fault-runs/start", "/internal/cart/fault-runs/stop", "/internal/cart/fault-runs/cleanup")),
+            Map.entry("CATALOG_REDIS_LARGE_VALUE", new Target("catalog-service", "catalog-product-detail-large-value", "/internal/catalog/fault-runs/start", "/internal/catalog/fault-runs/stop", "/internal/catalog/fault-runs/cleanup")),
             Map.entry("CART_CATALOG_DEPENDENCY", new Target("catalog-service", "cart-product-validation", "/internal/catalog/fault-runs/start", "/internal/catalog/fault-runs/stop", "/internal/catalog/fault-runs/cleanup")),
             Map.entry("NOTIFICATION_HEAP_PRESSURE", new Target("notification-service", "notification-retention", "/internal/notification/fault-runs/start", "/internal/notification/fault-runs/stop", "/internal/notification/fault-runs/cleanup")),
             Map.entry("NOTIFICATION_STORAGE_APPEND", new Target("notification-service", "notification-storage", "/internal/notification/fault-runs/start", "/internal/notification/fault-runs/stop", "/internal/notification/fault-runs/cleanup")),
@@ -37,8 +37,11 @@ public class FaultRunDispatchController {
     private static final Set<String> OBSERVATION_FIELDS = Set.of(
             "faultRunId", "expiresAt", "fencingToken", "idempotencyKey");
     private static final Map<String, String> SCENARIO_CLEANUP_PATHS = Map.of(
-            "CART_REDIS_LARGE_VALUE", "/internal/cart/fault-runs/cleanup-scenario",
             "NOTIFICATION_STORAGE_APPEND", "/internal/notification/fault-runs/cleanup-scenario");
+    private static final Map<String, Target> LEGACY_RELEASE_TARGETS = Map.of(
+            "CART_REDIS_LARGE_VALUE", new Target(
+                    "cart-service", "cart-large-value", "/internal/cart/fault-runs/start",
+                    "/internal/cart/fault-runs/stop", "/internal/cart/fault-runs/cleanup"));
 
     private final FaultRunDispatchService dispatchService;
     private final FixedOperationDispatchService operationService;
@@ -53,7 +56,7 @@ public class FaultRunDispatchController {
     public Mono<ApiResponse<Object>> start(
             @RequestBody Map<String, Object> body,
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
-        Validation validation = validate(body, false);
+        Validation validation = validate(body, false, false);
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
         Target target = validation.target();
         return dispatchService.start(target.service(), target.startPath(), body, traceIdOrEmpty(traceId))
@@ -65,7 +68,7 @@ public class FaultRunDispatchController {
     public Mono<ApiResponse<Object>> stop(
             @RequestBody Map<String, Object> body,
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
-        Validation validation = validate(body, false);
+        Validation validation = validate(body, false, true);
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
         Target target = validation.target();
         return dispatchService.stop(target.service(), target.stopPath(), body, traceIdOrEmpty(traceId))
@@ -80,7 +83,7 @@ public class FaultRunDispatchController {
         if (!body.keySet().equals(CLEANUP_FIELDS)) {
             return Mono.just(ApiResponse.error(400, "Invalid cleanup contract"));
         }
-        Validation validation = validate(body, true);
+        Validation validation = validate(body, true, true);
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
         Target target = validation.target();
         return dispatchService.cleanup(target.service(), target.cleanupPath(), body, traceIdOrEmpty(traceId))
@@ -149,7 +152,7 @@ public class FaultRunDispatchController {
                 .onErrorMap(error -> targetUnavailable(unavailableMessage, error));
     }
 
-    private Validation validate(Map<String, Object> body, boolean cleanup) {
+    private Validation validate(Map<String, Object> body, boolean cleanup, boolean allowLegacyRelease) {
         if (body == null || !body.keySet().equals(cleanup ? CLEANUP_FIELDS : REQUIRED_FIELDS)) {
             return Validation.invalid("Invalid Fault Run contract");
         }
@@ -157,6 +160,8 @@ public class FaultRunDispatchController {
         if (!identity.valid()) return identity;
         String scenario = String.valueOf(body.get("scenario"));
         Target target = TARGETS.get(scenario);
+        if (target == null && allowLegacyRelease && !cleanup) target = LEGACY_RELEASE_TARGETS.get(scenario);
+        if (target == null && allowLegacyRelease && cleanup) target = LEGACY_RELEASE_TARGETS.get(scenario);
         if (target == null) return Validation.invalid("Unknown Fault Run scenario");
         if (cleanup && !target.service().equals(body.get("targetService"))) {
             return Validation.invalid("Fixed target service does not match scenario");

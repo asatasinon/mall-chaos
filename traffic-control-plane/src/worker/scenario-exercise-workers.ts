@@ -1,9 +1,5 @@
-import { randomUUID } from 'node:crypto';
 import { getGatewayClient } from '../lib/gateway-client';
-import { createFaultRunContext } from '../lib/fault-run-context';
 import { appendFaultRunEvent, listActiveFaultRuns, type FaultRunRecord } from '../lib/fault-run-repository';
-import { loadExerciseAccounts } from '../lib/exercise-accounts';
-import { CustomerSessionManager } from './customer-session-manager';
 import { ControlledExerciseWorker } from './controlled-exercise-worker';
 
 export class ScenarioExerciseWorkers {
@@ -26,8 +22,7 @@ export class ScenarioExerciseWorkers {
   private async scan(): Promise<void> {
     const active = await listActiveFaultRuns();
     const eligible = active.filter((run) =>
-      run.scenario === 'CART_REDIS_LARGE_VALUE'
-      || run.scenario === 'PROMOTION_LOCK_CONTENTION'
+      run.scenario === 'PROMOTION_LOCK_CONTENTION'
       || run.scenario === 'INVENTORY_TABLE_EXCLUSIVE');
     const activeIds = new Set(eligible.map((run) => run.faultRunId));
     for (const [runId, current] of this.workers) {
@@ -41,51 +36,23 @@ export class ScenarioExerciseWorkers {
   private startRun(run: FaultRunRecord): void {
     const concurrency = boundedInteger(run.parameters.concurrency, 1, 32, 1);
     const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
-    let sessionManager: CustomerSessionManager | null = null;
-    let session: import('../lib/gateway-client').CustomerRequestContext | null = null;
-    const setup = async () => {
-      if (run.scenario !== 'CART_REDIS_LARGE_VALUE') return;
-      const sam = loadExerciseAccounts().find((candidate) => candidate.expectedCustomerId === 19);
-      if (!sam) throw new Error('SAM_EXERCISE_ACCOUNT_UNAVAILABLE');
-      sessionManager = new CustomerSessionManager({
-        gateway: this.gateway,
-        accounts: [sam],
-        allowExerciseAccounts: true,
-      });
-      session = await sessionManager.openSession(
-        run.faultRunId,
-        randomUUID(),
-        run.traceId ?? randomUUID(),
-        { faultRunContext: createFaultRunContext(run), faultRunScenario: run.scenario },
-      );
-    };
     const request = async (signal: AbortSignal) => {
-      if (run.scenario === 'CART_REDIS_LARGE_VALUE' && session) {
-        await this.gateway.customerPost('/api/cart/items', {
-          sku: 'SKU-001',
-          quantity: 1,
-          operationId: `${run.faultRunId}:${randomUUID()}`,
-        }, session, signal);
-      } else {
-        const observationPath = run.scenario === 'INVENTORY_TABLE_EXCLUSIVE'
-          ? '/internal/gateway/inventory/availability'
-          : '/internal/gateway/promotion/consistency';
-        await this.gateway.postInternal(observationPath, {
-          faultRunId: run.faultRunId,
-          expiresAt: run.expiresAt,
-          fencingToken: run.fencingToken,
-          idempotencyKey: run.idempotencyKey,
-        }, run.traceId ?? undefined, signal);
-      }
+      const observationPath = run.scenario === 'INVENTORY_TABLE_EXCLUSIVE'
+        ? '/internal/gateway/inventory/availability'
+        : '/internal/gateway/promotion/consistency';
+      await this.gateway.postInternal(observationPath, {
+        faultRunId: run.faultRunId,
+        expiresAt: run.expiresAt,
+        fencingToken: run.fencingToken,
+        idempotencyKey: run.idempotencyKey,
+      }, run.traceId ?? undefined, signal);
     };
     const worker = new ControlledExerciseWorker(run, { concurrency, requestIntervalMs, request });
-    const promise = setup()
-      .then(() => worker.start())
+    const promise = worker.start()
       .catch(async (error) => {
         await appendWorkerFailure(run, error);
       })
       .finally(async () => {
-        if (session && sessionManager) await sessionManager.closeSession(session.lifecycleId, session.traceId).catch(() => undefined);
         await appendFaultRunEvent(run.faultRunId, 'SCENARIO_WORKER_DRAINED', worker.snapshot()).catch(() => undefined);
         this.workers.delete(run.faultRunId);
       });

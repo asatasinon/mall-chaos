@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase A-B 已完成，Phase C-G 待实施 |
+| 状态 | Phase A-B 已完成，Phase C 进行中，Phase D-G 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-09-02 CST（Phase B 完成） |
+| 更新时间 | 2026-09-02 CST（Phase C 进行中） |
 | 关联产品规格 | [product.md](product.md) |
 | 关联技术设计 | [tech.md](tech.md) |
 
@@ -32,12 +32,12 @@
 | --- | --- | --- | --- | --- |
 | A | 商品详情缓存契约与 Cache Resolver | 已完成 | 5 / 5 | 无 |
 | B | 正常生命周期商品详情步骤 | 已完成 | 4 / 4 | A |
-| C | Fault Run Catalog、Gateway 与 Coordinator | 待实施 | 0 / 5 | A |
+| C | Fault Run Catalog、Gateway 与 Coordinator | 进行中 | 3 / 5 | A |
 | D | Catalog Hash 生成、Marker、Fencing 与清理 | 待实施 | 0 / 6 | A、C |
 | E | 大值读取 Worker、停止与观测 | 待实施 | 0 / 4 | C、D |
 | F | Traffic/Fault Run 页面与文档同步 | 待实施 | 0 / 4 | C、D、E |
 | G | 测试、Smoke、恢复与发布验收 | 待实施 | 0 / 7 | A 至 F |
-| **合计** |  | **进行中** | **9 / 35** |  |
+| **合计** |  | **进行中** | **12 / 35** |  |
 
 ---
 
@@ -196,7 +196,7 @@
 
 ## Phase C：Fault Run Catalog、Gateway 与 Coordinator
 
-**阶段状态：待实施**
+**阶段状态：进行中**
 **阶段进度：0 / 5**
 
 **当前问题**
@@ -213,69 +213,69 @@
 
 ### C1. 替换 Fault Run 场景定义
 
-- [ ] 在 `fault-run-catalog.ts` 将 `CART_REDIS_LARGE_VALUE` 替换为 `CATALOG_REDIS_LARGE_VALUE`。
-- [ ] 固定 `targetService=catalog-service`、`targetOperation=catalog-product-detail-large-value`、`recoveryStrategy=TARGET` 和 manual cleanup 能力。
-- [ ] 参数改为 `durationSec`、`memberCount`、`memberSizeBytes`、`concurrency`、`requestIntervalMs`、`keyTtlSec`。
-- [ ] 保证参数名称、默认值、单位、错误码和页面提示与 `tech.md` 一致。
+- [x] 在 `fault-run-catalog.ts` 将 `CART_REDIS_LARGE_VALUE` 替换为 `CATALOG_REDIS_LARGE_VALUE`。
+- [x] 固定 `targetService=catalog-service`、`targetOperation=catalog-product-detail-large-value`、`recoveryStrategy=TARGET` 和 manual cleanup 能力。
+- [x] 参数改为 `durationSec`、`memberCount`、`memberSizeBytes`、`concurrency`、`requestIntervalMs`、`keyTtlSec`。
+- [x] 保证参数名称、默认值、单位、错误码和页面提示与 `tech.md` 一致。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：删除旧场景的创建入口，不保留两个可以同时创建的 Redis 大值实现。
+- 进度：`1 / 1`
+- 问题：旧 Cart 场景仍存在于部分 UI、worker 和历史文档，不能在 catalog 替换后继续作为可创建入口。
+- 可能的解决方案：catalog 已改为 `CATALOG_REDIS_LARGE_VALUE`；C3 保留旧 Cart 仅释放/清理兼容，C5 再完成迁移盘点，Phase F 同步 UI 文案。catalog focused tests 已通过。
 
 ### C2. 增加 N/S/总预算/TTL 交叉校验
 
-- [ ] 校验所有参数为有限整数，并分别限制 member 数、单 member 大小、读取并发、读取间隔和运行时长。
-- [ ] 校验 `memberCount` 不超过可售 SKU 数减一，始终保留 probe SKU。
-- [ ] 校验 `memberCount * memberSizeBytes` 不超过部署侧 aggregate logical budget。
-- [ ] 校验 `keyTtlSec` 覆盖 `durationSec` 和清理余量，不允许用短 TTL 让 ACTIVE 运行自然丢失数据。
+- [x] 校验所有参数为有限整数，并分别限制 member 数、单 member 大小、读取并发、读取间隔和运行时长。
+- [x] 校验 `memberCount` 不超过可售 SKU 数减一，始终保留 probe SKU。
+- [x] 校验 `memberCount * memberSizeBytes` 不超过部署侧 aggregate logical budget。
+- [x] 校验 `keyTtlSec` 覆盖 `durationSec` 和清理余量，不允许用短 TTL 让 ACTIVE 运行自然丢失数据。
 - [ ] 在 Catalog target 重复执行权威校验，不依赖前端归一化。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：控制面负责快速反馈，Catalog 负责最终拒绝；推荐默认 logical budget 设为 64 MiB，并允许部署侧收紧。
+- 进度：`进行中（3 / 4 条检查完成）`
+- 问题：控制面无法读取 Catalog 当前可售 SKU 数，因此只能先使用静态上限 47；Catalog target 尚未实现，无法执行最终的 envelope 最小长度、实时可售 SKU 和服务端 aggregate budget 复核。旧运行盘点还需要可用的 Fault Run 数据库。
+- 可能的解决方案：控制面已实现 47、256B-4MiB、64MiB aggregate budget 和 TTL+60s 校验；将 Catalog target 的最终校验放入 Phase D D1-D3，并让 start 在服务端再次拒绝不合法请求。catalog focused tests 已覆盖控制面预算、TTL、N/S 和旧参数拒绝。
 
 ### C3. 更新 Gateway 固定映射与内部 contract
 
-- [ ] 更新 `FaultRunDispatchController` 的 Catalog start/stop/cleanup 固定映射和 operation 校验。
-- [ ] 保持 `ScenarioRunContext`、内部服务认证、expiresAt、fencingToken 和 idempotencyKey 的转发。
-- [ ] 拒绝错误 scenario、错误 operation、错误 target service、任意 URL、任意 Redis key 和批量 targets。
-- [ ] 确认公开 `/api/products/{sku}` 路由仍只转发正常商品详情请求。
+- [x] 更新 `FaultRunDispatchController` 的 Catalog start/stop/cleanup 固定映射和 operation 校验。
+- [x] 保持 `ScenarioRunContext`、内部服务认证、expiresAt、fencingToken 和 idempotencyKey 的转发。
+- [x] 拒绝错误 scenario、错误 operation、错误 target service、任意 URL、任意 Redis key 和批量 targets。
+- [x] 确认公开 `/api/products/{sku}` 路由仍只转发正常商品详情请求。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：继续使用 Gateway 硬编码/固定映射，不让 target 由 UI 或 request body 决定。
+- 进度：`1 / 1`
+- 问题：旧 Cart stop/per-run cleanup 兼容与新 Catalog start/stop/cleanup 共享 Gateway contract，需要确保旧场景不能 start，也不能执行 scenario-wide cleanup。
+- 可能的解决方案：TARGETS 只注册 Catalog；旧 Cart 只进入 release-only 兼容表，start 和 scenario-wide cleanup 校验不接受。Gateway focused test 已覆盖新 Catalog start、旧 Cart start 拒绝和旧 Cart scenario-wide cleanup 拒绝。
 
 ### C4. 扩展 target summary 持久化
 
-- [ ] 修改 Coordinator/Repository/Event 类型，使 target start 返回值可以写入 `TARGET_CONFIRMED` 或等价 detail summary。
-- [ ] 保存 `layout=HASH`、Hash namespace、memberCount、memberSizeBytes、logicalBytes、observedBytes、probeSku、member SKU 摘要和 TTL。
-- [ ] 限制成员摘要长度，禁止保存完整 value、密码、token 或 authorization header。
-- [ ] 让控制面重启后仍能为 worker 和详情页面提供已确认的成员集合。
+- [x] 修改 Coordinator/Repository/Event 类型，使 target start 返回值可以写入 `TARGET_CONFIRMED` 或等价 detail summary。
+- [x] 保存 `layout=HASH`、Hash namespace、memberCount、memberSizeBytes、logicalBytes、observedBytes、probeSku、member SKU 摘要和 TTL。
+- [x] 限制成员摘要长度，禁止保存完整 value、密码、token 或 authorization header。
+- [x] 让控制面重启后仍能为 worker 和详情页面提供已确认的成员集合。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：优先扩展现有 `fault_run_events` payload，只有查询/大小需要时才扩充主表字段。
+- 进度：`1 / 1`
+- 问题：target summary 目前通过 `TARGET_CONFIRMED` 事件保存，主表没有独立 summary 字段；详情/worker 读取时需要按事件聚合。
+- 可能的解决方案：先使用现有事件 payload 保存安全 summary，并限制 Hash key、SKU 和数组长度；若页面查询证明事件聚合不足，再增加 repository projection。Coordinator focused test 已验证真实 Gateway 双层响应和完整 value 被丢弃。
 
 ### C5. 完成 Phase C 阶段验收和旧运行迁移检查
 
-- [ ] 验证旧 Cart 场景不再出现在可创建 catalog 中。
-- [ ] 验证新场景的参数未知项、边界值、总预算和 TTL 错误均被拒绝。
-- [ ] 验证 Gateway 只能分发到 Catalog 固定目标。
-- [ ] 盘点并停止/清理旧 `CART_REDIS_LARGE_VALUE` ACTIVE/RECOVERING 运行，记录迁移结果。
+- [x] 验证旧 Cart 场景不再出现在可创建 catalog 中。
+- [x] 验证新场景的参数未知项、边界值、总预算和 TTL 错误均被拒绝。
+- [x] 验证 Gateway 只能分发到 Catalog 固定目标。
+- [-] 盘点并停止/清理旧 `CART_REDIS_LARGE_VALUE` ACTIVE/RECOVERING 运行，记录迁移结果。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：迁移前查询 Fault Run 状态；旧运行只走受保护清理路径，不让新 Catalog marker 与旧 Cart key 并存为可操作场景。
+- 进度：`进行中（3 / 4 条检查完成）`
+- 问题：当前 Compose 没有运行服务，且本机 MySQL `127.0.0.1:13306` 连接被拒绝，无法查询 `fault_runs` 判断旧 `CART_REDIS_LARGE_VALUE` 是否存在 ACTIVE/RECOVERING 运行，也不能执行真实 stop/cleanup。
+- 可能的解决方案：代码层已移除旧创建入口和 scenario-wide cleanup，保留 per-run release/cleanup 兼容；启动干净 Compose 后执行只读状态盘点，若有旧活动运行则逐条用受保护 per-run stop/cleanup 处理并记录结果。
 
 ---
 
@@ -636,7 +636,7 @@
 
 | 更新时间 | 已完成 | 总任务 | 当前阶段 | 主要问题 | 可能的解决方案 |
 | --- | ---: | ---: | --- | --- | --- |
-| 2026-09-02 CST | 9 | 35 | Phase C：Fault Run Catalog、Gateway 与 Coordinator | Phase D 尚未发布 active marker；真实 Redis/Compose 行为仍待验收 | Phase A-B 已建立 Catalog cache resolver、必经 `PRODUCT_DETAIL_READ`、稳定 probe 选择和受限 timeout；下一步迁移 Fault Run target，再由 Phase D 发布运行 marker |
+| 2026-09-02 CST | 12 | 35 | Phase C：Fault Run Catalog、Gateway 与 Coordinator | C2 的 Catalog target 权威校验和 C5 旧 Fault Run ACTIVE/RECOVERING 数据库盘点仍未完成；本机 MySQL `127.0.0.1:13306` 连接被拒绝，Phase D 尚未发布 active marker | Phase A-B 已建立 Catalog cache resolver、必经 `PRODUCT_DETAIL_READ`、稳定 probe 选择和受限 timeout；C1、C3、C4 已完成，C2 target 校验留给 Phase D；启动可用 Compose 后再盘点/清理旧运行 |
 
 ## 变更记录
 
@@ -645,6 +645,8 @@
 | 2026-09-02 CST | 创建专题任务清单，按 `tech.md` 拆分为 7 个阶段、35 个任务 | 为实现商品详情 cache-aside 和 Hash 大值场景提供可追踪执行入口 | 新增状态/进度/问题/解决方案/验收记录；旧 Cart/Sam 大值方案按迁移任务处理 |
 | 2026-09-02 CST | 完成 Phase A：缓存协议、envelope、Redis-first 读取、数据库 timeout 和 focused tests | 开始按任务清单实施 | A1-A5 标记完成，进度更新为 5/35；Phase D 的 marker provisioning 和真实 Compose 验证保留为后续任务 |
 | 2026-09-02 CST | 完成 Phase B：必经商品详情读取、probe 选择、响应校验、request deadline 和 lifecycle tests | 让正常生命周期稳定触发商品详情缓存链路，并为大值运行保留未生成 probe field | B1-B4 标记完成，进度更新为 9/35；Catalog target 的实际 marker/Hash provisioning 仍在 Phase D |
+| 2026-09-02 CST | 完成 Phase C1、C3、C4，并完成 C2 控制面校验 | 将旧 Cart 大值创建契约迁移到 Catalog，并让 worker/UI 后续能够识别安全的运行摘要 | C1、C3、C4 标记完成；C2 的 Catalog target 权威校验留给 Phase D，C5 旧运行盘点因本机 MySQL 未启动暂缓，整体进度为 12/35 |
+| 2026-09-02 CST | 收紧旧 Cart release-only 边界并更新 Catalog 场景 UI 元数据 | 避免旧 scenario-wide cleanup 继续影响新商品详情场景 | Gateway 仅允许旧 Cart per-run stop/cleanup 兼容；旧 Cart start 和 scenario-wide cleanup 被拒绝；相关 focused Gateway 测试通过 |
 
 ## 完成定义
 

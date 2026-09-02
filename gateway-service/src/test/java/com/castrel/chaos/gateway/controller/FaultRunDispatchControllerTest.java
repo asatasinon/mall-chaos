@@ -65,4 +65,50 @@ class FaultRunDispatchControllerTest {
         assertThat(response).isNotNull();
         assertThat(response.getCode()).isEqualTo(400);
     }
+
+    @Test
+    void dispatchesCatalogLargeValueToTheFixedCatalogTarget() {
+        Map<String, Object> body = new LinkedHashMap<>(OPERATION_CONTEXT);
+        body.put("scenario", "CATALOG_REDIS_LARGE_VALUE");
+        body.put("operation", "catalog-product-detail-large-value");
+        body.put("parameters", Map.of(
+                "durationSec", 30,
+                "memberCount", 8,
+                "memberSizeBytes", 65536,
+                "concurrency", 4,
+                "requestIntervalMs", 100,
+                "keyTtlSec", 900));
+        when(dispatchService.start(
+                "catalog-service", "/internal/catalog/fault-runs/start", body, "trace-2"))
+                .thenReturn(Mono.just(Map.of("accepted", true, "layout", "HASH")));
+
+        var response = controller.start(body, "trace-2").block();
+
+        assertThat(response).isNotNull();
+        assertThat(response.getCode()).isEqualTo(200);
+        verify(dispatchService).start(
+                "catalog-service", "/internal/catalog/fault-runs/start", body, "trace-2");
+    }
+
+    @Test
+    void rejectsLegacyCartLargeValueStart() {
+        Map<String, Object> startBody = new LinkedHashMap<>(OPERATION_CONTEXT);
+        startBody.put("scenario", "CART_REDIS_LARGE_VALUE");
+        startBody.put("operation", "cart-large-value");
+        startBody.put("parameters", Map.of("durationSec", 30));
+
+        var startResponse = controller.start(startBody, "trace-3").block();
+
+        assertThat(startResponse).isNotNull();
+        assertThat(startResponse.getCode()).isEqualTo(400);
+    }
+
+    @Test
+    void rejectsLegacyCartScenarioWideCleanup() {
+        var response = controller.cleanupScenario(
+                Map.of("scenario", "CART_REDIS_LARGE_VALUE"), "trace-4").block();
+
+        assertThat(response).isNotNull();
+        assertThat(response.getCode()).isEqualTo(400);
+    }
 }

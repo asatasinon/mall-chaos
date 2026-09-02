@@ -12,7 +12,7 @@ export type FaultRunScenario =
   | 'ORDER_REPORT_SQL'
   | 'BROWSE_SURGE'
   | 'ORDER_QUERY_SURGE'
-  | 'CART_REDIS_LARGE_VALUE'
+  | 'CATALOG_REDIS_LARGE_VALUE'
   | 'CART_CATALOG_DEPENDENCY'
   | 'NOTIFICATION_HEAP_PRESSURE'
   | 'NOTIFICATION_STORAGE_APPEND'
@@ -72,6 +72,9 @@ const requestInterval: FaultRunParameterDefinition = {
   min: 0,
   max: 60_000,
 };
+
+const CATALOG_LARGE_VALUE_CLEANUP_GRACE_SEC = 60;
+const CATALOG_LARGE_VALUE_MAX_LOGICAL_BYTES = 64 * 1024 * 1024;
 
 const BYTE_UNIT_MULTIPLIERS: Record<string, number> = {
   B: 1,
@@ -143,18 +146,17 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     parameters: [duration, boundedConcurrency, requestInterval,
       { name: 'pageSize', kind: 'integer', default: 20, min: 1, max: 50 }],
   },
-  CART_REDIS_LARGE_VALUE: {
-    scenario: 'CART_REDIS_LARGE_VALUE',
-    targetService: 'cart-service',
-    targetOperation: 'cart-large-value',
+  CATALOG_REDIS_LARGE_VALUE: {
+    scenario: 'CATALOG_REDIS_LARGE_VALUE',
+    targetService: 'catalog-service',
+    targetOperation: 'catalog-product-detail-large-value',
     maxDurationSec: 1800,
     recoveryStrategy: 'TARGET',
     allowManualCleanup: true,
     parameters: [duration, boundedConcurrency, requestInterval,
-      { name: 'fieldCount', kind: 'integer', default: 8, min: 1, max: 64 },
-      { name: 'fieldSizeBytes', kind: 'integer', unit: 'bytes', default: '1K', min: 1, max: 65536 },
-      { name: 'totalSizeBytes', kind: 'integer', unit: 'bytes', default: '8K', min: 1, max: 1048576 },
-      { name: 'keyTtlSec', kind: 'integer', default: 600, min: 1, max: 3600 }],
+      { name: 'memberCount', kind: 'integer', default: 8, min: 1, max: 47 },
+      { name: 'memberSizeBytes', kind: 'integer', unit: 'bytes', default: '64K', min: 256, max: 4 * 1024 * 1024 },
+      { name: 'keyTtlSec', kind: 'integer', default: 900, min: 1, max: 3600 }],
   },
   CART_CATALOG_DEPENDENCY: {
     scenario: 'CART_CATALOG_DEPENDENCY',
@@ -286,5 +288,23 @@ export function validateScenarioParameters(
   if (durationSec > definition.maxDurationSec) {
     throw new FaultRunValidationError('DURATION_EXCEEDS_SCENARIO_LIMIT');
   }
+  if (scenario === 'CATALOG_REDIS_LARGE_VALUE') {
+    validateCatalogLargeValueParameters(result, durationSec);
+  }
   return result;
+}
+
+function validateCatalogLargeValueParameters(
+  parameters: Record<string, number | string>,
+  durationSec: number,
+): void {
+  const memberCount = Number(parameters.memberCount);
+  const memberSizeBytes = Number(parameters.memberSizeBytes);
+  const keyTtlSec = Number(parameters.keyTtlSec);
+  if (memberCount * memberSizeBytes > CATALOG_LARGE_VALUE_MAX_LOGICAL_BYTES) {
+    throw new FaultRunValidationError('AGGREGATE_LOGICAL_BYTES_EXCEEDS_LIMIT');
+  }
+  if (keyTtlSec < durationSec + CATALOG_LARGE_VALUE_CLEANUP_GRACE_SEC) {
+    throw new FaultRunValidationError('KEY_TTL_TOO_SHORT');
+  }
 }

@@ -11,7 +11,9 @@ test('catalog exposes one fixed target for every scenario', () => {
   const definitions = listScenarioDefinitions();
   assert.equal(definitions.length, 11);
   assert.equal(new Set(definitions.map((definition) => definition.scenario)).size, definitions.length);
-  assert.equal(getScenarioDefinition('CART_REDIS_LARGE_VALUE').targetService, 'cart-service');
+  assert.equal(getScenarioDefinition('CATALOG_REDIS_LARGE_VALUE').targetService, 'catalog-service');
+  assert.equal(getScenarioDefinition('CATALOG_REDIS_LARGE_VALUE').targetOperation,
+    'catalog-product-detail-large-value');
   assert.equal(getScenarioDefinition('INVENTORY_TABLE_EXCLUSIVE').targetOperation, 'inventory-availability-report');
 });
 
@@ -36,17 +38,16 @@ test('catalog validates required duration and bounded optional parameters', () =
 
 test('catalog normalizes short and full byte units', () => {
   assert.deepEqual(
-    validateScenarioParameters('CART_REDIS_LARGE_VALUE', {
-      durationSec: 30, fieldSizeBytes: '15kb', totalSizeBytes: '512kB',
+    validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', {
+      durationSec: 30, memberSizeBytes: '64kb',
     }),
     {
       durationSec: 30,
       concurrency: 4,
       requestIntervalMs: 100,
-      fieldCount: 8,
-      fieldSizeBytes: 15 * 1024,
-      totalSizeBytes: 512 * 1024,
-      keyTtlSec: 600,
+      memberCount: 8,
+      memberSizeBytes: 64 * 1024,
+      keyTtlSec: 900,
     },
   );
   assert.deepEqual(
@@ -116,6 +117,37 @@ test('catalog rejects unknown scenarios and duration above scenario limit', () =
   assert.throws(
     () => validateScenarioParameters('BROWSE_SURGE', { durationSec: 1801 }),
     (error: unknown) => error instanceof FaultRunValidationError && error.message === 'DURATION_EXCEEDS_SCENARIO_LIMIT',
+  );
+});
+
+test('catalog enforces Hash member budget and a TTL that covers the run', () => {
+  assert.throws(
+    () => validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', {
+      durationSec: 600, memberCount: 47, memberSizeBytes: '2M', keyTtlSec: 900,
+    }),
+    (error: unknown) => error instanceof FaultRunValidationError
+      && error.message === 'AGGREGATE_LOGICAL_BYTES_EXCEEDS_LIMIT',
+  );
+  assert.throws(
+    () => validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', {
+      durationSec: 600, memberCount: 8, memberSizeBytes: '64K', keyTtlSec: 600,
+    }),
+    (error: unknown) => error instanceof FaultRunValidationError
+      && error.message === 'KEY_TTL_TOO_SHORT',
+  );
+  assert.throws(
+    () => validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', {
+      durationSec: 30, memberCount: 48, memberSizeBytes: '64K', keyTtlSec: 900,
+    }),
+    (error: unknown) => error instanceof FaultRunValidationError
+      && error.message === 'INVALID_PARAMETER:memberCount',
+  );
+  assert.throws(
+    () => validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', {
+      durationSec: 30, fieldCount: 8, memberSizeBytes: '64K', keyTtlSec: 900,
+    }),
+    (error: unknown) => error instanceof FaultRunValidationError
+      && error.message === 'UNKNOWN_PARAMETER:fieldCount',
   );
 });
 

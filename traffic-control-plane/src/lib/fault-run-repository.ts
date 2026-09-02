@@ -32,6 +32,25 @@ export interface FaultRunEventRecord {
   createdAt: string;
 }
 
+export interface FaultRunTargetSummary {
+  accepted?: boolean;
+  layout?: 'HASH';
+  hashKey?: string;
+  memberCount?: number;
+  memberSizeBytes?: number;
+  logicalBytes?: number;
+  observedBytes?: number;
+  probeSku?: string;
+  memberSkus?: string[];
+  expiresAt?: string;
+  keyTtlSec?: number;
+}
+
+export interface FaultRunTargetConfirmedPayload {
+  targetService: string;
+  targetSummary?: FaultRunTargetSummary;
+}
+
 export interface FaultRunAuditRecord {
   id: number;
   operatorId: number | null;

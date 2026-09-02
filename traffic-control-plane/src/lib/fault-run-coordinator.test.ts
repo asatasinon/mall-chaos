@@ -9,6 +9,7 @@ const runId = '123e4567-e89b-12d3-a456-426614174000';
 class MemoryFaultRunStore implements FaultRunStore {
   run: FaultRunRecord | null = null;
   events: string[] = [];
+  eventPayloads: unknown[] = [];
 
   async create(input: CreateFaultRunInput) {
     if (this.run) return { run: this.run, created: false };
@@ -33,6 +34,7 @@ class MemoryFaultRunStore implements FaultRunStore {
       updatedAt: new Date().toISOString(),
     };
     this.events.push('CREATED');
+    this.eventPayloads.push(undefined);
     return { run: this.run, created: true };
   }
 
@@ -59,10 +61,14 @@ class MemoryFaultRunStore implements FaultRunStore {
       recoveryError: details.recoveryError ?? this.run.recoveryError,
     };
     this.events.push(details.eventType);
+    this.eventPayloads.push(details.payload);
     return this.run;
   }
 
-  async appendEvent(_faultRunId: string, eventType: string) { this.events.push(eventType); }
+  async appendEvent(_faultRunId: string, eventType: string, payload?: unknown) {
+    this.events.push(eventType);
+    this.eventPayloads.push(payload);
+  }
 }
 
 class MemoryTargetAdapter implements FaultRunTargetAdapter {
@@ -71,10 +77,12 @@ class MemoryTargetAdapter implements FaultRunTargetAdapter {
   compensations = 0;
   failStart = false;
   failStop = false;
+  startResult: unknown = undefined;
 
   async start() {
     this.starts++;
     if (this.failStart) throw new Error('TARGET_START_FAILED');
+    return this.startResult;
   }
 
   async stop() {
@@ -110,6 +118,64 @@ test('coordinator completes active, manual stop, and expiry lifecycles without a
   const repeated = await coordinator.stop(runId);
   assert.equal(repeated?.state, 'STOPPED');
   assert.equal(target.stops, 1);
+});
+
+test('coordinator stores a bounded catalog target summary in TARGET_CONFIRMED', async () => {
+  const store = new MemoryFaultRunStore();
+  const target = new MemoryTargetAdapter();
+  target.startResult = {
+    code: 200,
+    data: {
+      code: 200,
+      data: {
+        accepted: true,
+        layout: 'HASH',
+        hashKey: `catalog:product-detail:exercise:${runId}`,
+        memberCount: 8,
+        memberSizeBytes: 65536,
+        logicalBytes: 524288,
+        observedBytes: 540000,
+        probeSku: 'SKU-050',
+        memberSkus: ['SKU-001', 'SKU-002'],
+        expiresAt: '2099-01-01T00:00:00Z',
+        keyTtlSec: 900,
+        value: 'must-not-be-persisted',
+      },
+    },
+  };
+  const coordinator = new FaultRunCoordinator(target, store);
+
+  await coordinator.create({
+    scenario: 'CATALOG_REDIS_LARGE_VALUE',
+    parameters: {
+      durationSec: 30,
+      concurrency: 4,
+      requestIntervalMs: 100,
+      memberCount: 8,
+      memberSizeBytes: 65536,
+      keyTtlSec: 900,
+    },
+    idempotencyKey: 'catalog-summary-001',
+    traceId: 'trace-summary',
+  });
+
+  const confirmed = store.eventPayloads[store.events.lastIndexOf('TARGET_CONFIRMED')] as {
+    targetSummary?: Record<string, unknown>;
+  };
+  assert.deepEqual(confirmed.targetSummary, {
+    accepted: true,
+    layout: 'HASH',
+    hashKey: `catalog:product-detail:exercise:${runId}`,
+    memberCount: 8,
+    memberSizeBytes: 65536,
+    logicalBytes: 524288,
+    observedBytes: 540000,
+    probeSku: 'SKU-050',
+    memberSkus: ['SKU-001', 'SKU-002'],
+    expiresAt: '2099-01-01T00:00:00Z',
+    keyTtlSec: 900,
+  });
+  await coordinator.stop(runId);
 });
 
 test('coordinator compensates a failed create and marks it failed', async () => {
