@@ -329,6 +329,8 @@ continue existing CART -> CHECKOUT -> ORDER -> PAYMENT/CANCEL flow
 - 更新现有 lifecycle test mock，至少断言请求顺序为 `BROWSE_CATALOG -> /api/products/{sku} -> CART_READ_INITIAL`。
 - 正常生命周期不依赖 marker 内容；它只调用公开商品详情 API，因此 Shopfront 与 Runner 都走同一 resolver。
 
+调用方商品详情 deadline 由 `PRODUCT_DETAIL_REQUEST_TIMEOUT_MS` 配置，默认 `5000ms`，服务端将有效值限制在 `100ms..30000ms`。orchestrator 为每次详情读取创建独立 `AbortController`：父生命周期 signal 触发时返回 `LIFECYCLE_INTERRUPTED`，内部 deadline 触发时返回 `PRODUCT_DETAIL_TIMEOUT`；两者都不会继续读取购物车或重复提交后续业务操作。
+
 ## 10. Stop、fencing 与清理
 
 ### 10.1 停止顺序

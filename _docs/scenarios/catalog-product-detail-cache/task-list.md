@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase A 已完成，Phase B-G 待实施 |
+| 状态 | Phase A-B 已完成，Phase C-G 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-09-02 CST（Phase A 完成） |
+| 更新时间 | 2026-09-02 CST（Phase B 完成） |
 | 关联产品规格 | [product.md](product.md) |
 | 关联技术设计 | [tech.md](tech.md) |
 
@@ -31,13 +31,13 @@
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
 | A | 商品详情缓存契约与 Cache Resolver | 已完成 | 5 / 5 | 无 |
-| B | 正常生命周期商品详情步骤 | 待实施 | 0 / 4 | A |
+| B | 正常生命周期商品详情步骤 | 已完成 | 4 / 4 | A |
 | C | Fault Run Catalog、Gateway 与 Coordinator | 待实施 | 0 / 5 | A |
 | D | Catalog Hash 生成、Marker、Fencing 与清理 | 待实施 | 0 / 6 | A、C |
 | E | 大值读取 Worker、停止与观测 | 待实施 | 0 / 4 | C、D |
 | F | Traffic/Fault Run 页面与文档同步 | 待实施 | 0 / 4 | C、D、E |
 | G | 测试、Smoke、恢复与发布验收 | 待实施 | 0 / 7 | A 至 F |
-| **合计** |  | **进行中** | **5 / 35** |  |
+| **合计** |  | **进行中** | **9 / 35** |  |
 
 ---
 
@@ -127,70 +127,70 @@
 
 ## Phase B：正常生命周期商品详情步骤
 
-**阶段状态：待实施**
-**阶段进度：0 / 4**
+**阶段状态：已完成**
+**阶段进度：4 / 4**
 
 **当前问题**
 
-- 生命周期当前只在购物车商品不在初始目录结果中时，条件性调用商品详情；不能稳定覆盖商品详情缓存路径。
-- 如果 probe SKU 与大值 target 的选择规则不一致，生命周期可能误命中已生成 field，无法验证 miss 回源。
-- 当前 Gateway 请求没有统一的商品详情内部 deadline，慢请求可能依赖下游默认超时。
+- 生命周期此前只在购物车商品不在初始目录结果时条件性调用商品详情，不能稳定覆盖商品详情缓存路径；现已增加必经步骤。
+- probe SKU 与大值 target 的全量选择契约仍需在 Phase D 汇合；当前生命周期已按实际目录结果稳定排序选择 probe。
+- 商品详情请求此前依赖下游默认超时；现已增加调用方受限 deadline，Catalog target 的全量压力验证仍属于 Phase G。
 
 **可能的解决方案**
 
 - 在 `LOGIN -> BROWSE_CATALOG` 后增加必经 `PRODUCT_DETAIL_READ`，从真实目录响应选择 SKU。
-- Catalog target 固定保留一个不生成的 probe SKU；生命周期使用同一稳定选择规则。
-- 在 lifecycle orchestrator 为该步骤使用明确 request budget，并将中断与 timeout 分开记录。
+- 生命周期按 SKU 稳定排序取最后一个作为 probe；Phase D target 使用同一规则保留不生成的 field。
+- orchestrator 使用 100ms 至 30s 的受限 request budget，并将中断与 timeout 分开记录。
 
 ### B1. 增加必经 `PRODUCT_DETAIL_READ` 步骤
 
-- [ ] 在 `TrafficActionOrchestrator.executeLifecycle()` 的登录和商品浏览成功后插入商品详情读取。
-- [ ] 使用现有 `GatewayClient.customerGet('/api/products/{sku}')`，保持 bearer session、trace 和 caller signal。
-- [ ] 详情步骤完成后才进入 `CART_READ_INITIAL`，失败不能悄悄跳过并报告完整生命周期成功。
+- [x] 在 `TrafficActionOrchestrator.executeLifecycle()` 的登录和商品浏览成功后插入商品详情读取。
+- [x] 使用现有 `GatewayClient.customerGet('/api/products/{sku}')`，保持 bearer session、trace 和 caller signal。
+- [x] 详情步骤完成后才进入 `CART_READ_INITIAL`，失败不能悄悄跳过并报告完整生命周期成功。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：复用现有 `runStep()`，使详情请求自动写入父子 activity 和 latency。
+- 进度：`1 / 1`
+- 问题：无新增问题；详情失败会在购物车读取之前终止本次生命周期。
+- 可能的解决方案：复用现有 `runStep()`，使用当前 customer session、trace 和 caller signal；已通过生命周期 focused test。
 
 ### B2. 实现稳定 probe SKU 选择和响应校验
 
-- [ ] 从 `findSellableProducts()` 的实际结果中选择 probe SKU，不使用固定下架 SKU 或独立猜测的 SKU。
-- [ ] 与 Catalog target 约定稳定排序/保留规则，并在页面或 summary 中记录 probe 摘要。
-- [ ] 校验 `response.data.sku` 与请求 SKU 一致，缺失或错配返回稳定错误码。
-- [ ] 确保详情读取不改变后续购物车选品集合。
+- [x] 从 `findSellableProducts()` 的实际结果中选择 probe SKU，不使用固定下架 SKU 或独立猜测的 SKU。
+- [x] 与 Catalog target 约定稳定排序/保留规则，并在页面或 summary 中记录 probe 摘要。
+- [x] 校验 `response.data.sku` 与请求 SKU 一致，缺失或错配返回稳定错误码。
+- [x] 确保详情读取不改变后续购物车选品集合。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：以实际目录结果为唯一候选来源；如果有界浏览未包含 probe，则记录明确 NOOP/失败，不请求固定未知 SKU。
+- 进度：`1 / 1`
+- 问题：Catalog target 的全量 SKU 选择将在 Phase D 实现；当前 lifecycle 已对有界目录结果按 SKU 稳定排序选择最后一个作为 probe。
+- 可能的解决方案：保持与 `tech.md` 的“稳定排序后保留最后一个 probe”规则一致；若目录没有合法 probe，返回 `PRODUCT_DETAIL_NO_PROBE`，不猜测固定 SKU。已通过错配响应测试。
 
 ### B3. 增加详情请求 deadline 和 timeout 结果
 
-- [ ] 为商品详情请求增加可配置但服务端受限的 request deadline。
-- [ ] 区分 `LIFECYCLE_INTERRUPTED`、`PRODUCT_DETAIL_TIMEOUT`、HTTP 错误和响应格式错误。
-- [ ] 确保 timeout 后 session 仍按既有 finally 路径关闭，订单/购物车状态不被错误重试。
+- [x] 为商品详情请求增加可配置但服务端受限的 request deadline。
+- [x] 区分 `LIFECYCLE_INTERRUPTED`、`PRODUCT_DETAIL_TIMEOUT`、HTTP 错误和响应格式错误。
+- [x] 确保 timeout 后 session 仍按既有 finally 路径关闭，订单/购物车状态不被错误重试。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：使用 `AbortController` 派生 deadline signal，并在 `GatewayClient`/orchestrator 之间明确 signal 所有权。
+- 进度：`1 / 1`
+- 问题：调用方 timeout 默认 5 秒，服务端限制在 100ms 至 30s；Catalog/Redis/DB 内部 timeout 与调用方预算仍需在集成验证中对齐。
+- 可能的解决方案：orchestrator 派生独立 `AbortController`，父 signal 只负责中断传播；deadline 映射为 `PRODUCT_DETAIL_TIMEOUT`，父 signal 映射为 `LIFECYCLE_INTERRUPTED`。已通过 100ms timeout、父 signal 中断和 session cleanup 测试。
 
 ### B4. 完成 Phase B 阶段验收
 
-- [ ] 验证 lifecycle 步骤顺序为 `LOGIN -> BROWSE_CATALOG -> PRODUCT_DETAIL_READ -> CART_READ_INITIAL`。
-- [ ] 验证商品详情请求经 Gateway、使用当前客户会话和 trace，不发送伪造 Fault Run header。
-- [ ] 验证商品详情失败/timeout 被记录为子步骤失败，后续不伪造成功结果。
-- [ ] 更新 `traffic-lifecycle-orchestrator.test.ts` 和相关 activity 断言。
+- [x] 验证 lifecycle 步骤顺序为 `LOGIN -> BROWSE_CATALOG -> PRODUCT_DETAIL_READ -> CART_READ_INITIAL`。
+- [x] 验证商品详情请求经 Gateway、使用当前客户会话和 trace，不发送伪造 Fault Run header。
+- [x] 验证商品详情失败/timeout 被记录为子步骤失败，后续不伪造成功结果。
+- [x] 更新 `traffic-lifecycle-orchestrator.test.ts` 和相关 activity 断言。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：先补最小 mock，再补 response 校验和 timeout 测试，保持购物车/checkout 分支测试不变。
+- 进度：`1 / 1`
+- 问题：无新增问题；完整 runner 测试仍需在本次阶段收口时执行。
+- 可能的解决方案：已补最小 mock、响应 SKU 校验、顺序断言、timeout 和父 signal 中断测试；保留既有购物车/checkout 分支并已通过 lifecycle focused test。
 
 ---
 
@@ -636,7 +636,7 @@
 
 | 更新时间 | 已完成 | 总任务 | 当前阶段 | 主要问题 | 可能的解决方案 |
 | --- | ---: | ---: | --- | --- | --- |
-| 2026-09-02 CST | 5 | 35 | Phase B：正常生命周期商品详情步骤 | Phase D 尚未发布 active marker；真实 Redis/Compose 行为仍待验收 | Phase A 已建立 Catalog cache resolver、合法 envelope、marker 解析、timeout 和稳定错误码；下一步在 Phase B 接入必经 `PRODUCT_DETAIL_READ`，再由 Phase D 发布运行 marker |
+| 2026-09-02 CST | 9 | 35 | Phase C：Fault Run Catalog、Gateway 与 Coordinator | Phase D 尚未发布 active marker；真实 Redis/Compose 行为仍待验收 | Phase A-B 已建立 Catalog cache resolver、必经 `PRODUCT_DETAIL_READ`、稳定 probe 选择和受限 timeout；下一步迁移 Fault Run target，再由 Phase D 发布运行 marker |
 
 ## 变更记录
 
@@ -644,6 +644,7 @@
 | --- | --- | --- | --- |
 | 2026-09-02 CST | 创建专题任务清单，按 `tech.md` 拆分为 7 个阶段、35 个任务 | 为实现商品详情 cache-aside 和 Hash 大值场景提供可追踪执行入口 | 新增状态/进度/问题/解决方案/验收记录；旧 Cart/Sam 大值方案按迁移任务处理 |
 | 2026-09-02 CST | 完成 Phase A：缓存协议、envelope、Redis-first 读取、数据库 timeout 和 focused tests | 开始按任务清单实施 | A1-A5 标记完成，进度更新为 5/35；Phase D 的 marker provisioning 和真实 Compose 验证保留为后续任务 |
+| 2026-09-02 CST | 完成 Phase B：必经商品详情读取、probe 选择、响应校验、request deadline 和 lifecycle tests | 让正常生命周期稳定触发商品详情缓存链路，并为大值运行保留未生成 probe field | B1-B4 标记完成，进度更新为 9/35；Catalog target 的实际 marker/Hash provisioning 仍在 Phase D |
 
 ## 完成定义
 

@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { env } from '../lib/env';
 import {
   CustomerRequestContext,
   GatewayClient,
@@ -107,6 +108,7 @@ export interface LifecycleExecutionOptions {
   signal?: AbortSignal;
   faultRunContext?: FaultRunContext;
   faultRunScenario?: string;
+  productDetailTimeoutMs?: number;
 }
 
 interface LifecyclePersistence {
@@ -168,6 +170,14 @@ export class TrafficActionOrchestrator {
           Date.now() - startedAt);
       }
       this.throwIfInterrupted(options.signal);
+
+      const probe = this.chooseProbeProduct(products.value ?? []);
+      if (!probe) throw new Error('PRODUCT_DETAIL_NO_PROBE');
+      await this.runStep(steps, lifecycleId, 'PRODUCT_DETAIL_READ', options, async () => {
+        const response = await this.readProductDetail(probe.sku, context!, options);
+        if (response.data?.sku !== probe.sku) throw new Error('PRODUCT_DETAIL_RESPONSE_INVALID');
+        return response;
+      });
 
       const initialCart = await this.runStep(steps, lifecycleId, 'CART_READ_INITIAL', options, () =>
         this.gateway.customerGet<ApiEnvelope<CartData>>('/api/cart', undefined, context!));
@@ -327,6 +337,42 @@ export class TrafficActionOrchestrator {
     return [...available].sort(() => Math.random() - 0.5).slice(0, count);
   }
 
+  private chooseProbeProduct(products: ProductData[]): ProductData | undefined {
+    return [...products]
+      .filter((product) => Boolean(product.sku))
+      .sort((left, right) => left.sku.localeCompare(right.sku))
+      .at(-1);
+  }
+
+  private async readProductDetail(
+    sku: string,
+    context: CustomerRequestContext,
+    options: LifecycleExecutionOptions,
+  ): Promise<ApiEnvelope<ProductData>> {
+    this.throwIfInterrupted(options.signal);
+    const controller = new AbortController();
+    const parentSignal = options.signal;
+    let deadlineExceeded = false;
+    const abortFromParent = () => controller.abort(parentSignal?.reason);
+    parentSignal?.addEventListener('abort', abortFromParent, { once: true });
+    const timeout = setTimeout(() => {
+      deadlineExceeded = true;
+      controller.abort();
+    }, boundedProductDetailTimeout(options.productDetailTimeoutMs));
+
+    try {
+      return await this.gateway.customerGet<ApiEnvelope<ProductData>>(
+        `/api/products/${encodeURIComponent(sku)}`, undefined, context, controller.signal);
+    } catch (error) {
+      if (parentSignal?.aborted) throw new Error('LIFECYCLE_INTERRUPTED');
+      if (deadlineExceeded) throw new Error('PRODUCT_DETAIL_TIMEOUT');
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      parentSignal?.removeEventListener('abort', abortFromParent);
+    }
+  }
+
   private async estimateCartTotal(
     cart: CartData,
     products: ProductData[],
@@ -445,4 +491,10 @@ function randomQuantity(maximum: number): number {
 function errorCode(error: unknown): string {
   if (error instanceof Error && /^[A-Z0-9_]+$/.test(error.message)) return error.message;
   return 'LIFECYCLE_FAILED';
+}
+
+function boundedProductDetailTimeout(value: number | undefined): number {
+  const configured = value ?? env.PRODUCT_DETAIL_REQUEST_TIMEOUT_MS;
+  if (!Number.isInteger(configured)) return env.PRODUCT_DETAIL_REQUEST_TIMEOUT_MS;
+  return Math.min(Math.max(configured, 100), 30_000);
 }

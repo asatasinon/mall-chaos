@@ -40,4 +40,12 @@ export const env = {
   DATA_WARMUP_BATCH_SIZE: parseInt(process.env.DATA_WARMUP_BATCH_SIZE || '500', 10),
   DATA_WARMUP_BATCH_INTERVAL_MS: parseInt(process.env.DATA_WARMUP_BATCH_INTERVAL_MS || '1000', 10),
   APP_TIME_ZONE: process.env.APP_TIME_ZONE || 'Asia/Shanghai',
+  PRODUCT_DETAIL_REQUEST_TIMEOUT_MS: boundedInteger(
+    process.env.PRODUCT_DETAIL_REQUEST_TIMEOUT_MS, 5000, 100, 30_000),
 } as const;
+
+function boundedInteger(value: string | undefined, fallback: number, minimum: number, maximum: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  if (!Number.isInteger(parsed)) return fallback;
+  return Math.min(Math.max(parsed, minimum), maximum);
+}

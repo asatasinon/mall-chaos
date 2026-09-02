@@ -66,6 +66,10 @@ test('lifecycle keeps existing cart items, adds a new sellable SKU, creates miss
           { sku: 'SKU-002', price: 30, status: 1, availableQty: 20 },
         ] },
       };
+      if (path === '/api/products/SKU-002') return {
+        code: 200,
+        data: { sku: 'SKU-002', price: 30, status: 1, availableQty: 20 },
+      };
       if (path === '/api/cart') {
         const initial = calls.filter((call) => call.path === '/api/cart').length === 1;
         return { code: 200, data: initial
@@ -99,6 +103,9 @@ test('lifecycle keeps existing cart items, adds a new sellable SKU, creates miss
 
   const addCall = calls.find((call) => call.path === '/api/cart/items');
   const checkoutCall = calls.find((call) => call.path === '/api/checkout');
+  const browseIndex = calls.findIndex((call) => call.path === '/api/products');
+  const detailIndex = calls.findIndex((call) => call.path === '/api/products/SKU-002');
+  const initialCartIndex = calls.findIndex((call) => call.path === '/api/cart');
   assert.equal(result.status, 'SUCCESS');
   assert.equal(result.customerId, 1);
   assert.equal(result.pendingPaymentRetained, false);
@@ -106,6 +113,9 @@ test('lifecycle keeps existing cart items, adds a new sellable SKU, creates miss
   assert.equal(calls.some((call) => call.path === '/api/me/addresses' && call.method === 'POST'), true);
   assert.equal((checkoutCall?.body as Record<string, unknown>).couponId, undefined);
   assert.equal(calls.some((call) => call.path === '/api/orders/101'), true);
+  assert.equal(browseIndex < detailIndex, true);
+  assert.equal(detailIndex < initialCartIndex, true);
+  assert.equal(result.steps?.map((step) => step.actionType).includes('PRODUCT_DETAIL_READ'), true);
   assert.equal(closed, true);
 });
 
@@ -118,6 +128,7 @@ test('coupon branch selects only a candidate meeting the cart threshold', async 
       if (path === '/api/products') return { data: { content: [
         { sku: 'SKU-001', price: 100, status: 1, availableQty: 10 },
       ] } };
+      if (path === '/api/products/SKU-001') return { data: { sku: 'SKU-001', price: 100, status: 1, availableQty: 10 } };
       if (path === '/api/cart') return { data: { id: 9, version: 1, items: [{ id: 1, sku: 'SKU-001', quantity: 1 }] } };
       if (path === '/api/me/addresses') return { data: [{ id: 77, isDefault: true }] };
       if (path === '/api/me/coupons') return { data: [
@@ -156,6 +167,7 @@ test('cancel branch rechecks pending order and always performs final query', asy
     async customerGet(path: string) {
       paths.push(`GET ${path}`);
       if (path === '/api/products') return { data: { content: [{ sku: 'SKU-001', price: 20, status: 1, availableQty: 10 }] } };
+      if (path === '/api/products/SKU-001') return { data: { sku: 'SKU-001', price: 20, status: 1, availableQty: 10 } };
       if (path === '/api/cart') return { data: { id: 9, version: 1, items: [{ id: 1, sku: 'SKU-001', quantity: 1 }] } };
       if (path === '/api/me/addresses') return { data: [{ id: 77, isDefault: true }] };
       if (path === '/api/orders/101') {
@@ -194,6 +206,7 @@ test('interruption after checkout keeps pending payment and clears the session',
     async customerGet(path: string) {
       paths.push(`GET ${path}`);
       if (path === '/api/products') return { data: { content: [{ sku: 'SKU-001', price: 20, status: 1, availableQty: 10 }] } };
+      if (path === '/api/products/SKU-001') return { data: { sku: 'SKU-001', price: 20, status: 1, availableQty: 10 } };
       if (path === '/api/cart') return { data: { id: 9, version: 1, items: [{ id: 1, sku: 'SKU-001', quantity: 1 }] } };
       if (path === '/api/me/addresses') return { data: [{ id: 77, isDefault: true }] };
       if (path === '/api/orders/101') {
@@ -223,4 +236,105 @@ test('interruption after checkout keeps pending payment and clears the session',
   assert.equal(paths.some((path) => path.includes('/cancel')), false);
   assert.equal(paths.some((path) => path.includes('payment-intents')), false);
   assert.equal(closed, true);
+});
+
+test('detail response mismatch fails before reading the cart', async () => {
+  const context = makeContext();
+  const paths: string[] = [];
+  const gateway = {
+    async customerGet(path: string) {
+      paths.push(`GET ${path}`);
+      if (path === '/api/products') return { data: { content: [
+        { sku: 'SKU-001', price: 20, status: 1, availableQty: 10 },
+      ] } };
+      if (path === '/api/products/SKU-001') return { data: { sku: 'SKU-002', price: 20, status: 1, availableQty: 10 } };
+      throw new Error(`unexpected GET ${path}`);
+    },
+  } as unknown as GatewayClient;
+  const orchestrator = new TrafficActionOrchestrator(
+    gateway,
+    makeSessionManager(context, () => undefined),
+    noPersistence(),
+  );
+
+  const result = await orchestrator.executeLifecycle('run-1', config());
+
+  assert.equal(result.status, 'FAILED');
+  assert.equal(result.errorCode, 'PRODUCT_DETAIL_RESPONSE_INVALID');
+  assert.equal(result.steps?.find((step) => step.actionType === 'PRODUCT_DETAIL_READ')?.errorCode,
+    'PRODUCT_DETAIL_RESPONSE_INVALID');
+  assert.equal(paths.some((path) => path === 'GET /api/cart'), false);
+});
+
+test('detail request timeout fails before reading the cart and closes the session', async () => {
+  const context = makeContext();
+  const paths: string[] = [];
+  let closed = false;
+  const gateway = {
+    async customerGet(path: string, _params: unknown, _context: CustomerRequestContext, signal?: AbortSignal) {
+      paths.push(`GET ${path}`);
+      if (path === '/api/products') return { data: { content: [
+        { sku: 'SKU-001', price: 20, status: 1, availableQty: 10 },
+      ] } };
+      if (path === '/api/products/SKU-001') {
+        return new Promise((_, reject) => {
+          signal?.addEventListener('abort', () => reject(new Error('request aborted')), { once: true });
+        });
+      }
+      throw new Error(`unexpected GET ${path}`);
+    },
+  } as unknown as GatewayClient;
+  const orchestrator = new TrafficActionOrchestrator(
+    gateway,
+    makeSessionManager(context, () => { closed = true; }),
+    noPersistence(),
+  );
+
+  const result = await orchestrator.executeLifecycle('run-1', config(), {
+    productDetailTimeoutMs: 100,
+  });
+
+  assert.equal(result.status, 'FAILED');
+  assert.equal(result.errorCode, 'PRODUCT_DETAIL_TIMEOUT');
+  assert.equal(result.steps?.find((step) => step.actionType === 'PRODUCT_DETAIL_READ')?.errorCode,
+    'PRODUCT_DETAIL_TIMEOUT');
+  assert.equal(paths.some((path) => path === 'GET /api/cart'), false);
+  assert.equal(closed, true);
+});
+
+test('lifecycle interruption during detail read is not reported as a detail timeout', async () => {
+  const context = makeContext();
+  const lifecycleController = new AbortController();
+  const paths: string[] = [];
+  const gateway = {
+    async customerGet(path: string, _params: unknown, _context: CustomerRequestContext, signal?: AbortSignal) {
+      paths.push(`GET ${path}`);
+      if (path === '/api/products') return { data: { content: [
+        { sku: 'SKU-001', price: 20, status: 1, availableQty: 10 },
+      ] } };
+      if (path === '/api/products/SKU-001') {
+        return new Promise((_, reject) => {
+          signal?.addEventListener('abort', () => reject(new Error('request aborted')), { once: true });
+          lifecycleController.abort();
+        });
+      }
+      throw new Error(`unexpected GET ${path}`);
+    },
+  } as unknown as GatewayClient;
+  const orchestrator = new TrafficActionOrchestrator(
+    gateway,
+    makeSessionManager(context, () => undefined),
+    noPersistence(),
+  );
+
+  const result = await orchestrator.executeLifecycle('run-1', config(), {
+    signal: lifecycleController.signal,
+    productDetailTimeoutMs: 5000,
+  });
+
+  assert.equal(result.status, 'INTERRUPTED');
+  assert.equal(result.errorCode, 'LIFECYCLE_INTERRUPTED');
+  assert.equal(result.steps?.find((step) => step.actionType === 'PRODUCT_DETAIL_READ')?.errorCode,
+    'LIFECYCLE_INTERRUPTED');
+  assert.equal(paths.some((path) => path === 'GET /api/cart'), false);
 });
