@@ -15,9 +15,9 @@ public class ProductDetailCacheProperties {
     private String activeMarkerFenceKey = "catalog:product-detail:active:fence";
     private Duration logicalTtl = Duration.ofMinutes(5);
     private Duration runFallbackTtl = Duration.ofMinutes(31);
-    private long maxLogicalBytes = 64L * 1024 * 1024;
+    private long maxLogicalBytes = 512L * 1024 * 1024;
     private int maxMemberCount = 47;
-    private int maxMemberSizeBytes = 4 * 1024 * 1024;
+    private int maxMemberSizeBytes = 128 * 1024 * 1024;
     private int cleanupGraceSeconds = 60;
 
     public String getDefaultKey() {

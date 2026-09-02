@@ -121,9 +121,29 @@ test('catalog rejects unknown scenarios and duration above scenario limit', () =
 });
 
 test('catalog enforces Hash member budget and a TTL that covers the run', () => {
+  assert.deepEqual(
+    validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', {
+      durationSec: 30, memberCount: 4, memberSizeBytes: '128M', keyTtlSec: 900,
+    }),
+    {
+      durationSec: 30,
+      concurrency: 4,
+      requestIntervalMs: 100,
+      memberCount: 4,
+      memberSizeBytes: 128 * 1024 ** 2,
+      keyTtlSec: 900,
+    },
+  );
   assert.throws(
     () => validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', {
-      durationSec: 600, memberCount: 47, memberSizeBytes: '2M', keyTtlSec: 900,
+      durationSec: 30, memberCount: 1, memberSizeBytes: '129M', keyTtlSec: 900,
+    }),
+    (error: unknown) => error instanceof FaultRunValidationError
+      && error.message === 'INVALID_PARAMETER:memberSizeBytes',
+  );
+  assert.throws(
+    () => validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', {
+      durationSec: 600, memberCount: 47, memberSizeBytes: '11M', keyTtlSec: 900,
     }),
     (error: unknown) => error instanceof FaultRunValidationError
       && error.message === 'AGGREGATE_LOGICAL_BYTES_EXCEEDS_LIMIT',

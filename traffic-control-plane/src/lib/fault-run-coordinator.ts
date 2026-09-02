@@ -338,9 +338,9 @@ function sanitizeTargetSummary(run: FaultRunRecord, response: unknown): FaultRun
     summary.hashKey = source.hashKey;
   }
   assignSafeInteger(source.memberCount, 1, 47, (value) => { summary.memberCount = value; });
-  assignSafeInteger(source.memberSizeBytes, 256, 4 * 1024 * 1024,
+  assignSafeInteger(source.memberSizeBytes, 256, 128 * 1024 * 1024,
     (value) => { summary.memberSizeBytes = value; });
-  assignSafeInteger(source.logicalBytes, 1, 64 * 1024 * 1024,
+  assignSafeInteger(source.logicalBytes, 1, 512 * 1024 * 1024,
     (value) => { summary.logicalBytes = value; });
   assignSafeInteger(source.observedBytes, 1, Number.MAX_SAFE_INTEGER,
     (value) => { summary.observedBytes = value; });

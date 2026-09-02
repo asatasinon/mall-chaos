@@ -78,8 +78,8 @@ class ProductDetailCacheProvisioningServiceTest {
         properties.setActiveMarkerOwnerKey(OWNER_KEY);
         properties.setActiveMarkerFenceKey(FENCE_KEY);
         properties.setMaxMemberCount(47);
-        properties.setMaxMemberSizeBytes(4 * 1024 * 1024);
-        properties.setMaxLogicalBytes(64L * 1024 * 1024);
+        properties.setMaxMemberSizeBytes(128 * 1024 * 1024);
+        properties.setMaxLogicalBytes(512L * 1024 * 1024);
         properties.setCleanupGraceSeconds(60);
 
         lenient().when(cacheService.runHashKey(RUN_ID)).thenReturn(RUN_HASH);

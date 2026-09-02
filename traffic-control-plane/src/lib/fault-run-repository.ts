@@ -343,8 +343,8 @@ export function extractFaultRunTargetSummary(
   if (summary.layout !== 'HASH'
       || summary.hashKey !== `catalog:product-detail:exercise:${faultRunId}`
       || !isSafeInteger(summary.memberCount, 1, 47)
-      || !isSafeInteger(summary.memberSizeBytes, 256, 4 * 1024 * 1024)
-      || !isSafeInteger(summary.logicalBytes, 1, 64 * 1024 * 1024)
+      || !isSafeInteger(summary.memberSizeBytes, 256, 128 * 1024 * 1024)
+      || !isSafeInteger(summary.logicalBytes, 1, 512 * 1024 * 1024)
       || !isSafeInteger(summary.keyTtlSec, 1, 3600)
       || typeof summary.probeSku !== 'string'
       || !isSku(summary.probeSku)

@@ -247,8 +247,8 @@ Catalog 日志只记录 trace、结果类型、耗时、是否运行缓存和非
 | --- | --- |
 | `durationSec` | `1..1800`；运行到期时间由控制面计算 |
 | `memberCount` | 正整数；不超过可售 SKU 数减一；至少保留一个 probe SKU |
-| `memberSizeBytes` | 正整数；不小于合法 envelope 的最小 UTF-8 大小 |
-| `aggregateLogicalBytes` | `memberCount * memberSizeBytes` 不超过部署侧总预算，例如默认 64 MiB |
+| `memberSizeBytes` | 正整数；不小于合法 envelope 的最小 UTF-8 大小，且不超过 128 MiB |
+| `aggregateLogicalBytes` | `memberCount * memberSizeBytes` 不超过部署侧总预算，例如默认 512 MiB |
 | `concurrency` | `1..32`；仅影响持续读取 worker |
 | `requestIntervalMs` | `0..60000` |
 | `keyTtlSec` | 必须覆盖 `durationSec` 加清理余量，且不超过场景上限 |
