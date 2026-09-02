@@ -6,7 +6,7 @@
 | --- | --- |
 | 状态 | 方案基线 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-26 |
+| 更新时间 | 2026-09-02 CST |
 | 配套文档 | [product.md](product.md) |
 
 > 商品详情 Redis 回源与 Hash 大值的跨域增量设计见 [商品详情缓存专题技术设计](../scenarios/catalog-product-detail-cache/tech.md)；它不兼容替换本文原有的 Cart/Sam Redis 大值实现。
@@ -167,6 +167,8 @@ WHERE o.user_id = :customerId
 正常的 `GET /api/products/{sku}` 由 Catalog resolver 根据服务端 marker 选择默认 Hash 或运行 Hash。注入 field 命中大 envelope；probe field 首次 HGET miss 后查询商品数据库并回填同一运行 Hash，后续读取转为 hit。控制面 `ScenarioExerciseWorkers` 通过 Gateway 持续访问公开商品详情 API，不登录 Sam、不写入购物车，也不直连 Redis 或 MySQL。
 
 启动、停止和清理使用固定 Catalog target、`ScenarioRunContext`、fencing 和运行 TTL。停止顺序为：停止新的详情读取、排空或取消在途请求、compare-and-delete active marker、删除本运行 Hash，并将 field 数、逻辑/观测字节、读取统计和清理结果写入 `fault_run_events`。完整的缓存 envelope、marker、原子发布、错误降级和验证规则见 [商品详情缓存专题技术设计](../scenarios/catalog-product-detail-cache/tech.md)。
+
+控制面页面从场景 catalog 渲染 N/S、读取并发、间隔和 TTL，创建前要求确认；Fault Run 详情按白名单展示 target summary、`CACHE_*` 结果、延迟分位数、drain 和 per-run cleanup 状态，不展示完整 Hash value、token 或任意连接信息。
 
 #### 加购依赖失败
 

@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 方案草案 |
+| 状态 | Phase F 页面与文档已完成，Phase G 待验收 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-09-02 CST |
+| 更新时间 | 2026-09-02 CST（Phase F 完成） |
 | 面向对象 | 培训运营、产品、研发、测试、SRE |
 | 配套设计 | [tech.md](tech.md) |
 
@@ -44,6 +44,8 @@
 - 每个 field 的 value 是可被商品详情服务反序列化的合法缓存 envelope，并达到运营人员指定的逻辑字节数。
 - Fault Run worker 通过 Gateway 持续读取已经生成的大 field。
 - 生命周期固定读取一个没有被当前运行预生成的 SKU field，完成一次真实的 miss、数据库回源和缓存回填。
+
+创建操作必须经过运营确认；运行详情从受保护的 Fault Run 事件读取 target summary、worker 统计、marker/TTL 和 recovery 结果。运行进入 `RECOVERED` 或 `STOPPED` 后，页面只提供带 `faultRunId` 的 per-run cleanup，不提供按场景清空商品缓存的操作。
 - Traffic/Fault Run 页面展示参数、预算、运行状态、读取结果和恢复结果。
 - 运行、事件、审计和清理行为遵循现有 Fault Run 权限与单运行约束。
 
@@ -138,6 +140,8 @@ HSET 运行 Hash probeSku -> 返回详情
 ```
 
 页面可显示预计逻辑预算和实际观测到的 Redis `MEMORY USAGE`，但不显示完整 field value、密码、token 或原始 authorization header。
+
+创建操作必须经过运营确认；运行详情从受保护的 Fault Run 事件读取 target summary、worker 统计、marker/TTL 和 recovery 结果。运行进入 `RECOVERED` 或 `STOPPED` 后，页面只提供带 `faultRunId` 的 per-run cleanup，不提供按场景清空商品缓存的操作。
 
 ### 7.2 运行状态
 

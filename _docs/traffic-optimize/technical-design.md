@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 实现完成，待统一验证 |
+| 状态 | 生命周期实现完成，商品详情 Phase F 已完成，Phase G 待统一验证 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-08-25 CST |
+| 更新时间 | 2026-09-02 CST |
 | 范围 | `traffic-control-plane` 生命周期流量 runner |
 | 配套规格 | [product.md](product.md) |
 
@@ -39,6 +39,7 @@
 | `src/lib/runner-config.ts` | 校验生命周期模式、成功支付比例、优惠券使用比例和可选背景动作配置。 |
 | `src/lib/runner-persistence.ts` | 持久化 `lifecycleId` 与步骤记录。 |
 | `src/app/runner/page.tsx` | 展示生命周期配置、账号健康和父子步骤活动。 |
+| `src/app/page.tsx` 与 `src/components/ScenarioControlSections.tsx` | 展示 Fault Run 的 Catalog Hash 参数、target summary、reader telemetry、recovery/cleanup 和 audit 摘要；cleanup 按 `faultRunId` 执行。 |
 | `promotion-service` | 提供客户归属可用券查询、原子预留和幂等的演示券池补齐命令；worker 不直接生成优惠券。 |
 | `inventory-service` | 提供幂等库存基线补齐命令；worker 不直接写库存，也不调用 reset。 |
 

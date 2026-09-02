@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase A-E 已完成，Phase F-G 待实施 |
+| 状态 | Phase A-F 已完成，Phase G 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-09-02 CST（Phase E 完成） |
+| 更新时间 | 2026-09-02 CST（Phase F 完成） |
 | 关联产品规格 | [product.md](product.md) |
 | 关联技术设计 | [tech.md](tech.md) |
 
@@ -35,9 +35,9 @@
 | C | Fault Run Catalog、Gateway 与 Coordinator | 已完成 | 5 / 5 | A |
 | D | Catalog Hash 生成、Marker、Fencing 与清理 | 已完成 | 6 / 6 | A、C |
 | E | 大值读取 Worker、停止与观测 | 已完成 | 4 / 4 | C、D |
-| F | Traffic/Fault Run 页面与文档同步 | 待实施 | 0 / 4 | C、D、E |
+| F | Traffic/Fault Run 页面与文档同步 | 已完成 | 4 / 4 | C、D、E |
 | G | 测试、Smoke、恢复与发布验收 | 待实施 | 0 / 7 | A 至 F |
-| **合计** |  | **进行中** | **24 / 35** |  |
+| **合计** |  | **进行中** | **28 / 35** |  |
 
 ---
 
@@ -451,72 +451,72 @@
 
 ## Phase F：Traffic/Fault Run 页面与文档同步
 
-**阶段状态：待实施**
-**阶段进度：0 / 4**
+**阶段状态：已完成**
+**阶段进度：4 / 4**
 
 **当前问题**
 
-- 现有场景页面仍显示 Cart/Sam、`fieldCount` 和 Cart 加购语义。
-- target start summary 当前不完整，页面无法显示实际 field 数、logical/observed bytes、probe 和读取统计。
-- 旧的 scenario-wide Cart cleanup 不符合按运行清理要求。
+- Catalog Hash 场景已改为 N/S/并发/间隔/TTL 专用表单，普通场景仍复用通用参数表单。
+- Fault Run 详情已从受保护事件中解析 target summary、worker telemetry、drain、marker/TTL、recovery/cleanup 和 audit 摘要。
+- 页面已移除 scenario-wide cleanup，停止后的具体 Fault Run 才能执行 per-run cleanup。
 
 **可能的解决方案**
 
-- 复用现有 Scenario Card、Fault Run detail、CSRF、确认、幂等和 audit 结构，只替换本场景参数与摘要。
-- 页面明确显示“1 个 Hash + N 个 field”，把读取并发单独命名为 concurrency。
-- 详情只展示非敏感摘要，使用 per-run cleanup，不展示完整 value 或内部秘密。
+- 复用现有 Scenario Card、Fault Run detail、CSRF、确认、幂等和 audit 结构，只对 Catalog 场景替换参数与摘要。
+- 页面明确显示“1 个 Hash + N 个 field”，把读取并发单独命名为 concurrency，并实时计算 `N × S` logical budget。
+- 详情只展示白名单非敏感摘要，使用带 run ID 的 per-run cleanup，不展示完整 value 或内部秘密。
 
 ### F1. 更新 Scenario Card 参数和说明
 
-- [ ] 更新 `ScenarioCardWithActions` 和场景 catalog UI，移除 Cart/Sam 大值文案。
-- [ ] 展示 `memberCount`、`memberSizeBytes`、`durationSec`、`concurrency`、`requestIntervalMs` 和 `keyTtlSec`。
-- [ ] 显示 `1 个 Redis Hash + N 个 SKU field`、预计 logical budget 和 field/并发的区别。
-- [ ] 前端提交前做友好提示，但不替代服务端校验，不允许编辑 Hash key/value。
+- [x] 更新 `ScenarioCardWithActions` 和场景 catalog UI，移除 Cart/Sam 大值文案。
+- [x] 展示 `memberCount`、`memberSizeBytes`、`durationSec`、`concurrency`、`requestIntervalMs` 和 `keyTtlSec`。
+- [x] 显示 `1 个 Redis Hash + N 个 SKU field`、预计 logical budget 和 field/并发的区别。
+- [x] 前端提交前做友好提示，但不替代服务端校验，不允许编辑 Hash key/value。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：让页面从 catalog definition 动态渲染字段，避免 UI 重新维护一套参数 schema。
+- 进度：`1 / 1`
+- 问题：未发现阻塞问题；预算、SKU 可售性和 TTL 仍以服务端 catalog/target 校验为准。
+- 可能的解决方案：页面从 catalog definition 动态渲染字段，Catalog Hash 额外显示 N/S 预览；已通过类型检查和页面构建路径验证。
 
 ### F2. 更新 Fault Run 详情、事件和 cleanup 操作
 
-- [ ] 展示 target summary、Hash namespace 摘要、field 数、logical/observed bytes、probe、TTL 和 marker 状态。
-- [ ] 展示读取成功/失败/timeout、延迟摘要、worker drain、恢复和清理结果。
-- [ ] 修正详情 response/type 不一致，确保 summary/event/audit 类型一致。
-- [ ] 将页面 cleanup 改为 per-run cleanup，禁止继续调用旧 scenario-wide Cart cleanup。
+- [x] 展示 target summary、Hash namespace 摘要、field 数、logical/observed bytes、probe、TTL 和 marker 状态。
+- [x] 展示读取成功/失败/timeout、延迟摘要、worker drain、恢复和清理结果。
+- [x] 修正详情 response/type 不一致，确保 summary/event/audit 类型一致。
+- [x] 将页面 cleanup 改为 per-run cleanup，禁止继续调用旧 scenario-wide Cart cleanup。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：扩展现有 FaultRunDetails 类型和详情组件，保留统一事件时间线。
+- 进度：`1 / 1`
+- 问题：未发现阻塞问题；事件 payload 由 presenter 白名单解析，未知字段不直接渲染。
+- 可能的解决方案：扩展现有 FaultRunDetails 类型和详情组件，保留统一事件时间线；Cleanup 通过 `/{faultRunId}/cleanup` 固定 contract 执行。
 
 ### F3. 保持控制面权限和敏感信息边界
 
-- [ ] 创建、停止、清理操作继续要求运营会话、CSRF、confirmation、idempotency 和 audit。
-- [ ] 服务端拒绝任意服务名、URL、Redis key、完整 value 和未经允许的 SKU 集合。
-- [ ] 页面不展示密码、access token、session token、refresh token、authorization header 或完整缓存 value。
-- [ ] 校验消费者 Shopfront 路径无法访问 Fault Run 页面和内部 provisioning endpoint。
+- [x] 创建、停止、清理操作继续要求运营会话、CSRF、confirmation、idempotency 和 audit。
+- [x] 服务端拒绝任意服务名、URL、Redis key、完整 value 和未经允许的 SKU 集合。
+- [x] 页面不展示密码、access token、session token、refresh token、authorization header 或完整缓存 value。
+- [x] 校验消费者 Shopfront 路径无法访问 Fault Run 页面和内部 provisioning endpoint。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：待开始。
-- 可能的解决方案：沿用 middleware、auth-fetch 和固定 Gateway internal contract；新增字段先经过服务端 allowlist。
+- 进度：`1 / 1`
+- 问题：未发现新增权限边界问题；旧 scenario-wide route 仅保留已有通知存储兼容能力，Catalog 页面不再调用。
+- 可能的解决方案：沿用 middleware、auth-fetch、确认对话框和固定 Gateway internal contract；新增展示字段先经过 presenter allowlist。
 
 ### F4. 同步专题和既有规格文档
 
-- [ ] 将本任务清单的状态和进度与 `product.md`、`tech.md` 保持一致。
-- [ ] 更新 `_docs/chaos-inject-plane/` 和 `_docs/traffic-optimize/` 中的 Redis 大值、商品详情生命周期和旧 Cart/Sam 描述。
-- [ ] 更新 API、流程图、场景名称、参数名称和验收条件，删除已失效的旧实现描述。
-- [ ] 记录每次设计变更的原因、影响和解决方案，避免只修改任务状态而不更新契约。
+- [x] 将本任务清单的状态和进度与 `product.md`、`tech.md` 保持一致。
+- [x] 更新 `_docs/chaos-inject-plane/` 和 `_docs/traffic-optimize/` 中的 Redis 大值、商品详情生命周期和旧 Cart/Sam 描述。
+- [x] 更新 API、流程图、场景名称、参数名称和验收条件，删除已失效的旧实现描述。
+- [x] 记录每次设计变更的原因、影响和解决方案，避免只修改任务状态而不更新契约。
 
 **完成记录**
 
-- 进度：`0 / 1`
-- 问题：已知既有 task-list 仍保留旧 Cart/Sam 验收任务，需要在实现迁移时同步处理。
-- 可能的解决方案：专题文档作为新大值方案唯一事实来源；既有文档保留历史说明时明确标注已被替换。
+- 进度：`1 / 1`
+- 问题：既有文档中的 Cart/Sam 内容仅保留为已替换方案的迁移历史；当前页面、API 和技术设计不再把它作为可创建路径。
+- 可能的解决方案：专题文档作为新大值方案唯一事实来源；既有文档明确标注替换关系，当前 UI 使用 Catalog Hash 和 per-run cleanup。
 
 ---
 
@@ -636,7 +636,7 @@
 
 | 更新时间 | 已完成 | 总任务 | 当前阶段 | 主要问题 | 可能的解决方案 |
 | --- | ---: | ---: | --- | --- | --- |
-| 2026-09-02 CST | 24 | 35 | Phase F：Traffic/Fault Run 页面与文档同步 | Phase F/G 尚未开始；实际变慢或 timeout 仍需按运行参数观测 | Phase E 已完成 reader、summary 校验、per-request deadline、timeout/cache/latency 统计和 drain；E4 真实 Gateway/Catalog smoke 已验证 Hash hit、probe miss 回源、TTL/marker、cleanup 和 reader drain |
+| 2026-09-02 CST | 28 | 35 | Phase G：测试、Smoke、恢复与发布验收 | Phase G 尚未开始；实际变慢或 timeout 仍需按运行参数观测 | Phase F 已完成 Catalog Hash 参数卡片、确认流程、target/worker/recovery/audit 详情、per-run cleanup、敏感字段白名单 presenter 和专题文档同步 |
 
 ## 变更记录
 
@@ -651,6 +651,7 @@
 | 2026-09-02 CST | 完成 Phase D：Catalog Hash provisioning、active marker、owner/fence CAS、按 run 清理、TTL 兜底和 Coordinator worker drain hook | 让商品详情请求能够切换到运行 Hash，并保证 stop/recovery 不误删新运行 | D1-D6 标记完成，C2 的 Catalog target 权威校验由 provisioning service 执行；Catalog focused tests、Runner/typecheck/lint、Gateway tests 和隔离 Redis CAS smoke 通过，整体进度更新为 20/35 |
 | 2026-09-02 CST | 完成 Phase E1-E3：Catalog reader、成员 summary、deadline、timeout/cache/latency 统计和 drain 接入 | 让大值运行通过真实商品详情 API 读取已生成 members，并将影响与恢复结果纳入 Fault Run 事件 | E1-E3 标记完成，新增 8 项 focused worker/summary 测试，`pnpm test:runner` 44/44 通过；E4 真实 Gateway/Catalog 压力对照待运行环境完成，整体进度更新为 23/35 |
 | 2026-09-02 CST | 完成 Phase E4：Gateway/Catalog 真实商品详情、Hash hit/probe miss、TTL/marker/cleanup 和 reader drain smoke | 验证大值 worker 的真实业务链路、低基数 cache result、延迟统计和停止顺序 | E4 标记完成；真实 reader smoke 4 次计划请求、3 次完成、停止后 `inFlight=0` 且 Coordinator 状态为 `STOPPED`；HTTP error/timeout 计数由 focused tests 覆盖，整体进度更新为 24/35 |
+| 2026-09-02 CST | 完成 Phase F1-F4：Catalog Hash 场景卡片、Fault Run 详情/事件、per-run cleanup、权限边界和文档同步 | 让运营人员可以安全配置、确认、观察和清理一个具体商品详情 Hash 运行 | F1-F4 标记完成；新增白名单 presenter 测试，页面不调用旧 scenario-wide cleanup，专题及既有规格同步完成，整体进度更新为 28/35 |
 
 ## 完成定义
 

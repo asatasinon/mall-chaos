@@ -85,7 +85,7 @@ export default function ScenarioControlPage() {
     }
   };
 
-  const createRun = async (scenario: Scenario, parameters: Record<string, number | string>) => {
+  const executeCreateRun = async (scenario: Scenario, parameters: Record<string, number | string>) => {
     const idempotencyKey = `${scenario.scenario}-${createClientId()}`;
     setBusy(scenario.scenario);
     try {
@@ -102,6 +102,19 @@ export default function ScenarioControlPage() {
     } finally {
       setBusy(null);
     }
+  };
+
+  const createRun = async (scenario: Scenario, parameters: Record<string, number | string>) => {
+    const scenarioLabel = SCENARIO_META[scenario.scenario]?.label || scenario.scenario;
+    const description = scenario.scenario === 'CATALOG_REDIS_LARGE_VALUE'
+      ? 'Create one Catalog-owned Redis Hash with the submitted field count and value size. The server will re-check SKU availability, budget, TTL, and the fixed target.'
+      : `Start ${scenarioLabel} against its fixed target. The server will validate the submitted parameters before activation.`;
+    setConfirmation({
+      title: `Start ${scenarioLabel}?`,
+      description,
+      confirmLabel: 'Start run',
+      action: () => executeCreateRun(scenario, parameters),
+    });
   };
 
   const executeStop = async (run: FaultRun) => {
@@ -163,34 +176,35 @@ export default function ScenarioControlPage() {
     });
   };
 
-  const executeCleanupScenario = async (scenario: Scenario) => {
-    const idempotencyKey = `cleanup-scenario-${scenario.scenario}-${createClientId()}`;
-    setBusy(`cleanup:${scenario.scenario}`);
+  const executeCleanupRun = async (run: FaultRun) => {
+    const idempotencyKey = `cleanup-${run.faultRunId}-${createClientId()}`;
+    setBusy(`cleanup:${run.faultRunId}`);
     try {
-      const response = await fetchWithAuth('/internal/fault-runs/cleanup-scenario', {
+      const response = await fetchWithAuth(`/internal/fault-runs/${run.faultRunId}/cleanup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': idempotencyKey },
-        body: JSON.stringify({ scenario: scenario.scenario, confirmed: true }),
+        body: JSON.stringify({ confirmed: true }),
       });
       const result = await response.json() as { code: number; message: string };
       if (!response.ok || result.code !== 0) throw new Error(result.message);
+      setSelectedRun((current) => current?.run.faultRunId === run.faultRunId ? null : current);
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to clean scenario data');
+      setError(cause instanceof Error ? cause.message : 'Failed to clean Fault Run resources');
     } finally {
       setBusy(null);
     }
   };
 
-  const cleanupScenario = async (scenario: Scenario) => {
-    const scenarioLabel = SCENARIO_META[scenario.scenario]?.label || scenario.scenario;
+  const cleanupRun = (run: FaultRun) => {
+    const scenarioLabel = SCENARIO_META[run.scenario]?.label || run.scenario;
     setConfirmation({
-      title: 'Clean scenario data?',
-      description: `Clean all data created by ${scenarioLabel}? This cannot be undone.`,
-      confirmLabel: 'Confirm',
+      title: 'Clean this Fault Run?',
+      description: `Remove resources created by ${scenarioLabel} run ${run.faultRunId.slice(0, 8)}. Only this run namespace is addressed; the default cache and business data are not targeted.`,
+      confirmLabel: 'Clean run',
       destructive: true,
       confirmVariant: 'default',
-      action: () => executeCleanupScenario(scenario),
+      action: () => executeCleanupRun(run),
     });
   };
 
@@ -203,9 +217,9 @@ export default function ScenarioControlPage() {
     <div className="grid gap-3 sm:grid-cols-3"><ScenarioMetric icon={<ShieldCheck className="size-4" />} label="Catalog scenarios" value={data ? String(data.scenarios.length) : '...'} /><ScenarioMetric icon={<Activity className="size-4" />} label="Active run" value={activeRun ? activeRun.state : 'NONE'} /><ScenarioMetric icon={<Clock3 className="size-4" />} label="Seven-day runs" value={data ? String(data.runs.length) : '...'} /></div>
     {activeRun && <ActiveRunBanner run={activeRun} remainingMs={new Date(activeRun.expiresAt).getTime() - now} onDetails={() => void openDetails(activeRun)} onStop={() => void stopRun(activeRun)} busy={busy === activeRun.faultRunId} />}
     {unavailableHeapRun && <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3"><div><p className="text-sm font-medium">Notification service unavailable</p><p className="mt-1 text-xs text-muted-foreground">Only a confirmed restart of the fixed notification-service target is allowed.</p></div><Button size="sm" onClick={() => void restartNotification(unavailableHeapRun)} disabled={busy === unavailableHeapRun.faultRunId}><ServerCog className="size-3.5" />{busy === unavailableHeapRun.faultRunId ? 'Restarting...' : 'Restart notification'}</Button></div>}
-    <ScenarioWorkspace key={selectedScenario || 'scenario-workspace'} scenarios={data.scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} activeRun={activeRun} unavailableRun={unavailableHeapRun} busy={busy} onCreate={createRun} onDetails={openDetails} onStop={stopRun} onCleanup={cleanupScenario} onRestart={restartNotification} />
-    <RunHistory runs={visibleRuns} scenarios={data.scenarios} filterState={filterState} filterScenario={filterScenario} setFilterState={setFilterState} setFilterScenario={setFilterScenario} onDetails={openDetails} />
-    {selectedRun && <RunDetails details={selectedRun} onClose={() => setSelectedRun(null)} />}
+    <ScenarioWorkspace key={selectedScenario || 'scenario-workspace'} scenarios={data.scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} activeRun={activeRun} unavailableRun={unavailableHeapRun} busy={busy} onCreate={createRun} onDetails={openDetails} onStop={stopRun} onRestart={restartNotification} />
+    <RunHistory runs={visibleRuns} scenarios={data.scenarios} filterState={filterState} filterScenario={filterScenario} setFilterState={setFilterState} setFilterScenario={setFilterScenario} onDetails={openDetails} onCleanup={cleanupRun} />
+    {selectedRun && <RunDetails details={selectedRun} onClose={() => setSelectedRun(null)} onCleanup={cleanupRun} allowManualCleanup={Boolean(data.scenarios.find((scenario) => scenario.scenario === selectedRun.run.scenario)?.allowManualCleanup)} />}
     {confirmation && <ConfirmDialog title={confirmation.title} description={confirmation.description} confirmLabel={confirmation.confirmLabel} confirmVariant={confirmation.confirmVariant} destructive={confirmation.destructive} onCancel={() => setConfirmation(null)} onConfirm={async () => { await confirmation.action(); setConfirmation(null); }} />}
   </div>;
 }

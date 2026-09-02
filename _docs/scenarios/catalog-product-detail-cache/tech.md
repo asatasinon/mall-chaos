@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 方案草案 |
+| 状态 | Phase F 页面与文档已完成，Phase G 待验收 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-09-02 CST |
+| 更新时间 | 2026-09-02 CST（Phase F 完成） |
 | 范围 | `catalog-service` 商品详情、`traffic-control-plane` 生命周期与 Fault Run、`gateway-service` 固定分发 |
 | 配套规格 | [product.md](product.md) |
 
@@ -315,6 +315,8 @@ Coordinator 提供 `registerRunDrain(faultRunId, drain)` 注册接口。已注�
 worker 的请求并发不改变 Hash 的 field 数，也不在请求中携带 `X-Fault-Run-*` 头。大值影响来自真实商品详情响应经过 Catalog、Gateway 和网络返回，而不是 worker 自己读取并丢弃 Redis value。
 
 Catalog 商品详情响应通过 `X-Castrel-Cache-Result` 返回低基数结果，允许 reader 统计 `CACHE_HIT`、`CACHE_MISS_DB_FALLBACK`、`CACHE_INVALID_FALLBACK` 和 `CACHE_BACKEND_ERROR`；该 header 不包含 SKU、run ID 或缓存 value。`ControlledExerciseWorker` 汇总 requests、successes、failures、timeouts、inFlight、average latency、p50/p95/p99 latency 和各 cache result 计数，并在 `EXERCISE_WORKER_STOPPED`/`SCENARIO_WORKER_DRAINED` 事件中保存非敏感摘要。
+
+控制面页面从场景 catalog 渲染 `durationSec`、`memberCount`、`memberSizeBytes`、`concurrency`、`requestIntervalMs` 和 `keyTtlSec`。Catalog Hash 卡片明确显示“1 个 Hash + N 个 SKU field”和 `N × S` logical budget；页面不允许编辑 Hash key、field 集合或 value。详情页只从白名单事件字段渲染 target summary、worker telemetry、drain、marker/TTL、recovery/cleanup 和 audit 结果，per-run cleanup 使用固定 `faultRunId` contract。
 
 ## 9. 生命周期新增详情步骤
 
