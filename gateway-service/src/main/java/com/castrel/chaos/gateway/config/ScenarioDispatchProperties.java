@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 
 @Component
-@ConfigurationProperties(prefix = "scenario-dispatch")
+@ConfigurationProperties(prefix = "scenario-dispatch.dispatch")
 public class ScenarioDispatchProperties {
 
     private Map<String, String> services = Map.of();
