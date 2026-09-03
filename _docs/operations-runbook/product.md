@@ -91,8 +91,8 @@
 | `NOTIFICATION_HEAP_PRESSURE` | 通知堆压力 | `notification-service` 正常通知处理路径 | 整个 Notification JVM 和通知处理能力；可能导致健康失败或进程退出。 |
 | `NOTIFICATION_STORAGE_APPEND` | 通知存储追加 | `notification-service` 正常通知持久化路径 | 通知持久化、运行级可识别记录和逻辑容量预算；停止后可能需要人工清理。 |
 | `PROMOTION_LOCK_CONTENTION` | 优惠券锁竞争 | `promotion-service` 预留一致性路径 | 演练准备的优惠券/预留事务及短时共享数据库锁竞争，可能产生 MySQL deadlock。 |
-| `INVENTORY_TABLE_EXCLUSIVE` | 库存表锁 | `inventory-service`，`GET /internal/inventory/availability/report` | 整个 `inventories` 表的读写可能被阻塞。 |
-| `INVENTORY_ROW_LOCK` | 库存行锁 | `inventory-service`，`GET /internal/inventory/reservations/summary` | 固定 `SKU-001` 记录及需要该行锁的事务。 |
+| `INVENTORY_TABLE_EXCLUSIVE` | 库存表锁 | `inventory-service`，`POST /internal/inventory/availability/report` | 整个 `inventories` 表的读写可能被阻塞。 |
+| `INVENTORY_ROW_LOCK` | 库存行锁 | `inventory-service`，`POST /internal/inventory/reservations/summary` | 固定 `SKU-001` 记录及需要该行锁的事务。 |
 | `PSP_PROVIDER_OUTCOME` | PSP 拒付/超时 | `payment-service -> psp-simulator`，`POST /api/psp/authorize` | 活动期间按生效比例的 PSP 授权，以及依赖它的支付/订单流程。 |
 
 ## 6. 每篇文章的最小内容

@@ -24,16 +24,16 @@
 
 ## 总体进度
 
-- **总体状态：** Phase A 已完成
-- **总体进度：** 5 / 29 个任务组（19 / 98 个子任务）
-- **当前阶段：** Phase B：双语 Markdown 内容与证据准确性
-- **当前问题：** RB-001 已解决：初始统计将完成标准复选框计入阶段子任务
-- **可能的解决方案：** Phase A 已完成；开始 RB-B1，先建立 12 个场景的双语文章目录和统一模板
+- **总体状态：** Phase B 已完成
+- **总体进度：** 11 / 29 个任务组（42 / 98 个子任务）
+- **当前阶段：** Phase C：`/runbook` 页面、目录与 Tempo 参数面板
+- **当前问题：** RB-001、RB-002、RB-003 已解决
+- **可能的解决方案：** Phase B 已完成；开始 RB-C1，将 catalog、Markdown loader 和双语文章接入 Server Component 页面
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
 | A | Runbook 领域模型与受控内容加载 | 已完成 | 5 / 5 | 无 |
-| B | 双语 Markdown 内容与证据准确性 | 待开始 | 0 / 6 | A |
+| B | 双语 Markdown 内容与证据准确性 | 已完成 | 6 / 6 | A |
 | C | `/runbook` 页面、目录与 Tempo 参数面板 | 待开始 | 0 / 5 | A、B |
 | D | Mermaid 与 Markdown 展示体验 | 待开始 | 0 / 4 | B、C |
 | E | 国际化、导航与 production 镜像打包 | 待开始 | 0 / 4 | C、D |
@@ -118,61 +118,61 @@ graph TD
 
 **阶段目标：** 为 12 个场景编写成对、可审计的 English / 简体中文文章，确保描述以当前代码为准并清楚界定运行证据。
 
-**阶段状态：** 待开始  
-**阶段进度：** 0 / 6 个任务组（0 / 23 个子任务）  
-**问题：** 暂无  
-**可能的解决方案：** 先建立统一文章模板，再按场景类别批量编写并逐项以 catalog/服务代码核实
+**阶段状态：** 已完成
+**阶段进度：** 6 / 6 个任务组（23 / 23 个子任务）
+**问题：** RB-002、RB-003 已解决；无新增问题
+**可能的解决方案：** 24 篇文章已完成，内容完整性、双语配对、Mermaid 围栏和当前实现事实均已复核；进入 Phase C 页面实现
 
 ### RB-B1. 内容目录与统一文章模板
 
-- [ ] 创建 `src/content/runbook/en/` 和 `src/content/runbook/zh-CN/`。
-- [ ] 建立与 metadata 完全一致的文件名 allowlist；两种语言保持相同文件名集合。
-- [ ] 在每篇文章使用统一顺序：目的与固定目标、实现逻辑、参数与生命周期、影响范围、证据、Tempo 排障、恢复验证、已知限制。
-- [ ] 仅翻译解释性文字；场景码、服务、操作、接口、参数、表名、错误码、事件名、SQL 和 TraceQL 保持原值。
+- [x] 创建 `src/content/runbook/en/` 和 `src/content/runbook/zh-CN/`。
+- [x] 建立与 metadata 完全一致的文件名 allowlist；两种语言保持相同文件名集合。
+- [x] 在每篇文章使用统一顺序：目的与固定目标、实现逻辑、参数与生命周期、影响范围、证据、Tempo 排障、恢复验证、已知限制。
+- [x] 仅翻译解释性文字；场景码、服务、操作、接口、参数、表名、错误码、事件名、SQL 和 TraceQL 保持原值。
 
 **完成判据：** 内容目录结构可由 loader 读取，文章模板覆盖产品规格第 6 节的全部信息。
 
 ### RB-B2. 慢 SQL 与流量场景文章
 
-- [ ] 编写 `BROWSE_REPORT_SQL` 英文/中文文章，说明历史行为扫描、商品浏览报表、JDBC 观察和优化/验证边界。
-- [ ] 编写 `ORDER_REPORT_SQL` 英文/中文文章，说明客户历史订单范围、N+1 明细读取和执行计划证据。
-- [ ] 编写 `BROWSE_SURGE` 英文/中文文章，说明控制面 worker 经 Gateway 的商品浏览请求、下游影响和 Tempo 起点。
-- [ ] 编写 `ORDER_QUERY_SURGE` 英文/中文文章，说明受控客户订单查询、并发/间隔参数和影响范围。
+- [x] 编写 `BROWSE_REPORT_SQL` 英文/中文文章，说明历史行为扫描、商品浏览报表、JDBC 观察和优化/验证边界。
+- [x] 编写 `ORDER_REPORT_SQL` 英文/中文文章，说明客户历史订单范围、N+1 明细读取和执行计划证据。
+- [x] 编写 `BROWSE_SURGE` 英文/中文文章，说明控制面 worker 经 Gateway 的商品浏览请求、下游影响和 Tempo 起点。
+- [x] 编写 `ORDER_QUERY_SURGE` 英文/中文文章，说明受控客户订单查询、并发/间隔参数和影响范围。
 
 **完成判据：** 四个场景均写明真实调用链、影响范围、恢复边界和匹配其 metadata 的 Tempo 参数。
 
 ### RB-B3. 缓存与依赖场景文章
 
-- [ ] 编写 `CATALOG_REDIS_LARGE_VALUE` 英文/中文文章，说明运行级 Hash、marker、商品详情回源、停止顺序和默认缓存隔离。
-- [ ] 编写 `CART_CATALOG_DEPENDENCY` 英文/中文文章，说明 Cart 到 Catalog 的校验调用、写入前失败和 `CATALOG_UNAVAILABLE` 证据边界。
-- [ ] 在两篇文章中清楚区分 HTTP、Redis span、应用 envelope 和控制面运行事件。
+- [x] 编写 `CATALOG_REDIS_LARGE_VALUE` 英文/中文文章，说明运行级 Hash、marker、商品详情回源、停止顺序和默认缓存隔离。
+- [x] 编写 `CART_CATALOG_DEPENDENCY` 英文/中文文章，说明 Cart 到 Catalog 的校验调用、写入前失败和 `CATALOG_UNAVAILABLE` 证据边界。
+- [x] 在两篇文章中清楚区分 HTTP、Redis span、应用 envelope 和控制面运行事件。
 
 **完成判据：** 缓存/依赖影响不会被描述为任意 Redis key 控制或全量 Catalog 服务故障。
 
 ### RB-B4. Notification 与 PSP 场景文章
 
-- [ ] 编写 `NOTIFICATION_HEAP_PRESSURE` 英文/中文文章，说明高基数对象保留、非释放型恢复、健康失败和可能缺失的末尾 trace。
-- [ ] 编写 `NOTIFICATION_STORAGE_APPEND` 英文/中文文章，说明普通通知记录、逻辑字节预留、运行级清理和不承诺物理磁盘写满的边界。
-- [ ] 编写 `PSP_PROVIDER_OUTCOME` 英文/中文文章，说明授权、拒付、60 秒 PSP 返回与 Payment 30 秒客户端超时的实际链路。
-- [ ] 明确 PSP 的 `effectPercentage` 影响活动期间授权，而不是所有支付请求必然失败。
+- [x] 编写 `NOTIFICATION_HEAP_PRESSURE` 英文/中文文章，说明高基数对象保留、非释放型恢复、健康失败和可能缺失的末尾 trace。
+- [x] 编写 `NOTIFICATION_STORAGE_APPEND` 英文/中文文章，说明普通通知记录、逻辑字节预留、运行级清理和不承诺物理磁盘写满的边界。
+- [x] 编写 `PSP_PROVIDER_OUTCOME` 英文/中文文章，说明授权、拒付、60 秒 PSP 返回与 Payment 30 秒客户端超时的实际链路。
+- [x] 明确 PSP 的 `effectPercentage` 影响活动期间授权，而不是所有支付请求必然失败。
 
 **完成判据：** 三个场景分别说明服务不可用、人工清理和 PSP 超时的不同恢复语义。
 
 ### RB-B5. 锁竞争场景文章
 
-- [ ] 编写 `PROMOTION_LOCK_CONTENTION` 英文/中文文章，说明反向锁顺序、准备预留、MySQL deadlock 和 JDBC exception 证据。
-- [ ] 编写 `INVENTORY_TABLE_EXCLUSIVE` 英文/中文文章，说明专用连接 `LOCK TABLES inventories WRITE`、全表影响和释放后恢复验证。
-- [ ] 编写 `INVENTORY_ROW_LOCK` 英文/中文文章，说明固定 `SKU-001` 的 `SELECT ... FOR UPDATE`、行级影响和锁等待。
-- [ ] 不承诺固定锁等待、超时或 deadlock 重现时间；这些依赖数据库/驱动与运行时条件。
+- [x] 编写 `PROMOTION_LOCK_CONTENTION` 英文/中文文章，说明反向锁顺序、准备预留、MySQL deadlock 和 JDBC exception 证据。
+- [x] 编写 `INVENTORY_TABLE_EXCLUSIVE` 英文/中文文章，说明专用连接 `LOCK TABLES inventories WRITE`、全表影响和释放后恢复验证。
+- [x] 编写 `INVENTORY_ROW_LOCK` 英文/中文文章，说明固定 `SKU-001` 的 `SELECT ... FOR UPDATE`、行级影响和锁等待。
+- [x] 不承诺固定锁等待、超时或 deadlock 重现时间；这些依赖数据库/驱动与运行时条件。
 
 **完成判据：** 三种锁的锁粒度、观察接口、影响范围和恢复顺序清晰且互不混淆。
 
 ### RB-B6. 双语内容与证据边界复核
 
-- [ ] 验证 12 个 English/中文 article 均非空、成对存在且使用 allowlist 文件名。
-- [ ] 验证每篇文章明确区分 `fault_run_events`、业务日志、指标、数据库现象与 Tempo trace。
-- [ ] 验证文章不承诺用 `fault_runs.trace_id` / `X-Trace-Id` 查询 OTel trace；需要精确关联时仅说明 Loki 业务日志关联和时间窗口结合。
-- [ ] 逐篇对照当前 catalog 与实现，移除任何过期的 Cart 大 key、随机支付结果、任意服务 fan-out 或旧 Chaos 协议描述。
+- [x] 验证 12 个 English/中文 article 均非空、成对存在且使用 allowlist 文件名。
+- [x] 验证每篇文章明确区分 `fault_run_events`、业务日志、指标、数据库现象与 Tempo trace。
+- [x] 验证文章不承诺用 `fault_runs.trace_id` / `X-Trace-Id` 查询 OTel trace；需要精确关联时仅说明 Loki 业务日志关联和时间窗口结合。
+- [x] 逐篇对照当前 catalog 与实现，移除任何过期的 Cart 大 key、随机支付结果、任意服务 fan-out 或旧 Chaos 协议描述。
 
 **完成判据：** 内容测试通过，且人工审阅确认没有将设计意图或不确定运行时现象写成代码已保证的事实。
 
@@ -375,6 +375,8 @@ graph TD
 | ID | 发现阶段/任务 | 问题 | 影响 | 可能的解决方案/下一步 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | RB-001 | 建立清单后统计复核 | 初始总数把“完成标准”复选框计入阶段子任务，导致 103 与任务组内实际 98 不一致。 | 可能造成后续进度汇报失真。 | 按 Phase A-F 任务组内复选项重新统计，修正为 98 个子任务；完成标准继续单独验收。 | 已解决 |
+| RB-002 | Phase B 前置核验 / RB-B2、RB-B5 | Inventory 两个观测接口实际使用 `POST`，而产品/技术设计和 Phase A metadata 曾写为 `GET`。 | 若不修正，文章和 Tempo route 说明会给出错误调用方法。 | 已按 `InventoryAvailabilityController`、`InventoryReservationController` 和 Gateway dispatch 修正为 `POST`；文章统一使用修正后的方法。 | 已解决 |
+| RB-003 | Phase B / 首批文章验证 | Phase A 的缺失文章测试使用了 `BROWSE_REPORT_SQL` 作为缺失 fixture；Phase B 创建该文章后，测试断言失效。 | `pnpm test:runbook` 在内容已正确存在时错误失败，阻断后续文章验证。 | 将断言改为验证 allowlisted Markdown 成功读取和不泄露服务器路径；非法 locale 测试继续覆盖 loader 错误分支。 | 已解决 |
 
 ## 阶段更新记录
 
@@ -387,6 +389,10 @@ graph TD
 | 2026-09-03 | 完成 RB-A1 至 RB-A3 | 3 / 29（12 / 98 子任务） | A：3 / 5（12 / 19 子任务） | RB-001 已解决；无新增问题 | 实现 RB-A4 受控 Markdown loader 和 RB-A5 Node runtime/测试骨架 |
 | 2026-09-03 | 开始 RB-A4/RB-A5 | 3 / 29（14 / 98 子任务） | A：3 / 5（14 / 19 子任务） | RB-001 已解决；无新增问题 | 新增固定路径 Markdown loader 和 `runtime = 'nodejs'` 页面骨架，随后验证 loader 失败回退 |
 | 2026-09-03 | 完成 Phase A / RB-A1 至 RB-A5 | 5 / 29（19 / 98 子任务） | A：5 / 5（19 / 19 子任务） | RB-001 已解决；无新增问题 | `pnpm test:runbook` 9/9 通过；运行 `typecheck` 后开始 Phase B 双语文章内容 |
+| 2026-09-03 | 开始 Phase B / RB-B1 至 RB-B6 | 5 / 29（19 / 98 子任务） | B：0 / 6（0 / 23 子任务） | RB-001 已解决；无新增问题 | 编写 24 篇成对 Markdown，使用内容测试核对章节、事实边界和 Mermaid 围栏 |
+| 2026-09-03 | Phase B 前置事实复核 | 5 / 29（19 / 98 子任务） | B：0 / 6（0 / 23 子任务） | RB-002 已解决；RB-001 已解决 | Inventory 观测接口已统一为 `POST`，文章按当前 Controller 和 Gateway 实现编写 |
+| 2026-09-03 | 修正 RB-003 测试夹具 | 5 / 29（19 / 98 子任务） | B：0 / 6（0 / 23 子任务） | RB-003 已解决；RB-002、RB-001 已解决 | 缺失 fixture 改为稳定的成功读取断言，继续验证首批双语文章 |
+| 2026-09-03 | 完成 Phase B / RB-B1 至 RB-B6 | 11 / 29（42 / 98 子任务） | B：6 / 6（23 / 23 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 24 篇文章、精确章节、Mermaid 围栏和 metadata allowlist 测试通过；开始 Phase C 页面实现 |
 
 ## 完成标准
 

@@ -14,6 +14,29 @@ import {
   loadRunbookMarkdown,
   RunbookContentError,
 } from './runbook-content';
+
+const REQUIRED_ARTICLE_HEADINGS = {
+  en: [
+    'Purpose and fixed target',
+    'Actual implementation',
+    'Parameters and lifecycle',
+    'Impact and exclusions',
+    'Evidence',
+    'Tempo investigation',
+    'Recovery and verification',
+    'Limits and safe interpretation',
+  ],
+  'zh-CN': [
+    '目的与固定目标',
+    '实际实现逻辑',
+    '参数与生命周期',
+    '影响范围与排除项',
+    '证据与判断',
+    'Tempo 排障',
+    '恢复与验证',
+    '限制与安全解释',
+  ],
+} as const;
 import {
   getScenarioDefinition,
   listScenarioDefinitions,
@@ -126,11 +149,40 @@ test('content loader rejects unsupported locales without reading a file', async 
   );
 });
 
-test('content loader reports missing allowlisted content without exposing its path', async () => {
-  await assert.rejects(
-    () => loadRunbookMarkdown('en', 'BROWSE_REPORT_SQL'),
-    (error: unknown) => error instanceof RunbookContentError
-      && error.code === 'CONTENT_NOT_FOUND'
-      && error.message === 'CONTENT_NOT_FOUND',
-  );
+test('content loader reads allowlisted content without exposing its path', async () => {
+  const markdown = await loadRunbookMarkdown('en', 'BROWSE_REPORT_SQL');
+
+  assert.match(markdown, /^# /u);
+  assert.equal(markdown.includes('src/content/runbook'), false);
+  assert.equal(markdown.includes('/Users/'), false);
+});
+
+test('all bilingual articles are complete, paired, and use balanced Mermaid fences', async () => {
+  const entries = listRunbookEntries();
+  assert.equal(entries.length, 12);
+
+  for (const entry of entries) {
+    for (const locale of ['en', 'zh-CN'] as const) {
+      const markdown = await loadRunbookMarkdown(locale, entry.scenario);
+      assert.ok(markdown.trim().length > 0, `${locale}:${entry.scenario}`);
+      assert.match(markdown, new RegExp(entry.scenario, 'u'), `${locale}:${entry.scenario}`);
+      for (const heading of REQUIRED_ARTICLE_HEADINGS[locale]) {
+        assert.equal(markdown.includes(`## ${heading}`), true, `${locale}:${entry.scenario}:${heading}`);
+      }
+      assert.match(markdown, /^```mermaid$/mu, `${locale}:${entry.scenario}`);
+      assert.equal((markdown.match(/^```/gmu) || []).length % 2, 0, `${locale}:${entry.scenario}`);
+      assert.equal(markdown.includes('https://'), false, `${locale}:${entry.scenario}`);
+    }
+  }
+});
+
+test('bilingual article file sets match the metadata allowlist', async () => {
+  const expectedFiles = new Set(listRunbookEntries().map(({ articleFile }) => articleFile));
+
+  for (const locale of ['en', 'zh-CN'] as const) {
+    const entries = await import('node:fs/promises').then(({ readdir }) => readdir(
+      path.resolve(process.cwd(), 'src', 'content', 'runbook', locale),
+    ));
+    assert.deepEqual(new Set(entries), expectedFiles, locale);
+  }
 });

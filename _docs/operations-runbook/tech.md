@@ -166,8 +166,8 @@ export type ScenarioRunbookMetadata = {
 | `NOTIFICATION_HEAP_PRESSURE` | `notification-service` | 正常通知处理 | duration、error、健康失败或进程退出后的 trace 缺口。 |
 | `NOTIFICATION_STORAGE_APPEND` | `notification-service` | 正常通知持久化 | 逻辑容量保护、持久化错误和运行级清理。 |
 | `PROMOTION_LOCK_CONTENTION` | `promotion-service` | 优惠券预留一致性 | deadlock、`SQLException`、JDBC duration 和失败请求。 |
-| `INVENTORY_TABLE_EXCLUSIVE` | `inventory-service` | `/internal/inventory/availability/report` | 表锁阻塞、超时、JDBC duration 和恢复。 |
-| `INVENTORY_ROW_LOCK` | `inventory-service` | `/internal/inventory/reservations/summary` | `SKU-001` 锁等待、超时、JDBC duration。 |
+| `INVENTORY_TABLE_EXCLUSIVE` | `inventory-service` | `POST /internal/inventory/availability/report` | 表锁阻塞、超时、JDBC duration 和恢复。 |
+| `INVENTORY_ROW_LOCK` | `inventory-service` | `POST /internal/inventory/reservations/summary` | `SKU-001` 锁等待、超时、JDBC duration。 |
 | `PSP_PROVIDER_OUTCOME` | `psp-simulator`, `payment-service` | `POST /api/psp/authorize` | 拒付、客户端超时和支付失败路径。 |
 
 每条 recipe 提供三个派生文本，由页面显示和复制：
