@@ -41,4 +41,7 @@
   "articleHeading": "Scenario implementation",
   "parametersUnavailable": "No additional parameters",
   "unknownContentError": "The article is temporarily unavailable."
+  ,"mermaidLabel": "Runbook implementation diagram"
+  ,"mermaidLoading": "Rendering diagram..."
+  ,"mermaidError": "Diagram syntax could not be rendered. The source is shown below."
 }

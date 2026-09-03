@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 待实施 |
+| 状态 | Phase D 已完成，Phase E 待实施 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-09-03 CST |
+| 更新时间 | 2026-09-04 CST |
 | 产品规格 | [product.md](product.md) |
 | 技术设计 | [tech.md](tech.md) |
 
@@ -24,19 +24,18 @@
 
 ## 总体进度
 
-- **总体状态：** Phase C 已完成
-- **总体进度：** 16 / 29 个任务组（58 / 98 个子任务）
-- **当前阶段：** Phase D：Mermaid 与 Markdown 展示体验
-- **当前问题：** RB-001、RB-002、RB-003、RB-004 已解决
-- **可能的解决方案：** Phase C 已完成；开始 RB-D1，接入 Mermaid 客户端渲染、严格安全配置和失败回退
+- **总体状态：** Phase D 已完成
+- **总体进度：** 20 / 29 个任务组（70 / 98 个子任务）
+- **当前阶段：** Phase E：国际化、导航与 production 镜像打包
+- **当前问题：** RB-001 至 RB-007 已解决
+- **可能的解决方案：** 开始 RB-E1，接入 `/runbook` 主导航，复核双语 message parity，并显式打包 Markdown 内容
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
 | A | Runbook 领域模型与受控内容加载 | 已完成 | 5 / 5 | 无 |
 | B | 双语 Markdown 内容与证据准确性 | 已完成 | 6 / 6 | A |
 | C | `/runbook` 页面、目录与 Tempo 参数面板 | 已完成 | 5 / 5 | A、B |
-| D | Mermaid 与 Markdown 展示体验 | 待开始 | 0 / 4 | B、C |
-| D | Mermaid 与 Markdown 展示体验 | 待开始 | 0 / 4 | B、C |
+| D | Mermaid 与 Markdown 展示体验 | 已完成 | 4 / 4 | B、C |
 | E | 国际化、导航与 production 镜像打包 | 待开始 | 0 / 4 | C、D |
 | F | 自动化、构建与浏览器验收 | 待开始 | 0 / 5 | A 至 E |
 
@@ -235,40 +234,40 @@ graph TD
 
 **阶段目标：** 安全地渲染受控文章中的 Mermaid 图表，并确保普通 Markdown、代码、图表和长中文内容在不同视口/主题下可用。
 
-**阶段状态：** 待开始  
-**阶段进度：** 0 / 4 个任务组（0 / 12 个子任务）  
-**问题：** 暂无  
-**可能的解决方案：** 以 isolated client renderer 处理 Mermaid，任何失败局部回退为源码
+**阶段状态：** 已完成
+**阶段进度：** 4 / 4 个任务组（12 / 12 个子任务）
+**问题：** RB-005、RB-006、RB-007 已解决；RB-001、RB-002、RB-003、RB-004 已解决
+**可能的解决方案：** 已完成 Mermaid 客户端渲染、严格安全配置、主题重绘、代码分类、源码回退、复制反馈和桌面/窄屏浏览器走查；进入 Phase E
 
 ### RB-D1. Mermaid client renderer
 
-- [ ] 新增 `'use client'` 的 `MermaidDiagram.tsx`，不在模块顶层导入 Mermaid。
-- [ ] 在 effect 中 dynamic import `mermaid`，只接收受控 Markdown loader 提供的源码与本地化 label。
-- [ ] 在 source 或 resolved theme 变化时生成稳定唯一 diagram ID、取消过期异步结果并重新绘制。
+- [x] 新增 `'use client'` 的 `MermaidDiagram.tsx`，不在模块顶层导入 Mermaid。
+- [x] 在 effect 中 dynamic import `mermaid`，只接收受控 Markdown loader 提供的源码与本地化 label。
+- [x] 在 source 或 resolved theme 变化时生成稳定唯一 diagram ID、取消过期异步结果并重新绘制。
 
 **完成判据：** Server render 不触碰 Mermaid DOM API，切换文章或主题时旧渲染不会覆盖新图。
 
 ### RB-D2. Mermaid 安全与失败回退
 
-- [ ] 用 `startOnLoad: false`、`securityLevel: 'strict'`、`htmlLabels: false` 初始化 Mermaid。
-- [ ] 不支持 click/callback、HTML label 或以 Mermaid 承载操作、导航和脚本执行。
-- [ ] 加载中显示本地化状态和源码；dynamic import 或语法错误时显示本地化错误及源码，且只影响当前图。
+- [x] 用 `startOnLoad: false`、`securityLevel: 'strict'`、`htmlLabels: false` 初始化 Mermaid。
+- [x] 不支持 click/callback、HTML label 或以 Mermaid 承载操作、导航和脚本执行。
+- [x] 加载中显示本地化状态和源码；dynamic import 或语法错误时显示本地化错误及源码，且只影响当前图。
 
 **完成判据：** 图表失败不会中断文章、目录、Tempo 面板或复制功能。
 
 ### RB-D3. Markdown code renderer 集成
 
-- [ ] 在 `RunbookArticle` 中仅识别 fenced block 的 `language-mermaid` class 并传给 `MermaidDiagram`。
-- [ ] 保证未标语言、`sql`、`traceql`、`json`、`bash` 等 fenced block 继续作为普通代码块。
-- [ ] 为每种语言文章至少加入一个流程图或时序图，表达调用链、资源竞争或恢复顺序，并用相邻正文表达等价操作信息。
+- [x] 在 `RunbookArticle` 中仅识别 fenced block 的 `language-mermaid` class 并传给 `MermaidDiagram`。
+- [x] 保证未标语言、`sql`、`traceql`、`json`、`bash` 等 fenced block 继续作为普通代码块。
+- [x] 为每种语言文章至少加入一个流程图或时序图，表达调用链、资源竞争或恢复顺序，并用相邻正文表达等价操作信息。
 
 **完成判据：** Mermaid fenced block 分类有测试，图表不是唯一的操作信息来源。
 
 ### RB-D4. Scoped styles 与响应式走查
 
-- [ ] 在 `src/app/globals.css` 增加限定于 runbook 的标题、表格、代码、诊断面板和 Mermaid 样式，沿用现有 token。
-- [ ] 表格、长 TraceQL、SQL 和 SVG 图表支持安全横向滚动，图表 wrapper 有稳定最小高度和最大宽度。
-- [ ] 为 `<figure>`、`figcaption`、图表本地化 label 和 focus-visible 状态补齐语义与可访问性。
+- [x] 在 `src/app/globals.css` 增加限定于 runbook 的标题、表格、代码、诊断面板和 Mermaid 样式，沿用现有 token。
+- [x] 表格、长 TraceQL、SQL 和 SVG 图表支持安全横向滚动，图表 wrapper 有稳定最小高度和最大宽度。
+- [x] 为 `<figure>`、`figcaption`、图表本地化 label 和 focus-visible 状态补齐语义与可访问性。
 
 **完成判据：** 桌面和窄屏下英文/中文、浅色/深色主题均无不可用的重叠、截断或布局跳动。
 
@@ -379,6 +378,9 @@ graph TD
 | RB-002 | Phase B 前置核验 / RB-B2、RB-B5 | Inventory 两个观测接口实际使用 `POST`，而产品/技术设计和 Phase A metadata 曾写为 `GET`。 | 若不修正，文章和 Tempo route 说明会给出错误调用方法。 | 已按 `InventoryAvailabilityController`、`InventoryReservationController` 和 Gateway dispatch 修正为 `POST`；文章统一使用修正后的方法。 | 已解决 |
 | RB-003 | Phase B / 首批文章验证 | Phase A 的缺失文章测试使用了 `BROWSE_REPORT_SQL` 作为缺失 fixture；Phase B 创建该文章后，测试断言失效。 | `pnpm test:runbook` 在内容已正确存在时错误失败，阻断后续文章验证。 | 将断言改为验证 allowlisted Markdown 成功读取和不泄露服务器路径；非法 locale 测试继续覆盖 loader 错误分支。 | 已解决 |
 | RB-004 | Phase C / RB-C5 | 复制按钮初版通过点击后的 `activeElement` 反查查询容器，焦点已经落在按钮上时无法取得查询文本，复制必然失败。 | Tempo 查询参数无法复制，影响排障操作。 | 将查询文本作为 `CopyTextButton` 的显式 `value` prop 传入，保留 Clipboard API 和受限 fallback；lint 与 focused test 通过。 | 已解决 |
+| RB-005 | Phase D / RB-D1、RB-D3 | `react-markdown` fenced code 同时生成 `code.language-*` 和外层 `pre`；初版仅替换 code 会保留不合适的 pre，且多 class 场景的 Mermaid 分类测试与实现边界不一致。 | Mermaid 图可能无法以稳定图表容器显示，普通代码语言边界存在误判风险。 | 通过 renderer 探针确认 props；同步自定义 `code`/`pre`，仅按 `language-mermaid` token 解包 Mermaid，普通代码剥离 AST `node` 属性；使用输入快照避免主题/文章切换时旧异步结果覆盖。 | 已解决 |
+| RB-006 | Phase D / RB-D4 | Mermaid SVG、主题重绘、语法错误回退和桌面/窄屏布局尚未完成真实浏览器走查；静态检查不能证明 hydration、DOM/SVG 和实际视口布局可用。 | 在未完成视觉和交互验证前关闭 D4 可能掩盖图表空白、主题不同步、回退失效或窄屏溢出。 | 已用真实浏览器验证：SVG 非空、light/dark 重绘、无效语法局部源码回退、`figure`/`figcaption` 语义、390px 页面无横向溢出；结果已恢复并记录。 | 已解决 |
+| RB-007 | Phase D / RB-D4 复制反馈 | 本地浏览器的 Clipboard API 可能因权限策略拒绝或迟迟不 resolve，直接等待会使复制按钮没有确定的可见结果。 | 操作人员无法判断查询是否已复制，浏览器走查也可能被权限 Promise 阻塞。 | 为 `navigator.clipboard.writeText` 增加 1 秒上限；立即拒绝时使用同步 fallback，超时时显示本地化 `复制失败`；已验证 stub 成功显示 `已复制`、真实权限路径有界显示失败。 | 已解决 |
 
 ## 阶段更新记录
 
@@ -397,7 +399,11 @@ graph TD
 | 2026-09-03 | 完成 Phase B / RB-B1 至 RB-B6 | 11 / 29（42 / 98 子任务） | B：6 / 6（23 / 23 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 24 篇文章、精确章节、Mermaid 围栏和 metadata allowlist 测试通过；开始 Phase C 页面实现 |
 | 2026-09-04 | 开始 Phase C / RB-C1 至 RB-C5 | 11 / 29（42 / 98 子任务） | C：0 / 5（0 / 16 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 实现 server-first `/runbook` 页面、目录、Markdown、Tempo 参数面板和复制组件 |
 | 2026-09-04 | 完成 Phase C / RB-C1 至 RB-C5 | 16 / 29（58 / 98 子任务） | C：5 / 5（16 / 16 子任务） | RB-001、RB-002、RB-003、RB-004 已解决；无新增问题 | `test:runbook` 11/11、`test:i18n` 15/15、typecheck、lint 通过；开始 Phase D Mermaid 实现 |
+| 2026-09-04 | 开始 Phase D / RB-D1 至 RB-D4 | 16 / 29（58 / 98 子任务） | D：0 / 4（0 / 12 子任务） | RB-001、RB-002、RB-003、RB-004 已解决；无新增问题 | 确认 `react-markdown` fenced code 渲染边界后，实现 Mermaid 客户端 SVG、严格安全配置、源码回退和 scoped styles |
+| 2026-09-04 | 完成 Phase D / RB-D1 至 RB-D4 | 20 / 29（70 / 98 子任务） | D：4 / 4（12 / 12 子任务） | RB-001、RB-002、RB-003、RB-004、RB-005 已解决；无新增问题 | `test:runbook` 12/12、lint 通过；typecheck/build 作为后续 Phase E/F 继续验证，开始 Phase E |
 | 2026-09-04 | 开始 Phase C / RB-C1 至 RB-C5 | 11 / 29（42 / 98 子任务） | C：0 / 5（0 / 16 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 实现 server-first `/runbook` 页面、目录、Markdown、Tempo 参数面板和复制组件 |
+| 2026-09-04 | 修正 Phase D 进度记录 | 19 / 29（67 / 98 子任务） | D：3 / 4（9 / 12 子任务） | RB-006 待处理；RB-001 至 RB-005 已解决 | 静态实现、typecheck、lint 和 build 已通过；D4 保留真实浏览器走查，完成后再进入 Phase E |
+| 2026-09-04 | 完成 Phase D / RB-D1 至 RB-D4 | 20 / 29（70 / 98 子任务） | D：4 / 4（12 / 12 子任务） | RB-001 至 RB-007 已解决；无新增问题 | 浏览器验证通过：SVG 非空、主题重绘、无效 Mermaid 局部回退、390px 无页面横向溢出；`test:runbook` 12/12、typecheck、lint、build 通过；进入 Phase E |
 
 ## 完成标准
 

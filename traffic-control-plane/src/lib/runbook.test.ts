@@ -41,6 +41,7 @@ import {
   getScenarioDefinition,
   listScenarioDefinitions,
 } from './fault-run-catalog';
+import { getMarkdownCodeLanguage, isMermaidCodeBlock } from '@/components/runbook/RunbookArticle';
 
 test('runbook metadata covers the catalog exactly once', () => {
   const definitions = listScenarioDefinitions();
@@ -186,4 +187,16 @@ test('bilingual article file sets match the metadata allowlist', async () => {
     ));
     assert.deepEqual(new Set(entries), expectedFiles, locale);
   }
+});
+
+test('Markdown code classification isolates Mermaid from ordinary code', () => {
+  assert.equal(getMarkdownCodeLanguage('language-mermaid'), 'mermaid');
+  assert.equal(isMermaidCodeBlock('language-mermaid'), true);
+  assert.equal(isMermaidCodeBlock('language-sql'), false);
+  assert.equal(isMermaidCodeBlock('language-traceql'), false);
+  assert.equal(isMermaidCodeBlock('language-json'), false);
+  assert.equal(isMermaidCodeBlock('language-bash'), false);
+  assert.equal(isMermaidCodeBlock(undefined), false);
+  assert.equal(isMermaidCodeBlock('language-mermaid-extra'), false);
+  assert.equal(isMermaidCodeBlock('language-sql language-mermaid'), true);
 });

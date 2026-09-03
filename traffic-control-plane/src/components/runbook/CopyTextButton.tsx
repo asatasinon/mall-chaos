@@ -6,8 +6,18 @@ import { useState } from 'react';
 
 async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
+    try {
+      await Promise.race([
+        navigator.clipboard.writeText(text),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => reject(new Error('CLIPBOARD_TIMEOUT')), 1000);
+        }),
+      ]);
+      return;
+    } catch (error) {
+      if (error instanceof Error && error.message === 'CLIPBOARD_TIMEOUT') throw error;
+      // Fall through to the synchronous browser fallback when the API rejects immediately.
+    }
   }
 
   const textarea = document.createElement('textarea');

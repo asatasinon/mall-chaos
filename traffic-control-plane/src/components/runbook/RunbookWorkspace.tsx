@@ -145,7 +145,7 @@ export default async function RunbookWorkspace({
                     <GitBranch aria-hidden="true" className="size-4 text-primary" />
                     <h2 className="text-sm font-semibold">{t('articleHeading')}</h2>
                   </div>
-                  <RunbookArticle markdown={markdown} />
+                  <RunbookArticle markdown={markdown} mermaidLabel={t('mermaidLabel')} />
                 </>
               ) : (
                 <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-4 text-sm text-destructive" role="status">

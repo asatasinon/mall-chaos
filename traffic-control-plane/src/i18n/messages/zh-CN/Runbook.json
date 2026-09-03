@@ -41,4 +41,7 @@
   "articleHeading": "场景实现说明",
   "parametersUnavailable": "没有额外参数",
   "unknownContentError": "文章暂时不可用。"
+  ,"mermaidLabel": "操作手册实现图"
+  ,"mermaidLoading": "图表渲染中..."
+  ,"mermaidError": "图表语法无法渲染，已显示原始源码。"
 }
