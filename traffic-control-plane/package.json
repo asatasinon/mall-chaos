@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start -p 13086",
     "worker": "tsx src/worker/index.ts",
+    "test:runbook": "tsx --test src/lib/runbook.test.ts",
     "test:i18n": "tsx --test src/i18n/config.test.ts src/i18n/messages.test.ts src/lib/client-error.test.ts src/components/scenarios/meta.test.ts src/components/scenarios/fault-run-view.test.ts src/components/runner/utils.test.ts",
     "test:runner": "tsx --test src/lib/scenario-accounts.test.ts src/lib/fault-run-catalog.test.ts src/lib/fault-run-context.test.ts src/lib/fault-run-coordinator.test.ts src/worker/customer-session-manager.test.ts src/worker/gateway-customer-contract.test.ts src/worker/lifecycle-account-contract.test.ts src/worker/coupon-replenishment.test.ts src/worker/inventory-replenishment.test.ts src/worker/traffic-lifecycle-orchestrator.test.ts src/worker/data-warmup.test.ts src/worker/controlled-scenario-worker.test.ts src/worker/scenario-workers.test.ts src/components/scenarios/fault-run-view.test.ts",
     "lint": "eslint .",

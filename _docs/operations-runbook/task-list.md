@@ -24,15 +24,15 @@
 
 ## 总体进度
 
-- **总体状态：** 待实施
-- **总体进度：** 0 / 29 个任务组（0 / 103 个子任务）
-- **当前阶段：** Phase A：内容与领域模型
-- **当前问题：** 暂无
-- **可能的解决方案：** 从 RB-A1 开始，先建立 catalog 对齐的 metadata 和内容加载边界，再编写成对文章
+- **总体状态：** Phase A 已完成
+- **总体进度：** 5 / 29 个任务组（19 / 98 个子任务）
+- **当前阶段：** Phase B：双语 Markdown 内容与证据准确性
+- **当前问题：** RB-001 已解决：初始统计将完成标准复选框计入阶段子任务
+- **可能的解决方案：** Phase A 已完成；开始 RB-B1，先建立 12 个场景的双语文章目录和统一模板
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
-| A | Runbook 领域模型与受控内容加载 | 待开始 | 0 / 5 | 无 |
+| A | Runbook 领域模型与受控内容加载 | 已完成 | 5 / 5 | 无 |
 | B | 双语 Markdown 内容与证据准确性 | 待开始 | 0 / 6 | A |
 | C | `/runbook` 页面、目录与 Tempo 参数面板 | 待开始 | 0 / 5 | A、B |
 | D | Mermaid 与 Markdown 展示体验 | 待开始 | 0 / 4 | B、C |
@@ -63,52 +63,52 @@ graph TD
 
 **阶段目标：** 以 `fault-run-catalog.ts` 为稳定事实来源，建立受限场景解析、Tempo 查询配方和 production-safe Markdown loader。
 
-**阶段状态：** 待开始  
-**阶段进度：** 0 / 5 个任务组（0 / 19 个子任务）  
-**问题：** 暂无  
-**可能的解决方案：** 先实现纯 TypeScript 模型并写单测，内容文件和 UI 后续依赖该模型
+**阶段状态：** 已完成  
+**阶段进度：** 5 / 5 个任务组（19 / 19 个子任务）  
+**问题：** RB-001 已解决：初始统计将完成标准复选框计入阶段子任务  
+**可能的解决方案：** 已完成 catalog 对齐、Tempo 查询配方、allowlist loader 和 Node runtime 测试；进入 Phase B 内容编写
 
 ### RB-A1. Runbook metadata 类型与目录对齐
 
-- [ ] 新增 `traffic-control-plane/src/lib/runbook.ts`，定义 `ScenarioRunbookMetadata`、`TempoQueryRecipe` 和合并后的页面 entry 类型。
-- [ ] 使用 `FaultRunScenario` 作为 metadata 主键，涵盖当前 catalog 的全部 12 个场景。
-- [ ] metadata 仅保存文章文件名、业务链路、影响范围、明确排除项、Tempo 服务/route/时延阈值和 waterfall 检查点。
-- [ ] 不在 metadata 中复制 `targetService`、`targetOperation`、参数、时长、恢复策略和人工清理权限等 catalog 已拥有的可变事实。
+- [x] 新增 `traffic-control-plane/src/lib/runbook.ts`，定义 `ScenarioRunbookMetadata`、`TempoQueryRecipe` 和合并后的页面 entry 类型。
+- [x] 使用 `FaultRunScenario` 作为 metadata 主键，涵盖当前 catalog 的全部 12 个场景。
+- [x] metadata 仅保存文章文件名、业务链路、影响范围、明确排除项、Tempo 服务/route/时延阈值和 waterfall 检查点。
+- [x] 不在 metadata 中复制 `targetService`、`targetOperation`、参数、时长、恢复策略和人工清理权限等 catalog 已拥有的可变事实。
 
 **完成判据：** metadata 类型能表达产品规格中的全部手册专属资料，且不引入任意 URL、运行 ID 或用户输入字段。
 
 ### RB-A2. Catalog 合并与场景解析
 
-- [ ] 实现 `listRunbookEntries()`，遍历 `listScenarioDefinitions()` 生成稳定顺序的完整目录。
-- [ ] 实现 `getRunbookEntry()`，从 `getScenarioDefinition()` 合并固定目标、参数、时长和恢复策略。
-- [ ] 实现 `resolveRunbookScenario(input)`，仅接受已知 scenario；空值、未知值和数组值安全回退到确定默认场景。
-- [ ] 确保 scenario query 原文不进入文件路径、TraceQL、HTML、React key 或错误模板。
+- [x] 实现 `listRunbookEntries()`，遍历 `listScenarioDefinitions()` 生成稳定顺序的完整目录。
+- [x] 实现 `getRunbookEntry()`，从 `getScenarioDefinition()` 合并固定目标、参数、时长和恢复策略。
+- [x] 实现 `resolveRunbookScenario(input)`，仅接受已知 scenario；空值、未知值和数组值安全回退到确定默认场景。
+- [x] 确保 scenario query 原文不进入文件路径、TraceQL、HTML、React key 或错误模板。
 
 **完成判据：** 纯函数可由 Node 测试覆盖已知场景和非法输入，目录与 catalog 一对一对应。
 
 ### RB-A3. 静态 Tempo 查询配方
 
-- [ ] 为每个场景定义 allowlisted OTel service name、可选 route/业务路径、默认 `now-1h to now` 时间范围和慢请求阈值。
-- [ ] 为每个目标服务派生服务范围、`status = error` 和 duration TraceQL 文本；多服务场景分别提供每个服务的查询，不依赖未验证的跨服务语法。
-- [ ] 定义各场景 waterfall 检查点，只允许 `HTTP`、`JDBC`、`REDIS`、`EXCEPTION`、`HEALTH` 等固定值。
-- [ ] 明确 route 条件是需在实际 Tempo 属性中确认的可选收窄条件，基础查询以 `resource.service.name` 为起点。
+- [x] 为每个场景定义 allowlisted OTel service name、可选 route/业务路径、默认 `now-1h to now` 时间范围和慢请求阈值。
+- [x] 为每个目标服务派生服务范围、`status = error` 和 duration TraceQL 文本；多服务场景分别提供每个服务的查询，不依赖未验证的跨服务语法。
+- [x] 定义各场景 waterfall 检查点，只允许 `HTTP`、`JDBC`、`REDIS`、`EXCEPTION`、`HEALTH` 等固定值。
+- [x] 明确 route 条件是需在实际 Tempo 属性中确认的可选收窄条件，基础查询以 `resource.service.name` 为起点。
 
 **完成判据：** 所有 12 个场景都有完整、静态、无外部 URL 的 Tempo recipe。
 
 ### RB-A4. 受控 Markdown loader
 
-- [ ] 新增 `traffic-control-plane/src/lib/runbook-content.ts`，只接受 `en` / `zh-CN` 和经 `resolveRunbookScenario()` 验证的 scenario。
-- [ ] 只以 metadata allowlist `articleFile` 形成路径，使用 `node:fs/promises` 读取 UTF-8 内容。
-- [ ] 对缺失、空白或不可读内容提供明确的受控错误结果，页面可显示本地化不可用状态。
-- [ ] 不从 `public/`、仓库根目录 `_docs`、请求参数或外部地址读取文章。
+- [x] 新增 `traffic-control-plane/src/lib/runbook-content.ts`，只接受 `en` / `zh-CN` 和经 `resolveRunbookScenario()` 验证的 scenario。
+- [x] 只以 metadata allowlist `articleFile` 形成路径，使用 `node:fs/promises` 读取 UTF-8 内容。
+- [x] 对缺失、空白或不可读内容提供明确的受控错误结果，页面可显示本地化不可用状态。
+- [x] 不从 `public/`、仓库根目录 `_docs`、请求参数或外部地址读取文章。
 
 **完成判据：** loader 的路径不会被 query 注入，且失败模式可被测试精确验证。
 
 ### RB-A5. Node runtime 和任务测试骨架
 
-- [ ] 在 `src/app/runbook/page.tsx` 预声明 `export const runtime = 'nodejs'`，保证后续文件系统读取不落到 Edge runtime。
-- [ ] 新增 `traffic-control-plane/src/lib/runbook.test.ts` 和 `package.json` 的 `test:runbook` 脚本骨架。
-- [ ] 覆盖 catalog/metadata 一对一、解析安全回退、固定 Tempo 配方字段和禁止 URL/trace ID 输入的纯函数测试。
+- [x] 在 `src/app/runbook/page.tsx` 预声明 `export const runtime = 'nodejs'`，保证后续文件系统读取不落到 Edge runtime。
+- [x] 新增 `traffic-control-plane/src/lib/runbook.test.ts` 和 `package.json` 的 `test:runbook` 脚本骨架。
+- [x] 覆盖 catalog/metadata 一对一、解析安全回退、固定 Tempo 配方字段和禁止 URL/trace ID 输入的纯函数测试。
 
 **完成判据：** `pnpm test:runbook` 可执行并覆盖 Phase A 的纯函数契约。
 
@@ -321,7 +321,7 @@ graph TD
 **阶段目标：** 验证场景覆盖、内容边界、语言契约、Mermaid 回退、生产构建与受保护页面行为。
 
 **阶段状态：** 待开始  
-**阶段进度：** 0 / 5 个任务组（0 / 21 个子任务）  
+**阶段进度：** 0 / 5 个任务组（0 / 16 个子任务）  
 **问题：** 暂无  
 **可能的解决方案：** 先运行纯测试定位 metadata/content 问题，再运行 build 和浏览器走查定位 bundling/DOM 问题
 
@@ -374,7 +374,7 @@ graph TD
 
 | ID | 发现阶段/任务 | 问题 | 影响 | 可能的解决方案/下一步 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| 暂无 | - | - | - | - | - |
+| RB-001 | 建立清单后统计复核 | 初始总数把“完成标准”复选框计入阶段子任务，导致 103 与任务组内实际 98 不一致。 | 可能造成后续进度汇报失真。 | 按 Phase A-F 任务组内复选项重新统计，修正为 98 个子任务；完成标准继续单独验收。 | 已解决 |
 
 ## 阶段更新记录
 
@@ -382,11 +382,15 @@ graph TD
 
 | 日期 | 阶段/任务 | 总体进度 | 阶段进度 | 问题 | 可能的解决方案/下一步 |
 | --- | --- | --- | --- | --- | --- |
-| 2026-09-03 | 建立任务清单 | 0 / 29（0 / 103 子任务） | A-F：0 | 无 | 从 RB-A1 开始，先建立 catalog 对齐的 metadata 和受控内容 loader |
+| 2026-09-03 | 建立任务清单 | 0 / 29（0 / 98 子任务） | A-F：0 | 无 | 从 RB-A1 开始，先建立 catalog 对齐的 metadata 和受控内容 loader |
+| 2026-09-03 | 统计口径修正 | 0 / 29（0 / 98 子任务） | A-F：0 | RB-001 已解决 | 完成标准复选框不计入阶段子任务，继续执行 Phase A |
+| 2026-09-03 | 完成 RB-A1 至 RB-A3 | 3 / 29（12 / 98 子任务） | A：3 / 5（12 / 19 子任务） | RB-001 已解决；无新增问题 | 实现 RB-A4 受控 Markdown loader 和 RB-A5 Node runtime/测试骨架 |
+| 2026-09-03 | 开始 RB-A4/RB-A5 | 3 / 29（14 / 98 子任务） | A：3 / 5（14 / 19 子任务） | RB-001 已解决；无新增问题 | 新增固定路径 Markdown loader 和 `runtime = 'nodejs'` 页面骨架，随后验证 loader 失败回退 |
+| 2026-09-03 | 完成 Phase A / RB-A1 至 RB-A5 | 5 / 29（19 / 98 子任务） | A：5 / 5（19 / 19 子任务） | RB-001 已解决；无新增问题 | `pnpm test:runbook` 9/9 通过；运行 `typecheck` 后开始 Phase B 双语文章内容 |
 
 ## 完成标准
 
-- [ ] Phase A-F 全部任务组完成，任务组进度达到 `29 / 29`，子任务进度达到 `103 / 103`。
+- [ ] Phase A-F 全部任务组完成，任务组进度达到 `29 / 29`，子任务进度达到 `98 / 98`。
 - [ ] 12 个场景的 English / 简体中文文章、catalog metadata、Tempo 参数和 Mermaid 样例均完整并通过对应测试。
 - [ ] `pnpm test:runbook`、`pnpm test:i18n`、`pnpm typecheck`、`pnpm lint`、`pnpm build` 和 `docker compose build traffic-control-plane` 通过。
 - [ ] `/runbook` 的登录保护、语言切换、主题切换、响应式、Markdown、Mermaid 和复制操作完成浏览器验收。
