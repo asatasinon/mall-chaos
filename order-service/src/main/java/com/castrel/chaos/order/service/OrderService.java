@@ -225,8 +225,7 @@ public class OrderService {
     }
 
     public List<OrderQueryReportDTO> queryReportBaseline(Long customerId) {
-        List<Order> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(customerId,
-                org.springframework.data.domain.PageRequest.of(0, 100)).getContent();
+        List<Order> orders = orderRepository.findAllByUserIdOrderByCreatedAtDesc(customerId);
         List<OrderQueryReportDTO> reports = new ArrayList<>();
         for (Order order : orders) {
             List<OrderItem> items = orderItemRepository.findByOrderIdOrderByIdAsc(order.getId());
