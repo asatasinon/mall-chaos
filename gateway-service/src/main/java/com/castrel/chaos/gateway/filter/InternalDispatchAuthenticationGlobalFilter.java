@@ -28,6 +28,7 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
             "/internal/gateway/fault-runs/cleanup",
             "/internal/gateway/fault-runs/cleanup-scenario",
             "/internal/gateway/inventory/availability",
+            "/internal/gateway/inventory/reservations/summary",
             "/internal/gateway/promotion/consistency",
             "/internal/gateway/fault-runs/restart-notification");
 

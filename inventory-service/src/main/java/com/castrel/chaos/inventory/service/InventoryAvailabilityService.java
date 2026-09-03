@@ -14,40 +14,42 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-public class InventoryLockExerciseService {
+public class InventoryAvailabilityService {
     private static final List<String> REPORT_SKUS = List.of("SKU-001", "SKU-002", "SKU-003", "SKU-004", "SKU-005");
 
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
     private final ScenarioRunGuard runGuard;
-    private volatile Connection lockConnection;
+    private volatile Connection availabilityConnection;
     private volatile String activeRunId;
     private volatile long fencingToken;
 
-    public InventoryLockExerciseService(DataSource dataSource, JdbcTemplate jdbcTemplate, ScenarioRunGuard runGuard) {
+    public InventoryAvailabilityService(DataSource dataSource, JdbcTemplate jdbcTemplate, ScenarioRunGuard runGuard) {
         this.dataSource = dataSource;
         this.jdbcTemplate = jdbcTemplate;
         this.runGuard = runGuard;
     }
 
-    public synchronized void start(ScenarioRunContext context) {
+    public synchronized void prepare(ScenarioRunContext context) {
         context.validate(Instant.now());
-        if (!runGuard.acceptStart(context)) throw new BizException("STALE_SCENARIO_RUN", "Scenario token was rejected");
+        if (!runGuard.acceptStart(context)) throw new BizException("STALE_OPERATION", "Operation token was rejected");
         if (context.runId().equals(activeRunId) && fencingToken == context.fencingToken()) return;
-        if (lockConnection != null) throw new BizException("INVENTORY_LOCK_ALREADY_ACTIVE", "Inventory lock is already active");
+        if (availabilityConnection != null) {
+            throw new BizException("INVENTORY_AVAILABILITY_ALREADY_ACTIVE", "Inventory availability is already active");
+        }
         try {
             Connection connection = dataSource.getConnection();
+            availabilityConnection = connection;
             connection.setAutoCommit(true);
             try (PreparedStatement statement = connection.prepareStatement("LOCK TABLES inventories WRITE")) {
                 statement.execute();
             }
-            lockConnection = connection;
             activeRunId = context.runId();
             fencingToken = context.fencingToken();
-            runGuard.registerCleanup(context, () -> release(context));
+            runGuard.registerCleanup(context, () -> closeResource(context));
         } catch (Exception exception) {
             closeConnection();
-            throw new BizException("INVENTORY_LOCK_START_FAILED", "Could not acquire inventory table lock", exception);
+            throw new BizException("INVENTORY_AVAILABILITY_PREPARE_FAILED", "Could not prepare inventory availability", exception);
         }
     }
 
@@ -55,7 +57,7 @@ public class InventoryLockExerciseService {
         context.validate(Instant.now());
         if (!context.runId().equals(activeRunId) || fencingToken != context.fencingToken()
                 || !runGuard.isAccepted(context)) {
-            throw new BizException("EXERCISE_RUN_INACTIVE", "Inventory lock run is not active");
+            throw new BizException("INVENTORY_AVAILABILITY_INACTIVE", "Inventory availability is not active");
         }
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT sku, available_qty, reserved_qty, version FROM inventories WHERE sku IN (?, ?, ?, ?, ?) ORDER BY sku",
@@ -63,22 +65,28 @@ public class InventoryLockExerciseService {
         return Map.of("rows", rows, "skuCount", rows.size(), "runId", context.runId());
     }
 
-    public synchronized void stop(ScenarioRunContext context) {
+    public synchronized void release(ScenarioRunContext context) {
         context.validateForRelease();
         runGuard.release(context);
-        release(context);
+        closeResource(context);
     }
 
-    public synchronized Map<String, Object> release(ScenarioRunContext context) {
+    public synchronized Map<String, Object> remove(ScenarioRunContext context) {
+        context.validateForCleanup();
+        runGuard.release(context);
+        return closeResource(context);
+    }
+
+    private synchronized Map<String, Object> closeResource(ScenarioRunContext context) {
         if (activeRunId == null || !activeRunId.equals(context.runId())) return Map.of("released", true);
         try {
-            if (lockConnection != null && !lockConnection.isClosed()) {
-                try (PreparedStatement statement = lockConnection.prepareStatement("UNLOCK TABLES")) {
+            if (availabilityConnection != null && !availabilityConnection.isClosed()) {
+                try (PreparedStatement statement = availabilityConnection.prepareStatement("UNLOCK TABLES")) {
                     statement.execute();
                 }
             }
         } catch (Exception exception) {
-            throw new BizException("INVENTORY_LOCK_RELEASE_FAILED", "Could not release inventory table lock", exception);
+            throw new BizException("INVENTORY_AVAILABILITY_RELEASE_FAILED", "Could not release inventory availability", exception);
         } finally {
             closeConnection();
             activeRunId = null;
@@ -89,11 +97,10 @@ public class InventoryLockExerciseService {
 
     private void closeConnection() {
         try {
-            if (lockConnection != null) lockConnection.close();
+            if (availabilityConnection != null) availabilityConnection.close();
         } catch (Exception ignored) {
-            // The connection is being discarded after the release attempt.
         } finally {
-            lockConnection = null;
+            availabilityConnection = null;
         }
     }
 }

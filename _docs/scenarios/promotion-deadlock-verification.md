@@ -41,7 +41,7 @@ flowchart LR
 ```text
 traffic-control-plane
   -> gateway-service: POST /internal/gateway/fault-runs/start
-  -> promotion-service: POST /internal/promotion/fault-runs/start
+  -> promotion-service: POST /internal/promotion/coupons/reservations/prepare
   -> Redis: ScenarioRunGuard.acceptStart()
   -> MySQL: 选择 Sam 的 coupon，插入本次运行的过期 coupon_reservations
 ```
@@ -55,7 +55,7 @@ traffic-control-plane
 ```text
 traffic-control-plane-worker
   -> gateway-service: POST /internal/gateway/promotion/consistency
-  -> promotion-service: POST /internal/promotion/consistency
+  -> promotion-service: POST /internal/promotion/coupons/reservations/consistency
   -> Redis: 校验运行是否仍被接受
   -> MySQL: 在 Promotion 内启动两条反向加锁的 JDBC 事务
 ```
@@ -83,7 +83,7 @@ SELECT id FROM coupons
 ```text
 traffic-control-plane
   -> gateway-service: POST /internal/gateway/fault-runs/stop
-  -> promotion-service: POST /internal/promotion/fault-runs/stop
+  -> promotion-service: POST /internal/promotion/coupons/reservations/release
   -> Redis: 释放 fencing token
   -> MySQL: 删除本次运行创建的 coupon_reservations
   -> traffic-control-plane: 将运行置为 STOPPED（人工停止）或 RECOVERED（到期）
@@ -179,7 +179,7 @@ docker logs --since=10m castrel-mysql 2>&1 \
 ```text
 gateway-service: HTTP server
   └─ HTTP client -> promotion-service
-       └─ promotion-service: HTTP server /internal/promotion/consistency
+      └─ promotion-service: HTTP server /internal/promotion/coupons/reservations/consistency
             ├─ Redis GET 或脚本调用：校验 ScenarioRunGuard
             ├─ JDBC: SELECT ... FROM coupons ... FOR UPDATE
             ├─ JDBC: SELECT ... FROM coupon_reservations ... FOR UPDATE

@@ -9,12 +9,13 @@ import {
 
 test('catalog exposes one fixed target for every scenario', () => {
   const definitions = listScenarioDefinitions();
-  assert.equal(definitions.length, 11);
+  assert.equal(definitions.length, 12);
   assert.equal(new Set(definitions.map((definition) => definition.scenario)).size, definitions.length);
   assert.equal(getScenarioDefinition('CATALOG_REDIS_LARGE_VALUE').targetService, 'catalog-service');
   assert.equal(getScenarioDefinition('CATALOG_REDIS_LARGE_VALUE').targetOperation,
     'catalog-product-detail-large-value');
   assert.equal(getScenarioDefinition('INVENTORY_TABLE_EXCLUSIVE').targetOperation, 'inventory-availability-report');
+  assert.equal(getScenarioDefinition('INVENTORY_ROW_LOCK').targetOperation, 'inventory-reservation-summary');
 });
 
 test('catalog validates required duration and optional parameters', () => {

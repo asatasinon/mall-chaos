@@ -8,7 +8,8 @@ public final class ScenarioRunResources {
     }
 
     public static final Map<String, String> OWNERS = Map.of(
-            "INVENTORY_TABLE_EXCLUSIVE", "inventory-lock-connection",
+            "INVENTORY_TABLE_EXCLUSIVE", "inventory-availability-connection",
+            "INVENTORY_ROW_LOCK", "inventory-reservation-connection",
             "PSP_PROVIDER_OUTCOME", "psp-provider-state",
             "NOTIFICATION_STORAGE_APPEND", "notification-run-storage",
             "NOTIFICATION_HEAP_PRESSURE", "notification-retained-objects"

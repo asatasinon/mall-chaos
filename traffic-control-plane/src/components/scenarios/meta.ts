@@ -22,6 +22,7 @@ export const SCENARIO_META: Record<string, ScenarioMeta> = {
   NOTIFICATION_STORAGE_APPEND: { label: 'Notification storage growth', description: 'Grow persistent storage with run-scoped notification transaction data.', icon: DatabaseZap, tone: 'text-violet-700 dark:text-violet-300' },
   PROMOTION_LOCK_CONTENTION: { label: 'Promotion deadlock', description: 'Trigger a real database deadlock through competing promotion reservations.', icon: LockKeyhole, tone: 'text-cyan-700 dark:text-cyan-300' },
   INVENTORY_TABLE_EXCLUSIVE: { label: 'Inventory table lock', description: 'Hold an exclusive database table lock that blocks inventory reads.', icon: LockKeyhole, tone: 'text-cyan-700 dark:text-cyan-300' },
+  INVENTORY_ROW_LOCK: { label: 'Inventory row lock', description: 'Hold a row-level inventory reservation while the normal reservation summary path waits.', icon: LockKeyhole, tone: 'text-cyan-700 dark:text-cyan-300' },
   PSP_PROVIDER_OUTCOME: { label: 'PSP external dependency', description: 'Inject an external PSP dependency outcome into the payment path.', icon: ShieldCheck, tone: 'text-blue-700 dark:text-blue-300' },
 };
 
@@ -36,8 +37,7 @@ export const SCENARIO_GROUPS: ScenarioGroup[] = [
   { label: 'Dependency failure', scenarios: ['CART_CATALOG_DEPENDENCY'] },
   { label: 'Memory leak', scenarios: ['NOTIFICATION_HEAP_PRESSURE'] },
   { label: 'Storage growth', scenarios: ['NOTIFICATION_STORAGE_APPEND'] },
-  { label: 'Deadlock', scenarios: ['PROMOTION_LOCK_CONTENTION'] },
-  { label: 'Table lock', scenarios: ['INVENTORY_TABLE_EXCLUSIVE'] },
+  { label: 'Lock', scenarios: ['PROMOTION_LOCK_CONTENTION', 'INVENTORY_TABLE_EXCLUSIVE', 'INVENTORY_ROW_LOCK'] },
   { label: 'External dependency', scenarios: ['PSP_PROVIDER_OUTCOME'] },
 ];
 

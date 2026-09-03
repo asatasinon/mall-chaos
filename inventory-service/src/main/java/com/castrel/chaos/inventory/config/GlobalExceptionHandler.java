@@ -22,6 +22,7 @@ public class GlobalExceptionHandler {
             case "SKU_NOT_FOUND" -> 404;
             case "VERSION_CONFLICT" -> 409;
             case "LOCK_FAILED" -> 409;
+            case "INVENTORY_AVAILABILITY_ALREADY_ACTIVE", "INVENTORY_RESERVATION_ALREADY_ACTIVE" -> 409;
             default -> 400;
         };
         log.warn("BizException [{}]: {}", ex.getErrorCode(), ex.getMessage());

@@ -90,6 +90,7 @@ flowchart LR
 | `NOTIFICATION_STORAGE_APPEND` | notification-service | 通知存储追加与运行专属清理。 |
 | `PROMOTION_LOCK_CONTENTION` | promotion-service | 提供优惠券预留一致性核对接口，触发准备记录上的事务竞争。 |
 | `INVENTORY_TABLE_EXCLUSIVE` | inventory-service | 管理 `inventories` 表的专用锁连接，并提供库存可用性报表接口。 |
+| `INVENTORY_ROW_LOCK` | inventory-service | 管理固定库存记录的专用事务连接，并提供库存预留摘要接口。 |
 | `PSP_PROVIDER_OUTCOME` | psp-simulator | 控制 PSP 拒付/超时行为。 |
 
 Gateway 使用硬编码/配置化的场景到单目标映射，拒绝未知场景、错误目标、任意 URL 与批量 targets。旧 whitelist/fan-out 不保留。
@@ -195,6 +196,8 @@ LOCK TABLES inventories WRITE
 Inventory 新增受认证的内部“库存可用性报表”接口，从 `inventories` 查询受限 SKU 集合并返回小型当前库存摘要。控制面的 `InventoryLockExerciseWorker` 在表锁持有期间经 Gateway 持续调用固定的库存可用性能力入口，因而通过真实库存读取路径观测请求阻塞、超时和锁等待，而不是仅在后台持锁。
 
 锁管理器只允许一个活动运行；停止、到期、异常和启动恢复路径均在 `finally` 中 `UNLOCK TABLES` 并关闭连接。停止顺序为：停止新库存报表调用、释放表锁、等待或取消在途调用并确认请求恢复。废弃旧的 Redis poller 及其竞争计时逻辑。
+
+Inventory 的行级读取使用独立的专用 JDBC 连接执行 `SELECT ... FOR UPDATE`，固定作用于一个库存 SKU；库存预留摘要接口在另一条事务连接上执行同一条锁定读取，因此可以观察真实行等待。它不调用表锁的 availability 接口，也不复用表锁连接。三种锁能力的业务路径见 [场景与业务接口映射](../scenarios.md)。
 
 ### 4.6 PSP 模拟服务
 

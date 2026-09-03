@@ -38,7 +38,7 @@ public class CouponReservationConsistencyService {
 
     public synchronized void prepare(ScenarioRunContext context) {
         context.validate(Instant.now());
-        if (!runGuard.acceptStart(context)) throw new BizException("STALE_SCENARIO_RUN", "Scenario token was rejected");
+        if (!runGuard.acceptStart(context)) throw new BizException("STALE_OPERATION", "Operation token was rejected");
         Long preparedCoupon = jdbcTemplate.queryForObject(
                 "SELECT id FROM coupons WHERE user_id = 19 ORDER BY id LIMIT 1", Long.class);
         if (preparedCoupon == null) throw new BizException("RESERVATION_PREPARATION_FAILED", "No Sam coupon is available");
@@ -89,6 +89,7 @@ public class CouponReservationConsistencyService {
     }
 
     public synchronized void removePreparedReservation(ScenarioRunContext context) {
+        context.validateForCleanup();
         if (!context.runId().equals(activeRunId)) return;
         if (reservationId != null) {
             jdbcTemplate.update("DELETE FROM coupon_reservations WHERE id = ? AND order_id = ?",

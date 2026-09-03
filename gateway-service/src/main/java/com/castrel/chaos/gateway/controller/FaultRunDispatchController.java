@@ -26,8 +26,9 @@ public class FaultRunDispatchController {
             Map.entry("CART_CATALOG_DEPENDENCY", new Target("catalog-service", "cart-product-validation", "/internal/catalog/fault-runs/start", "/internal/catalog/fault-runs/stop", "/internal/catalog/fault-runs/cleanup")),
             Map.entry("NOTIFICATION_HEAP_PRESSURE", new Target("notification-service", "notification-retention", "/internal/notification/fault-runs/start", "/internal/notification/fault-runs/stop", "/internal/notification/fault-runs/cleanup")),
             Map.entry("NOTIFICATION_STORAGE_APPEND", new Target("notification-service", "notification-storage", "/internal/notification/fault-runs/start", "/internal/notification/fault-runs/stop", "/internal/notification/fault-runs/cleanup")),
-            Map.entry("PROMOTION_LOCK_CONTENTION", new Target("promotion-service", "coupon-reservation-consistency", "/internal/promotion/fault-runs/start", "/internal/promotion/fault-runs/stop", "/internal/promotion/fault-runs/cleanup")),
-            Map.entry("INVENTORY_TABLE_EXCLUSIVE", new Target("inventory-service", "inventory-availability-report", "/internal/inventory/fault-runs/start", "/internal/inventory/fault-runs/stop", "/internal/inventory/fault-runs/cleanup")),
+            Map.entry("PROMOTION_LOCK_CONTENTION", new Target("promotion-service", "coupon-reservation-consistency", "/internal/promotion/coupons/reservations/prepare", "/internal/promotion/coupons/reservations/release", "/internal/promotion/coupons/reservations/remove")),
+            Map.entry("INVENTORY_TABLE_EXCLUSIVE", new Target("inventory-service", "inventory-availability-report", "/internal/inventory/availability/prepare", "/internal/inventory/availability/release", "/internal/inventory/availability/remove")),
+            Map.entry("INVENTORY_ROW_LOCK", new Target("inventory-service", "inventory-reservation-summary", "/internal/inventory/reservations/prepare", "/internal/inventory/reservations/release", "/internal/inventory/reservations/remove")),
             Map.entry("PSP_PROVIDER_OUTCOME", new Target("psp-simulator", "provider-outcome", "/internal/psp/fault-runs/start", "/internal/psp/fault-runs/stop", "/internal/psp/fault-runs/cleanup"))
     );
 
@@ -126,15 +127,23 @@ public class FaultRunDispatchController {
     public Mono<ApiResponse<Object>> inventoryAvailability(
             @RequestBody Map<String, Object> body,
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
-        return dispatchObservation(body, traceId, "inventory-service", "/internal/inventory/availability",
+        return dispatchObservation(body, traceId, "inventory-service", "/internal/inventory/availability/report",
                 "Fixed inventory target unavailable");
+    }
+
+    @PostMapping("/inventory/reservations/summary")
+    public Mono<ApiResponse<Object>> inventoryReservationSummary(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
+        return dispatchObservation(body, traceId, "inventory-service", "/internal/inventory/reservations/summary",
+            "Fixed inventory reservation target unavailable");
     }
 
     @PostMapping("/promotion/consistency")
     public Mono<ApiResponse<Object>> promotionConsistency(
             @RequestBody Map<String, Object> body,
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
-        return dispatchObservation(body, traceId, "promotion-service", "/internal/promotion/consistency",
+        return dispatchObservation(body, traceId, "promotion-service", "/internal/promotion/coupons/reservations/consistency",
                 "Fixed promotion target unavailable");
     }
 

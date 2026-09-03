@@ -85,7 +85,8 @@ export class ScenarioExerciseWorkers {
       run.state === 'ACTIVE'
       && (run.scenario === 'CATALOG_REDIS_LARGE_VALUE'
       || run.scenario === 'PROMOTION_LOCK_CONTENTION'
-      || run.scenario === 'INVENTORY_TABLE_EXCLUSIVE'));
+      || run.scenario === 'INVENTORY_TABLE_EXCLUSIVE'
+      || run.scenario === 'INVENTORY_ROW_LOCK'));
     const activeIds = new Set(eligible.map((run) => run.faultRunId));
     this.activeRunIds = activeIds;
     for (const [runId, current] of this.workers) {
@@ -132,7 +133,9 @@ export class ScenarioExerciseWorkers {
       }
       const observationPath = run.scenario === 'INVENTORY_TABLE_EXCLUSIVE'
         ? '/internal/gateway/inventory/availability'
-        : '/internal/gateway/promotion/consistency';
+        : run.scenario === 'INVENTORY_ROW_LOCK'
+          ? '/internal/gateway/inventory/reservations/summary'
+          : '/internal/gateway/promotion/consistency';
       await this.gateway.postInternal(observationPath, {
         faultRunId: run.faultRunId,
         expiresAt: run.expiresAt,

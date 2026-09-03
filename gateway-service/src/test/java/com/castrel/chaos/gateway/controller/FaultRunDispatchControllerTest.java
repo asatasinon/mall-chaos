@@ -43,7 +43,7 @@ class FaultRunDispatchControllerTest {
     @Test
     void dispatchesInventoryAvailabilityToFixedTargetWithoutScenarioFields() {
         when(operationService.dispatch(
-                "inventory-service", "/internal/inventory/availability", OPERATION_CONTEXT, "trace-1"))
+            "inventory-service", "/internal/inventory/availability/report", OPERATION_CONTEXT, "trace-1"))
                 .thenReturn(Mono.just(Map.of("skuCount", 5)));
 
         var response = controller.inventoryAvailability(OPERATION_CONTEXT, "trace-1").block();
@@ -52,7 +52,22 @@ class FaultRunDispatchControllerTest {
         assertThat(response.getCode()).isEqualTo(200);
         assertThat(response.getData()).isEqualTo(Map.of("skuCount", 5));
         verify(operationService).dispatch(
-                "inventory-service", "/internal/inventory/availability", OPERATION_CONTEXT, "trace-1");
+            "inventory-service", "/internal/inventory/availability/report", OPERATION_CONTEXT, "trace-1");
+        }
+
+        @Test
+        void dispatchesInventoryReservationSummaryToSeparateTarget() {
+        when(operationService.dispatch(
+            "inventory-service", "/internal/inventory/reservations/summary", OPERATION_CONTEXT, "trace-row"))
+            .thenReturn(Mono.just(Map.of("sku", "SKU-001")));
+
+        var response = controller.inventoryReservationSummary(OPERATION_CONTEXT, "trace-row").block();
+
+        assertThat(response).isNotNull();
+        assertThat(response.getCode()).isEqualTo(200);
+        assertThat(response.getData()).isEqualTo(Map.of("sku", "SKU-001"));
+        verify(operationService).dispatch(
+            "inventory-service", "/internal/inventory/reservations/summary", OPERATION_CONTEXT, "trace-row");
     }
 
     @Test
@@ -89,6 +104,24 @@ class FaultRunDispatchControllerTest {
         verify(dispatchService).start(
                 "catalog-service", "/internal/catalog/fault-runs/start", body, "trace-2");
     }
+
+        @Test
+        void dispatchesInventoryRowLockToSeparateTargetEndpoints() {
+        Map<String, Object> body = new LinkedHashMap<>(OPERATION_CONTEXT);
+        body.put("scenario", "INVENTORY_ROW_LOCK");
+        body.put("operation", "inventory-reservation-summary");
+        body.put("parameters", Map.of("durationSec", 30));
+        when(dispatchService.start(
+            "inventory-service", "/internal/inventory/reservations/prepare", body, "trace-row-start"))
+            .thenReturn(Mono.just(Map.of("accepted", true)));
+
+        var response = controller.start(body, "trace-row-start").block();
+
+        assertThat(response).isNotNull();
+        assertThat(response.getCode()).isEqualTo(200);
+        verify(dispatchService).start(
+            "inventory-service", "/internal/inventory/reservations/prepare", body, "trace-row-start");
+        }
 
     @Test
     void rejectsLegacyCartLargeValueStart() {

@@ -18,6 +18,7 @@ export type FaultRunScenario =
   | 'NOTIFICATION_STORAGE_APPEND'
   | 'PROMOTION_LOCK_CONTENTION'
   | 'INVENTORY_TABLE_EXCLUSIVE'
+  | 'INVENTORY_ROW_LOCK'
   | 'PSP_PROVIDER_OUTCOME';
 
 export type FaultRunRecoveryStrategy = 'TARGET' | 'WORKER' | 'NON_RELEASING' | 'MANUAL_CLEANUP';
@@ -216,6 +217,15 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'TARGET',
     allowManualCleanup: false,
     parameters: [duration],
+  },
+  INVENTORY_ROW_LOCK: {
+    scenario: 'INVENTORY_ROW_LOCK',
+    targetService: 'inventory-service',
+    targetOperation: 'inventory-reservation-summary',
+    maxDurationSec: 1800,
+    recoveryStrategy: 'TARGET',
+    allowManualCleanup: false,
+    parameters: [duration, boundedConcurrency, requestInterval],
   },
   PSP_PROVIDER_OUTCOME: {
     scenario: 'PSP_PROVIDER_OUTCOME',
