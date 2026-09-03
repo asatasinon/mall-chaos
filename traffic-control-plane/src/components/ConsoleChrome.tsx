@@ -22,7 +22,7 @@ export default function ConsoleChrome({ children }: { children: React.ReactNode 
         </div>
         <NavBar />
         <div className="ml-2 flex shrink-0 items-center gap-2 border-l border-border pl-2 sm:ml-3 sm:pl-3">
-          <LocaleSwitcher className="w-[5.75rem] sm:w-36" />
+          <LocaleSwitcher />
           <ThemeToggle />
         </div>
       </header>

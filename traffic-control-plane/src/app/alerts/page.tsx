@@ -1,11 +1,13 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import AlertRoutingSection from '@/components/alerts/AlertRoutingSection';
-import { CreateAlertModal, ReceiverModal, RouteModal } from '@/components/alerts/AlertModals';
-import { AlertsToolbar, ErrorBox, YamlSourceEditor } from '@/components/alerts/AlertControls';
-import { ReceiverEditor, RuleEditor } from '@/components/alerts/AlertEditors';
+import { isClientNetworkError } from '@/lib/client-error';
+import AlertRoutingSection from '@/components/LocalizedAlertRoutingSection';
+import { CreateAlertModal, ReceiverModal, RouteModal } from '@/components/LocalizedAlertModals';
+import { AlertsToolbar, ErrorBox, YamlSourceEditor } from '@/components/LocalizedAlertControls';
+import { ReceiverEditor, RuleEditor } from '@/components/LocalizedAlertEditors';
 import {
   AlertConfig,
   AlertTab,
@@ -23,6 +25,7 @@ async function fetchAlerts(input: RequestInfo | URL, init: RequestInit | undefin
 }
 
 export default function AlertsPage() {
+  const t = useTranslations('Alerts');
   const router = useRouter();
   const [config, setConfig] = useState<AlertConfig | null>(null);
   const [error, setError] = useState('');
@@ -56,9 +59,9 @@ export default function AlertsPage() {
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       setConfig(result.data as AlertConfig);
     } catch (cause) {
-      setError(cause instanceof TypeError && cause.message.toLowerCase().includes('fetch') ? 'Control plane is unreachable. Start traffic-control-plane (localhost:13086) first.' : cause instanceof Error ? cause.message : 'Load failed');
+      setError(isClientNetworkError(cause) ? t('controlPlaneUnreachable') : cause instanceof Error ? cause.message : t('loadFailed'));
     }
-  }, [login]);
+  }, [login, t]);
 
   const loadSource = useCallback(async (kind: 'prometheus-rules' | 'alertmanager') => {
     setSourceLoading(true);
@@ -71,11 +74,11 @@ export default function AlertsPage() {
       setSourceVersion(result.data.version);
       setSourceDirty(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to load YAML');
+      setError(isClientNetworkError(cause) ? t('controlPlaneUnreachable') : cause instanceof Error ? cause.message : t('failedToLoadYaml'));
     } finally {
       setSourceLoading(false);
     }
-  }, [login]);
+  }, [login, t]);
 
   const saveSource = async () => {
     if (!config || sourceVersion === null || !editorYaml.trim()) return;
@@ -96,9 +99,9 @@ export default function AlertsPage() {
       setEditorYaml(result.data.yaml);
       setSourceVersion(result.data.version);
       setSourceDirty(false);
-      setNotice(`${sourceKind === 'prometheus-rules' ? 'Prometheus rules' : 'Alertmanager'} YAML saved and reloaded`);
+      setNotice(t('yamlSaved', { kind: sourceKind === 'prometheus-rules' ? 'Prometheus rules' : 'Alertmanager' }));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to save YAML');
+      setError(isClientNetworkError(cause) ? t('controlPlaneUnreachable') : cause instanceof Error ? cause.message : t('failedToSaveYaml'));
     } finally {
       setSaving(false);
     }
@@ -135,9 +138,9 @@ export default function AlertsPage() {
       const result = await response.json();
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       setConfig(result.data as AlertConfig);
-      setNotice('Configuration saved; Prometheus and Alertmanager reloaded');
+      setNotice(t('configurationSaved'));
     } catch (cause) {
-      setError(cause instanceof TypeError && cause.message.toLowerCase().includes('fetch') ? 'Control plane is unreachable. Configuration could not be saved.' : cause instanceof Error ? cause.message : 'Save failed');
+      setError(isClientNetworkError(cause) ? t('configurationCouldNotBeSaved') : cause instanceof Error ? cause.message : t('failedToSave'));
     } finally {
       setSaving(false);
     }
@@ -161,9 +164,9 @@ export default function AlertsPage() {
       setSourceYaml('');
       setCreateModalOpen(false);
       setReceiverModalOpen(false);
-      setNotice(kind === 'prometheus-rules' ? 'Prometheus alert rules YAML parsed; rules appended to the current configuration' : 'Alertmanager YAML parsed; receivers appended to the current configuration');
+      setNotice(kind === 'prometheus-rules' ? t('prometheusYamlParsed') : t('alertmanagerYamlParsed'));
     } catch (cause) {
-      setImportError(cause instanceof TypeError && cause.message.toLowerCase().includes('fetch') ? 'Control plane is unreachable. YAML could not be parsed and applied.' : cause instanceof Error ? cause.message : 'Import failed');
+      setImportError(isClientNetworkError(cause) ? t('yamlCouldNotBeParsed') : cause instanceof Error ? cause.message : t('importFailed'));
     } finally {
       setSaving(false);
     }
@@ -177,7 +180,7 @@ export default function AlertsPage() {
     setCreateModalOpen(false);
     setActiveTab('rules');
     setScrollTarget(`rule-${nextIndex}`);
-    setNotice('Rule added to the pending configuration');
+    setNotice(t('ruleAdded'));
   };
 
   const addReceiver = () => {
@@ -188,7 +191,7 @@ export default function AlertsPage() {
     setReceiverModalOpen(false);
     setActiveTab('routing');
     setScrollTarget(`receiver-${nextIndex}`);
-    setNotice('Receiver added to the pending configuration');
+    setNotice(t('receiverAdded'));
   };
 
   const addRoute = () => {
@@ -199,10 +202,10 @@ export default function AlertsPage() {
     setRouteModalOpen(false);
     setActiveTab('routing');
     setScrollTarget(`route-${nextIndex}`);
-    setNotice('Route added to the pending configuration');
+    setNotice(t('routeAdded'));
   };
 
-  if (!config) return <div className="space-y-4"><p className="text-sm text-muted-foreground">Loading configuration...</p>{error && <ErrorBox text={error} />}</div>;
+  if (!config) return <div className="space-y-4"><p className="text-sm text-muted-foreground">{t('loadingConfiguration')}</p>{error && <ErrorBox text={error} />}</div>;
   const refreshCurrent = () => activeTab === 'yaml' ? void loadSource(sourceKind) : void load();
   const saveCurrent = () => activeTab === 'yaml' ? void saveSource() : void save();
   const saveDisabled = saving || (activeTab === 'yaml' && (sourceLoading || !sourceDirty || !editorYaml.trim()));
@@ -214,12 +217,12 @@ export default function AlertsPage() {
     <div className="min-h-0 flex-1 overflow-y-auto pr-1">
       {activeTab === 'yaml' && <YamlSourceEditor kind={sourceKind} onKindChange={setSourceKind} yaml={editorYaml} loading={sourceLoading} saving={saving} dirty={sourceDirty} version={sourceVersion} onChange={(value) => { setEditorYaml(value); setSourceDirty(true); }} />}
       {activeTab === 'rules' && <section className="space-y-3">
-        <div><h2 className="text-base font-semibold">Alert rules</h2><p className="text-xs text-muted-foreground">PromQL Rules are generated into Prometheus rule groups</p></div>
+        <div><h2 className="text-base font-semibold">{t('alertRulesHeading')}</h2><p className="text-xs text-muted-foreground">{t('promqlRulesHelp')}</p></div>
         <div className="space-y-3">{config.rules.map((rule, index) => <div key={`${rule.id ?? 'new'}-${index}`} ref={(element) => { itemRefs.current[`rule-${index}`] = element; }} tabIndex={-1} className={rule.isDraft ? DRAFT_WRAPPER_CLASS : ''}><RuleEditor rule={rule} onChange={(next) => setConfig({ ...config, rules: config.rules.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, rules: config.rules.filter((_, i) => i !== index) })} /></div>)}</div>
       </section>}
       {activeTab === 'routing' && <section className="space-y-3">
         <AlertRoutingSection config={config} cardRef={(index, element) => { itemRefs.current[`route-${index}`] = element; }} onChange={(route) => setConfig({ ...config, route })} />
-        <div><h2 className="text-base font-semibold">Receivers</h2><p className="text-xs text-muted-foreground">Route alerts by severity to Webhook receiver</p></div>
+        <div><h2 className="text-base font-semibold">{t('receiversHeading')}</h2><p className="text-xs text-muted-foreground">{t('routeAlertsHelp')}</p></div>
         <div className="space-y-3">{config.receivers.map((receiver, index) => <div key={`${receiver.id ?? 'new'}-${index}`} ref={(element) => { itemRefs.current[`receiver-${index}`] = element; }} tabIndex={-1} className={receiver.isDraft ? DRAFT_WRAPPER_CLASS : ''}><ReceiverEditor receiver={receiver} onChange={(next) => setConfig({ ...config, receivers: config.receivers.map((item, i) => i === index ? next : item) })} onDelete={() => setConfig({ ...config, receivers: config.receivers.filter((_, i) => i !== index) })} /></div>)}</div>
       </section>}
     </div>

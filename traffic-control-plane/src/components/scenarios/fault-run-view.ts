@@ -17,6 +17,8 @@ const CACHE_RESULT_KEYS = [
 
 const SKU_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
+export type FaultRunTranslator = (key: string, values?: Record<string, string | number>) => string;
+
 export type FaultRunViewModel = {
   targetSummary: FaultRunTargetSummary | null;
   workerStats: FaultRunWorkerStats | null;
@@ -53,40 +55,40 @@ export function buildFaultRunView(details: FaultRunDetails): FaultRunViewModel {
   };
 }
 
-export function summarizeFaultRunEvent(event: Event): string {
+export function summarizeFaultRunEvent(event: Event, translate: FaultRunTranslator = defaultTranslate): string {
   const payload = asRecord(event.payload);
   switch (event.eventType) {
     case 'TARGET_CONFIRMED':
-      return 'Fixed target accepted the run';
+      return translate('targetAccepted');
     case 'SCENARIO_WORKER_TARGET':
-      return `Reader target prepared with ${formatInteger(payload.memberCount)} members`;
+      return translate('readerTargetPrepared', { count: formatInteger(payload.memberCount) });
     case 'SCENARIO_WORKER_STARTED':
-      return `Reader started at concurrency ${formatInteger(payload.concurrency)}`;
+      return translate('readerStarted', { count: formatInteger(payload.concurrency) });
     case 'SCENARIO_REQUEST_FAILED':
-      return payload.timeout === true ? 'A reader request reached its deadline' : 'A reader request failed';
+      return payload.timeout === true ? translate('readerDeadline') : translate('readerRequestFailed');
     case 'SCENARIO_WORKER_STOPPED':
-      return workerSummary(readWorkerStats(event.payload));
+      return workerSummary(readWorkerStats(event.payload), translate);
     case 'SCENARIO_WORKER_DRAINED':
-      return `Reader drained with ${formatInteger(payload.inFlight)} requests in flight`;
+      return translate('readerDrained', { count: formatInteger(payload.inFlight) });
     case 'RECOVERY_STARTED':
-      return `Recovery started (${safeText(payload.reason) || 'requested'})`;
+      return translate('recoveryStarted', { reason: safeText(payload.reason) || 'requested' });
     case 'RECOVERY_COMPLETED':
-      return cleanupSummary(readCleanup(payload.result, payload.data));
+      return cleanupSummary(readCleanup(payload.result, payload.data), translate);
     case 'RECOVERY_FAILED':
-      return 'Recovery failed; inspect the protected recovery result';
+      return translate('recoveryFailed');
     case 'MANUAL_CLEANUP_COMPLETED':
-      return cleanupSummary(readCleanup(payload.result));
+      return cleanupSummary(readCleanup(payload.result), translate);
     case 'MANUAL_CLEANUP_FAILED':
-      return 'Per-run cleanup failed';
+      return translate('cleanupFailed');
     case 'SCENARIO_WORKER_SETUP_FAILED':
-      return 'Reader setup failed before traffic started';
+      return translate('setupFailed');
     default:
-      return 'Recorded Fault Run event';
+      return translate('recordedEvent');
   }
 }
 
-export function formatBytes(value: number | undefined | null): string {
-  if (!Number.isFinite(value) || value === undefined || value === null) return 'n/a';
+export function formatBytes(value: number | undefined | null, locale = 'en', fallback = 'n/a'): string {
+  if (!Number.isFinite(value) || value === undefined || value === null) return fallback;
   if (value < 1024) return `${value} B`;
   const units = ['KB', 'MB', 'GB'];
   let scaled = value;
@@ -96,20 +98,21 @@ export function formatBytes(value: number | undefined | null): string {
     unit = nextUnit;
     if (scaled < 1024 || nextUnit === units[units.length - 1]) break;
   }
-  return `${scaled >= 10 || Number.isInteger(scaled) ? Math.round(scaled) : scaled.toFixed(1)} ${unit}`;
+  const displayValue = scaled >= 10 || Number.isInteger(scaled) ? Math.round(scaled) : Number(scaled.toFixed(1));
+  return `${new Intl.NumberFormat(locale).format(displayValue)} ${unit}`;
 }
 
-export function formatHashNamespace(hashKey: string | undefined, faultRunId: string): string {
+export function formatHashNamespace(hashKey: string | undefined, faultRunId: string, fallback = 'run-scoped Hash'): string {
   const prefix = 'catalog:product-detail:operation:';
-  if (!hashKey?.startsWith(prefix)) return 'run-scoped Hash';
+  if (!hashKey?.startsWith(prefix)) return fallback;
   return `${prefix}{${faultRunId.slice(0, 8)}}`;
 }
 
-export function formatMemberSkus(summary: FaultRunTargetSummary | null): string {
-  if (!summary) return 'n/a';
+export function formatMemberSkus(summary: FaultRunTargetSummary | null, translate: FaultRunTranslator = defaultTranslate): string {
+  if (!summary) return translate('notAvailable');
   const visible = summary.memberSkus.slice(0, 3).join(', ');
   const remaining = summary.memberSkus.length - Math.min(summary.memberSkus.length, 3);
-  return remaining > 0 ? `${visible} + ${remaining} more` : visible;
+  return remaining > 0 ? `${visible} ${translate('moreMembers', { count: remaining })}` : visible;
 }
 
 function findTargetSummary(events: Event[], faultRunId: string): FaultRunTargetSummary | null {
@@ -217,17 +220,21 @@ function findCleanupRecord(value: unknown, depth = 0): Record<string, unknown> |
     ?? findCleanupRecord(candidate.data, depth + 1);
 }
 
-function workerSummary(stats: FaultRunWorkerStats | null): string {
-  if (!stats) return 'Reader stopped';
-  return `${stats.successes}/${stats.requests} requests completed · p95 ${stats.p95LatencyMs} ms`;
+function workerSummary(stats: FaultRunWorkerStats | null, translate: FaultRunTranslator): string {
+  if (!stats) return translate('readerStopped');
+  return translate('requestsCompleted', {
+    successes: stats.successes,
+    requests: stats.requests,
+    latency: stats.p95LatencyMs,
+  });
 }
 
-function cleanupSummary(cleanup: FaultRunCleanupResult | null): string {
-  if (!cleanup) return 'Recovery completed';
+function cleanupSummary(cleanup: FaultRunCleanupResult | null, translate: FaultRunTranslator): string {
+  if (!cleanup) return translate('recoveryCompleted');
   if (cleanup.hashRemoved === true && (cleanup.released === true || cleanup.markerRemoved === true)) {
-    return 'Marker released and run Hash removed';
+    return translate('markerReleasedAndHashRemoved');
   }
-  return cleanup.hashRemoved === true ? 'Run Hash removed' : 'Recovery completed';
+  return cleanup.hashRemoved === true ? translate('hashRemoved') : translate('recoveryCompleted');
 }
 
 function safeInteger(value: unknown, minimum: number): value is number {
@@ -246,4 +253,29 @@ function safeText(value: unknown): string {
 
 function formatInteger(value: unknown): string {
   return safeInteger(value, 0) ? String(value) : 'n/a';
+}
+
+const DEFAULT_FAULT_RUN_MESSAGES: Record<string, string> = {
+  targetAccepted: 'Fixed target accepted the run',
+  readerTargetPrepared: 'Reader target prepared with {count} members',
+  readerStarted: 'Reader started at concurrency {count}',
+  readerDeadline: 'A reader request reached its deadline',
+  readerRequestFailed: 'A reader request failed',
+  readerStopped: 'Reader stopped',
+  readerDrained: 'Reader drained with {count} requests in flight',
+  requestsCompleted: '{successes}/{requests} requests completed · p95 {latency} ms',
+  recoveryStarted: 'Recovery started ({reason})',
+  recoveryCompleted: 'Recovery completed',
+  recoveryFailed: 'Recovery failed; inspect the protected recovery result',
+  cleanupFailed: 'Per-run cleanup failed',
+  setupFailed: 'Reader setup failed before traffic started',
+  recordedEvent: 'Recorded Fault Run event',
+  markerReleasedAndHashRemoved: 'Marker released and run Hash removed',
+  hashRemoved: 'Run Hash removed',
+  moreMembers: '+ {count} more',
+};
+
+function defaultTranslate(key: string, values?: Record<string, string | number>): string {
+  const template = DEFAULT_FAULT_RUN_MESSAGES[key] || key;
+  return template.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, (_, name: string) => String(values?.[name] ?? `{${name}}`));
 }

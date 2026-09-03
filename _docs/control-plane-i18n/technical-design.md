@@ -312,6 +312,8 @@ const format = useFormatter();
 - `src/components/ScenarioControlSections.tsx`
 - `src/components/ScenarioCardWithActions.tsx`
 
+为避免保留两套页面实现，以上原有组件路径作为兼容入口 re-export 对应的本地化实现；实际 UI 逻辑位于 `src/components/LocalizedScenarioControlSections.tsx` 和 `src/components/LocalizedScenarioCardWithActions.tsx`。这样既保持既有 import 路径，又保证未来不会绕过翻译上下文。
+
 实现规则：
 
 - `SCENARIO_META`、`SCENARIO_GROUPS` 和 `PROVIDER_OUTCOMES` 保留稳定 ID、value、图标和 tone，只保存 translation key 或稳定的显示 key。
@@ -333,6 +335,8 @@ const format = useFormatter();
 - `src/components/runner/DatePicker.tsx`
 - `src/components/runner/utils.ts`
 
+`src/components/runner/RunnerPanels.tsx` 保留为兼容 re-export，实际面板逻辑位于 `src/components/LocalizedRunnerPanels.tsx`；`RunnerDataControl.tsx`、`RunnerControls.tsx` 和 `DatePicker.tsx` 继续使用原路径。
+
 内容：
 
 - 配置字段、tab、指标、活动、队列、预热、补齐、加载和错误 fallback。
@@ -349,6 +353,8 @@ const format = useFormatter();
 - `src/components/alerts/AlertEditors.tsx`
 - `src/components/alerts/AlertModals.tsx`
 - `src/components/alerts/AlertRoutingSection.tsx`
+
+以上 `src/components/alerts/` 原路径保留为兼容 re-export，实际本地化实现位于 `LocalizedAlertControls.tsx`、`LocalizedAlertEditors.tsx`、`LocalizedAlertModals.tsx` 和 `LocalizedAlertRoutingSection.tsx`。兼容入口不包含第二套 UI 文案。
 
 内容：
 
@@ -490,6 +496,7 @@ pnpm build
 | 格式化误改业务日期或请求值 | 展示 formatter 与数据转换分离，保留 `Asia/Shanghai`、ISO、cron 和原始数值 |
 | 依赖版本与当前 Next.js 不兼容 | 安装时检查 peer dependency，锁定版本并执行 typecheck、lint、build |
 | 语言偏好影响认证或内部 API | 使用独立非敏感 Cookie，不在 middleware 中进行 locale 重写，不触碰认证 Cookie |
+| next-intl extractor 在开发模式触发 webpack cache dependency warning | 消息目录使用静态 locale/namespace 聚合，功能构建不受影响；Phase F 复核 next-intl 版本和 extractor 配置，必要时调整插件配置或升级兼容版本 |
 
 ## 15. 最终交付清单
 

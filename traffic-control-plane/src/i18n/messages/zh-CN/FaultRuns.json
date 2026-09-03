@@ -19,4 +19,18 @@
   "moreMembers": "+ {count} 个",
   "bytes": "{value} 字节",
   "notAvailable": "无"
+  ,"detailsClose": "关闭"
+  ,"cleanupRun": "清理运行"
+  ,"auditTrail": "审计轨迹"
+  ,"eventTimeline": "事件时间线"
+  ,"events": "{count} 个事件"
+  ,"noEvents": "暂无记录事件。"
+  ,"recoveryError": "恢复结束时记录了错误。"
+  ,"workerRunning": "运行中"
+  ,"cleanupComplete": "完成"
+  ,"cleanupReview": "需复核"
+  ,"yes": "是"
+  ,"no": "否"
+  ,"readerP95": "{successes}/{requests} 个请求完成 · p95 {latency} 毫秒"
+  ,"inFlightValue": "进行中={count}"
 }

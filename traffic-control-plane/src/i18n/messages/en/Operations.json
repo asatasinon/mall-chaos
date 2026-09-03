@@ -13,6 +13,8 @@
   "chooseDate": "Choose a date above, then add it to the queue.",
   "maximumRows": "Maximum 1,000,000 rows per day. The request is processed in batches.",
   "clearPartition": "Clearing removes the entire partition for each selected day.",
+  "clearSelectedPartitions": "Clear selected data partitions?",
+  "clearSelectedPartitionsDescription": "Delete all data partitions for {count} selected day(s) from {table}? This cannot be undone.",
   "queuing": "Queuing...",
   "queueInjection": "Queue injection",
   "queueCleanup": "Queue cleanup",
@@ -39,4 +41,46 @@
   "previousMonth": "Previous month",
   "nextMonth": "Next month",
   "selectDate": "Select {date}"
+  ,"subtitle": "Scheduled replenishment and bounded data operations"
+  ,"workerOnline": "Worker online"
+  ,"checkingWorker": "Checking worker"
+  ,"operationsViews": "Operations views"
+  ,"scheduledTasks": "Scheduled tasks"
+  ,"dataControl": "Data control"
+  ,"replenishmentRunFailed": "Unable to run replenishment"
+  ,"replenishmentCompleted": "{kind} replenishment completed: {added} added, {skipped} skipped, {failed} failed"
+  ,"warmupStatusRequestFailed": "Warmup status request failed ({status})"
+  ,"warmupStatusTimedOut": "Warmup status request timed out"
+  ,"manualQueueRequestFailed": "Manual queue request failed ({status})"
+  ,"manualQueueRequestTimedOut": "Manual queue request timed out"
+  ,"manualQueueUnavailable": "Manual queue is unavailable"
+  ,"unableToQueueWarmup": "Unable to queue data warmup job"
+  ,"selectAtLeastOneDate": "Select at least one date"
+  ,"jobQueued": "Job #{id} queued"
+  ,"statusWorkerOffline": "Worker offline"
+  ,"statusWorkerUnavailable": "Worker unavailable"
+  ,"statusScheduled": "Scheduled"
+  ,"statusStopped": "Stopped"
+  ,"statusRunning": "Running"
+  ,"statusChecking": "Checking"
+  ,"statusPending": "PENDING"
+  ,"statusCompleted": "COMPLETED"
+  ,"statusFailed": "FAILED"
+  ,"statusAppending": "APPENDING"
+  ,"statusError": "ERROR"
+  ,"calendar": "Calendar"
+  ,"dateToAdd": "Date to add"
+  ,"today": "Today"
+  ,"alreadyQueued": "Already queued"
+  ,"added": "Added"
+  ,"addDays": "Add {count} days"
+  ,"addDay": "Add day"
+  ,"chooseEndDate": "Choose an end date"
+  ,"selectDayToAdd": "Select a day to add"
+  ,"sizePending": "size pending"
+  ,"window": "Window"
+  ,"inventoryReplenishment": "Inventory"
+  ,"couponReplenishment": "Coupon"
+  ,"daySelected": "1 day selected"
+  ,"daysSelected": "{count} days selected"
 }

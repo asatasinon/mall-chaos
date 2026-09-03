@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
+import { useCallback, useEffect, useState } from 'react';
 import { Activity, AlertTriangle, Clock3, ServerCog, ShieldCheck } from 'lucide-react';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { Button } from '@/components/ui/button';
@@ -10,10 +11,11 @@ import {
   RunHistory,
   ScenarioMetric,
   ScenarioWorkspace,
-} from '@/components/ScenarioControlSections';
-import { ACTIVE_STATES, getScenarioLabel, SCENARIO_META } from '@/components/scenarios/meta';
+} from '@/components/LocalizedScenarioControlSections';
+import { ACTIVE_STATES, getScenarioLabel, getScenarioStateLabel } from '@/components/scenarios/meta';
 import type { ConsoleData, FaultRun, FaultRunDetails, Scenario } from '@/components/scenarios/types';
 import { fetchWithAuth } from '@/lib/auth-fetch';
+import { isClientNetworkError } from '@/lib/client-error';
 import { createClientId } from '@/lib/client-id';
 import { listScenarioDefinitions } from '@/lib/fault-run-catalog';
 
@@ -34,6 +36,11 @@ type ConfirmationRequest = {
 };
 
 export default function ScenarioControlPage() {
+  const t = useTranslations('Scenarios');
+  const translate = (key: string) => t(key as never);
+  const displayError = useCallback((cause: unknown, fallback: string) => isClientNetworkError(cause)
+    ? t('networkError')
+    : cause instanceof Error ? cause.message : fallback, [t]);
   const [data, setData] = useState<ConsoleData>(FALLBACK_DATA);
   const [selectedRun, setSelectedRun] = useState<FaultRunDetails | null>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
@@ -44,7 +51,7 @@ export default function ScenarioControlPage() {
   const [selectedScenario, setSelectedScenario] = useState('');
   const [now, setNow] = useState(() => Date.now());
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const response = await fetchWithAuth('/internal/fault-runs');
       const result = await response.json() as { code: number; message: string; data: ConsoleData };
@@ -54,9 +61,9 @@ export default function ScenarioControlPage() {
       setSelectedScenario((current) => current || runningScenario || result.data.scenarios[0]?.scenario || '');
       setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to load Fault Runs');
+      setError(displayError(cause, t('loadFailed')));
     }
-  };
+  }, [displayError, t]);
 
   useEffect(() => {
     const initialLoad = setTimeout(() => { void load(); }, 0);
@@ -67,7 +74,7 @@ export default function ScenarioControlPage() {
       clearInterval(timer);
       clearInterval(clock);
     };
-  }, []);
+  }, [load]);
 
   const activeRun = data?.runs.find((run) => ACTIVE_STATES.includes(run.state));
   const unavailableHeapRun = data?.runs.find((run) => run.scenario === 'NOTIFICATION_HEAP_PRESSURE' && run.state === 'SERVICE_UNAVAILABLE');
@@ -80,7 +87,7 @@ export default function ScenarioControlPage() {
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       setSelectedRun(result.data);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to load run details');
+      setError(displayError(cause, t('detailsLoadFailed')));
     }
   };
 
@@ -97,19 +104,19 @@ export default function ScenarioControlPage() {
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to create Fault Run');
+      setError(displayError(cause, t('createFailed')));
     } finally {
       setBusy(null);
     }
   };
 
   const createRun = async (scenario: Scenario, parameters: Record<string, number | string>) => {
-    const scenarioLabel = SCENARIO_META[scenario.scenario]?.label || scenario.scenario;
+    const scenarioLabel = getScenarioLabel(scenario.scenario, translate);
     const description = scenario.scenario === 'CATALOG_REDIS_LARGE_VALUE'
-      ? 'Create one Catalog-owned Redis Hash with the submitted field count and value size. The server will re-check SKU availability, budget, TTL, and the fixed target.'
-      : `Start ${scenarioLabel} against its fixed target. The server will validate the submitted parameters before activation.`;
+      ? t('catalogHashTarget')
+      : t('scenarioTarget', { label: scenarioLabel });
     setConfirmation({
-      title: `Start ${scenarioLabel}?`,
+      title: t('startScenario', { label: scenarioLabel }),
       description,
       action: () => executeCreateRun(scenario, parameters),
     });
@@ -128,7 +135,7 @@ export default function ScenarioControlPage() {
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to stop Fault Run');
+      setError(displayError(cause, t('stopFailed')));
     } finally {
       setBusy(null);
     }
@@ -136,8 +143,8 @@ export default function ScenarioControlPage() {
 
   const stopRun = async (run: FaultRun) => {
     setConfirmation({
-      title: 'Stop active run?',
-      description: `Stop ${getScenarioLabel(run.scenario)}? The run will begin its recovery flow.`,
+      title: t('stopActiveRun'),
+      description: t('stopRunDescription', { label: getScenarioLabel(run.scenario, translate) }),
       action: () => executeStop(run),
     });
   };
@@ -156,7 +163,7 @@ export default function ScenarioControlPage() {
       if (!response.ok || result.code !== 0) throw new Error(result.message);
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to restart notification service');
+      setError(displayError(cause, t('restartFailed')));
     } finally {
       setBusy(null);
     }
@@ -164,8 +171,8 @@ export default function ScenarioControlPage() {
 
   const restartNotification = async (run?: FaultRun) => {
     setConfirmation({
-      title: 'Restart notification service?',
-      description: 'Check notification-service health and restart the fixed target only when it is unavailable.',
+      title: t('restartNotification'),
+      description: t('restartNotificationDescription'),
       destructive: true,
       action: () => executeRestartNotification(run),
     });
@@ -185,17 +192,17 @@ export default function ScenarioControlPage() {
       setSelectedRun((current) => current?.run.faultRunId === run.faultRunId ? null : current);
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to clean Fault Run resources');
+      setError(displayError(cause, t('cleanupFailed')));
     } finally {
       setBusy(null);
     }
   };
 
   const cleanupRun = (run: FaultRun) => {
-    const scenarioLabel = SCENARIO_META[run.scenario]?.label || run.scenario;
+    const scenarioLabel = getScenarioLabel(run.scenario, translate);
     setConfirmation({
-      title: 'Clean this Fault Run?',
-      description: `Remove resources created by ${scenarioLabel} run ${run.faultRunId.slice(0, 8)}. Only this run namespace is addressed; the default cache and business data are not targeted.`,
+      title: t('cleanThisRun'),
+      description: t('cleanupDescription', { label: scenarioLabel, id: run.faultRunId.slice(0, 8) }),
       destructive: true,
       confirmVariant: 'default',
       action: () => executeCleanupRun(run),
@@ -204,13 +211,13 @@ export default function ScenarioControlPage() {
 
   return <div className="mx-auto max-w-7xl space-y-6">
     <section className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
-      <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Operations console</p><h1 className="text-3xl font-semibold tracking-tight">Scenario control</h1><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Fixed targets, one active run at a time, and auditable recovery through the protected Fault Run API.</p></div>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className={`status-dot ${activeRun ? 'status-dot-yellow' : 'status-dot-green'}`} />{activeRun ? `Active · ${getScenarioLabel(activeRun.scenario)}` : 'No active run'}</div>
+      <div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">{t('operationsConsole')}</p><h1 className="text-3xl font-semibold tracking-tight">{t('pageTitle')}</h1><p className="mt-1 max-w-2xl text-sm text-muted-foreground">{t('pageDescription')}</p></div>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className={`status-dot ${activeRun ? 'status-dot-yellow' : 'status-dot-green'}`} />{activeRun ? t('activeRun', { label: getScenarioLabel(activeRun.scenario, translate) }) : t('noActiveRun')}</div>
     </section>
     {error && <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"><AlertTriangle className="size-4" />{error}</div>}
-    <div className="grid gap-3 sm:grid-cols-3"><ScenarioMetric icon={<ShieldCheck className="size-4" />} label="Catalog scenarios" value={data ? String(data.scenarios.length) : '...'} /><ScenarioMetric icon={<Activity className="size-4" />} label="Active run" value={activeRun ? activeRun.state : 'NONE'} /><ScenarioMetric icon={<Clock3 className="size-4" />} label="Seven-day runs" value={data ? String(data.runs.length) : '...'} /></div>
+    <div className="grid gap-3 sm:grid-cols-3"><ScenarioMetric icon={<ShieldCheck className="size-4" />} label={t('catalogScenarios')} value={data ? String(data.scenarios.length) : '...'} /><ScenarioMetric icon={<Activity className="size-4" />} label={t('activeRunMetric')} value={activeRun ? getScenarioStateLabel(activeRun.state, translate) : t('noActiveRunLabel')} /><ScenarioMetric icon={<Clock3 className="size-4" />} label={t('sevenDayRuns')} value={data ? String(data.runs.length) : '...'} /></div>
     {activeRun && <ActiveRunBanner run={activeRun} remainingMs={new Date(activeRun.expiresAt).getTime() - now} onDetails={() => void openDetails(activeRun)} onStop={() => void stopRun(activeRun)} busy={busy === activeRun.faultRunId} />}
-    {unavailableHeapRun && <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3"><div><p className="text-sm font-medium">Notification service unavailable</p><p className="mt-1 text-xs text-muted-foreground">Only a confirmed restart of the fixed notification-service target is allowed.</p></div><Button size="sm" onClick={() => void restartNotification(unavailableHeapRun)} disabled={busy === unavailableHeapRun.faultRunId}><ServerCog className="size-3.5" />{busy === unavailableHeapRun.faultRunId ? 'Restarting...' : 'Restart notification'}</Button></div>}
+    {unavailableHeapRun && <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3"><div><p className="text-sm font-medium">{t('notificationUnavailable')}</p><p className="mt-1 text-xs text-muted-foreground">{t('notificationUnavailableHelp')}</p></div><Button size="sm" onClick={() => void restartNotification(unavailableHeapRun)} disabled={busy === unavailableHeapRun.faultRunId}><ServerCog className="size-3.5" />{busy === unavailableHeapRun.faultRunId ? t('restarting') : t('restartNotificationButton')}</Button></div>}
     <ScenarioWorkspace key={selectedScenario || 'scenario-workspace'} scenarios={data.scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} activeRun={activeRun} unavailableRun={unavailableHeapRun} busy={busy} onCreate={createRun} onDetails={openDetails} onStop={stopRun} onRestart={restartNotification} />
     <RunHistory runs={visibleRuns} scenarios={data.scenarios} filterState={filterState} filterScenario={filterScenario} setFilterState={setFilterState} setFilterScenario={setFilterScenario} onDetails={openDetails} onCleanup={cleanupRun} />
     {selectedRun && <RunDetails details={selectedRun} onClose={() => setSelectedRun(null)} onCleanup={cleanupRun} allowManualCleanup={Boolean(data.scenarios.find((scenario) => scenario.scenario === selectedRun.run.scenario)?.allowManualCleanup)} />}

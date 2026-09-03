@@ -163,3 +163,23 @@ test('prefers recovery cleanup over an idempotent manual cleanup result', () => 
   assert.equal(view.cleanup?.hashRemoved, true);
   assert.equal(view.cleanup?.markerRemoved, true);
 });
+
+test('uses the caller locale translator and safely falls back for unknown events', () => {
+  const translate = (key: string) => `zh:${key}`;
+  const translated = summarizeFaultRunEvent({
+    id: 1,
+    eventType: 'TARGET_CONFIRMED',
+    payload: {},
+    createdAt: '2026-09-02T06:59:01.000Z',
+  }, translate);
+  const unknown = summarizeFaultRunEvent({
+    id: 2,
+    eventType: 'UNTRUSTED_EVENT',
+    payload: { password: 'must not render' },
+    createdAt: '2026-09-02T06:59:02.000Z',
+  }, translate);
+
+  assert.equal(translated, 'zh:targetAccepted');
+  assert.equal(unknown, 'zh:recordedEvent');
+  assert.equal(unknown.includes('password'), false);
+});

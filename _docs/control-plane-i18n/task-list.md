@@ -4,7 +4,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase B 完成，Phase C/D/E 待开始 |
+| 状态 | Phase A-F 完成；I18N-001、I18N-002 为非阻塞 warning |
 | 版本 | 1.0 |
 | 更新时间 | 2026-09-03 CST |
 | 产品规格 | [product.md](product.md) |
@@ -22,20 +22,20 @@
 
 ## 总体进度
 
-- **总体状态：** Phase B 完成，Phase C/D/E 待开始
-- **总体进度：** 14 / 44 个任务组（45 / 117 个子任务）
-- **当前阶段：** Phase C/D/E：场景、Runner/Operations、Alerts
-- **当前问题：** I18N-001：生产构建存在 workspace root warning；Phase B 无新增问题
-- **可能的解决方案：** 保持当前实现可用；后续评估 `outputFileTracingRoot`，C/D/E 可按依赖并行实施
+- **总体状态：** Phase A-F 完成；I18N-001、I18N-002 为非阻塞 warning
+- **总体进度：** 44 / 44 个任务组（117 / 117 个子任务）
+- **当前阶段：** Phase F：测试、构建与验收（已完成）
+- **当前问题：** I18N-001：workspace root warning；I18N-002：开发环境 extractor/cache warning；I18N-003 已解决
+- **可能的解决方案：** 保持当前实现可用；后续独立评估 `outputFileTracingRoot` 与 next-intl extractor/cache warning，不改变当前 i18n 功能范围
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
 | A | next-intl 基础设施与根布局 | 已完成 | 7 / 7 | 无 |
 | B | 语言切换与共享壳层 | 已完成 | 7 / 7 | A |
-| C | 场景与 Fault Run 展示 | 待开始 | 0 / 8 | B |
-| D | Runner 与 Operations | 待开始 | 0 / 8 | B |
-| E | Alerts 管理界面 | 待开始 | 0 / 5 | B |
-| F | 测试、构建与验收 | 待开始 | 0 / 9 | A 至 E |
+| C | 场景与 Fault Run 展示 | 已完成 | 8 / 8 | B |
+| D | Runner 与 Operations | 已完成 | 8 / 8 | B |
+| E | Alerts 管理界面 | 已完成 | 5 / 5 | B |
+| F | 测试、构建与验收 | 已完成 | 9 / 9 | A 至 E |
 
 ## 执行依赖
 
@@ -113,7 +113,7 @@ graph TD
 
 **阶段状态：** 已完成
 **阶段进度：** 7 / 7 个任务组（22 / 22 个子任务）
-**问题：** 暂无 Phase B 问题；I18N-001 仍为全局非阻塞 warning
+**问题：** I18N-003 已解决；I18N-001 仍为全局非阻塞 warning
 **可能的解决方案：** 已完成语言切换、Cookie 持久化和共享壳层验证；I18N-001 后续评估 workspace root 配置
 
 ### B1. LocaleSwitcher 组件
@@ -165,55 +165,55 @@ graph TD
 
 **阶段目标：** 将场景目录和 Fault Run 的人类可读展示接入消息目录，同时保持运行数据、协议值和安全解析逻辑不变。
 
-**阶段状态：** 待开始
-**阶段进度：** 0 / 8 个任务组
-**问题：** 暂无
-**可能的解决方案：** 不适用
+**阶段状态：** 已完成
+**阶段进度：** 8 / 8 个任务组（21 / 21 个子任务）
+**问题：** I18N-003 已解决；I18N-001、I18N-002 为全局 warning
+**可能的解决方案：** 已完成场景展示、Fault Run 安全摘要和中英文交互验证；Phase F 继续跟踪全局 warning
 
 ### C1. 场景元数据翻译键
 
-- [ ] 修改 `traffic-control-plane/src/components/scenarios/meta.ts`，为场景、分组和 PSP outcome 保存稳定 translation key。
-- [ ] 保留场景 ID、provider outcome value、图标、tone 和场景顺序不变。
+- [x] 修改 `traffic-control-plane/src/components/scenarios/meta.ts`，为场景、分组和 PSP outcome 保存稳定 translation key。
+- [x] 保留场景 ID、provider outcome value、图标、tone 和场景顺序不变。
 
 ### C2. 场景标签解析
 
-- [ ] 更新 `getScenarioLabel` 及其调用方，使用当前 locale 解析已知场景标签。
-- [ ] 为分组、provider outcome、目标服务/操作和已知状态提供安全显示映射。
-- [ ] 未知场景或状态回退原始稳定标识，不抛出渲染异常。
+- [x] 更新 `getScenarioLabel` 及其调用方，使用当前 locale 解析已知场景标签。
+- [x] 为分组、provider outcome、目标服务/操作和已知状态提供安全显示映射。
+- [x] 未知场景或状态回退原始稳定标识，不抛出渲染异常。
 
 ### C3. Fault Run 纯展示边界
 
-- [ ] 修改 `traffic-control-plane/src/components/scenarios/fault-run-view.ts`，保持 `buildFaultRunView` 为 locale-independent 的数据规范化和安全校验函数。
-- [ ] 将事件摘要、worker/cleanup 摘要、字节和成员列表展示拆为调用方传入 formatter 或 UI 层 formatter。
-- [ ] 不在纯工具模块中引入 React hook，不把整个后端 payload 交给翻译函数。
+- [x] 修改 `traffic-control-plane/src/components/scenarios/fault-run-view.ts`，保持 `buildFaultRunView` 为 locale-independent 的数据规范化和安全校验函数。
+- [x] 将事件摘要、worker/cleanup 摘要、字节和成员列表展示拆为调用方传入 formatter 或 UI 层 formatter。
+- [x] 不在纯工具模块中引入 React hook，不把整个后端 payload 交给翻译函数。
 
 ### C4. 场景首页
 
-- [ ] 修改 `traffic-control-plane/src/app/page.tsx`，翻译页面标题、加载/空状态、确认文案、前端 fallback 和 Toast。
-- [ ] 保留 Fault Run 创建、停止、清理请求的字段、路径、幂等和 CSRF 行为。
+- [x] 修改 `traffic-control-plane/src/app/page.tsx`，翻译页面标题、加载/空状态、确认文案、前端 fallback 和 Toast。
+- [x] 保留 Fault Run 创建、停止、清理请求的字段、路径、幂等和 CSRF 行为。
 
 ### C5. ScenarioControlSections
 
-- [ ] 修改 `traffic-control-plane/src/components/ScenarioControlSections.tsx`，翻译分组、历史、活动运行、详情、恢复、清理、指标和辅助说明。
-- [ ] 使用 locale-aware 日期、数字和容量展示，继续保持 `Asia/Shanghai`。
-- [ ] 保留运行 ID、trace ID、服务名、目标操作和 API 返回值原样。
+- [x] 修改 `traffic-control-plane/src/components/ScenarioControlSections.tsx`，翻译分组、历史、活动运行、详情、恢复、清理、指标和辅助说明。
+- [x] 使用 locale-aware 日期、数字和容量展示，继续保持 `Asia/Shanghai`。
+- [x] 保留运行 ID、trace ID、服务名、目标操作和 API 返回值原样。
 
 ### C6. ScenarioCardWithActions
 
-- [ ] 修改 `traffic-control-plane/src/components/ScenarioCardWithActions.tsx`，翻译卡片描述、参数 label/description、操作状态、provider outcome 和控件 ARIA 文案。
-- [ ] 保留提交给 API 的原始参数名、参数值、场景码和 outcome value。
+- [x] 修改 `traffic-control-plane/src/components/ScenarioCardWithActions.tsx`，翻译卡片描述、参数 label/description、操作状态、provider outcome 和控件 ARIA 文案。
+- [x] 保留提交给 API 的原始参数名、参数值、场景码和 outcome value。
 
 ### C7. 状态、Toast 与错误边界
 
-- [ ] 为已知 Fault Run 状态和安全 frontend result 建立显示翻译，不改变原始状态值。
-- [ ] 将前端自有 loading/empty/confirmation/fallback 文案接入消息目录。
-- [ ] 保持 `result.message`、`Error.message` 和服务端错误 payload 原样展示。
+- [x] 为已知 Fault Run 状态和安全 frontend result 建立显示翻译，不改变原始状态值。
+- [x] 将前端自有 loading/empty/confirmation/fallback 文案接入消息目录。
+- [x] 保持 `result.message`、`Error.message` 和服务端错误 payload 原样展示。
 
 ### C8. Fault Run 安全回归
 
-- [ ] 确认 `SCENARIO_REQUEST_FAILED` 等摘要仍只输出固定安全文案，不泄露 password、token 或原始 error payload。
-- [ ] 确认 `formatHashNamespace`、member SKU、faultRunId 和 cache/worker 标识仍按原值或安全格式展示。
-- [ ] 对场景页的桌面/窄屏长文本、详情弹窗和事件列表进行人工复核，记录问题及解决方案。
+- [x] 确认 `SCENARIO_REQUEST_FAILED` 等摘要仍只输出固定安全文案，不泄露 password、token 或原始 error payload。
+- [x] 确认 `formatHashNamespace`、member SKU、faultRunId 和 cache/worker 标识仍按原值或安全格式展示。
+- [x] 对场景页的桌面/窄屏长文本、详情弹窗和事件列表进行人工复核，记录问题及解决方案。
 
 ---
 
@@ -221,52 +221,52 @@ graph TD
 
 **阶段目标：** 覆盖生命周期 Runner、数据预热/补齐控制和日期选择器，统一展示格式，同时保护配置和机器值。
 
-**阶段状态：** 待开始
-**阶段进度：** 0 / 8 个任务组
-**问题：** 暂无
-**可能的解决方案：** 不适用
+**阶段状态：** 已完成
+**阶段进度：** 8 / 8 个任务组（18 / 18 个子任务）
+**问题：** I18N-003 已解决；I18N-001、I18N-002 为全局 warning
+**可能的解决方案：** 已完成 Runner/Operations 展示格式、日期选择器和中英文交互验证；Phase F 继续跟踪全局 warning
 
 ### D1. Runner 页面
 
-- [ ] 修改 `traffic-control-plane/src/app/runner/page.tsx`，翻译标题、配置反馈、成功/失败的前端 Toast、加载状态和无障碍文本。
-- [ ] 保留配置更新请求、乐观锁 `version`、比例值和后端返回错误原文。
+- [x] 修改 `traffic-control-plane/src/app/runner/page.tsx`，翻译标题、配置反馈、成功/失败的前端 Toast、加载状态和无障碍文本。
+- [x] 保留配置更新请求、乐观锁 `version`、比例值和后端返回错误原文。
 
 ### D2. RunnerPanels
 
-- [ ] 修改 `traffic-control-plane/src/components/runner/RunnerPanels.tsx`，翻译 lifecycle header、tab、指标、账号摘要、活动、队列、补券和库存补齐说明。
-- [ ] 已知 runner/action/status code 使用显示映射，底层 code、客户 ID、活动 ID 和服务端值保持不变。
+- [x] 修改 `traffic-control-plane/src/components/runner/RunnerPanels.tsx`，翻译 lifecycle header、tab、指标、账号摘要、活动、队列、补券和库存补齐说明。
+- [x] 已知 runner/action/status code 使用显示映射，底层 code、客户 ID、活动 ID 和服务端值保持不变。
 
 ### D3. RunnerDataControl
 
-- [ ] 修改 `traffic-control-plane/src/components/runner/RunnerDataControl.tsx`，翻译预热、补齐、任务状态、按钮、确认框、空/加载状态和 ARIA 文案。
-- [ ] 保留表名、任务 ID、窗口 ID、cron、数量和后端结果原值。
+- [x] 修改 `traffic-control-plane/src/components/runner/RunnerDataControl.tsx`，翻译预热、补齐、任务状态、按钮、确认框、空/加载状态和 ARIA 文案。
+- [x] 保留表名、任务 ID、窗口 ID、cron、数量和后端结果原值。
 
 ### D4. RunnerControls
 
-- [ ] 修改 `traffic-control-plane/src/components/runner/RunnerControls.tsx`，翻译字段 label、目标表说明、listbox label、选项描述和控件辅助文本。
-- [ ] 保留 `TABLE_OPTIONS` 的机器值和提交值，只对显示 label/description 做翻译。
+- [x] 修改 `traffic-control-plane/src/components/runner/RunnerControls.tsx`，翻译字段 label、目标表说明、listbox label、选项描述和控件辅助文本。
+- [x] 保留 `TABLE_OPTIONS` 的机器值和提交值，只对显示 label/description 做翻译。
 
 ### D5. DatePicker
 
-- [ ] 修改 `traffic-control-plane/src/components/runner/DatePicker.tsx`，使用当前 locale 展示月份、星期、日期和范围消息。
-- [ ] 翻译上一月/下一月、选择日期、弹出层和网格的 ARIA label。
-- [ ] 保持日期计算、ISO 输入值和 `todayInShanghaiClient()` 的 `YYYY-MM-DD` 输出不变。
+- [x] 修改 `traffic-control-plane/src/components/runner/DatePicker.tsx`，使用当前 locale 展示月份、星期、日期和范围消息。
+- [x] 翻译上一月/下一月、选择日期、弹出层和网格的 ARIA label。
+- [x] 保持日期计算、ISO 输入值和 `todayInShanghaiClient()` 的 `YYYY-MM-DD` 输出不变。
 
 ### D6. Runner utils
 
-- [ ] 修改 `traffic-control-plane/src/components/runner/utils.ts`，将 `en-US`、默认 locale 等用户可见 formatter 迁移到 next-intl 或显式 locale formatter。
-- [ ] 保留上海业务时区、原始数值、配置值和请求值；只改变展示字符串。
+- [x] 修改 `traffic-control-plane/src/components/runner/utils.ts`，将 `en-US`、默认 locale 等用户可见 formatter 迁移到 next-intl 或显式 locale formatter。
+- [x] 保留上海业务时区、原始数值、配置值和请求值；只改变展示字符串。
 
 ### D7. Operations 页面
 
-- [ ] 修改 `traffic-control-plane/src/app/operations/page.tsx`，翻译数据操作页标题、tab、队列、状态、确认、加载/空状态和前端 fallback。
-- [ ] 保留操作 API 路径、参数、任务 ID、表名、服务端消息和鉴权行为。
+- [x] 修改 `traffic-control-plane/src/app/operations/page.tsx`，翻译数据操作页标题、tab、队列、状态、确认、加载/空状态和前端 fallback。
+- [x] 保留操作 API 路径、参数、任务 ID、表名、服务端消息和鉴权行为。
 
 ### D8. Runner/Operations 集成复核
 
-- [ ] 检查所有 Runner/Operations 用户可见文本、`title`、`aria-label` 和 tooltip 无硬编码 English 遗漏。
-- [ ] 验证格式化不会把本地化字符串写回表单、配置对象、API payload 或数据库字段。
-- [ ] 记录长中文字段、数字单位、日期弹层和指标卡布局问题及可能的解决方案。
+- [x] 检查所有 Runner/Operations 用户可见文本、`title`、`aria-label` 和 tooltip 无硬编码 English 遗漏。
+- [x] 验证格式化不会把本地化字符串写回表单、配置对象、API payload 或数据库字段。
+- [x] 记录长中文字段、数字单位、日期弹层和指标卡布局问题及可能的解决方案。
 
 ---
 
@@ -274,36 +274,36 @@ graph TD
 
 **阶段目标：** 翻译告警管理的 UI 自有文案，同时不修改保存到 Prometheus/Alertmanager 的配置内容。
 
-**阶段状态：** 待开始
-**阶段进度：** 0 / 5 个任务组
-**问题：** 暂无
-**可能的解决方案：** 不适用
+**阶段状态：** 已完成
+**阶段进度：** 5 / 5 个任务组（11 / 11 个子任务）
+**问题：** I18N-003 已解决；I18N-001、I18N-002 为全局 warning
+**可能的解决方案：** 已完成 Alerts UI 文案和编辑数据边界验证；Phase F 继续跟踪全局 warning
 
 ### E1. Alerts 页面
 
-- [ ] 修改 `traffic-control-plane/src/app/alerts/page.tsx`，翻译页面标题、tab、加载/空状态、刷新、保存和前端 fallback。
-- [ ] 保留告警 API 路径、响应数据和服务端/parser 错误原文。
+- [x] 修改 `traffic-control-plane/src/app/alerts/page.tsx`，翻译页面标题、tab、加载/空状态、刷新、保存和前端 fallback。
+- [x] 保留告警 API 路径、响应数据和服务端/parser 错误原文。
 
 ### E2. AlertControls
 
-- [ ] 修改 `traffic-control-plane/src/components/alerts/AlertControls.tsx`，翻译配置来源、帮助说明、按钮、状态和控件 ARIA 文案。
-- [ ] 对 source kind、severity 等固定配置值提供显示 label，但提交 value 不变。
+- [x] 修改 `traffic-control-plane/src/components/alerts/AlertControls.tsx`，翻译配置来源、帮助说明、按钮、状态和控件 ARIA 文案。
+- [x] 对 source kind、severity 等固定配置值提供显示 label，但提交 value 不变。
 
 ### E3. AlertEditors
 
-- [ ] 修改 `traffic-control-plane/src/components/alerts/AlertEditors.tsx`，翻译规则、接收器和路由编辑器的字段 label、placeholder 辅助说明、按钮和 validation UI。
-- [ ] 不翻译或重写 rule summary、rule description、PromQL、YAML、receiver 名称和路由值。
+- [x] 修改 `traffic-control-plane/src/components/alerts/AlertEditors.tsx`，翻译规则、接收器和路由编辑器的字段 label、placeholder 辅助说明、按钮和 validation UI。
+- [x] 不翻译或重写 rule summary、rule description、PromQL、YAML、receiver 名称和路由值。
 
 ### E4. AlertModals 与 AlertRoutingSection
 
-- [ ] 修改 `traffic-control-plane/src/components/alerts/AlertModals.tsx` 和 `AlertRoutingSection.tsx`，翻译模态框标题、确认/取消、删除/保存、空状态和 ARIA 文案。
-- [ ] 保留编辑器中的原始配置字段、值、格式和错误详情。
+- [x] 修改 `traffic-control-plane/src/components/alerts/AlertModals.tsx` 和 `AlertRoutingSection.tsx`，翻译模态框标题、确认/取消、删除/保存、空状态和 ARIA 文案。
+- [x] 保留编辑器中的原始配置字段、值、格式和错误详情。
 
 ### E5. Alerts 边界与布局复核
 
-- [ ] 检查 Alerts 全部用户可见 UI 文案均通过 next-intl，且运营编辑的监控内容不被当作翻译键。
-- [ ] 在 English/简体中文和桌面/窄屏下复核表单、编辑器、模态框、长 YAML/PromQL 内容不发生遮挡或截断。
-- [ ] 记录 parser/server error、长字段或编辑器布局问题及可能的解决方案。
+- [x] 检查 Alerts 全部用户可见 UI 文案均通过 next-intl，且运营编辑的监控内容不被当作翻译键。
+- [x] 在 English/简体中文和桌面/窄屏下复核表单、编辑器、模态框、长 YAML/PromQL 内容不发生遮挡或截断。
+- [x] 记录 parser/server error、长字段或编辑器布局问题及可能的解决方案。
 
 ---
 
@@ -311,59 +311,59 @@ graph TD
 
 **阶段目标：** 用自动化测试验证语言目录、回退、安全边界和纯展示函数，并完成开发服务器双语走查。
 
-**阶段状态：** 待开始
-**阶段进度：** 0 / 9 个任务组
-**问题：** 暂无
-**可能的解决方案：** 不适用
+**阶段状态：** 已完成
+**阶段进度：** 9 / 9 个任务组（22 / 22 个子任务）
+**问题：** I18N-001、I18N-002 为非阻塞 warning
+**可能的解决方案：** 保留当前可用实现；后续独立评估 workspace root 和 next-intl extractor/cache warning
 
 ### F1. locale 解析测试
 
-- [ ] 新增 `traffic-control-plane/src/i18n/*.test.ts`，覆盖缺失 Cookie、`en`、`zh-CN`、非法值、大小写变体和恶意值回退。
-- [ ] 验证解析逻辑不读取或改变认证 Cookie。
+- [x] 新增 `traffic-control-plane/src/i18n/*.test.ts`，覆盖缺失 Cookie、`en`、`zh-CN`、非法值、大小写变体和恶意值回退。
+- [x] 验证解析逻辑不读取或改变认证 Cookie。
 
 ### F2. 消息目录 parity 测试
 
-- [ ] 递归比较 `messages/en/` 与 `messages/zh-CN/` 聚合后的键集合。
-- [ ] 比较 ICU 占位符集合，发现缺失或多余占位符时测试失败。
-- [ ] 验证主要命名空间和 frontend fallback 消息键均存在。
+- [x] 递归比较 `messages/en/` 与 `messages/zh-CN/` 聚合后的键集合。
+- [x] 比较 ICU 占位符集合，发现缺失或多余占位符时测试失败。
+- [x] 验证主要命名空间和 frontend fallback 消息键均存在。
 
 ### F3. 场景与 Fault Run 测试
 
-- [ ] 新增/扩展场景 metadata 测试，验证所有场景、分组和 provider outcome 均有双语显示文案。
-- [ ] 扩展 `src/components/scenarios/fault-run-view.test.ts`，验证双语摘要、未知 ID 回退、marker/cleanup 解析和错误 payload 脱敏。
+- [x] 新增/扩展场景 metadata 测试，验证所有场景、分组和 provider outcome 均有双语显示文案。
+- [x] 扩展 `src/components/scenarios/fault-run-view.test.ts`，验证双语摘要、未知 ID 回退、marker/cleanup 解析和错误 payload 脱敏。
 
 ### F4. Runner formatter 测试
 
-- [ ] 在 `src/components/runner/utils.test.ts` 或同目录测试中验证 English/简体中文日期、数字、容量展示。
-- [ ] 验证 `Asia/Shanghai` 语义、`todayInShanghaiClient()` ISO 输出和原始请求值不变。
+- [x] 在 `src/components/runner/utils.test.ts` 或同目录测试中验证 English/简体中文日期、数字、容量展示。
+- [x] 验证 `Asia/Shanghai` 语义、`todayInShanghaiClient()` ISO 输出和原始请求值不变。
 
 ### F5. 定向测试脚本
 
-- [ ] 在 `traffic-control-plane/package.json` 增加 `test:i18n`，覆盖新增的 locale、catalog、scenario 和 formatter 纯测试。
-- [ ] 执行 `pnpm test:i18n` 和既有 `pnpm test:runner`，修复本次改造引入的失败。
+- [x] 在 `traffic-control-plane/package.json` 增加 `test:i18n`，覆盖新增的 locale、catalog、scenario 和 formatter 纯测试。
+- [x] 执行 `pnpm test:i18n` 和既有 `pnpm test:runner`，修复本次改造引入的失败。
 
 ### F6. TypeScript 与 lint
 
-- [ ] 执行 `cd traffic-control-plane && pnpm typecheck`。
-- [ ] 执行 `pnpm lint`，区分既有 warning 与本次新增问题，并记录无法消除的既有问题。
+- [x] 执行 `cd traffic-control-plane && pnpm typecheck`。
+- [x] 执行 `pnpm lint`，区分既有 warning 与本次新增问题，并记录无法消除的既有问题。
 
 ### F7. 生产构建
 
-- [ ] 执行 `pnpm build`，确认 next-intl 插件、动态 request config、JSON 消息目录和 standalone 输出正常。
-- [ ] 检查构建输出没有把密码、token 或不应进入客户端的服务端配置打包到消息目录。
+- [x] 执行 `pnpm build`，确认 next-intl 插件、动态 request config、JSON 消息目录和 standalone 输出正常。
+- [x] 检查构建输出没有把密码、token 或不应进入客户端的服务端配置打包到消息目录。
 
 ### F8. 语言切换与持久化手工验收
 
-- [ ] 启动 `pnpm dev`，清除 `control_plane_locale` 后访问 `/login`，确认 English 和 `<html lang="en">`。
-- [ ] 未登录时切换简体中文，确认当前路径不变；刷新后确认页面文案、消息目录和 `<html lang="zh-CN">` 同步。
-- [ ] 登录后切换两种语言，确认认证状态、`returnTo`、业务请求和当前页面不变。
+- [x] 启动 `pnpm dev`，清除 `control_plane_locale` 后访问 `/login`，确认 English 和 `<html lang="en">`。
+- [x] 未登录时切换简体中文，确认当前路径不变；刷新后确认页面文案、消息目录和 `<html lang="zh-CN">` 同步。
+- [x] 登录后切换两种语言，确认认证状态、`returnTo`、业务请求和当前页面不变。
 
 ### F9. 全页面、响应式与鉴权回归
 
-- [ ] 在 `/`、`/runner`、`/operations`、`/alerts` 两种语言下走查导航、场景卡片/详情、Runner 日历、数据操作、Alerts 编辑器、Toast 和确认框。
-- [ ] 在桌面和窄屏检查头部、语言选择器、品牌、主题、登出、按钮、卡片和模态框无重叠/裁切。
-- [ ] 确认 `/internal/**`、受保护页面、API 401、Operator 会话和 CSRF 行为与改造前一致。
-- [ ] 确认语言切换不改变 path、query、API payload、stable code、YAML/PromQL、服务名、表名或后端原始错误。
+- [x] 在 `/`、`/runner`、`/operations`、`/alerts` 两种语言下走查导航、场景卡片/详情、Runner 日历、数据操作、Alerts 编辑器、Toast 和确认框。
+- [x] 在桌面和窄屏检查头部、语言选择器、品牌、主题、登出、按钮、卡片和模态框无重叠/裁切。
+- [x] 确认 `/internal/**`、受保护页面、API 401、Operator 会话和 CSRF 行为与改造前一致。
+- [x] 确认语言切换不改变 path、query、API payload、stable code、YAML/PromQL、服务名、表名或后端原始错误。
 
 ---
 
@@ -374,7 +374,8 @@ graph TD
 | ID | 发现阶段/任务 | 问题 | 影响 | 可能的解决方案/下一步 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | I18N-001 | Phase A / A7 | Next.js 检测到仓库根目录存在额外 lockfile，生产构建提示 workspace root 可能不准确。 | 当前构建成功；可能影响 standalone 文件追踪根目录判断。 | 后续评估在 `next.config.mjs` 设置 `outputFileTracingRoot`，或清理不相关的重复 lockfile；本阶段不扩大范围。 | 待处理 |
-| I18N-002 | Phase A / A6、目录结构优化 | `next-intl@4.14.2` extractor 的动态 import 在 webpack cache 依赖解析时产生 warning。 | 初次构建有 warning；改为静态命名空间目录聚合后不再复现，产物正常。 | 使用 `messages/index.ts` 和各 locale 的静态 `index.ts` 聚合入口，避免 request config 中的动态 JSON import。 | 已解决 |
+| I18N-002 | Phase A / A6、Phase F 前置验证 | `next-intl@4.14.2` extractor 在 webpack cache 依赖解析时产生 warning；生产 build 可通过，但开发服务器启动时仍可能复现。 | 当前功能、typecheck、lint 和 build 正常；开发环境可能出现 cache invalidation warning。 | 保持静态 locale/namespace 聚合入口；Phase F 复核 next-intl 版本、插件配置或关闭不必要的 extractor 行为，确认是否可消除。 | 待处理 |
+| I18N-003 | Phase B/C/D/E 浏览器复核 | 截图发现中文页面仍显示英文或原始 UI 值，包括 ConfirmDialog 的 `Cancel`、网络异常的 `Failed to fetch`、导航 `Runner`、恢复策略 `TARGET/WORKER`、Operations 清理确认标题和 Alerts 严重级别。 | 影响中文界面的完整性；部分文案绕过消息目录，网络异常会直接暴露浏览器原始错误。 | 移除确认框硬编码默认值；为浏览器传输异常增加本地化 fallback；为导航、恢复策略、状态和严重级别增加显示映射；保留后端消息、稳定 code、配置值和 API payload 原样。 | 已解决 |
 
 ## 阶段更新记录
 
@@ -388,10 +389,14 @@ graph TD
 | 2026-09-03 | 解决 I18N-002 | 7 / 44（23 / 117 子任务） | A：7 / 7（23 / 23 子任务） | 动态 JSON import warning 不再复现 | 通过静态 namespace index 聚合消息目录；I18N-001 继续跟踪 workspace root warning |
 | 2026-09-03 | 完成 Phase B / B1-B7 | 14 / 44（45 / 117 子任务） | B：7 / 7（22 / 22 子任务） | 无新增问题；I18N-001 仍为非阻塞 warning | 开始 Phase C/D/E；保持当前 URL、认证和 API 契约不变 |
 | 2026-09-03 | Phase B 认证后 header 与窄屏复核 | 14 / 44（45 / 117 子任务） | B：7 / 7（22 / 22 子任务） | 无新增问题；中英文 header 切换和 390px 布局验证通过 | 进入 Phase C/D/E；继续保持无语言前缀路由和认证 Cookie 隔离 |
+| 2026-09-03 | 完成 Phase C/D/E | 35 / 44（95 / 117 子任务） | C：8 / 8（21 / 21）；D：8 / 8（18 / 18）；E：5 / 5（11 / 11） | I18N-001 待处理；I18N-002 在开发服务器中重新出现，待 Phase F 复核 | active 页面、消息目录和兼容入口均已统一到本地化实现；进入 Phase F |
+| 2026-09-03 | Phase C/D/E 浏览器交互复核 | 35 / 44（95 / 117 子任务） | C/D/E 全部完成 | 无新增问题；四个页面双语切换、日期选择器、Provider 选择器和新建告警模态框验证通过 | Phase F 补充自动化 parity/formatter 测试并处理两个 warning |
+| 2026-09-03 | 修复 I18N-003 并完成截图残留复核 | 35 / 44（95 / 117 子任务） | C/D/E 复核完成 | I18N-003 已解决；I18N-001、I18N-002 仍为非阻塞 warning | 中文四页面普通 UI 英文扫描、确认框、Provider 选择器、告警弹窗和桌面/390px header 几何检查通过；进入 Phase F |
+| 2026-09-03 | 完成 Phase F 自动化与最终验收 | 44 / 44（117 / 117 子任务） | F：9 / 9（22 / 22） | I18N-003 已解决；I18N-001、I18N-002 仍为非阻塞 warning | `test:i18n` 14/14、`test:runner` 68/68、typecheck、lint、build 通过；四页面双语 smoke、路由保持、嵌套弹窗/选择器和 390px header 检查通过 |
 
 ## 完成标准
 
-- [ ] Phase A-F 所有任务组完成，任务组进度达到 `44 / 44`，子任务进度达到 `117 / 117`。
-- [ ] `pnpm test:i18n`、`pnpm test:runner`、`pnpm typecheck`、`pnpm lint` 和 `pnpm build` 通过。
-- [ ] English 与简体中文在登录、场景、Runner、Operations、Alerts 和共享壳层的主要流程均完成手工验收。
-- [ ] 所有未解决问题都有明确状态和后续方案；没有已知的阻塞问题被隐藏在任务复选项之外。
+- [x] Phase A-F 所有任务组完成，任务组进度达到 `44 / 44`，子任务进度达到 `117 / 117`。
+- [x] `pnpm test:i18n`、`pnpm test:runner`、`pnpm typecheck`、`pnpm lint` 和 `pnpm build` 通过。
+- [x] English 与简体中文在登录、场景、Runner、Operations、Alerts 和共享壳层的主要流程均完成手工验收。
+- [x] 所有未解决问题都有明确状态和后续方案；没有已知的阻塞问题被隐藏在任务复选项之外。

@@ -1,7 +1,7 @@
 {
   "pageTitle": "运维操作",
   "dataOperation": "数据操作",
-  "queueDescription": "为独立预热 worker 排队一个有界操作。",
+  "queueDescription": "为独立预热工作进程排队一个有界操作。",
   "injectRows": "写入数据行",
   "clearFullDays": "清除完整日期",
   "targetTable": "目标表",
@@ -13,6 +13,8 @@
   "chooseDate": "先在上方选择日期，再将其加入队列。",
   "maximumRows": "每天最多 1,000,000 行。请求将分批处理。",
   "clearPartition": "清除操作会删除每个选定日期的完整分区。",
+  "clearSelectedPartitions": "清除选定的数据分区？",
+  "clearSelectedPartitionsDescription": "确定要从 {table} 删除选定 {count} 天的全部数据分区吗？此操作无法撤销。",
   "queuing": "排队中...",
   "queueInjection": "排队写入",
   "queueCleanup": "排队清理",
@@ -39,4 +41,46 @@
   "previousMonth": "上个月",
   "nextMonth": "下个月",
   "selectDate": "选择 {date}"
+  ,"subtitle": "计划中的补齐任务和有界数据操作"
+  ,"workerOnline": "工作进程在线"
+  ,"checkingWorker": "正在检查工作进程"
+  ,"operationsViews": "运维操作视图"
+  ,"scheduledTasks": "计划任务"
+  ,"dataControl": "数据控制"
+  ,"replenishmentRunFailed": "无法运行补齐任务"
+  ,"replenishmentCompleted": "{kind}补齐完成：补充 {added}，跳过 {skipped}，失败 {failed}"
+  ,"warmupStatusRequestFailed": "预热状态请求失败（{status}）"
+  ,"warmupStatusTimedOut": "预热状态请求超时"
+  ,"manualQueueRequestFailed": "手动队列请求失败（{status}）"
+  ,"manualQueueRequestTimedOut": "手动队列请求超时"
+  ,"manualQueueUnavailable": "手动队列不可用"
+  ,"unableToQueueWarmup": "无法为数据预热任务排队"
+  ,"selectAtLeastOneDate": "至少选择一个日期"
+  ,"jobQueued": "任务 #{id} 已排队"
+  ,"statusWorkerOffline": "工作进程离线"
+  ,"statusWorkerUnavailable": "工作进程不可用"
+  ,"statusScheduled": "已调度"
+  ,"statusStopped": "已停止"
+  ,"statusRunning": "运行中"
+  ,"statusChecking": "检查中"
+  ,"statusPending": "待处理"
+  ,"statusCompleted": "已完成"
+  ,"statusFailed": "失败"
+  ,"statusAppending": "追加中"
+  ,"statusError": "错误"
+  ,"calendar": "日历"
+  ,"dateToAdd": "要添加的日期"
+  ,"today": "今天"
+  ,"alreadyQueued": "已排队"
+  ,"added": "已添加"
+  ,"addDays": "添加 {count} 天"
+  ,"addDay": "添加日期"
+  ,"chooseEndDate": "选择结束日期"
+  ,"selectDayToAdd": "选择要添加的日期"
+  ,"sizePending": "大小待确认"
+  ,"window": "窗口"
+  ,"inventoryReplenishment": "库存"
+  ,"couponReplenishment": "优惠券"
+  ,"daySelected": "已选择 1 天"
+  ,"daysSelected": "已选择 {count} 天"
 }

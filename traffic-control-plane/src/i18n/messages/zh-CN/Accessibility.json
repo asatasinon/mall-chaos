@@ -10,8 +10,9 @@
   "previousMonth": "上个月",
   "nextMonth": "下个月",
   "chooseDate": "选择日期",
+  "selectDate": "选择 {date}",
   "providerOutcomes": "提供方结果",
   "targetTables": "目标表",
   "scenarioCatalog": "场景目录",
-  "runnerViews": "Runner 视图"
+  "runnerViews": "运行器视图"
 }

@@ -35,6 +35,7 @@
   "records": "{count} 条记录",
   "days": "{count} 天",
   "seconds": "{count} 秒",
+  "minutes": "{count} 分钟",
   "milliseconds": "{count} 毫秒",
   "rows": "{count} 行",
   "customer": "客户 {id}",
@@ -42,4 +43,5 @@
   "version": "版本 {version}",
   "at": "时间：{value}",
   "noMatchingResults": "没有匹配结果。"
+  ,"networkError": "无法连接控制面。"
 }

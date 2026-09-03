@@ -9,8 +9,10 @@ import {
   LifecycleStats,
   RunnerHeader,
   RunnerViewTabs,
-} from '@/components/runner/RunnerPanels';
+} from '@/components/LocalizedRunnerPanels';
+import { useTranslations } from 'next-intl';
 import { fetchWithAuth } from '@/lib/auth-fetch';
+import { isClientNetworkError } from '@/lib/client-error';
 import type {
   AccountSummary,
   ActivityEntry,
@@ -21,6 +23,8 @@ import type {
 } from '@/components/runner/types';
 
 export default function RunnerPage() {
+  const t = useTranslations('Runner');
+  const commonT = useTranslations('Common');
   const [status, setStatus] = useState<RunnerStatus | null>(null);
   const [config, setConfig] = useState<RunnerConfig | null>(null);
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null);
@@ -72,12 +76,12 @@ export default function RunnerPage() {
         setAccountSummary(json.data);
         setAccountError(null);
       } else {
-        setAccountError(json.message || 'Lifecycle account state is unavailable');
+        setAccountError(json.message || t('accountStateUnavailable'));
       }
     } catch {
-      setAccountError('Lifecycle account state is unavailable');
+      setAccountError(t('accountStateUnavailable'));
     }
-  }, []);
+  }, [t]);
 
   const loadActivity = useCallback(async () => {
     try {
@@ -126,12 +130,12 @@ export default function RunnerPage() {
         body: JSON.stringify({ version: config.version, enabled: !config.enabled }),
       });
       const json = await response.json();
-      if (json.code !== 0) throw new Error(json.message || 'Unable to update lifecycle');
-      toast.success(json.data.enabled ? 'Lifecycle enabled' : 'Lifecycle disabled');
+      if (json.code !== 0) throw new Error(json.message || t('unableToUpdateLifecycle'));
+      toast.success(json.data.enabled ? t('lifecycleEnabled') : t('lifecycleDisabled'));
       await loadConfig();
       await loadStatus();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to update lifecycle');
+      toast.error(isClientNetworkError(error) ? commonT('networkError') : error instanceof Error ? error.message : t('unableToUpdateLifecycle'));
     }
   };
 
@@ -152,12 +156,12 @@ export default function RunnerPage() {
         }),
       });
       const json = await response.json();
-      if (json.code !== 0) throw new Error(json.message || 'Save failed');
-      toast.success(`Saved at version ${json.data.newVersion}`);
+      if (json.code !== 0) throw new Error(json.message || t('saveFailed'));
+      toast.success(t('savedAt', { version: json.data.newVersion }));
       setEditing(false);
       await loadConfig();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Save failed');
+      toast.error(isClientNetworkError(error) ? commonT('networkError') : error instanceof Error ? error.message : t('saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -175,16 +179,16 @@ export default function RunnerPage() {
         setAccountSummary(json.data);
         setAccountError(null);
       } else {
-        setAccountError(json.message || 'Unable to update lifecycle account');
+        setAccountError(json.message || t('unableToUpdateAccount'));
       }
     } catch {
-      setAccountError('Unable to update lifecycle account');
+      setAccountError(t('unableToUpdateAccount'));
     }
   };
 
   const running = status?.running ?? false;
   const lifecycleResult = status
-    ? `${status.lifecycleCompletedCount} completed / ${status.lifecycleFailedCount} failed`
+    ? t('completedFailed', { completed: status.lifecycleCompletedCount, failed: status.lifecycleFailedCount })
     : '—';
 
   return <div className="space-y-4">

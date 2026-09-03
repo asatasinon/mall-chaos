@@ -1,35 +1,6 @@
-'use client';
-
-import type { ReactNode } from 'react';
-import { Trash2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { AlertRoute, Match, Receiver, Rule, Severity } from '@/components/alerts/types';
-import { AREA_CLASS, INPUT_CLASS } from '@/components/alerts/types';
-
-export function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
-  return <label className={wide ? 'block md:col-span-2' : 'block'}><span className="block text-[11px] text-muted-foreground mb-1">{label}</span>{children}</label>;
-}
-
-export function RuleEditor({ rule, onChange, onDelete }: { rule: Rule; onChange: (rule: Rule) => void; onDelete: () => void }) {
-  const set = (patch: Partial<Rule>) => onChange({ ...rule, ...patch });
-  return <Card><CardHeader className="py-3"><CardTitle className="text-sm flex items-center justify-between"><span className="font-mono">{rule.ruleName || 'Unnamed rule'}</span><div className="flex items-center gap-2"><label className="text-xs text-muted-foreground flex items-center gap-1.5"><input type="checkbox" checked={rule.enabled} onChange={(e) => set({ enabled: e.target.checked })} />Enabled</label><Button variant="ghost" size="icon-sm" title="Delete rule" onClick={onDelete}><Trash2 className="text-destructive" /></Button></div></CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2 lg:grid-cols-4"><Field label="Rule name"><input className={INPUT_CLASS} value={rule.ruleName} onChange={(e) => set({ ruleName: e.target.value })} /></Field><Field label="Group"><input className={INPUT_CLASS} value={rule.groupName} onChange={(e) => set({ groupName: e.target.value })} /></Field><Field label="Evaluation interval (seconds)"><input className={INPUT_CLASS} type="number" min="1" value={rule.intervalSec} onChange={(e) => set({ intervalSec: Number(e.target.value) })} /></Field><Field label="Duration"><input className={INPUT_CLASS} placeholder="e.g. 2m" value={rule.forDuration} onChange={(e) => set({ forDuration: e.target.value })} /></Field><Field label="Severity"><select className={INPUT_CLASS} value={rule.severity} onChange={(e) => set({ severity: e.target.value as Severity })}><option value="critical">critical</option><option value="warning">warning</option><option value="info">info</option></select></Field><Field label="Summary" wide><input className={INPUT_CLASS} value={rule.summary} onChange={(e) => set({ summary: e.target.value })} /></Field><Field label="PromQL expression" wide><textarea className={AREA_CLASS} value={rule.expression} onChange={(e) => set({ expression: e.target.value })} /></Field><Field label="Description" wide><textarea className={AREA_CLASS} value={rule.description} onChange={(e) => set({ description: e.target.value })} /></Field></CardContent></Card>;
-}
-
-export function ReceiverEditor({ receiver, onChange, onDelete }: { receiver: Receiver; onChange: (receiver: Receiver) => void; onDelete: () => void }) {
-  const set = (patch: Partial<Receiver>) => onChange({ ...receiver, ...patch });
-  return <Card><CardContent className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 items-end pt-4"><Field label="Receiver name"><input className={INPUT_CLASS} value={receiver.receiverName} onChange={(e) => set({ receiverName: e.target.value })} /></Field><Field label="Receivers" wide><input className={INPUT_CLASS} type="url" value={receiver.endpoint} onChange={(e) => set({ endpoint: e.target.value })} /></Field><Field label="Basic Auth username"><input className={INPUT_CLASS} value={receiver.basicAuthUsername ?? ''} onChange={(e) => set({ basicAuthUsername: e.target.value })} /></Field><Field label={receiver.basicAuthPasswordSet ? 'Basic Auth password (set; leave blank to keep)' : 'Basic Auth password'}><input className={INPUT_CLASS} type="password" value={receiver.basicAuthPassword ?? ''} onChange={(e) => set({ basicAuthPassword: e.target.value })} /></Field><Field label="Severity match"><select className={INPUT_CLASS} value={receiver.severityMatch} onChange={(e) => set({ severityMatch: e.target.value as Match })}><option value="all">All</option><option value="critical">critical</option><option value="warning">warning</option><option value="info">info</option></select></Field><div className="flex items-center gap-4 h-8"><label className="text-xs flex items-center gap-1.5"><input type="checkbox" checked={receiver.sendResolved} onChange={(e) => set({ sendResolved: e.target.checked })} />Send resolved</label><label className="text-xs flex items-center gap-1.5"><input type="checkbox" checked={receiver.enabled} onChange={(e) => set({ enabled: e.target.checked })} />Enabled</label><Button variant="ghost" size="icon-sm" title="Delete receiver" onClick={onDelete}><Trash2 className="text-destructive" /></Button></div></CardContent></Card>;
-}
-
-function routeMatchText(match: Record<string, string>) {
-  return Object.entries(match).map(([key, value]) => `${key}=${value}`).join(', ');
-}
-
-function parseRouteMatch(value: string) {
-  return Object.fromEntries(value.split(',').map((item) => item.trim().split('=').map((part) => part.trim())).filter(([key, matchValue]) => key && matchValue));
-}
-
-export function ChildRouteEditor({ route, onChange, onDelete }: { route: AlertRoute; onChange: (route: AlertRoute) => void; onDelete: () => void }) {
-  const set = (patch: Partial<AlertRoute>) => onChange({ ...route, ...patch });
-  return <Card><CardHeader className="py-3"><CardTitle className="text-sm flex items-center justify-between"><span>Child route</span><Button variant="ghost" size="icon-sm" title="Delete route" onClick={onDelete}><Trash2 className="text-destructive" /></Button></CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2 lg:grid-cols-4"><Field label="receiver"><input className={INPUT_CLASS} value={route.receiver} onChange={(e) => set({ receiver: e.target.value })} /></Field><Field label="Matching labels" wide><input className={INPUT_CLASS} value={routeMatchText(route.match)} placeholder="e.g. severity=critical, service=order" onChange={(e) => set({ match: parseRouteMatch(e.target.value) })} /></Field><Field label="group_by（optional）"><input className={INPUT_CLASS} value={route.groupBy?.join(', ') ?? ''} onChange={(e) => set({ groupBy: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) || undefined })} /></Field><Field label="group_wait（optional）"><input className={INPUT_CLASS} value={route.groupWait ?? ''} onChange={(e) => set({ groupWait: e.target.value || undefined })} /></Field><Field label="group_interval（optional）"><input className={INPUT_CLASS} value={route.groupInterval ?? ''} onChange={(e) => set({ groupInterval: e.target.value || undefined })} /></Field><Field label="repeat_interval（optional）"><input className={INPUT_CLASS} value={route.repeatInterval ?? ''} onChange={(e) => set({ repeatInterval: e.target.value || undefined })} /></Field><label className="text-xs flex items-center gap-1.5 self-end h-8"><input type="checkbox" checked={route.continue} onChange={(e) => set({ continue: e.target.checked })} />continue</label></CardContent></Card>;
-}
+export {
+  ChildRouteEditor,
+  Field,
+  ReceiverEditor,
+  RuleEditor,
+} from '../LocalizedAlertEditors';

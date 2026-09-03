@@ -1,12 +1,14 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import DataControlPanel from '@/components/runner/RunnerDataControl';
 import { RunnerTabButton } from '@/components/runner/RunnerControls';
-import { ScheduledTasksPanel } from '@/components/runner/RunnerPanels';
+import { ScheduledTasksPanel } from '@/components/LocalizedRunnerPanels';
 import { fetchWithAuth } from '@/lib/auth-fetch';
+import { isClientNetworkError } from '@/lib/client-error';
 import type {
   CouponReplenishmentStatus,
   InventoryReplenishmentStatus,
@@ -21,6 +23,8 @@ import { todayInShanghaiClient } from '@/components/runner/utils';
 type OperationsView = 'scheduled' | 'data';
 
 export default function OperationsPage() {
+  const t = useTranslations('Operations');
+  const commonT = useTranslations('Common');
   const [status, setStatus] = useState<RunnerStatus | null>(null);
   const [inventory, setInventory] = useState<InventoryReplenishmentStatus | null>(null);
   const [couponReplenishment, setCouponReplenishment] = useState<CouponReplenishmentStatus | null>(null);
@@ -80,19 +84,20 @@ export default function OperationsPage() {
     try {
       const response = await fetchWithAuth('/internal/traffic/runner/data-warmup/progress', { signal: controller.signal });
       const json = await response.json();
-      if (json.code !== 0) throw new Error(json.message || `Warmup status request failed (${response.status})`);
+      if (json.code !== 0) throw new Error(json.message || t('warmupStatusRequestFailed', { status: response.status }));
       setWarmup(json.data as WarmupProgressResponse);
       setWarmupError(null);
     } catch (error) {
       setWarmupError(error instanceof Error && error.name === 'AbortError'
-        ? 'Warmup status request timed out'
-        : error instanceof Error ? error.message : 'Warmup status is unavailable');
+        ? t('warmupStatusTimedOut')
+        : isClientNetworkError(error) ? commonT('networkError')
+        : error instanceof Error ? error.message : t('warmupStatusUnavailable'));
     } finally {
       clearTimeout(timeout);
       warmupRequestInFlight.current = false;
       if (showLoading) setWarmupLoading(false);
     }
-  }, []);
+  }, [commonT, t]);
 
   const loadWarmupJobs = useCallback(async (showLoading = false) => {
     if (warmupJobsRequestInFlight.current) return;
@@ -103,19 +108,20 @@ export default function OperationsPage() {
     try {
       const response = await fetchWithAuth('/internal/traffic/runner/data-warmup/jobs', { signal: controller.signal });
       const json = await response.json();
-      if (json.code !== 0) throw new Error(json.message || `Manual queue request failed (${response.status})`);
+      if (json.code !== 0) throw new Error(json.message || t('manualQueueRequestFailed', { status: response.status }));
       setWarmupJobs((json.data?.jobs ?? []) as WarmupJob[]);
       setWarmupJobsError(null);
     } catch (error) {
       setWarmupJobsError(error instanceof Error && error.name === 'AbortError'
-        ? 'Manual queue request timed out'
-        : error instanceof Error ? error.message : 'Manual queue is unavailable');
+        ? t('manualQueueRequestTimedOut')
+        : isClientNetworkError(error) ? commonT('networkError')
+        : error instanceof Error ? error.message : t('manualQueueUnavailable'));
     } finally {
       clearTimeout(timeout);
       warmupJobsRequestInFlight.current = false;
       if (showLoading) setWarmupJobsLoading(false);
     }
-  }, []);
+  }, [commonT, t]);
 
   const loadAll = useCallback(async () => {
     await Promise.all([
@@ -129,26 +135,26 @@ export default function OperationsPage() {
     try {
       const response = await fetchWithAuth(`/internal/traffic/runner/${type}-replenishment/trigger`, { method: 'POST' });
       const json = await response.json();
-      if (json.code !== 0) throw new Error(json.message || 'Unable to run replenishment');
+      if (json.code !== 0) throw new Error(json.message || t('replenishmentRunFailed'));
       if (type === 'inventory') {
         const result = json.data.result as InventoryReplenishmentStatus;
         setInventory(result);
         setReplenishmentMessages((current) => ({
           ...current,
-          inventory: `Inventory replenishment completed: ${result.lastAddedQuantity} added, ${result.lastSkippedCount} skipped, ${result.lastFailedCount} failed`,
+          inventory: t('replenishmentCompleted', { kind: t('inventoryReplenishment'), added: result.lastAddedQuantity, skipped: result.lastSkippedCount, failed: result.lastFailedCount }),
         }));
       } else {
         const result = json.data.result as CouponReplenishmentStatus;
         setCouponReplenishment(result);
         setReplenishmentMessages((current) => ({
           ...current,
-          coupon: `Coupon replenishment completed: ${result.lastAddedCount} added, ${result.lastSkippedCount} skipped, ${result.lastFailedCount} failed`,
+          coupon: t('replenishmentCompleted', { kind: t('couponReplenishment'), added: result.lastAddedCount, skipped: result.lastSkippedCount, failed: result.lastFailedCount }),
         }));
       }
     } catch (error) {
       setReplenishmentMessages((current) => ({
         ...current,
-        [type]: error instanceof Error ? error.message : 'Unable to run replenishment',
+        [type]: isClientNetworkError(error) ? commonT('networkError') : error instanceof Error ? error.message : t('replenishmentRunFailed'),
       }));
     } finally {
       setTriggeringReplenishment(null);
@@ -186,12 +192,12 @@ export default function OperationsPage() {
         body: JSON.stringify({ operation, tableName, dates, rowsPerDay, confirmed: operation === 'CLEANUP' }),
       });
       const json = await response.json();
-      if (json.code !== 0) throw new Error(json.message || 'Unable to queue data warmup job');
-      setWarmupMessage(`Job #${json.data.jobId} queued`);
+      if (json.code !== 0) throw new Error(json.message || t('unableToQueueWarmup'));
+      setWarmupMessage(t('jobQueued', { id: json.data.jobId }));
       setWarmupDates([]);
       await loadWarmupJobs(true);
     } catch (error) {
-      setWarmupMessage(error instanceof Error ? error.message : 'Unable to queue data warmup job');
+      setWarmupMessage(isClientNetworkError(error) ? commonT('networkError') : error instanceof Error ? error.message : t('unableToQueueWarmup'));
     } finally {
       setWarmupBusy(false);
     }
@@ -199,7 +205,7 @@ export default function OperationsPage() {
 
   const submitWarmupJob = () => {
     if (warmupDates.length === 0) {
-      setWarmupMessage('Select at least one date');
+      setWarmupMessage(t('selectAtLeastOneDate'));
       return;
     }
     const request: WarmupJobRequest = {
@@ -220,17 +226,17 @@ export default function OperationsPage() {
   return <div className="space-y-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Operations</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">Scheduled replenishment and bounded data operations</p>
+        <h1 className="text-2xl font-semibold tracking-tight">{t('pageTitle')}</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">{t('subtitle')}</p>
       </div>
       <Badge variant={workerUnavailable ? 'destructive' : 'secondary'}>
-        {workerUnavailable ? 'Worker offline' : status ? 'Worker online' : 'Checking worker'}
+        {workerUnavailable ? t('statusWorkerOffline') : status ? t('workerOnline') : t('checkingWorker')}
       </Badge>
     </div>
 
-    <div role="tablist" aria-label="Operations views" className="flex w-full items-center gap-5">
-      <RunnerTabButton active={activeView === 'scheduled'} onClick={() => setActiveView('scheduled')}>Scheduled tasks</RunnerTabButton>
-      <RunnerTabButton active={activeView === 'data'} onClick={() => setActiveView('data')}>Data control</RunnerTabButton>
+    <div role="tablist" aria-label={t('operationsViews')} className="flex w-full items-center gap-5">
+      <RunnerTabButton active={activeView === 'scheduled'} onClick={() => setActiveView('scheduled')}>{t('scheduledTasks')}</RunnerTabButton>
+      <RunnerTabButton active={activeView === 'data'} onClick={() => setActiveView('data')}>{t('dataControl')}</RunnerTabButton>
     </div>
 
     {activeView === 'scheduled' && <ScheduledTasksPanel inventory={inventory} couponReplenishment={couponReplenishment} workerUnavailable={workerUnavailable} triggeringReplenishment={triggeringReplenishment} inventoryMessage={replenishmentMessages.inventory} couponMessage={replenishmentMessages.coupon} onTrigger={(type) => void triggerReplenishment(type)} />}
@@ -260,8 +266,8 @@ export default function OperationsPage() {
     />}
 
     {warmupCleanupConfirmation && <ConfirmDialog
-      title="Clear selected data partitions?"
-      description={`Delete all data partitions for ${warmupCleanupConfirmation.dates.length} selected day(s) from ${warmupCleanupConfirmation.tableName}? This cannot be undone.`}
+      title={t('clearSelectedPartitions')}
+      description={t('clearSelectedPartitionsDescription', { count: warmupCleanupConfirmation.dates.length, table: warmupCleanupConfirmation.tableName })}
       confirmVariant="default"
       destructive
       onCancel={() => setWarmupCleanupConfirmation(null)}

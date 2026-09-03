@@ -35,6 +35,7 @@
   "records": "{count} records",
   "days": "{count} days",
   "seconds": "{count}s",
+  "minutes": "{count}m",
   "milliseconds": "{count} ms",
   "rows": "{count} rows",
   "customer": "customer {id}",
@@ -42,4 +43,5 @@
   "version": "version {version}",
   "at": "at {value}",
   "noMatchingResults": "No matching results."
+  ,"networkError": "Unable to reach the control plane."
 }

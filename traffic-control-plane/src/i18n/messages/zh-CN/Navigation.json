@@ -1,6 +1,6 @@
 {
   "scenarios": "场景",
-  "runner": "Runner",
+  "runner": "流量运行器",
   "operations": "运维操作",
   "alerts": "告警",
   "signOut": "退出登录",

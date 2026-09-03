@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { AlertTriangle, ArrowRight, LockKeyhole } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import LocaleSwitcher from '@/components/LocaleSwitcher';
+import { isClientNetworkError } from '@/lib/client-error';
 
 function safeReturnTo(value: string | null): string {
   return value && value.startsWith('/') && !value.startsWith('//') ? value : '/';
@@ -14,6 +15,7 @@ function safeReturnTo(value: string | null): string {
 export default function LoginPage() {
   const router = useRouter();
   const t = useTranslations('Login');
+  const commonT = useTranslations('Common');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -34,7 +36,7 @@ export default function LoginPage() {
       const returnTo = new URLSearchParams(window.location.search).get('returnTo');
       router.replace(safeReturnTo(returnTo));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('loginFailed'));
+      setError(isClientNetworkError(cause) ? commonT('networkError') : cause instanceof Error ? cause.message : t('loginFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -43,8 +45,10 @@ export default function LoginPage() {
   return (
     <section className="flex min-h-full items-center justify-center">
       <div className="w-full max-w-sm space-y-3">
-        <div className="flex justify-end"><LocaleSwitcher className="w-36" /></div>
         <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
+          <div className="mb-5 flex justify-end">
+            <LocaleSwitcher />
+          </div>
           <div className="mb-6 flex items-start gap-3">
             <div className="rounded-md bg-primary/10 p-2 text-primary"><LockKeyhole className="size-5" /></div>
             <div>

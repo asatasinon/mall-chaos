@@ -1,8 +1,8 @@
 {
   "title": "客户生命周期",
   "subtitle": "串行客户流量与补齐健康状态",
-  "workerOffline": "Worker 离线",
-  "workerOfflineHelp": "Runner worker 没有上报状态。请检查 worker 配置和日志。",
+  "workerOffline": "工作进程离线",
+  "workerOfflineHelp": "运行器工作进程没有上报状态。请检查工作进程配置和日志。",
   "running": "运行中",
   "stopped": "已停止",
   "interval": "间隔",
@@ -17,7 +17,7 @@
   "couponUsagePercent": "优惠券使用率 %",
   "accounts": "账号",
   "activity": "活动",
-  "runnerViews": "Runner 视图",
+  "runnerViews": "运行器视图",
   "lifecycleAccounts": "生命周期账号",
   "enabledCount": "已启用 {enabled}/{count}",
   "pause": "暂停",
@@ -25,7 +25,7 @@
   "accountStateUnavailable": "生命周期账号状态不可用",
   "inventoryReplenishment": "库存补齐",
   "couponReplenishment": "优惠券补齐",
-  "workerUnavailable": "Worker 不可用",
+  "workerUnavailable": "工作进程不可用",
   "scheduled": "已调度",
   "window": "窗口",
   "started": "开始时间",
@@ -50,4 +50,40 @@
   "runResult": "结果",
   "pending": "待处理",
   "runNow": "立即运行"
+  ,"checkingWorker": "正在检查工作进程"
+  ,"workerOnline": "工作进程在线"
+  ,"startRunner": "启动运行器"
+  ,"stopRunner": "停止运行器"
+  ,"targetInterval": "目标间隔"
+  ,"resultSummary": "完成 {completed} / 失败 {failed}"
+  ,"accountCustomer": "客户 {id}"
+  ,"activityRecords": "{count} 条记录"
+  ,"statusRunning": "运行中"
+  ,"statusPending": "待处理"
+  ,"statusCompleted": "已完成"
+  ,"statusFailed": "失败"
+  ,"statusQueued": "已排队"
+  ,"statusStopped": "已停止"
+  ,"statusScheduled": "已调度"
+  ,"statusOffline": "工作进程离线"
+  ,"statusUnknown": "未知"
+  ,"replenishmentCompleted": "{kind}完成：补充 {added}，跳过 {skipped}，失败 {failed}"
+  ,"unableToRunReplenishment": "无法运行补齐任务"
+  ,"warmupStatusRequestFailed": "预热状态请求失败（{status}）"
+  ,"warmupStatusTimedOut": "预热状态请求超时"
+  ,"manualQueueRequestFailed": "手动队列请求失败（{status}）"
+  ,"manualQueueRequestTimedOut": "手动队列请求超时"
+  ,"manualQueueUnavailable": "手动队列不可用"
+  ,"unableToQueueWarmup": "无法为数据预热任务排队"
+  ,"selectAtLeastOneDate": "至少选择一个日期"
+  ,"jobQueued": "任务 #{id} 已排队"
+  ,"lifecycleSteps": "生命周期步骤"
+  ,"stepStatus": "步骤状态"
+  ,"resultCode": "结果码"
+  ,"errorCode": "错误码"
+  ,"intervalOption": "{value} 秒"
+  ,"tableDescriptions": {
+    "userBehaviorLog": "客户活动分区",
+    "productPriceHistory": "历史价格快照"
+  }
 }

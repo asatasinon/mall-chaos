@@ -15,7 +15,7 @@ type ConfirmDialogProps = {
   onCancel: () => void;
 };
 
-export default function ConfirmDialog({ title, description, cancelLabel = 'Cancel', destructive = false, confirmVariant, onConfirm, onCancel }: ConfirmDialogProps) {
+export default function ConfirmDialog({ title, description, cancelLabel, destructive = false, confirmVariant, onConfirm, onCancel }: ConfirmDialogProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();

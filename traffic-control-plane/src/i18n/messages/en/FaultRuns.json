@@ -19,4 +19,18 @@
   "moreMembers": "+ {count} more",
   "bytes": "{value} bytes",
   "notAvailable": "n/a"
+  ,"detailsClose": "Close"
+  ,"cleanupRun": "Cleanup run"
+  ,"auditTrail": "Audit trail"
+  ,"eventTimeline": "Event timeline"
+  ,"events": "{count} events"
+  ,"noEvents": "No events recorded."
+  ,"recoveryError": "Recovery ended with a recorded error."
+  ,"workerRunning": "running"
+  ,"cleanupComplete": "complete"
+  ,"cleanupReview": "review"
+  ,"yes": "yes"
+  ,"no": "no"
+  ,"readerP95": "{successes}/{requests} requests completed · p95 {latency} ms"
+  ,"inFlightValue": "inFlight={count}"
 }
