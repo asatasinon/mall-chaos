@@ -1,0 +1,211 @@
+{
+  "operationsConsole": "Operations console",
+  "pageTitle": "Scenario control",
+  "pageDescription": "Fixed targets, one active run at a time, and auditable recovery through the protected Fault Run API.",
+  "activeRun": "Active · {label}",
+  "noActiveRun": "No active run",
+  "catalogScenarios": "Catalog scenarios",
+  "activeRunMetric": "Active run",
+  "sevenDayRuns": "Seven-day runs",
+  "catalogTitle": "Scenario catalog",
+  "catalogDescription": "Select one scenario to configure.",
+  "scenarioCatalogAria": "Scenario catalog",
+  "scenariosAria": "Scenarios",
+  "recentRuns": "Recent runs · last 7 days",
+  "filterByState": "Filter by state",
+  "filterByScenario": "Filter by scenario",
+  "allStates": "All states",
+  "allScenarios": "All scenarios",
+  "noMatchingRuns": "No matching runs.",
+  "faultRunDetails": "Fault Run details",
+  "details": "Details",
+  "cleanupRun": "Cleanup run",
+  "cleanThisRun": "Clean this Fault Run?",
+  "target": "Target",
+  "operation": "Operation",
+  "expires": "Expires",
+  "audit": "Audit",
+  "pendingAudit": "Pending",
+  "recorded": "Recorded",
+  "result": "Result",
+  "action": "Action",
+  "targetFootprint": "Target footprint",
+  "oneCatalogHashFields": "One Catalog Hash · {count} fields",
+  "markerPublished": "Marker published",
+  "markerReleased": "Marker released",
+  "markerUnknown": "Marker unknown",
+  "namespace": "Namespace",
+  "copyFullRedisKey": "Copy full Redis key",
+  "redisKeyCopied": "Redis key copied",
+  "valueSize": "Value size",
+  "logicalBytes": "Logical bytes",
+  "observedBytes": "Observed bytes",
+  "probeSku": "Probe SKU",
+  "safetyTtl": "Safety TTL",
+  "targetNamespace": "Target namespace",
+  "runContract": "Run contract",
+  "submittedCatalogParameters": "Submitted Catalog parameters",
+  "serverValidated": "server validated",
+  "duration": "Duration",
+  "fields": "Fields (N)",
+  "fieldValueSize": "Value size (S)",
+  "concurrency": "Concurrency",
+  "requestInterval": "Interval",
+  "recoveryFootprint": "Recovery footprint",
+  "perRunCleanupResult": "Per-run cleanup result",
+  "markerReleasedLabel": "Marker released",
+  "runHashRemoved": "Run Hash removed",
+  "notReported": "not reported",
+  "readerTelemetry": "Reader telemetry",
+  "boundedDetailReads": "Bounded detail reads",
+  "requests": "Requests",
+  "successful": "Successful",
+  "failed": "Failed",
+  "timeouts": "Timeouts",
+  "average": "Average",
+  "p50": "p50",
+  "p95": "p95",
+  "p99": "p99",
+  "cacheResult": "Cache result",
+  "noneRecorded": "none recorded",
+  "workerDrain": "Worker drain {status}",
+  "completed": "completed",
+  "incomplete": "incomplete",
+  "drainHookRegistered": "Coordinator drain hook was registered before target cleanup.",
+  "noDrainHook": "No Coordinator drain hook was recorded.",
+  "inFlight": "in flight",
+  "operatorAudit": "Operator audit",
+  "scenarioTarget": "Start {label} against its fixed target. The server will validate the submitted parameters before activation.",
+  "catalogHashTarget": "Create one Catalog-owned Redis Hash with the submitted field count and value size. The server will re-check SKU availability, budget, TTL, and the fixed target.",
+  "stopActiveRun": "Stop active run?",
+  "stopRunDescription": "Stop {label}? The run will begin its recovery flow.",
+  "restartNotification": "Restart notification service?",
+  "restartNotificationDescription": "Check notification-service health and restart the fixed target only when it is unavailable.",
+  "cleanupDescription": "Remove resources created by {label} run {id}. Only this run namespace is addressed; the default cache and business data are not targeted.",
+  "scenarioMeta": {
+    "BROWSE_REPORT_SQL": {
+      "label": "Product browse slow SQL",
+      "description": "Run historical scans and query-plan comparisons on the product report path."
+    },
+    "ORDER_REPORT_SQL": {
+      "label": "Order report slow SQL",
+      "description": "Run the customer order report range and detail aggregation path."
+    },
+    "BROWSE_SURGE": {
+      "label": "Browse traffic surge",
+      "description": "Sustain controlled concurrency against the real product API through Gateway."
+    },
+    "ORDER_QUERY_SURGE": {
+      "label": "Order query surge",
+      "description": "Sustain compliant demo-customer traffic against the order query path."
+    },
+    "CATALOG_REDIS_LARGE_VALUE": {
+      "label": "Product detail Redis Hash",
+      "description": "Create and read a bounded product-detail Hash through the real catalog API."
+    },
+    "CART_CATALOG_DEPENDENCY": {
+      "label": "Cart dependency failure",
+      "description": "Fail the real Cart-to-Catalog dependency before a cart write."
+    },
+    "NOTIFICATION_HEAP_PRESSURE": {
+      "label": "JVM memory leak",
+      "description": "Retain high-cardinality objects until the notification JVM runs out of heap."
+    },
+    "NOTIFICATION_STORAGE_APPEND": {
+      "label": "Notification storage growth",
+      "description": "Grow persistent storage with run-scoped notification transaction data."
+    },
+    "PROMOTION_LOCK_CONTENTION": {
+      "label": "Promotion deadlock",
+      "description": "Trigger a real database deadlock through competing promotion reservations."
+    },
+    "INVENTORY_TABLE_EXCLUSIVE": {
+      "label": "Inventory table lock",
+      "description": "Hold an exclusive database table lock that blocks inventory reads."
+    },
+    "INVENTORY_ROW_LOCK": {
+      "label": "Inventory row lock",
+      "description": "Hold a row-level inventory reservation while the normal reservation summary path waits."
+    },
+    "PSP_PROVIDER_OUTCOME": {
+      "label": "PSP external dependency",
+      "description": "Inject an external PSP dependency outcome into the payment path."
+    }
+  },
+  "groups": {
+    "databaseFaults": "Database faults",
+    "trafficLoad": "Traffic load",
+    "cacheFaults": "Cache faults",
+    "businessDependencyFailures": "Business dependency failures",
+    "jvmFaults": "JVM faults",
+    "storagePressure": "Storage pressure"
+  },
+  "states": {
+    "CREATING": "Creating",
+    "ACTIVE": "Active",
+    "RECOVERING": "Recovering",
+    "RECOVERED": "Recovered",
+    "STOPPED": "Stopped",
+    "FAILED": "Failed",
+    "SERVICE_UNAVAILABLE": "Service unavailable"
+  },
+  "providerOutcomes": {
+    "AUTHORIZED": "Authorized",
+    "DECLINED": "Declined",
+    "TIMEOUT": "Timeout"
+  },
+  "parameters": {
+    "durationSec": {
+      "label": "Run duration",
+      "description": "1-3600 seconds; the scenario limit is shown above."
+    },
+    "concurrency": {
+      "label": "Concurrency",
+      "description": "1-32 concurrent requests."
+    },
+    "requestIntervalMs": {
+      "label": "Request interval",
+      "description": "0-60000 ms pause between request batches."
+    },
+    "pageSize": {
+      "label": "Page size",
+      "description": "1-100 records returned per request; larger pages increase response work, not concurrency."
+    },
+    "retainedBytesPerNotification": {
+      "label": "Retained bytes per notification",
+      "description": "1KB-10MB retained per notification."
+    },
+    "totalBytes": {
+      "label": "Total storage bytes",
+      "description": "At least 1KB; no upper limit."
+    },
+    "appendBytes": {
+      "label": "Append size",
+      "description": "1B-64MB written per append."
+    },
+    "minFreeBytes": {
+      "label": "Minimum free space",
+      "description": "1B-1GB free-space floor for the target volume."
+    },
+    "providerOutcome": {
+      "label": "Provider outcome",
+      "description": "Choose the simulated payment-provider result."
+    },
+    "effectPercentage": {
+      "label": "Effect percentage",
+      "description": "0-100% of matching payment requests affected."
+    },
+    "memberCount": {
+      "label": "Hash fields (N)",
+      "description": "1-47 SKU fields; one additional sellable SKU stays as the probe."
+    },
+    "memberSizeBytes": {
+      "label": "Value size (S)",
+      "description": "256B-128M per field; N × S must stay at or below 512M."
+    },
+    "keyTtlSec": {
+      "label": "Safety TTL",
+      "description": "1-3600 seconds; must be at least run duration + 60 seconds."
+    }
+  }
+}

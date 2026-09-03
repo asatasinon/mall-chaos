@@ -1,0 +1,10 @@
+{
+  "title": "Castrel Chaos",
+  "description": "登录以访问控制面。",
+  "username": "用户名",
+  "password": "密码",
+  "signIn": "登录",
+  "signingIn": "登录中...",
+  "loginFailed": "登录失败",
+  "operatorRequired": "需要运营人员身份认证"
+}

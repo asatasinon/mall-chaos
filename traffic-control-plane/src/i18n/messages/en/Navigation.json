@@ -1,0 +1,16 @@
+{
+  "scenarios": "Scenarios",
+  "runner": "Runner",
+  "operations": "Operations",
+  "alerts": "Alerts",
+  "signOut": "Sign out",
+  "live": "Live",
+  "protectedControl": "Protected Fault Run control",
+  "language": "Language",
+  "languageLabel": "Display language",
+  "english": "English",
+  "simplifiedChinese": "Simplified Chinese",
+  "currentTime": "Current time",
+  "switchToLightMode": "Switch to light mode",
+  "switchToDarkMode": "Switch to dark mode"
+}

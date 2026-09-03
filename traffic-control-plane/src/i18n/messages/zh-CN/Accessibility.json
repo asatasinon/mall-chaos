@@ -1,0 +1,17 @@
+{
+  "languageSelector": "选择显示语言",
+  "themeToggle": "切换颜色主题",
+  "signOut": "退出登录",
+  "closeDialog": "关闭对话框",
+  "refresh": "刷新",
+  "openDetails": "打开详情",
+  "copyValue": "复制值",
+  "removeDate": "移除 {date}",
+  "previousMonth": "上个月",
+  "nextMonth": "下个月",
+  "chooseDate": "选择日期",
+  "providerOutcomes": "提供方结果",
+  "targetTables": "目标表",
+  "scenarioCatalog": "场景目录",
+  "runnerViews": "Runner 视图"
+}

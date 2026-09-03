@@ -1,0 +1,22 @@
+{
+  "targetAccepted": "固定目标已接受该运行",
+  "readerTargetPrepared": "读取器目标已准备 {count} 个成员",
+  "readerStarted": "读取器已启动，并发数为 {count}",
+  "readerDeadline": "读取请求达到截止时间",
+  "readerRequestFailed": "读取请求失败",
+  "readerStopped": "读取器已停止",
+  "readerDrained": "读取器已排空，仍有 {count} 个请求进行中",
+  "requestsCompleted": "{successes}/{requests} 个请求完成 · p95 {latency} 毫秒",
+  "recoveryStarted": "恢复已开始（{reason}）",
+  "recoveryCompleted": "恢复已完成",
+  "recoveryFailed": "恢复失败；请检查受保护的恢复结果",
+  "cleanupFailed": "单次运行清理失败",
+  "setupFailed": "流量开始前读取器准备失败",
+  "recordedEvent": "已记录 Fault Run 事件",
+  "markerReleasedAndHashRemoved": "标记已释放，运行 Hash 已删除",
+  "hashRemoved": "运行 Hash 已删除",
+  "runScopedHash": "运行专属 Hash",
+  "moreMembers": "+ {count} 个",
+  "bytes": "{value} 字节",
+  "notAvailable": "无"
+}

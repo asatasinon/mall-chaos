@@ -4,7 +4,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 待实施 |
+| 状态 | Phase A 完成，Phase B 待开始 |
 | 版本 | 1.0 |
 | 更新时间 | 2026-09-03 CST |
 | 产品规格 | [product.md](product.md) |
@@ -22,15 +22,15 @@
 
 ## 总体进度
 
-- **总体状态：** 待实施
-- **总体进度：** 0 / 44 个任务组（0 / 117 个子任务）
-- **当前阶段：** 尚未开始
-- **当前问题：** 暂无
-- **可能的解决方案：** 不适用
+- **总体状态：** Phase A 完成，Phase B 待开始
+- **总体进度：** 7 / 44 个任务组（23 / 117 个子任务）
+- **当前阶段：** Phase B：语言切换与共享壳层
+- **当前问题：** I18N-001：生产构建存在 workspace root warning；I18N-002 已解决
+- **可能的解决方案：** 保持当前实现可用；后续评估 `outputFileTracingRoot`，I18N-002 继续使用静态目录聚合入口
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
-| A | next-intl 基础设施与根布局 | 待开始 | 0 / 7 | 无 |
+| A | next-intl 基础设施与根布局 | 已完成 | 7 / 7 | 无 |
 | B | 语言切换与共享壳层 | 待开始 | 0 / 7 | A |
 | C | 场景与 Fault Run 展示 | 待开始 | 0 / 8 | B |
 | D | Runner 与 Operations | 待开始 | 0 / 8 | B |
@@ -56,54 +56,54 @@ graph TD
 
 **阶段目标：** 安装并锁定兼容的 `next-intl`，建立请求级 locale/message 解析，并让 Server Layout 与 Client Provider 使用同一份语言上下文。
 
-**阶段状态：** 待开始
-**阶段进度：** 0 / 7 个任务组
-**问题：** 暂无
-**可能的解决方案：** 不适用
+**阶段状态：** 已完成
+**阶段进度：** 7 / 7 个任务组（23 / 23 个子任务）
+**问题：** I18N-001 待处理；I18N-002 已解决
+**可能的解决方案：** I18N-001 后续评估 workspace root 配置；I18N-002 通过静态目录聚合入口解决
 
 ### A1. 依赖版本与锁文件
 
-- [ ] 在 `traffic-control-plane/package.json` 添加与当前 Next.js 15、React 19 兼容的 `next-intl`。
-- [ ] 更新 `traffic-control-plane/pnpm-lock.yaml`，确认只引入预期依赖变化并记录实际锁定版本。
-- [ ] 检查 peer dependency，避免无验证地使用与当前 Next.js 不兼容的版本。
+- [x] 在 `traffic-control-plane/package.json` 添加与当前 Next.js 15、React 19 兼容的 `next-intl@4.14.2`。
+- [x] 更新 `traffic-control-plane/pnpm-lock.yaml`，确认只引入预期依赖变化并记录实际锁定版本。
+- [x] 检查 peer dependency，确认 `next-intl@4.14.2` 兼容当前 Next.js 15.5.15 与 React 19.2.5。
 
 ### A2. 请求级 locale 解析
 
-- [ ] 新增 `traffic-control-plane/src/i18n/request.ts`，使用 `getRequestConfig` 和 `next/headers` 的 `cookies()`。
-- [ ] 仅接受 `en`、`zh-CN`；缺失、大小写变体、非法或恶意 Cookie 值统一回退 `en`。
-- [ ] 从 `control_plane_locale` 读取展示偏好，不读取或修改 `operator_session`、`operator_csrf`。
-- [ ] 加载对应 JSON 消息目录，并配置 `Asia/Shanghai` 等全局展示格式。
+- [x] 新增 `traffic-control-plane/src/i18n/request.ts`，使用 `getRequestConfig` 和 `next/headers` 的 `cookies()`。
+- [x] 仅接受 `en`、`zh-CN`；缺失、大小写变体、非法或恶意 Cookie 值统一回退 `en`。
+- [x] 从 `control_plane_locale` 读取展示偏好，不读取或修改 `operator_session`、`operator_csrf`。
+- [x] 加载对应 JSON 消息目录，并配置 `Asia/Shanghai` 等全局展示格式。
 
 ### A3. English canonical 消息目录
 
-- [ ] 新增 `traffic-control-plane/src/i18n/messages/en.json`。
-- [ ] 按 `Common`、`Navigation`、`Login`、`Scenarios`、`FaultRuns`、`Runner`、`Operations`、`Alerts`、`Accessibility` 等命名空间整理前端自有文案。
-- [ ] 为所有计划覆盖的标题、按钮、状态显示、弹窗、日期选择器、Toast、Tooltip、ARIA 和前端 fallback 建立翻译键。
-- [ ] 不将后端错误、秘密、ID、服务名、PromQL、YAML 或运营人员编辑的监控内容放入目录。
+- [x] 新增 `traffic-control-plane/src/i18n/messages/en/` 命名空间目录及其 `index.ts` 聚合入口。
+- [x] 按 `Common`、`Navigation`、`Login`、`Scenarios`、`FaultRuns`、`Runner`、`Operations`、`Alerts`、`Accessibility` 等命名空间整理前端自有文案。
+- [x] 为所有计划覆盖的标题、按钮、状态显示、弹窗、日期选择器、Toast、Tooltip、ARIA 和前端 fallback 建立翻译键。
+- [x] 不将后端错误、秘密、ID、服务名、PromQL、YAML 或运营人员编辑的监控内容放入目录。
 
 ### A4. Simplified Chinese 消息目录
 
-- [ ] 新增 `traffic-control-plane/src/i18n/messages/zh-CN.json`，覆盖 English 目录全部键。
-- [ ] 保持两份目录的 ICU 占位符逐字一致，例如 `{count}`、`{duration}`、`{name}`。
-- [ ] 复核中文长文本在按钮、卡片、弹窗、头部和日期选择器中的可读性。
+- [x] 新增 `traffic-control-plane/src/i18n/messages/zh-CN/` 命名空间目录及其 `index.ts` 聚合入口，覆盖 English 目录全部键。
+- [x] 保持两份目录的 ICU 占位符逐字一致，例如 `{count}`、`{duration}`、`{name}`。
+- [x] 复核中文长文本在按钮、卡片、弹窗、头部和日期选择器中的可读性。
 
 ### A5. next-intl 类型声明
 
-- [ ] 新增 `traffic-control-plane/src/i18n/global.d.ts`，扩展 `next-intl` 的 `AppConfig`。
-- [ ] 将 canonical English 消息结构作为 `Messages` 类型，并将 locale 限定为 `en | zh-CN`。
-- [ ] 确认 `useTranslations`、`useLocale`、`useFormatter` 的类型能够被当前 TypeScript 配置解析。
+- [x] 新增 `traffic-control-plane/src/i18n/global.d.ts`，扩展 `next-intl` 的 `AppConfig`。
+- [x] 将 canonical English 消息结构作为 `Messages` 类型，并将 locale 限定为 `en | zh-CN`。
+- [x] 确认 `useTranslations`、`useLocale`、`useFormatter` 的类型能够被当前 TypeScript 配置解析。
 
 ### A6. Next.js 插件
 
-- [ ] 修改 `traffic-control-plane/next.config.mjs`，用 `createNextIntlPlugin('./src/i18n/request.ts')` 包装现有 standalone 配置。
-- [ ] 不增加旧版 Next.js `i18n` 配置，不配置 `localePrefix`，不迁移 `[locale]` 路由。
+- [x] 修改 `traffic-control-plane/next.config.mjs`，用 `createNextIntlPlugin('./src/i18n/request.ts')` 包装现有 standalone 配置。
+- [x] 不增加旧版 Next.js `i18n` 配置，不配置 `localePrefix`，不迁移 `[locale]` 路由。
 
 ### A7. Root Layout 与 Provider
 
-- [ ] 修改 `traffic-control-plane/src/app/layout.tsx` 为异步 Server Component。
-- [ ] 使用 `getLocale()` 和 `getMessages()` 设置 `<html lang={locale}>`，保持 `suppressHydrationWarning` 的现有用途。
-- [ ] 用 `NextIntlClientProvider` 包裹现有 `ThemeProvider`、`ConsoleChrome` 和 `Toaster`。
-- [ ] 确认服务端初始 locale 与客户端 Provider locale/messages 一致，不依赖 `localStorage` 或 `navigator.language`。
+- [x] 修改 `traffic-control-plane/src/app/layout.tsx` 为异步 Server Component。
+- [x] 使用 `getLocale()` 和 `getMessages()` 设置 `<html lang={locale}>`，保持 `suppressHydrationWarning` 的现有用途。
+- [x] 用 `NextIntlClientProvider` 包裹现有 `ThemeProvider`、`ConsoleChrome` 和 `Toaster`。
+- [x] 确认服务端初始 locale 与客户端 Provider locale/messages 一致，不依赖 `localStorage` 或 `navigator.language`。
 
 ---
 
@@ -323,7 +323,7 @@ graph TD
 
 ### F2. 消息目录 parity 测试
 
-- [ ] 递归比较 `en.json` 与 `zh-CN.json` 的键集合。
+- [ ] 递归比较 `messages/en/` 与 `messages/zh-CN/` 聚合后的键集合。
 - [ ] 比较 ICU 占位符集合，发现缺失或多余占位符时测试失败。
 - [ ] 验证主要命名空间和 frontend fallback 消息键均存在。
 
@@ -373,7 +373,8 @@ graph TD
 
 | ID | 发现阶段/任务 | 问题 | 影响 | 可能的解决方案/下一步 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| - | - | 暂无问题 | - | - | - |
+| I18N-001 | Phase A / A7 | Next.js 检测到仓库根目录存在额外 lockfile，生产构建提示 workspace root 可能不准确。 | 当前构建成功；可能影响 standalone 文件追踪根目录判断。 | 后续评估在 `next.config.mjs` 设置 `outputFileTracingRoot`，或清理不相关的重复 lockfile；本阶段不扩大范围。 | 待处理 |
+| I18N-002 | Phase A / A6、目录结构优化 | `next-intl@4.14.2` extractor 的动态 import 在 webpack cache 依赖解析时产生 warning。 | 初次构建有 warning；改为静态命名空间目录聚合后不再复现，产物正常。 | 使用 `messages/index.ts` 和各 locale 的静态 `index.ts` 聚合入口，避免 request config 中的动态 JSON import。 | 已解决 |
 
 ## 阶段更新记录
 
@@ -382,6 +383,9 @@ graph TD
 | 日期 | 阶段/任务 | 总体进度 | 阶段进度 | 问题 | 可能的解决方案/下一步 |
 | --- | --- | --- | --- | --- | --- |
 | 2026-09-03 | 建立任务清单 | 0 / 44 | A-F 均为 0 | 暂无 | 按 Phase A 开始实施 |
+| 2026-09-03 | 完成 Phase A / A1-A7 | 7 / 44（23 / 117 子任务） | A：7 / 7（23 / 23 子任务） | I18N-001、I18N-002，均为非阻塞构建 warning | 开始 Phase B；后续评估 workspace root 与 extractor/cache warning |
+| 2026-09-03 | 优化消息目录结构 | 7 / 44（23 / 117 子任务） | A：7 / 7（23 / 23 子任务） | 无新增问题；原有消息目录拆为语言/命名空间文件夹 | 保持 `messages/index.ts` 聚合入口，后续新增文案按命名空间追加文件 |
+| 2026-09-03 | 解决 I18N-002 | 7 / 44（23 / 117 子任务） | A：7 / 7（23 / 23 子任务） | 动态 JSON import warning 不再复现 | 通过静态 namespace index 聚合消息目录；I18N-001 继续跟踪 workspace root warning |
 
 ## 完成标准
 

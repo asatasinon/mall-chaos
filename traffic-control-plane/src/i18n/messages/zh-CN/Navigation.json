@@ -1,0 +1,16 @@
+{
+  "scenarios": "场景",
+  "runner": "Runner",
+  "operations": "运维操作",
+  "alerts": "告警",
+  "signOut": "退出登录",
+  "live": "实时",
+  "protectedControl": "受保护的 Fault Run 控制台",
+  "language": "语言",
+  "languageLabel": "显示语言",
+  "english": "English",
+  "simplifiedChinese": "简体中文",
+  "currentTime": "当前时间",
+  "switchToLightMode": "切换到浅色模式",
+  "switchToDarkMode": "切换到深色模式"
+}

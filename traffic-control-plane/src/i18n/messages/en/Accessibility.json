@@ -1,0 +1,17 @@
+{
+  "languageSelector": "Select display language",
+  "themeToggle": "Toggle color theme",
+  "signOut": "Sign out",
+  "closeDialog": "Close dialog",
+  "refresh": "Refresh",
+  "openDetails": "Open details",
+  "copyValue": "Copy value",
+  "removeDate": "Remove {date}",
+  "previousMonth": "Previous month",
+  "nextMonth": "Next month",
+  "chooseDate": "Choose a date",
+  "providerOutcomes": "Provider outcomes",
+  "targetTables": "Target tables",
+  "scenarioCatalog": "Scenario catalog",
+  "runnerViews": "Runner views"
+}

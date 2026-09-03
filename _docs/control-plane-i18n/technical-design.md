@@ -43,7 +43,7 @@ flowchart TD
     Browser[浏览器] --> Cookie[control_plane_locale Cookie]
     Browser --> Next[traffic-control-plane Next.js]
     Cookie --> RequestConfig[src/i18n/request.ts]
-    RequestConfig --> Catalog[en.json 或 zh-CN.json]
+    RequestConfig --> Catalog[按命名空间拆分的 en/ 或 zh-CN/ 目录]
     Next --> Layout[Root Layout Server Component]
     Layout --> Provider[NextIntlClientProvider]
     Catalog --> Provider
@@ -96,8 +96,29 @@ traffic-control-plane/src/i18n/
   global.d.ts
   request.ts
   messages/
-    en.json
-    zh-CN.json
+    index.ts
+    en/
+      Common.json
+      Navigation.json
+      Login.json
+      Scenarios.json
+      FaultRuns.json
+      Runner.json
+      Operations.json
+      Alerts.json
+      Accessibility.json
+      index.ts
+    zh-CN/
+      Common.json
+      Navigation.json
+      Login.json
+      Scenarios.json
+      FaultRuns.json
+      Runner.json
+      Operations.json
+      Alerts.json
+      Accessibility.json
+      index.ts
 ```
 
 `request.ts` 的职责：
@@ -105,7 +126,7 @@ traffic-control-plane/src/i18n/
 - 使用 `next/headers` 的 `cookies()` 读取 `control_plane_locale`。
 - 只接受 `en` 和 `zh-CN`。
 - Cookie 缺失或非法时返回 `en`。
-- 动态加载对应 JSON 消息目录。
+- 通过 locale 聚合入口加载对应命名空间 JSON 消息目录。
 - 提供 `Asia/Shanghai` 等全局格式化默认值。
 - 不读取认证 Cookie，不解析 Operator 身份，不改变 API 请求。
 
@@ -114,6 +135,7 @@ traffic-control-plane/src/i18n/
 ```ts
 import { cookies } from 'next/headers';
 import { getRequestConfig } from 'next-intl/server';
+import messages from './messages';
 
 const LOCALES = ['en', 'zh-CN'] as const;
 type Locale = (typeof LOCALES)[number];
@@ -125,11 +147,10 @@ function isLocale(value: string | undefined): value is Locale {
 export default getRequestConfig(async () => {
   const value = (await cookies()).get('control_plane_locale')?.value;
   const locale = isLocale(value) ? value : 'en';
-  const messages = (await import(`./messages/${locale}.json`)).default;
 
   return {
     locale,
-    messages,
+    messages: messages[locale],
     timeZone: 'Asia/Shanghai',
   };
 });
@@ -199,14 +220,14 @@ Accessibility
 }
 ```
 
-`zh-CN.json` 必须提供完全相同的键结构。ICU 占位符必须逐字保留，例如 `{count}`、`{duration}`、`{name}`。翻译目录只放前端拥有的文案和安全的已知显示模板。
+`messages/en/` 和 `messages/zh-CN/` 下的命名空间文件必须提供完全相同的键结构。ICU 占位符必须逐字保留，例如 `{count}`、`{duration}`、`{name}`。翻译目录只放前端拥有的文案和安全的已知显示模板。
 
 ### 6.2 类型声明
 
 新增 `src/i18n/global.d.ts`，以 English JSON 作为 canonical message 类型，并声明支持的 locale：
 
 ```ts
-import messages from './messages/en.json';
+import messages from './messages/en';
 
 declare module 'next-intl' {
   interface AppConfig {
@@ -406,7 +427,7 @@ graph TD
 - 缺少 Cookie 时 locale 为 `en`。
 - `zh-CN` Cookie 能加载中文目录。
 - 未知 locale、大小写变体和恶意 Cookie 值回退 `en`。
-- `en.json` 与 `zh-CN.json` 的递归键集合一致。
+- `messages/en/` 与 `messages/zh-CN/` 聚合后的递归键集合一致。
 - 两份目录中 ICU 占位符集合一致。
 - 翻译函数对合法键、插值和 fallback 的行为稳定。
 
@@ -474,7 +495,7 @@ pnpm build
 
 - `package.json` 和 `pnpm-lock.yaml` 已添加并锁定兼容的 `next-intl`。
 - `next.config.mjs` 已包装 next-intl 插件。
-- `src/i18n/request.ts`、`global.d.ts`、`messages/en.json`、`messages/zh-CN.json` 已新增。
+- `src/i18n/request.ts`、`global.d.ts`、`messages/index.ts`、两套命名空间目录和各自的 `index.ts` 已新增。
 - Root Layout、共享壳层、登录、场景、Runner、Operations、Alerts 已按产品规格接入翻译。
 - `control_plane_locale` 只接受白名单 locale，刷新后持久化，且不参与鉴权。
 - 翻译目录不包含后端错误、秘密、监控配置或机器协议值。

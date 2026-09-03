@@ -1,0 +1,211 @@
+{
+  "operationsConsole": "运维控制台",
+  "pageTitle": "场景控制",
+  "pageDescription": "固定目标、同一时间仅运行一条演练，并通过受保护的 Fault Run API 执行可审计恢复。",
+  "activeRun": "活动运行 · {label}",
+  "noActiveRun": "没有活动运行",
+  "catalogScenarios": "场景目录",
+  "activeRunMetric": "活动运行",
+  "sevenDayRuns": "近七天运行",
+  "catalogTitle": "场景目录",
+  "catalogDescription": "选择一个场景进行配置。",
+  "scenarioCatalogAria": "场景目录",
+  "scenariosAria": "场景",
+  "recentRuns": "最近运行 · 近 7 天",
+  "filterByState": "按状态筛选",
+  "filterByScenario": "按场景筛选",
+  "allStates": "所有状态",
+  "allScenarios": "所有场景",
+  "noMatchingRuns": "没有匹配的运行记录。",
+  "faultRunDetails": "Fault Run 详情",
+  "details": "详情",
+  "cleanupRun": "清理运行",
+  "cleanThisRun": "清理此 Fault Run？",
+  "target": "目标",
+  "operation": "操作",
+  "expires": "到期时间",
+  "audit": "审计",
+  "pendingAudit": "待记录",
+  "recorded": "记录时间",
+  "result": "结果",
+  "action": "动作",
+  "targetFootprint": "目标占用",
+  "oneCatalogHashFields": "一个 Catalog Hash · {count} 个字段",
+  "markerPublished": "标记已发布",
+  "markerReleased": "标记已释放",
+  "markerUnknown": "标记未知",
+  "namespace": "命名空间",
+  "copyFullRedisKey": "复制完整 Redis key",
+  "redisKeyCopied": "Redis key 已复制",
+  "valueSize": "值大小",
+  "logicalBytes": "逻辑字节数",
+  "observedBytes": "观测字节数",
+  "probeSku": "探测 SKU",
+  "safetyTtl": "安全 TTL",
+  "targetNamespace": "目标命名空间",
+  "runContract": "运行契约",
+  "submittedCatalogParameters": "已提交的 Catalog 参数",
+  "serverValidated": "服务端已校验",
+  "duration": "持续时间",
+  "fields": "字段数（N）",
+  "fieldValueSize": "值大小（S）",
+  "concurrency": "并发数",
+  "requestInterval": "请求间隔",
+  "recoveryFootprint": "恢复占用",
+  "perRunCleanupResult": "单次运行清理结果",
+  "markerReleasedLabel": "标记已释放",
+  "runHashRemoved": "运行 Hash 已删除",
+  "notReported": "未报告",
+  "readerTelemetry": "读取器遥测",
+  "boundedDetailReads": "有界详情读取",
+  "requests": "请求数",
+  "successful": "成功",
+  "failed": "失败",
+  "timeouts": "超时",
+  "average": "平均",
+  "p50": "p50",
+  "p95": "p95",
+  "p99": "p99",
+  "cacheResult": "缓存结果",
+  "noneRecorded": "无记录",
+  "workerDrain": "Worker 排空{status}",
+  "completed": "已完成",
+  "incomplete": "未完成",
+  "drainHookRegistered": "目标清理前已注册 Coordinator 排空钩子。",
+  "noDrainHook": "未记录 Coordinator 排空钩子。",
+  "inFlight": "进行中",
+  "operatorAudit": "运营审计",
+  "scenarioTarget": "针对固定目标启动 {label}。服务端将在激活前校验提交的参数。",
+  "catalogHashTarget": "使用提交的字段数和值大小创建一个由 Catalog 管理的 Redis Hash。服务端会重新校验 SKU 可用性、预算、TTL 和固定目标。",
+  "stopActiveRun": "停止活动运行？",
+  "stopRunDescription": "停止 {label}？该运行将开始恢复流程。",
+  "restartNotification": "重启通知服务？",
+  "restartNotificationDescription": "仅在通知服务不可用时检查其健康状态并重启固定目标。",
+  "cleanupDescription": "删除 {label} 运行 {id} 创建的资源。只处理本次运行的命名空间，不影响默认缓存和业务数据。",
+  "scenarioMeta": {
+    "BROWSE_REPORT_SQL": {
+      "label": "商品浏览慢 SQL",
+      "description": "在商品报表路径执行历史扫描和查询计划对比。"
+    },
+    "ORDER_REPORT_SQL": {
+      "label": "订单报表慢 SQL",
+      "description": "执行客户订单报表范围和明细聚合路径。"
+    },
+    "BROWSE_SURGE": {
+      "label": "浏览流量突增",
+      "description": "通过 Gateway 对真实商品 API 持续施加受控并发。"
+    },
+    "ORDER_QUERY_SURGE": {
+      "label": "订单查询突增",
+      "description": "对订单查询路径持续产生合规演示客户流量。"
+    },
+    "CATALOG_REDIS_LARGE_VALUE": {
+      "label": "商品详情 Redis Hash",
+      "description": "通过真实 Catalog API 创建并读取有界的商品详情 Hash。"
+    },
+    "CART_CATALOG_DEPENDENCY": {
+      "label": "购物车依赖失败",
+      "description": "在购物车写入前使真实的 Cart-to-Catalog 依赖失败。"
+    },
+    "NOTIFICATION_HEAP_PRESSURE": {
+      "label": "JVM 内存泄漏",
+      "description": "持续保留高基数对象，直到通知服务 JVM 堆耗尽。"
+    },
+    "NOTIFICATION_STORAGE_APPEND": {
+      "label": "通知存储增长",
+      "description": "使用运行专属的通知事务数据增长持久化存储。"
+    },
+    "PROMOTION_LOCK_CONTENTION": {
+      "label": "促销死锁",
+      "description": "通过竞争促销预留触发真实数据库死锁。"
+    },
+    "INVENTORY_TABLE_EXCLUSIVE": {
+      "label": "库存表锁",
+      "description": "持有阻塞库存读取的排他数据库表锁。"
+    },
+    "INVENTORY_ROW_LOCK": {
+      "label": "库存行锁",
+      "description": "持有行级库存预留锁，使正常预留摘要路径等待。"
+    },
+    "PSP_PROVIDER_OUTCOME": {
+      "label": "PSP 外部依赖",
+      "description": "向支付路径注入外部 PSP 依赖结果。"
+    }
+  },
+  "groups": {
+    "databaseFaults": "数据库故障",
+    "trafficLoad": "流量负载",
+    "cacheFaults": "缓存故障",
+    "businessDependencyFailures": "业务依赖失败",
+    "jvmFaults": "JVM 故障",
+    "storagePressure": "存储压力"
+  },
+  "states": {
+    "CREATING": "创建中",
+    "ACTIVE": "活动",
+    "RECOVERING": "恢复中",
+    "RECOVERED": "已恢复",
+    "STOPPED": "已停止",
+    "FAILED": "失败",
+    "SERVICE_UNAVAILABLE": "服务不可用"
+  },
+  "providerOutcomes": {
+    "AUTHORIZED": "已授权",
+    "DECLINED": "已拒绝",
+    "TIMEOUT": "超时"
+  },
+  "parameters": {
+    "durationSec": {
+      "label": "运行持续时间",
+      "description": "1-3600 秒；场景限制显示在上方。"
+    },
+    "concurrency": {
+      "label": "并发数",
+      "description": "1-32 个并发请求。"
+    },
+    "requestIntervalMs": {
+      "label": "请求间隔",
+      "description": "请求批次之间暂停 0-60000 毫秒。"
+    },
+    "pageSize": {
+      "label": "页面大小",
+      "description": "每次请求返回 1-100 条记录；更大的页面会增加响应处理量，不会增加并发。"
+    },
+    "retainedBytesPerNotification": {
+      "label": "每条通知保留字节数",
+      "description": "每条通知保留 1KB-10MB。"
+    },
+    "totalBytes": {
+      "label": "存储总字节数",
+      "description": "至少 1KB；无上限。"
+    },
+    "appendBytes": {
+      "label": "追加大小",
+      "description": "每次追加写入 1B-64MB。"
+    },
+    "minFreeBytes": {
+      "label": "最小可用空间",
+      "description": "目标卷保留 1B-1GB 的可用空间下限。"
+    },
+    "providerOutcome": {
+      "label": "提供方结果",
+      "description": "选择模拟支付提供方的结果。"
+    },
+    "effectPercentage": {
+      "label": "影响比例",
+      "description": "受影响的匹配支付请求占比为 0-100%。"
+    },
+    "memberCount": {
+      "label": "Hash 字段数（N）",
+      "description": "1-47 个 SKU 字段；另保留一个可售 SKU 作为探测项。"
+    },
+    "memberSizeBytes": {
+      "label": "值大小（S）",
+      "description": "每个字段 256B-128M；N × S 必须不超过 512M。"
+    },
+    "keyTtlSec": {
+      "label": "安全 TTL",
+      "description": "1-3600 秒；至少为运行持续时间加 60 秒。"
+    }
+  }
+}

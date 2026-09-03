@@ -1,0 +1,22 @@
+{
+  "targetAccepted": "Fixed target accepted the run",
+  "readerTargetPrepared": "Reader target prepared with {count} members",
+  "readerStarted": "Reader started at concurrency {count}",
+  "readerDeadline": "A reader request reached its deadline",
+  "readerRequestFailed": "A reader request failed",
+  "readerStopped": "Reader stopped",
+  "readerDrained": "Reader drained with {count} requests in flight",
+  "requestsCompleted": "{successes}/{requests} requests completed · p95 {latency} ms",
+  "recoveryStarted": "Recovery started ({reason})",
+  "recoveryCompleted": "Recovery completed",
+  "recoveryFailed": "Recovery failed; inspect the protected recovery result",
+  "cleanupFailed": "Per-run cleanup failed",
+  "setupFailed": "Reader setup failed before traffic started",
+  "recordedEvent": "Recorded Fault Run event",
+  "markerReleasedAndHashRemoved": "Marker released and run Hash removed",
+  "hashRemoved": "Run Hash removed",
+  "runScopedHash": "run-scoped Hash",
+  "moreMembers": "+ {count} more",
+  "bytes": "{value} bytes",
+  "notAvailable": "n/a"
+}

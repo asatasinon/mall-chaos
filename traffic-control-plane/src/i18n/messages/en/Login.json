@@ -1,0 +1,10 @@
+{
+  "title": "Castrel Chaos",
+  "description": "Sign in to access the control plane.",
+  "username": "Username",
+  "password": "Password",
+  "signIn": "Sign in",
+  "signingIn": "Signing in...",
+  "loginFailed": "Login failed",
+  "operatorRequired": "Operator authentication required"
+}
