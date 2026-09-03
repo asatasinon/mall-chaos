@@ -4,7 +4,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Phase A 完成，Phase B 待开始 |
+| 状态 | Phase B 完成，Phase C/D/E 待开始 |
 | 版本 | 1.0 |
 | 更新时间 | 2026-09-03 CST |
 | 产品规格 | [product.md](product.md) |
@@ -22,16 +22,16 @@
 
 ## 总体进度
 
-- **总体状态：** Phase A 完成，Phase B 待开始
-- **总体进度：** 7 / 44 个任务组（23 / 117 个子任务）
-- **当前阶段：** Phase B：语言切换与共享壳层
-- **当前问题：** I18N-001：生产构建存在 workspace root warning；I18N-002 已解决
-- **可能的解决方案：** 保持当前实现可用；后续评估 `outputFileTracingRoot`，I18N-002 继续使用静态目录聚合入口
+- **总体状态：** Phase B 完成，Phase C/D/E 待开始
+- **总体进度：** 14 / 44 个任务组（45 / 117 个子任务）
+- **当前阶段：** Phase C/D/E：场景、Runner/Operations、Alerts
+- **当前问题：** I18N-001：生产构建存在 workspace root warning；Phase B 无新增问题
+- **可能的解决方案：** 保持当前实现可用；后续评估 `outputFileTracingRoot`，C/D/E 可按依赖并行实施
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
 | A | next-intl 基础设施与根布局 | 已完成 | 7 / 7 | 无 |
-| B | 语言切换与共享壳层 | 待开始 | 0 / 7 | A |
+| B | 语言切换与共享壳层 | 已完成 | 7 / 7 | A |
 | C | 场景与 Fault Run 展示 | 待开始 | 0 / 8 | B |
 | D | Runner 与 Operations | 待开始 | 0 / 8 | B |
 | E | Alerts 管理界面 | 待开始 | 0 / 5 | B |
@@ -111,53 +111,53 @@ graph TD
 
 **阶段目标：** 在登录前和登录后提供一致的语言切换入口，完成公共页面、导航、主题、确认框和无障碍文本国际化。
 
-**阶段状态：** 待开始
-**阶段进度：** 0 / 7 个任务组
-**问题：** 暂无
-**可能的解决方案：** 不适用
+**阶段状态：** 已完成
+**阶段进度：** 7 / 7 个任务组（22 / 22 个子任务）
+**问题：** 暂无 Phase B 问题；I18N-001 仍为全局非阻塞 warning
+**可能的解决方案：** 已完成语言切换、Cookie 持久化和共享壳层验证；I18N-001 后续评估 workspace root 配置
 
 ### B1. LocaleSwitcher 组件
 
-- [ ] 新增 `traffic-control-plane/src/components/LocaleSwitcher.tsx`。
-- [ ] 使用现有原生 `select` 的样式和可访问性模式，固定提供 `English` 与 `简体中文`。
-- [ ] 对 DOM 传入值再次执行 locale 白名单校验。
+- [x] 新增 `traffic-control-plane/src/components/LocaleSwitcher.tsx`。
+- [x] 使用现有原生 `select` 的样式和可访问性模式，固定提供 `English` 与 `简体中文`。
+- [x] 对 DOM 传入值再次执行 locale 白名单校验。
 
 ### B2. Cookie 持久化与刷新
 
-- [ ] 切换时写入 `control_plane_locale`，设置 `Path=/`、`Max-Age=31536000`、`SameSite=Lax`，生产环境按站点策略追加 `Secure`。
-- [ ] 立即更新 `document.documentElement.lang`，并调用 `router.refresh()` 重新读取请求级消息目录。
-- [ ] 不调用 `router.push()`，不修改 pathname、query 或 `returnTo`。
-- [ ] 确认语言 Cookie 不触碰认证 Cookie、业务请求 headers、表单 payload 或 API 鉴权。
+- [x] 切换时写入 `control_plane_locale`，设置 `Path=/`、`Max-Age=31536000`、`SameSite=Lax`，生产环境按站点策略追加 `Secure`。
+- [x] 立即更新 `document.documentElement.lang`，并调用 `router.refresh()` 重新读取请求级消息目录。
+- [x] 不调用 `router.push()`，不修改 pathname、query 或 `returnTo`。
+- [x] 确认语言 Cookie 不触碰认证 Cookie、业务请求 headers、表单 payload 或 API 鉴权。
 
 ### B3. 登录页
 
-- [ ] 修改 `traffic-control-plane/src/app/login/page.tsx`，接入登录页语言选择器。
-- [ ] 翻译标题、说明、用户名、密码、提交中、提交按钮、前端 fallback 和 `aria-label`。
-- [ ] 保留登录 API、认证错误原文、`safeReturnTo` 和现有跳转逻辑。
+- [x] 修改 `traffic-control-plane/src/app/login/page.tsx`，接入登录页语言选择器。
+- [x] 翻译标题、说明、用户名、密码、提交中、提交按钮、前端 fallback 和 `aria-label`。
+- [x] 保留登录 API、认证错误原文、`safeReturnTo` 和现有跳转逻辑。
 
 ### B4. ConsoleChrome
 
-- [ ] 修改 `traffic-control-plane/src/components/ConsoleChrome.tsx`，在认证头部放置语言选择器。
-- [ ] 翻译页脚和共享壳层自有文案，确保登录页仍不显示认证后的导航。
-- [ ] 在窄屏下保持品牌、导航、语言选择、主题和登出入口可操作且不重叠。
+- [x] 修改 `traffic-control-plane/src/components/ConsoleChrome.tsx`，在认证头部放置语言选择器。
+- [x] 翻译页脚和共享壳层自有文案，确保登录页仍不显示认证后的导航。
+- [x] 在窄屏下保持品牌、导航、语言选择、主题和登出入口可操作且不重叠。
 
 ### B5. NavBar
 
-- [ ] 修改 `traffic-control-plane/src/components/NavBar.tsx`，翻译 Scenarios、Runner、Operations、Alerts 和登出文案。
-- [ ] 使用 `useFormatter` 或 next-intl formatter 替换固定 `sv-SE` 时间格式，同时保持现有时区语义。
-- [ ] 保留所有无语言前缀链接和当前路由激活判断。
+- [x] 修改 `traffic-control-plane/src/components/NavBar.tsx`，翻译 Scenarios、Runner、Operations、Alerts 和登出文案。
+- [x] 使用 `useFormatter` 或 next-intl formatter 替换固定 `sv-SE` 时间格式，同时保持现有时区语义。
+- [x] 保留所有无语言前缀链接和当前路由激活判断。
 
 ### B6. ThemeToggle 与 ConfirmDialog
 
-- [ ] 修改 `traffic-control-plane/src/components/ThemeToggle.tsx`，翻译主题切换 `title` 和无障碍名称。
-- [ ] 修改 `traffic-control-plane/src/components/ConfirmDialog.tsx`，翻译默认取消、确认和等待按钮文案。
-- [ ] 确认调用方传入的业务确认说明可以使用当前 locale，但动态后端消息仍原样展示。
+- [x] 修改 `traffic-control-plane/src/components/ThemeToggle.tsx`，翻译主题切换 `title` 和无障碍名称。
+- [x] 修改 `traffic-control-plane/src/components/ConfirmDialog.tsx`，翻译默认取消、确认和等待按钮文案。
+- [x] 确认调用方传入的业务确认说明可以使用当前 locale，但动态后端消息仍原样展示。
 
 ### B7. 共享 UI 验收
 
-- [ ] 复核所有公共按钮、图标按钮、Tooltip、隐藏文本、`aria-label` 和 `title` 无硬编码 English 遗漏。
-- [ ] 在登录页和认证后页面分别验证切换、刷新、回退和无效 Cookie 行为。
-- [ ] 记录头部、登录卡片和确认弹窗在桌面/窄屏下发现的问题及解决方案。
+- [x] 复核所有公共按钮、图标按钮、Tooltip、隐藏文本、`aria-label` 和 `title` 无硬编码 English 遗漏。
+- [x] 在登录页和认证后页面分别验证切换、刷新、回退和无效 Cookie 行为。
+- [x] 记录头部、登录卡片和确认弹窗在桌面/窄屏下发现的问题及解决方案。
 
 ---
 
@@ -386,6 +386,8 @@ graph TD
 | 2026-09-03 | 完成 Phase A / A1-A7 | 7 / 44（23 / 117 子任务） | A：7 / 7（23 / 23 子任务） | I18N-001、I18N-002，均为非阻塞构建 warning | 开始 Phase B；后续评估 workspace root 与 extractor/cache warning |
 | 2026-09-03 | 优化消息目录结构 | 7 / 44（23 / 117 子任务） | A：7 / 7（23 / 23 子任务） | 无新增问题；原有消息目录拆为语言/命名空间文件夹 | 保持 `messages/index.ts` 聚合入口，后续新增文案按命名空间追加文件 |
 | 2026-09-03 | 解决 I18N-002 | 7 / 44（23 / 117 子任务） | A：7 / 7（23 / 23 子任务） | 动态 JSON import warning 不再复现 | 通过静态 namespace index 聚合消息目录；I18N-001 继续跟踪 workspace root warning |
+| 2026-09-03 | 完成 Phase B / B1-B7 | 14 / 44（45 / 117 子任务） | B：7 / 7（22 / 22 子任务） | 无新增问题；I18N-001 仍为非阻塞 warning | 开始 Phase C/D/E；保持当前 URL、认证和 API 契约不变 |
+| 2026-09-03 | Phase B 认证后 header 与窄屏复核 | 14 / 44（45 / 117 子任务） | B：7 / 7（22 / 22 子任务） | 无新增问题；中英文 header 切换和 390px 布局验证通过 | 进入 Phase C/D/E；继续保持无语言前缀路由和认证 Cookie 隔离 |
 
 ## 完成标准
 

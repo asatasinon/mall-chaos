@@ -1,42 +1,33 @@
 'use client';
 
+import { useFormatter, useTranslations } from 'next-intl';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { LogOut } from 'lucide-react';
 
-const LINKS = [
-  { href: '/',       label: 'Scenarios'      },
-  { href: '/runner', label: 'Runner'     },
-  { href: '/operations', label: 'Operations' },
-  { href: '/alerts', label: 'Alerts'     },
-];
-
-const localDateTimeFormatter = new Intl.DateTimeFormat('sv-SE', {
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-  timeZoneName: 'short',
-});
-
 export default function NavBar() {
   const path = usePathname();
   const router = useRouter();
+  const format = useFormatter();
+  const t = useTranslations('Navigation');
   const [time, setTime] = useState('');
+  const links = [
+    { href: '/', label: t('scenarios') },
+    { href: '/runner', label: t('runner') },
+    { href: '/operations', label: t('operations') },
+    { href: '/alerts', label: t('alerts') },
+  ];
 
   useEffect(() => {
-    const tick = () => setTime(localDateTimeFormatter.format(new Date()));
+    const tick = () => setTime(format.dateTime(new Date(), 'compact'));
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [format]);
 
   return (
     <nav className="flex min-w-0 flex-1 items-stretch">
-      {LINKS.map((l) => {
+      {links.map((l) => {
         const active = path === l.href;
         return (
           <a
@@ -54,14 +45,15 @@ export default function NavBar() {
           </a>
         );
       })}
-      <div className="ml-auto hidden items-center gap-2 pl-4 font-mono text-[11px] text-muted-foreground sm:flex">
+      <div className="ml-auto hidden items-center gap-2 pl-4 font-mono text-[11px] text-muted-foreground sm:flex" title={t('currentTime')}>
         <span className="status-dot status-dot-green" />
+        <span className="sr-only">{t('live')}</span>
         {time}
       </div>
       <button
         type="button"
-        title="Sign out"
-        aria-label="Sign out"
+        title={t('signOut')}
+        aria-label={t('signOut')}
         className="ml-2 flex shrink-0 items-center px-1 text-muted-foreground transition-colors hover:text-foreground sm:ml-4 sm:px-2"
         onClick={async () => {
           await fetch('/api/operator/session', { method: 'DELETE' });

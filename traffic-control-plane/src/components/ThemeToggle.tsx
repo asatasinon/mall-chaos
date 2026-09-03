@@ -1,19 +1,23 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useTheme } from 'next-themes';
 import { useSyncExternalStore } from 'react';
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
+  const t = useTranslations('Navigation');
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   if (!mounted) return <div className="w-8 h-8" />;
 
   const isDark = theme === 'dark';
   return (
     <button
+      type="button"
       onClick={() => setTheme(isDark ? 'light' : 'dark')}
       className="flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={isDark ? t('switchToLightMode') : t('switchToDarkMode')}
+      aria-label={isDark ? t('switchToLightMode') : t('switchToDarkMode')}
     >
       {isDark ? (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

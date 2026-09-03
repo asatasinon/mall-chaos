@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useId, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -20,7 +21,9 @@ export default function ConfirmDialog({ title, description, cancelLabel = 'Cance
   const titleId = useId();
   const descriptionId = useId();
   const [pending, setPending] = useState(false);
+  const t = useTranslations('Common');
   const resolvedConfirmVariant = confirmVariant ?? (destructive ? 'destructive' : 'default');
+  const resolvedCancelLabel = cancelLabel ?? t('cancel');
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -75,8 +78,8 @@ export default function ConfirmDialog({ title, description, cancelLabel = 'Cance
         </div>
       </div>
       <div className="flex justify-end gap-2 border-t border-border/80 bg-background/25 px-6 py-3.5">
-        <Button ref={cancelButtonRef} variant="outline" onClick={onCancel} disabled={pending}>{cancelLabel}</Button>
-        <Button ref={confirmButtonRef} variant={resolvedConfirmVariant} className={resolvedConfirmVariant === 'destructive' ? 'bg-destructive text-[#141413] hover:bg-destructive/85' : undefined} onClick={() => void handleConfirm()} disabled={pending}>{pending ? 'Working...' : 'Confirm'}</Button>
+        <Button ref={cancelButtonRef} variant="outline" onClick={onCancel} disabled={pending}>{resolvedCancelLabel}</Button>
+        <Button ref={confirmButtonRef} variant={resolvedConfirmVariant} className={resolvedConfirmVariant === 'destructive' ? 'bg-destructive text-[#141413] hover:bg-destructive/85' : undefined} onClick={() => void handleConfirm()} disabled={pending}>{pending ? t('working') : t('confirm')}</Button>
       </div>
     </div>
   </div>;
