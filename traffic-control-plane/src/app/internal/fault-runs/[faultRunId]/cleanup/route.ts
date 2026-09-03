@@ -37,9 +37,9 @@ export async function POST(
   const traceId = getOrCreateTraceId(request.headers);
   try {
     const result = await getGatewayClient().postInternal(
-      '/internal/gateway/fault-runs/cleanup',
+      '/internal/gateway/operations/cleanup',
       {
-        faultRunId: run.faultRunId,
+        runId: run.faultRunId,
         scenario: run.scenario,
         targetService: run.targetService,
         fencingToken: run.fencingToken,

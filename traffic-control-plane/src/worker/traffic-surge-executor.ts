@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { appendFaultRunEvent, listActiveFaultRuns, type FaultRunRecord } from '../lib/fault-run-repository';
 import { TRAFFIC_SURGE_MAX_PAGE_SIZE } from '../lib/fault-run-catalog';
 import { getGatewayClient, type CustomerRequestContext } from '../lib/gateway-client';
-import { getTrafficExerciseTarget } from '../lib/fault-run-targets';
+import { getTrafficScenarioTarget } from '../lib/fault-run-targets';
 import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
 import { CustomerSessionManager } from './customer-session-manager';
-import { ControlledExerciseWorker } from './controlled-exercise-worker';
+import { ControlledScenarioWorker } from './controlled-scenario-worker';
 
 export class TrafficSurgeExecutor {
   private readonly gateway = getGatewayClient();
-  private readonly workers = new Map<string, { worker: ControlledExerciseWorker; promise: Promise<void> }>();
+  private readonly workers = new Map<string, { worker: ControlledScenarioWorker; promise: Promise<void> }>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopping = false;
 
@@ -40,7 +40,7 @@ export class TrafficSurgeExecutor {
   }
 
   private startRun(run: FaultRunRecord): void {
-    const target = getTrafficExerciseTarget(run.scenario);
+    const target = getTrafficScenarioTarget(run.scenario);
     const concurrency = boundedInteger(run.parameters.concurrency, 1, undefined, 1);
     const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
     const pageSize = boundedInteger(run.parameters.pageSize, 1, TRAFFIC_SURGE_MAX_PAGE_SIZE, 20);
@@ -61,7 +61,7 @@ export class TrafficSurgeExecutor {
         await this.gateway.customerGet(target.path, { page: '0', size: String(pageSize) }, session, signal);
       }
     };
-    const worker = new ControlledExerciseWorker(run, { concurrency, requestIntervalMs, request });
+    const worker = new ControlledScenarioWorker(run, { concurrency, requestIntervalMs, request });
     const promise = setup()
       .then(async () => {
         if (this.stopping) {
@@ -82,7 +82,7 @@ export class TrafficSurgeExecutor {
 }
 
 async function appendWorkerFailure(run: FaultRunRecord, error: unknown): Promise<void> {
-  await appendFaultRunEvent(run.faultRunId, 'EXERCISE_WORKER_SETUP_FAILED', {
+  await appendFaultRunEvent(run.faultRunId, 'SCENARIO_WORKER_SETUP_FAILED', {
     error: error instanceof Error ? error.message : String(error),
   }).catch(() => undefined);
 }

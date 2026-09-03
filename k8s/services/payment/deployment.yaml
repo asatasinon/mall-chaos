@@ -29,7 +29,7 @@ spec:
             - secretRef:
                 name: db-secret
           env:
-            # payment-service needs a larger heap for provider exercises
+            # payment-service needs a larger heap for provider traffic
             - name: JAVA_OPTS
               value: "-Xms256m -Xmx768m -Duser.timezone=Asia/Shanghai -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof"
           resources:

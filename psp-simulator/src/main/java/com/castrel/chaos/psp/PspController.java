@@ -12,10 +12,10 @@ import java.util.Map;
 
 @RestController
 public class PspController {
-    private final PspScenarioState state;
+    private final PspOutcomeState state;
     private final String internalServiceKey;
 
-    public PspController(PspScenarioState state,
+    public PspController(PspOutcomeState state,
                          @Value("${CASTREL_INTERNAL_SERVICE_KEY:}") String internalServiceKey) {
         this.state = state;
         this.internalServiceKey = internalServiceKey;
@@ -41,33 +41,33 @@ public class PspController {
         return ApiResponse.ok(Map.of("status", "AUTHORIZED", "code", "AUTHORIZED"));
     }
 
-    @PostMapping("/internal/psp/fault-runs/start")
-    public ApiResponse<Map<String, Object>> start(
-            @RequestHeader("X-Fault-Run-Scenario") String scenario,
-            @RequestHeader("X-Fault-Run-Operation") String operation,
+        @PostMapping("/internal/psp/provider-outcome/prepare")
+        public ApiResponse<Map<String, Object>> prepareOutcome(
+            @RequestHeader("X-Scenario-Run-Scenario") String scenario,
+            @RequestHeader("X-Scenario-Run-Operation") String operation,
             @RequestHeader org.springframework.http.HttpHeaders headers,
             @RequestBody Map<String, Object> parameters) {
         requireOperation(scenario, operation);
-        state.start(ScenarioRunContext.fromHeaders(headers), parameters);
+        state.prepare(ScenarioRunContext.fromHeaders(headers), parameters);
         return ApiResponse.ok(Map.of("accepted", true, "scenario", scenario));
     }
 
-    @PostMapping("/internal/psp/fault-runs/stop")
-    public ApiResponse<Map<String, Object>> stop(
-            @RequestHeader("X-Fault-Run-Scenario") String scenario,
-            @RequestHeader("X-Fault-Run-Operation") String operation,
+        @PostMapping("/internal/psp/provider-outcome/release")
+        public ApiResponse<Map<String, Object>> releaseOutcome(
+            @RequestHeader("X-Scenario-Run-Scenario") String scenario,
+            @RequestHeader("X-Scenario-Run-Operation") String operation,
             @RequestHeader org.springframework.http.HttpHeaders headers) {
         requireOperation(scenario, operation);
         ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
-        state.stop(context);
-        return ApiResponse.ok(Map.of("released", true, "faultRunId", context.runId()));
+        state.release(context);
+        return ApiResponse.ok(Map.of("released", true, "runId", context.runId()));
     }
 
-    @PostMapping("/internal/psp/fault-runs/cleanup")
-    public ApiResponse<Map<String, Object>> cleanup(
+    @PostMapping("/internal/psp/provider-outcome/cleanup")
+    public ApiResponse<Map<String, Object>> cleanupOutcome(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
         ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
-        state.stop(context);
+        state.release(context);
         return ApiResponse.ok(Map.of("cleaned", true));
     }
 

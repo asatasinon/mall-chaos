@@ -7,7 +7,7 @@ export const env = {
   NOTIFICATION_RESTART_BROKER_URL: process.env.NOTIFICATION_RESTART_BROKER_URL || 'http://localhost:8095',
   NOTIFICATION_RESTART_BROKER_KEY: process.env.NOTIFICATION_RESTART_BROKER_KEY || '',
   TRAFFIC_LIFECYCLE_ACCOUNTS: process.env.TRAFFIC_LIFECYCLE_ACCOUNTS || '[]',
-  TRAFFIC_EXERCISE_ACCOUNTS: process.env.TRAFFIC_EXERCISE_ACCOUNTS
+  TRAFFIC_SCENARIO_ACCOUNTS: process.env.TRAFFIC_SCENARIO_ACCOUNTS
     || '[{"label":"sam","email":"sam@example.com","password":"password","expectedCustomerId":19}]',
 
   // MySQL for runner config storage

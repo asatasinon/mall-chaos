@@ -13,10 +13,10 @@ public record ScenarioRunContext(
 
     public static ScenarioRunContext fromHeaders(HttpHeaders headers) {
         return new ScenarioRunContext(
-                headers.getFirst("X-Fault-Run-Id"),
-                parseInstant(headers.getFirst("X-Fault-Run-Expires-At")),
-                parseLong(headers.getFirst("X-Fault-Run-Fencing-Token")),
-                headers.getFirst("X-Fault-Run-Idempotency-Key"));
+                headers.getFirst("X-Scenario-Run-Id"),
+                parseInstant(headers.getFirst("X-Scenario-Run-Expires-At")),
+                parseLong(headers.getFirst("X-Scenario-Run-Fencing-Token")),
+                headers.getFirst("X-Scenario-Run-Idempotency-Key"));
     }
 
     public void validate(Instant now) {

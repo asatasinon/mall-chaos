@@ -15,7 +15,7 @@ import {
   ScenarioRequestCacheError,
   ScenarioRequestResult,
   ScenarioRequestTimeoutError,
-} from './controlled-exercise-worker';
+} from './controlled-scenario-worker';
 
 interface ScenarioWorkerDependencies {
   gateway: GatewayClient;

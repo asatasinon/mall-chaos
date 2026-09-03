@@ -33,7 +33,7 @@ test('builds a safe Catalog Hash view from target, worker, recovery, and audit e
         payload: {
           targetSummary: {
             layout: 'HASH',
-            hashKey: `catalog:product-detail:exercise:${faultRunId}`,
+            hashKey: `catalog:product-detail:operation:${faultRunId}`,
             memberCount: 2,
             memberSizeBytes: 1024,
             logicalBytes: 2048,
@@ -48,7 +48,7 @@ test('builds a safe Catalog Hash view from target, worker, recovery, and audit e
       },
       {
         id: 2,
-        eventType: 'EXERCISE_WORKER_STOPPED',
+        eventType: 'SCENARIO_WORKER_STOPPED',
         payload: {
           requests: 4,
           successes: 3,
@@ -114,7 +114,7 @@ test('builds a safe Catalog Hash view from target, worker, recovery, and audit e
 test('event summaries do not expose raw error payloads', () => {
   const summary = summarizeFaultRunEvent({
     id: 1,
-    eventType: 'EXERCISE_REQUEST_FAILED',
+    eventType: 'SCENARIO_REQUEST_FAILED',
     payload: { timeout: false, error: 'database password should not render' },
     createdAt: '2026-09-02T06:59:01.000Z',
   });

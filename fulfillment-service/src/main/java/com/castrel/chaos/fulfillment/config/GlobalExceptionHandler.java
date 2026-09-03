@@ -40,6 +40,6 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ApiResponse<Void> handleException(Exception ex) {
         log.error("Unhandled exception: {}", ex.getMessage(), ex);
-        return ApiResponse.error(500, ex.getMessage());
+        return ApiResponse.error(500, "Request could not be completed");
     }
 }

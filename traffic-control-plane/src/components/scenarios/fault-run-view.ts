@@ -28,7 +28,7 @@ export type FaultRunViewModel = {
 export function buildFaultRunView(details: FaultRunDetails): FaultRunViewModel {
   const targetSummary = findTargetSummary(details.events, details.run.faultRunId);
   const workerEvent = [...details.events].reverse().find((event) =>
-    event.eventType === 'SCENARIO_WORKER_DRAINED' || event.eventType === 'EXERCISE_WORKER_STOPPED');
+    event.eventType === 'SCENARIO_WORKER_DRAINED' || event.eventType === 'SCENARIO_WORKER_STOPPED');
   const workerStats = workerEvent ? readWorkerStats(workerEvent.payload) : null;
   const recoveryEvent = [...details.events].reverse().find((event) => event.eventType === 'RECOVERY_COMPLETED');
   const recoveryPayload = recoveryEvent ? asRecord(recoveryEvent.payload) : null;
@@ -58,13 +58,13 @@ export function summarizeFaultRunEvent(event: Event): string {
   switch (event.eventType) {
     case 'TARGET_CONFIRMED':
       return 'Fixed target accepted the run';
-    case 'EXERCISE_WORKER_TARGET':
+    case 'SCENARIO_WORKER_TARGET':
       return `Reader target prepared with ${formatInteger(payload.memberCount)} members`;
-    case 'EXERCISE_WORKER_STARTED':
+    case 'SCENARIO_WORKER_STARTED':
       return `Reader started at concurrency ${formatInteger(payload.concurrency)}`;
-    case 'EXERCISE_REQUEST_FAILED':
+    case 'SCENARIO_REQUEST_FAILED':
       return payload.timeout === true ? 'A reader request reached its deadline' : 'A reader request failed';
-    case 'EXERCISE_WORKER_STOPPED':
+    case 'SCENARIO_WORKER_STOPPED':
       return workerSummary(readWorkerStats(event.payload));
     case 'SCENARIO_WORKER_DRAINED':
       return `Reader drained with ${formatInteger(payload.inFlight)} requests in flight`;
@@ -78,7 +78,7 @@ export function summarizeFaultRunEvent(event: Event): string {
       return cleanupSummary(readCleanup(payload.result));
     case 'MANUAL_CLEANUP_FAILED':
       return 'Per-run cleanup failed';
-    case 'EXERCISE_WORKER_SETUP_FAILED':
+    case 'SCENARIO_WORKER_SETUP_FAILED':
       return 'Reader setup failed before traffic started';
     default:
       return 'Recorded Fault Run event';
@@ -100,7 +100,7 @@ export function formatBytes(value: number | undefined | null): string {
 }
 
 export function formatHashNamespace(hashKey: string | undefined, faultRunId: string): string {
-  const prefix = 'catalog:product-detail:exercise:';
+  const prefix = 'catalog:product-detail:operation:';
   if (!hashKey?.startsWith(prefix)) return 'run-scoped Hash';
   return `${prefix}{${faultRunId.slice(0, 8)}}`;
 }
@@ -122,7 +122,7 @@ function findTargetSummary(events: Event[], faultRunId: string): FaultRunTargetS
       (sku): sku is string => typeof sku === 'string' && SKU_PATTERN.test(sku));
     if (candidate.layout !== 'HASH'
       || typeof candidate.hashKey !== 'string'
-      || candidate.hashKey !== `catalog:product-detail:exercise:${faultRunId}`
+      || candidate.hashKey !== `catalog:product-detail:operation:${faultRunId}`
       || !safeInteger(candidate.memberCount, 1)
       || memberSkus.length !== candidate.memberCount
       || memberSkus.some((sku, index) => sku !== rawMemberSkus[index])

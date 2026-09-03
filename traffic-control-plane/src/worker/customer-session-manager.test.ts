@@ -79,7 +79,7 @@ test('selects an enabled account and creates one lifecycle session', async () =>
   assert.equal(gateway.loginCalls.length, 1);
 });
 
-test('allows the configured exercise account when explicitly enabled', async () => {
+test('allows the configured scenario account when explicitly enabled', async () => {
   const gateway = fakeGateway({
     async login(): Promise<CustomerAuthResponse> {
       return auth(19);
@@ -94,10 +94,10 @@ test('allows the configured exercise account when explicitly enabled', async () 
       enabled: true,
     }],
     gateway,
-    allowExerciseAccounts: true,
+    allowScenarioAccounts: true,
   });
 
-  const context = await manager.openSession('run-1', 'exercise-1', 'trace-1');
+  const context = await manager.openSession('run-1', 'scenario-1', 'trace-1');
 
   assert.equal(context.session.accountLabel, 'sam');
   assert.equal(context.session.customerId, 19);

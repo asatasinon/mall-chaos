@@ -11,10 +11,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Component
-public class NotificationExerciseState {
+public class NotificationRetentionState {
     private final CopyOnWriteArrayList<byte[]> retainedObjects = new CopyOnWriteArrayList<>();
     private final AtomicLong storageBytes = new AtomicLong();
-    private volatile ScenarioRunContext heapRun;
+    private volatile ScenarioRunContext retentionRun;
     private volatile ScenarioRunContext storageRun;
     private volatile long requestIntervalMs = 100;
     private volatile int retainedBytesPerNotification = 1024 * 1024;
@@ -24,22 +24,22 @@ public class NotificationExerciseState {
     private volatile long lastRetainedAt;
     private volatile long lastAppendedAt;
 
-    public synchronized void start(ScenarioRunContext context, String scenario,
-                                   Map<String, Object> parameters, ScenarioRunGuard guard) {
+    public synchronized void prepare(ScenarioRunContext context, String scenario,
+                                      Map<String, Object> parameters, ScenarioRunGuard guard) {
         context.validate(Instant.now());
         if (!guard.acceptStart(context)) throw new BizException("STALE_SCENARIO_RUN", "Scenario token was rejected");
         if ("NOTIFICATION_HEAP_PRESSURE".equals(scenario)) {
-            if (heapRun != null && !heapRun.runId().equals(context.runId())) {
-                throw new BizException("SCENARIO_RUN_ALREADY_ACTIVE", "Another notification run is active");
+            if (retentionRun != null && !retentionRun.runId().equals(context.runId())) {
+                throw new BizException("SCENARIO_RUN_ALREADY_ACTIVE", "Another notification operation is active");
             }
-            if (heapRun != null && heapRun.runId().equals(context.runId())) return;
-            heapRun = context;
+            if (retentionRun != null && retentionRun.runId().equals(context.runId())) return;
+            retentionRun = context;
             requestIntervalMs = bounded(parameters, "requestIntervalMs", 100, 0, 60000);
             retainedBytesPerNotification = (int) bounded(parameters, "retainedBytesPerNotification", 1024 * 1024, 1024, 10L * 1024 * 1024);
-            guard.registerCleanup(context, () -> heapRun = null);
+            guard.registerCleanup(context, () -> retentionRun = null);
         } else if ("NOTIFICATION_STORAGE_APPEND".equals(scenario)) {
             if (storageRun != null && !storageRun.runId().equals(context.runId())) {
-                throw new BizException("SCENARIO_RUN_ALREADY_ACTIVE", "Another notification run is active");
+                throw new BizException("SCENARIO_RUN_ALREADY_ACTIVE", "Another notification operation is active");
             }
             if (storageRun != null && storageRun.runId().equals(context.runId())) return;
             storageRun = context;
@@ -50,18 +50,18 @@ public class NotificationExerciseState {
             storageBytes.set(0);
             guard.registerCleanup(context, () -> storageRun = null);
         } else {
-            throw new BizException("SCENARIO_OPERATION_MISMATCH", "Unsupported notification scenario");
+            throw new BizException("SCENARIO_OPERATION_MISMATCH", "Unsupported notification operation");
         }
     }
 
-    public synchronized void stop(ScenarioRunContext context, ScenarioRunGuard guard) {
+    public synchronized void release(ScenarioRunContext context, ScenarioRunGuard guard) {
         context.validateForRelease();
         guard.release(context);
-        if (context.runId().equals(heapRun == null ? null : heapRun.runId())) heapRun = null;
+        if (context.runId().equals(retentionRun == null ? null : retentionRun.runId())) retentionRun = null;
         if (context.runId().equals(storageRun == null ? null : storageRun.runId())) storageRun = null;
     }
 
-    public synchronized void stopAllStorageRuns(ScenarioRunGuard guard) {
+    public synchronized void stopAllStorageOperations(ScenarioRunGuard guard) {
         if (storageRun != null) {
             guard.release(storageRun);
             storageRun = null;
@@ -69,7 +69,7 @@ public class NotificationExerciseState {
     }
 
     public boolean shouldRetain() {
-        ScenarioRunContext run = heapRun;
+        ScenarioRunContext run = retentionRun;
         if (run == null || !run.expiresAt().isAfter(Instant.now())) return false;
         long now = System.currentTimeMillis();
         if (now - lastRetainedAt < requestIntervalMs) return false;
@@ -78,13 +78,13 @@ public class NotificationExerciseState {
         return true;
     }
 
-    public String storageRunId() {
+    public String storageOperationRunId() {
         ScenarioRunContext run = storageRun;
         return run != null && run.expiresAt().isAfter(Instant.now()) ? run.runId() : null;
     }
 
     public long reserveStorage(long payloadBytes) {
-        if (storageRunId() == null) return 0;
+        if (storageOperationRunId() == null) return 0;
         long now = System.currentTimeMillis();
         if (now - lastAppendedAt < requestIntervalMs) throw new BizException("STORAGE_APPEND_RATE_LIMIT", "Notification append rate is limited");
         long next = storageBytes.addAndGet(Math.max(payloadBytes, appendBytes));
@@ -98,10 +98,6 @@ public class NotificationExerciseState {
 
     public int retainedEntries() {
         return retainedObjects.size();
-    }
-
-    public long storageBytes() {
-        return storageBytes.get();
     }
 
     private long bounded(Map<String, Object> parameters, String name, long defaultValue, long min, long max) {

@@ -341,7 +341,7 @@ export function extractFaultRunTargetSummary(
   const event = asRecord(payload);
   const summary = asRecord(event.targetSummary);
   if (summary.layout !== 'HASH'
-      || summary.hashKey !== `catalog:product-detail:exercise:${faultRunId}`
+      || summary.hashKey !== `catalog:product-detail:operation:${faultRunId}`
       || !isSafeInteger(summary.memberCount, 1, 47)
       || !isSafeInteger(summary.memberSizeBytes, 256, 128 * 1024 * 1024)
       || !isSafeInteger(summary.logicalBytes, 1, 512 * 1024 * 1024)

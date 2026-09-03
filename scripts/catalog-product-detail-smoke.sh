@@ -162,7 +162,7 @@ jq -e --arg scenario "$SCENARIO" \
    and (.data.audit.result == "SUCCESS")' "$run_detail_body" >/dev/null \
   || fail 'Fault Run detail did not contain target confirmation and audit evidence'
 
-hash_key="catalog:product-detail:exercise:${RUN_ID}"
+hash_key="catalog:product-detail:operation:${RUN_ID}"
 summary="$(jq -c '.data.events[] | select(.eventType == "TARGET_CONFIRMED") | .payload.targetSummary' "$run_detail_body" | tail -n 1)"
 [[ -n "$summary" && "$summary" != "null" ]] || fail 'target summary is missing from Fault Run detail'
 assert_equal "$(jq -r '.layout' <<<"$summary")" "HASH" 'target layout'
@@ -182,7 +182,7 @@ observed_bytes="$(redis_cli MEMORY USAGE "$hash_key")"
 [[ "$observed_bytes" =~ ^[0-9]+$ ]] || observed_bytes='unavailable'
 marker_payload="$(redis_cli GET "$MARKER_KEY")"
 jq -e --arg run "$RUN_ID" --arg hash "$hash_key" \
-  '.faultRunId == $run and .hashKey == $hash and .fencingToken > 0' <<<"$marker_payload" >/dev/null \
+  '.runId == $run and .hashKey == $hash and .fencingToken > 0' <<<"$marker_payload" >/dev/null \
   || fail 'active marker does not point to the created run'
 assert_equal "$(redis_cli GET "$MARKER_OWNER_KEY")" "$RUN_ID" 'active marker owner'
 marker_fence="$(redis_cli GET "$MARKER_FENCE_KEY")"

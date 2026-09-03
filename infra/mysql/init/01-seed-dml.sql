@@ -152,10 +152,10 @@ INSERT INTO runner_customer_whitelist (customer_id, enabled, version) VALUES
   (9, 1, 1),
   (10, 1, 1)
 ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), version = VALUES(version);
-INSERT INTO user_roles (user_id, role) VALUES (19, 'TRAFFIC_EXERCISE')
+INSERT INTO user_roles (user_id, role) VALUES (19, 'TRAFFIC_SCENARIO')
 ON DUPLICATE KEY UPDATE role = VALUES(role);
-INSERT INTO traffic_exercise_accounts (customer_id, role, enabled)
-VALUES (19, 'TRAFFIC_EXERCISE', 1)
+INSERT INTO traffic_scenario_accounts (customer_id, role, enabled)
+VALUES (19, 'TRAFFIC_SCENARIO', 1)
 ON DUPLICATE KEY UPDATE role = VALUES(role), enabled = VALUES(enabled);
 INSERT INTO carts (customer_id, version, status)
 VALUES (19, 0, 'ACTIVE')

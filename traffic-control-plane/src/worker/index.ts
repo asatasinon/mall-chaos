@@ -4,9 +4,9 @@ import { env } from '../lib/env';
 import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
 import { getCouponReplenishmentScheduler } from './coupon-replenishment';
 import { getInventoryReplenishmentScheduler } from './inventory-replenishment';
-import { getReportExerciseWorker } from './report-exercise-worker';
+import { getReportScenarioWorker } from './report-scenario-worker';
 import { getTrafficSurgeExecutor } from './traffic-surge-executor';
-import { getScenarioExerciseWorkers } from './scenario-exercise-workers';
+import { getScenarioWorkers } from './scenario-workers';
 import pino from 'pino';
 import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
 import { deleteExpiredFaultRuns } from '../lib/fault-run-repository';
@@ -29,15 +29,15 @@ async function main() {
   await faultRunCoordinator.recoverExpiredRuns();
   const couponReplenishmentScheduler = getCouponReplenishmentScheduler();
   const inventoryReplenishmentScheduler = getInventoryReplenishmentScheduler();
-  const reportExerciseWorker = getReportExerciseWorker();
+  const reportScenarioWorker = getReportScenarioWorker();
   const trafficSurgeExecutor = getTrafficSurgeExecutor();
-  const scenarioExerciseWorkers = getScenarioExerciseWorkers();
+  const scenarioWorkers = getScenarioWorkers();
   const dataWarmupService = getDataWarmupService();
   await couponReplenishmentScheduler.start();
   await inventoryReplenishmentScheduler.start();
-  reportExerciseWorker.start();
+  reportScenarioWorker.start();
   trafficSurgeExecutor.start();
-  scenarioExerciseWorkers.start();
+  scenarioWorkers.start();
   const faultRunRecoveryTimer = setInterval(() => {
     void faultRunCoordinator.recoverExpiredRuns().catch((error) => {
       log.warn({ error }, 'Failed to recover expired Fault Runs');
@@ -64,9 +64,9 @@ async function main() {
     clearInterval(faultRunRecoveryTimer);
     clearInterval(faultRunRetentionTimer);
     inventoryReplenishmentScheduler.stop();
-    await reportExerciseWorker.stop();
+    await reportScenarioWorker.stop();
     await trafficSurgeExecutor.stop();
-    await scenarioExerciseWorkers.stop();
+    await scenarioWorkers.stop();
     couponReplenishmentScheduler.stop();
     await dataWarmupService.stop();
     await engine.stop();

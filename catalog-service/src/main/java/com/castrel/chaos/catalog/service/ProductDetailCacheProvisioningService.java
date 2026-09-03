@@ -145,7 +145,7 @@ public class ProductDetailCacheProvisioningService {
 
             Map<String, Object> summary = new LinkedHashMap<>();
             summary.put("accepted", true);
-            summary.put("faultRunId", context.runId());
+            summary.put("runId", context.runId());
             summary.put("layout", "HASH");
             summary.put("hashKey", runHash);
             summary.put("memberCount", members.size());
@@ -194,7 +194,7 @@ public class ProductDetailCacheProvisioningService {
                 "released", true,
                 "markerRemoved", markerRemoved,
                 "hashRemoved", hashRemoved,
-                "faultRunId", runId);
+                "runId", runId);
     }
 
     private void assertMarkerOwnershipOrAbsent(String runId, long fencingToken) {
@@ -262,7 +262,7 @@ public class ProductDetailCacheProvisioningService {
     private ProductDetailCacheMarker marker(ScenarioRunContext context, String runHash, String probeSku) {
         ProductDetailCacheMarker marker = new ProductDetailCacheMarker();
         marker.setSchemaVersion(ProductDetailCacheSerializer.SCHEMA_VERSION);
-        marker.setFaultRunId(context.runId());
+        marker.setRunId(context.runId());
         marker.setFencingToken(context.fencingToken());
         marker.setHashKey(runHash);
         marker.setProbeSku(probeSku);

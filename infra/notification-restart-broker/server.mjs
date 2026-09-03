@@ -23,11 +23,11 @@ const server = createServer(async (request, response) => {
 
   try {
     const body = await readJson(request);
-    const hasFaultRunId = body.faultRunId !== undefined;
+    const hasRunId = body.runId !== undefined;
     const hasFencingToken = body.fencingToken !== undefined;
-    if (hasFaultRunId !== hasFencingToken
-        || (hasFaultRunId && (!isUuid(body.faultRunId) || !isPositiveInteger(body.fencingToken)))
-        || Object.keys(body).some((key) => !['faultRunId', 'fencingToken'].includes(key))) {
+    if (hasRunId !== hasFencingToken
+      || (hasRunId && (!isUuid(body.runId) || !isPositiveInteger(body.fencingToken)))
+      || Object.keys(body).some((key) => !['runId', 'fencingToken'].includes(key))) {
       return sendJson(response, 400, { error: 'invalid_restart_contract' });
     }
     const startedAt = Date.now();

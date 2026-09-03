@@ -9,22 +9,22 @@ import java.time.Instant;
 import java.util.Map;
 
 @Component
-public class PspScenarioState {
+public class PspOutcomeState {
     private final ScenarioRunGuard runGuard;
     private volatile ScenarioRunContext activeRun;
     private volatile String outcome = "AUTHORIZED";
     private int effectPercentage = 100;
     private long authorizationCount;
 
-    public PspScenarioState(ScenarioRunGuard runGuard) {
+    public PspOutcomeState(ScenarioRunGuard runGuard) {
         this.runGuard = runGuard;
     }
 
-    public synchronized void start(ScenarioRunContext context, Map<String, Object> parameters) {
+    public synchronized void prepare(ScenarioRunContext context, Map<String, Object> parameters) {
         context.validate(Instant.now());
         if (!runGuard.acceptStart(context)) throw new BizException("STALE_SCENARIO_RUN", "Scenario token was rejected");
         if (activeRun != null && !activeRun.runId().equals(context.runId())) {
-            throw new BizException("SCENARIO_RUN_ALREADY_ACTIVE", "Another provider run is active");
+            throw new BizException("SCENARIO_RUN_ALREADY_ACTIVE", "Another provider operation is active");
         }
         if (activeRun != null && activeRun.runId().equals(context.runId())) return;
         Object configured = parameters == null ? null : parameters.get("providerOutcome");
@@ -48,11 +48,7 @@ public class PspScenarioState {
         return currentEffectQuota > previousEffectQuota ? outcome : "AUTHORIZED";
     }
 
-    public String authorize(String runId, long fencingToken) {
-        return authorize();
-    }
-
-    public synchronized void stop(ScenarioRunContext context) {
+    public synchronized void release(ScenarioRunContext context) {
         context.validateForRelease();
         runGuard.release(context);
         clear(context);

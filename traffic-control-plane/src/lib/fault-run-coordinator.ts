@@ -11,7 +11,6 @@ import {
   type FaultRunTargetSummary,
 } from './fault-run-repository';
 import { getScenarioDefinition, validateScenarioParameters } from './fault-run-catalog';
-import { createFaultRunContext } from './fault-run-context';
 
 export interface FaultRunTargetAdapter {
   start(run: FaultRunRecord): Promise<unknown>;
@@ -48,13 +47,13 @@ export class GatewayFaultRunTargetAdapter implements FaultRunTargetAdapter {
   async start(run: FaultRunRecord): Promise<unknown> {
     if (run.targetService === 'traffic-control-plane') return { accepted: true, target: 'worker' };
     return getGatewayClient().postInternal(
-      '/internal/gateway/fault-runs/start', toGatewayPayload(run), run.traceId ?? undefined);
+      '/internal/gateway/operations/prepare', toGatewayPayload(run), run.traceId ?? undefined);
   }
 
   async stop(run: FaultRunRecord): Promise<unknown> {
     if (run.targetService === 'traffic-control-plane') return { stopped: true, target: 'worker' };
     return getGatewayClient().postInternal(
-      '/internal/gateway/fault-runs/stop',
+      '/internal/gateway/operations/release',
       toGatewayPayload(run),
       run.traceId ?? undefined,
     );
@@ -300,7 +299,10 @@ export class FaultRunCoordinator {
 
 function toGatewayPayload(run: FaultRunRecord): Record<string, unknown> {
   return {
-    ...createFaultRunContext(run),
+    runId: run.faultRunId,
+    expiresAt: run.expiresAt,
+    fencingToken: run.fencingToken,
+    idempotencyKey: run.idempotencyKey,
     scenario: run.scenario,
     operation: run.targetOperation,
     parameters: run.parameters,
@@ -334,7 +336,7 @@ function sanitizeTargetSummary(run: FaultRunRecord, response: unknown): FaultRun
   if (source.accepted === true) summary.accepted = true;
   if (source.layout === 'HASH') summary.layout = 'HASH';
   if (typeof source.hashKey === 'string'
-      && source.hashKey === `catalog:product-detail:exercise:${run.faultRunId}`) {
+      && source.hashKey === `catalog:product-detail:operation:${run.faultRunId}`) {
     summary.hashKey = source.hashKey;
   }
   assignSafeInteger(source.memberCount, 1, 47, (value) => { summary.memberCount = value; });

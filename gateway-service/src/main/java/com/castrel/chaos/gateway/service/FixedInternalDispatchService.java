@@ -2,7 +2,7 @@ package com.castrel.chaos.gateway.service;
 
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.security.JwtTokenService;
-import com.castrel.chaos.gateway.config.FaultRunDispatchProperties;
+import com.castrel.chaos.gateway.config.ScenarioDispatchProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -13,12 +13,12 @@ import java.util.Map;
 @Service
 public class FixedInternalDispatchService {
 
-    private final FaultRunDispatchProperties properties;
+    private final ScenarioDispatchProperties properties;
     private final WebClient webClient;
     private final JwtTokenService jwtTokenService;
 
     public FixedInternalDispatchService(
-            FaultRunDispatchProperties properties,
+            ScenarioDispatchProperties properties,
             WebClient.Builder webClientBuilder,
             JwtTokenService jwtTokenService) {
         this.properties = properties;

@@ -49,7 +49,7 @@ public class NotificationService {
     private MeterRegistry meterRegistry;
 
     @Autowired
-    private NotificationExerciseState exerciseState;
+    private NotificationRetentionState retentionState;
 
     private Counter sentCounter;
     private Counter failCounter;
@@ -109,11 +109,11 @@ public class NotificationService {
         notification.setBody(message);
         notification.setRead(false);
         notification.setCreatedAt(LocalDateTime.now());
-        exerciseState.shouldRetain();
-        String exerciseRunId = exerciseState.storageRunId();
-        if (exerciseRunId != null) {
-            exerciseState.reserveStorage(message.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
-            notification.setExerciseRunId(exerciseRunId);
+        retentionState.shouldRetain();
+        String operationRunId = retentionState.storageOperationRunId();
+        if (operationRunId != null) {
+            retentionState.reserveStorage(message.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+            notification.setOperationRunId(operationRunId);
         }
         customerNotificationRepository.save(notification);
         localQueryCacheManager.cacheIfNeeded("notification:" + orderNo, notification);

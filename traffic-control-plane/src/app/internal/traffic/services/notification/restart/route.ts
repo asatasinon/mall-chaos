@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
   const traceId = getOrCreateTraceId(request.headers);
   try {
     const result = await restartNotificationService({
-      ...(run ? { faultRunId: run.faultRunId, fencingToken: run.fencingToken } : {}),
+      ...(run ? { runId: run.faultRunId, fencingToken: run.fencingToken } : {}),
       traceId,
     });
     let recovered = run;

@@ -82,7 +82,7 @@ class ProductDetailCacheServiceTest {
         String runHash = ProductDetailCacheService.RUN_HASH_PREFIX + runId;
         ProductDetailCacheMarker marker = new ProductDetailCacheMarker();
         marker.setSchemaVersion(ProductDetailCacheSerializer.SCHEMA_VERSION);
-        marker.setFaultRunId(runId);
+        marker.setRunId(runId);
         marker.setFencingToken(3);
         marker.setHashKey(runHash);
         marker.setProbeSku("SKU-050");
@@ -105,7 +105,7 @@ class ProductDetailCacheServiceTest {
         String runId = UUID.randomUUID().toString();
         ProductDetailCacheMarker marker = new ProductDetailCacheMarker();
         marker.setSchemaVersion(ProductDetailCacheSerializer.SCHEMA_VERSION);
-        marker.setFaultRunId(runId);
+        marker.setRunId(runId);
         marker.setFencingToken(3);
         marker.setHashKey(ProductDetailCacheService.RUN_HASH_PREFIX + runId);
         marker.setProbeSku("SKU-050");
@@ -127,7 +127,7 @@ class ProductDetailCacheServiceTest {
         String runId = UUID.randomUUID().toString();
         ProductDetailCacheMarker marker = new ProductDetailCacheMarker();
         marker.setSchemaVersion(ProductDetailCacheSerializer.SCHEMA_VERSION);
-        marker.setFaultRunId(runId);
+        marker.setRunId(runId);
         marker.setFencingToken(3);
         marker.setHashKey(ProductDetailCacheService.RUN_HASH_PREFIX + runId);
         marker.setProbeSku("SKU-050");

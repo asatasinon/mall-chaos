@@ -73,7 +73,7 @@ Kubernetes broker 使用专用 `notification-restart-broker` ServiceAccount。Ro
 
 ## 演练账号
 
-`TRAFFIC_EXERCISE_ACCOUNTS` 使用对象 JSON 数组，例如：
+`TRAFFIC_SCENARIO_ACCOUNTS` 使用对象 JSON 数组，例如：
 
 ```json
 [{"label":"sam","email":"sam@example.com","password":"<secret>","expectedCustomerId":19}]

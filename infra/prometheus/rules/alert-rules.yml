@@ -304,7 +304,7 @@ groups:
   - name: castrel-chaos-detection
     interval: 30s
     rules:
-      - alert: ServiceDegradationLikelyChaos
+      - alert: CorrelatedServiceDegradation
         expr: |
           (rate(http_server_requests_seconds_count{status=~"5.."}[5m]) > 0)
           and
@@ -315,5 +315,5 @@ groups:
         labels:
           severity: info
         annotations:
-          summary: 'Chaos engineering injection may be in progress'
-          description: 'Multiple services are reporting errors or timeouts simultaneously; a chaos engineering exercise may be in progress.'
+          summary: 'Correlated service degradation detected'
+          description: 'Multiple services are reporting errors or timeouts simultaneously.'

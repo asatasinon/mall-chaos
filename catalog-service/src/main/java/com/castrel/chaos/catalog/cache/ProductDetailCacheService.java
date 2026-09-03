@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class ProductDetailCacheService {
 
-    public static final String RUN_HASH_PREFIX = "catalog:product-detail:exercise:";
+    public static final String RUN_HASH_PREFIX = "catalog:product-detail:operation:";
 
     private static final Logger log = LoggerFactory.getLogger(ProductDetailCacheService.class);
 
@@ -95,8 +95,8 @@ public class ProductDetailCacheService {
         }
     }
 
-    public String runHashKey(String faultRunId) {
-        return RUN_HASH_PREFIX + faultRunId;
+    public String runHashKey(String runId) {
+        return RUN_HASH_PREFIX + runId;
     }
 
     public String activeMarkerKey() {
@@ -119,7 +119,7 @@ public class ProductDetailCacheService {
             String owner = redisTemplate.opsForValue().get(activeMarkerOwnerKey());
             String fence = redisTemplate.opsForValue().get(activeMarkerFenceKey());
             if (isValidMarker(marker, now)
-                    && marker.getFaultRunId().equals(owner)
+                    && marker.getRunId().equals(owner)
                     && String.valueOf(marker.getFencingToken()).equals(fence)) {
                 return marker.getHashKey();
             }
@@ -135,10 +135,10 @@ public class ProductDetailCacheService {
                 || marker.getFencingToken() <= 0 || marker.getProbeSku() == null
                 || marker.getProbeSku().isBlank() || marker.getExpiresAt() == null) return false;
         try {
-            UUID.fromString(marker.getFaultRunId());
+            UUID.fromString(marker.getRunId());
             Instant expiresAt = Instant.parse(marker.getExpiresAt());
             return expiresAt.isAfter(now)
-                    && (RUN_HASH_PREFIX + marker.getFaultRunId()).equals(marker.getHashKey());
+                    && (RUN_HASH_PREFIX + marker.getRunId()).equals(marker.getHashKey());
         } catch (RuntimeException exception) {
             return false;
         }

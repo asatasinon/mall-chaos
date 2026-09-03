@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   const traceId = getOrCreateTraceId(request.headers);
   try {
     const result = await getGatewayClient().postInternal(
-      '/internal/gateway/fault-runs/cleanup-scenario',
+      '/internal/gateway/operations/cleanup-all',
       { scenario },
       traceId,
     );

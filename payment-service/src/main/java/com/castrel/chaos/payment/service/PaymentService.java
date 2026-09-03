@@ -178,7 +178,7 @@ public class PaymentService {
         org.springframework.web.context.request.ServletRequestAttributes attributes =
                 (org.springframework.web.context.request.ServletRequestAttributes)
                         org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
-        return attributes == null ? null : attributes.getRequest().getHeader("X-Fault-Run-Id");
+        return attributes == null ? null : attributes.getRequest().getHeader("X-Scenario-Run-Id");
     }
 
     private void deliverPaymentResult(PaymentDTO payment, String orderNo) {

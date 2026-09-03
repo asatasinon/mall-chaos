@@ -12,7 +12,7 @@ import {
   validateLoginIdentity,
 } from '../lib/lifecycle-accounts';
 import type { FaultRunContext } from '../lib/fault-run-context';
-import { loadExerciseAccounts } from '../lib/exercise-accounts';
+import { loadScenarioAccounts } from '../lib/scenario-accounts';
 
 interface ActiveSession {
   account: LifecycleAccount;
@@ -23,7 +23,7 @@ export interface CustomerSessionManagerDependencies {
   accounts?: LifecycleAccount[];
   gateway?: GatewayClient;
   random?: () => number;
-  allowExerciseAccounts?: boolean;
+  allowScenarioAccounts?: boolean;
 }
 
 export interface SessionRunOptions {
@@ -36,14 +36,14 @@ export class CustomerSessionManager {
   private readonly configuredAccounts: LifecycleAccount[] | null;
   private readonly gateway: GatewayClient;
   private readonly random: () => number;
-  private readonly allowExerciseAccounts: boolean;
+  private readonly allowScenarioAccounts: boolean;
   private readonly sessions = new Map<string, ActiveSession>();
 
   constructor(dependencies: CustomerSessionManagerDependencies = {}) {
     this.configuredAccounts = dependencies.accounts ?? null;
     this.gateway = dependencies.gateway ?? getGatewayClient();
     this.random = dependencies.random ?? Math.random;
-    this.allowExerciseAccounts = dependencies.allowExerciseAccounts ?? false;
+    this.allowScenarioAccounts = dependencies.allowScenarioAccounts ?? false;
   }
 
   async openSession(
@@ -144,12 +144,12 @@ export class CustomerSessionManager {
 
   private async selectAccount(): Promise<LifecycleAccount> {
     const accounts = this.configuredAccounts ?? await loadLifecycleAccountsWithState();
-    const exerciseEmails = this.allowExerciseAccounts
+    const scenarioEmails = this.allowScenarioAccounts
       ? new Set<string>()
-      : new Set(loadExerciseAccounts().map((account) => account.email));
+      : new Set(loadScenarioAccounts().map((account) => account.email));
     const enabled = accounts.filter((account) => account.enabled
-      && (this.allowExerciseAccounts
-        || (account.expectedCustomerId !== 19 && !exerciseEmails.has(account.email))));
+      && (this.allowScenarioAccounts
+        || (account.expectedCustomerId !== 19 && !scenarioEmails.has(account.email))));
     if (enabled.length === 0) {
       throw new Error('LIFECYCLE_NO_ENABLED_ACCOUNT');
     }

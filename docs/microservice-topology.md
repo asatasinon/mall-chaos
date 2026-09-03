@@ -30,6 +30,6 @@
 - 消费者请求只能走 `shopfront -> gateway-service -> 业务服务`。
 - 控制面 worker 只能通过 Gateway 调用固定公开业务路径或固定内部目标路径。
 - 每个 Fault Run 只有 catalog 定义的目标和参数，Gateway 拒绝未知场景、任意 URL、批量目标和外部 patch。
-- Runner 使用生命周期账号；Sam（用户 ID 19）只属于 `TRAFFIC_EXERCISE_ACCOUNTS`，不进入正常 Runner。
+- Runner 使用生命周期账号；Sam（用户 ID 19）只属于 `TRAFFIC_SCENARIO_ACCOUNTS`，不进入正常 Runner。
 - MySQL 保存运行记录、事件和审计；Redis 保存 lease 与运行专属协调状态。
 - 所有日期和会话使用 `Asia/Shanghai` / `+08:00`。

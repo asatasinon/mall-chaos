@@ -2,7 +2,7 @@ package com.castrel.chaos.gateway.service;
 
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.security.JwtTokenService;
-import com.castrel.chaos.gateway.config.FaultRunDispatchProperties;
+import com.castrel.chaos.gateway.config.ScenarioDispatchProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -12,11 +12,11 @@ import java.util.Map;
 
 @Service
 public class FixedOperationDispatchService {
-    private final FaultRunDispatchProperties properties;
+    private final ScenarioDispatchProperties properties;
     private final WebClient webClient;
     private final JwtTokenService jwtTokenService;
 
-    public FixedOperationDispatchService(FaultRunDispatchProperties properties, WebClient.Builder builder,
+    public FixedOperationDispatchService(ScenarioDispatchProperties properties, WebClient.Builder builder,
                                          JwtTokenService jwtTokenService) {
         this.properties = properties;
         this.webClient = builder.build();
@@ -28,17 +28,17 @@ public class FixedOperationDispatchService {
         if (baseUrl == null || baseUrl.isBlank()) {
             return Mono.error(new IllegalArgumentException("Fixed operation target is not configured"));
         }
-        String runId = String.valueOf(context.get("faultRunId"));
+        String runId = String.valueOf(context.get("runId"));
         return webClient.post()
                 .uri(baseUrl + path)
                 .header("Content-Type", "application/json")
                 .header(TraceContext.TRACE_ID_HEADER, traceId == null ? "" : traceId)
-                .header("X-Fault-Run-Id", runId)
-                .header("X-Fault-Run-Expires-At", String.valueOf(context.get("expiresAt")))
-                .header("X-Fault-Run-Fencing-Token", String.valueOf(context.get("fencingToken")))
-                .header("X-Fault-Run-Idempotency-Key", String.valueOf(context.get("idempotencyKey")))
+                .header("X-Scenario-Run-Id", runId)
+                .header("X-Scenario-Run-Expires-At", String.valueOf(context.get("expiresAt")))
+                .header("X-Scenario-Run-Fencing-Token", String.valueOf(context.get("fencingToken")))
+                .header("X-Scenario-Run-Idempotency-Key", String.valueOf(context.get("idempotencyKey")))
                 .header("X-Downstream-Principal", jwtTokenService.issueDownstreamPrincipal(
-                        0L, runId, List.of("FAULT_RUN_CONTROL")))
+                    0L, runId, List.of("SCENARIO_CONTROL")))
                 .bodyValue(context)
                 .retrieve()
                 .bodyToMono(Object.class)

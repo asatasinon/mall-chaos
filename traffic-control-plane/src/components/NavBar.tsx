@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { LogOut } from 'lucide-react';
 
 const LINKS = [
-  { href: '/',       label: 'Exercises'     },
+  { href: '/',       label: 'Scenarios'      },
   { href: '/runner', label: 'Runner'     },
   { href: '/operations', label: 'Operations' },
   { href: '/alerts', label: 'Alerts'     },

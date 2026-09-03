@@ -1,13 +1,13 @@
 import type { FaultRunScenario } from './fault-run-catalog';
 
-export interface TrafficExerciseTarget {
+export interface TrafficScenarioTarget {
   scenario: Extract<FaultRunScenario, 'BROWSE_SURGE' | 'ORDER_QUERY_SURGE'>;
   path: string;
   customerSource: 'NONE' | 'RUNNER_PERSISTED_ACCOUNT_ORDER';
   excludesCustomerIds: readonly number[];
 }
 
-export const TRAFFIC_EXERCISE_TARGETS: Record<TrafficExerciseTarget['scenario'], TrafficExerciseTarget> = {
+export const TRAFFIC_SCENARIO_TARGETS: Record<TrafficScenarioTarget['scenario'], TrafficScenarioTarget> = {
   BROWSE_SURGE: {
     scenario: 'BROWSE_SURGE',
     path: '/api/products',
@@ -22,8 +22,8 @@ export const TRAFFIC_EXERCISE_TARGETS: Record<TrafficExerciseTarget['scenario'],
   },
 };
 
-export function getTrafficExerciseTarget(scenario: string): TrafficExerciseTarget {
-  const target = TRAFFIC_EXERCISE_TARGETS[scenario as TrafficExerciseTarget['scenario']];
-  if (!target) throw new Error('UNKNOWN_TRAFFIC_EXERCISE_TARGET');
+export function getTrafficScenarioTarget(scenario: string): TrafficScenarioTarget {
+  const target = TRAFFIC_SCENARIO_TARGETS[scenario as TrafficScenarioTarget['scenario']];
+  if (!target) throw new Error('UNKNOWN_TRAFFIC_SCENARIO_TARGET');
   return target;
 }

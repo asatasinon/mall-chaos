@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ControlledScenarioWorker, ScenarioRequestTimeoutError } from './controlled-exercise-worker';
+import { ControlledScenarioWorker, ScenarioRequestTimeoutError } from './controlled-scenario-worker';
 import type { FaultRunRecord } from '../lib/fault-run-repository';
 
 const run = {

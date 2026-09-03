@@ -12,8 +12,8 @@ export type ScenarioMeta = { label: string; description: string; icon: LucideIco
 export type ScenarioGroup = { label: string; scenarios: string[] };
 
 export const SCENARIO_META: Record<string, ScenarioMeta> = {
-  BROWSE_REPORT_SQL: { label: 'Browse report SQL', description: 'Exercise historical scans and query-plan differences on the product report path.', icon: DatabaseZap, tone: 'text-amber-700 dark:text-amber-300' },
-  ORDER_REPORT_SQL: { label: 'Order report SQL', description: 'Exercise the customer order report range and detail aggregation path.', icon: DatabaseZap, tone: 'text-amber-700 dark:text-amber-300' },
+  BROWSE_REPORT_SQL: { label: 'Browse report SQL', description: 'Run historical scans and query-plan comparisons on the product report path.', icon: DatabaseZap, tone: 'text-amber-700 dark:text-amber-300' },
+  ORDER_REPORT_SQL: { label: 'Order report SQL', description: 'Run the customer order report range and detail aggregation path.', icon: DatabaseZap, tone: 'text-amber-700 dark:text-amber-300' },
   BROWSE_SURGE: { label: 'Browse traffic surge', description: 'Sustain controlled concurrency against the real product API through Gateway.', icon: Flame, tone: 'text-orange-700 dark:text-orange-300' },
   ORDER_QUERY_SURGE: { label: 'Order query surge', description: 'Sustain compliant demo-customer traffic against the order query path.', icon: Flame, tone: 'text-orange-700 dark:text-orange-300' },
   CATALOG_REDIS_LARGE_VALUE: { label: 'Product detail Redis Hash', description: 'Create and read a bounded product-detail Hash through the real catalog API.', icon: DatabaseZap, tone: 'text-emerald-700 dark:text-emerald-300' },

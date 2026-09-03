@@ -23,14 +23,14 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
             "/internal/gateway/inventory/demo-stock/replenish",
             "/internal/gateway/inventory-reset/plan",
             "/internal/gateway/inventory-reset",
-            "/internal/gateway/fault-runs/start",
-            "/internal/gateway/fault-runs/stop",
-            "/internal/gateway/fault-runs/cleanup",
-            "/internal/gateway/fault-runs/cleanup-scenario",
+            "/internal/gateway/operations/prepare",
+            "/internal/gateway/operations/release",
+            "/internal/gateway/operations/cleanup",
+            "/internal/gateway/operations/cleanup-all",
             "/internal/gateway/inventory/availability",
             "/internal/gateway/inventory/reservations/summary",
             "/internal/gateway/promotion/consistency",
-            "/internal/gateway/fault-runs/restart-notification");
+            "/internal/gateway/notification/restart");
 
     private final String internalServiceKey;
 
@@ -68,10 +68,13 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
                     requestHeaders.remove("X-User-Role");
                     requestHeaders.remove("X-Auth-Actor");
                     requestHeaders.remove("X-Downstream-Principal");
-                    requestHeaders.remove("X-Fault-Run-Id");
-                    requestHeaders.remove("X-Fault-Run-Expires-At");
-                    requestHeaders.remove("X-Fault-Run-Fencing-Token");
-                    requestHeaders.remove("X-Fault-Run-Idempotency-Key");
+                    requestHeaders.remove("X-Scenario-Run-Id");
+                    requestHeaders.remove("X-Scenario-Run-Scenario");
+                    requestHeaders.remove("X-Scenario-Run-Operation");
+                    requestHeaders.remove("X-Scenario-Run-Operation-Id");
+                    requestHeaders.remove("X-Scenario-Run-Expires-At");
+                    requestHeaders.remove("X-Scenario-Run-Fencing-Token");
+                    requestHeaders.remove("X-Scenario-Run-Idempotency-Key");
                 }))
                 .build();
         return chain.filter(sanitized);
@@ -84,10 +87,13 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
                 || headers.containsKey("X-Traffic-Runner-Action")
                 || headers.containsKey("X-Traffic-Runner-Payment-Strategy")
                 || headers.containsKey("X-Downstream-Principal")
-                || headers.containsKey("X-Fault-Run-Id")
-                || headers.containsKey("X-Fault-Run-Expires-At")
-                || headers.containsKey("X-Fault-Run-Fencing-Token")
-                || headers.containsKey("X-Fault-Run-Idempotency-Key")
+                || headers.containsKey("X-Scenario-Run-Id")
+                || headers.containsKey("X-Scenario-Run-Scenario")
+                || headers.containsKey("X-Scenario-Run-Operation")
+                || headers.containsKey("X-Scenario-Run-Operation-Id")
+                || headers.containsKey("X-Scenario-Run-Expires-At")
+                || headers.containsKey("X-Scenario-Run-Fencing-Token")
+                || headers.containsKey("X-Scenario-Run-Idempotency-Key")
                 || headers.containsKey("X-User-Id")
                 || headers.containsKey("X-User-Role")
                 || headers.containsKey("X-Auth-Actor");

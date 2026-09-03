@@ -119,7 +119,7 @@ function AuditPanel({ audit }: { audit: NonNullable<FaultRunDetails['audit']> })
 }
 
 function EventRow({ event }: { event: Parameters<typeof summarizeFaultRunEvent>[0] }) {
-  const failed = event.eventType.includes('FAILED') || event.eventType === 'EXERCISE_REQUEST_FAILED';
+  const failed = event.eventType.includes('FAILED') || event.eventType === 'SCENARIO_REQUEST_FAILED';
   return <div className="flex gap-3 rounded-md border border-border/70 bg-background/20 px-3 py-2.5"><span className={`mt-0.5 ${failed ? 'text-destructive' : 'text-primary'}`}>{failed ? <XCircle className="size-4" /> : <CheckCircle2 className="size-4" />}</span><div className="min-w-0"><div className="flex flex-wrap items-center gap-x-2 gap-y-0.5"><p className="text-xs font-semibold tracking-wide">{event.eventType}</p><time className="text-[11px] text-muted-foreground" dateTime={event.createdAt}>{formatTime(event.createdAt)}</time></div><p className="mt-0.5 text-xs text-muted-foreground">{summarizeFaultRunEvent(event)}</p></div></div>;
 }
 

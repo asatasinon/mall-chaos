@@ -3,7 +3,7 @@ package com.castrel.chaos.catalog.cache;
 public class ProductDetailCacheMarker {
 
     private int schemaVersion;
-    private String faultRunId;
+    private String runId;
     private long fencingToken;
     private String hashKey;
     private String probeSku;
@@ -17,12 +17,12 @@ public class ProductDetailCacheMarker {
         this.schemaVersion = schemaVersion;
     }
 
-    public String getFaultRunId() {
-        return faultRunId;
+    public String getRunId() {
+        return runId;
     }
 
-    public void setFaultRunId(String faultRunId) {
-        this.faultRunId = faultRunId;
+    public void setRunId(String runId) {
+        this.runId = runId;
     }
 
     public long getFencingToken() {

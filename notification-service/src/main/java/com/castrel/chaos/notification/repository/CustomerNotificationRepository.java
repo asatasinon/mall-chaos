@@ -10,6 +10,6 @@ public interface CustomerNotificationRepository extends JpaRepository<CustomerNo
 
     boolean existsByCustomerIdAndEventId(Long customerId, String eventId);
 
-    long deleteByExerciseRunId(String exerciseRunId);
-    long deleteByExerciseRunIdIsNotNull();
+    long deleteByOperationRunId(String operationRunId);
+    long deleteByOperationRunIdIsNotNull();
 }

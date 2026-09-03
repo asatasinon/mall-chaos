@@ -18,25 +18,25 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class PspScenarioStateTest {
+class PspOutcomeStateTest {
 
     @Mock
     private ScenarioRunGuard runGuard;
 
-    private PspScenarioState state;
+    private PspOutcomeState state;
 
     @BeforeEach
     void setUp() {
-        state = new PspScenarioState(runGuard);
+        state = new PspOutcomeState(runGuard);
         when(runGuard.acceptStart(any())).thenReturn(true);
     }
 
     @Test
     void effectPercentageAppliesToOrdinaryAuthorizationsWithoutRunHeaders() {
-        state.start(context(), Map.of("providerOutcome", "TIMEOUT", "effectPercentage", 40));
+        state.prepare(context(), Map.of("providerOutcome", "TIMEOUT", "effectPercentage", 40));
 
         long timeouts = java.util.stream.IntStream.range(0, 10)
-            .filter(index -> "TIMEOUT".equals(state.authorize()))
+                .filter(index -> "TIMEOUT".equals(state.authorize()))
                 .count();
 
         assertThat(timeouts).isEqualTo(4);
@@ -44,7 +44,7 @@ class PspScenarioStateTest {
 
     @Test
     void effectPercentageMustBeAnIntegerBetweenZeroAndOneHundred() {
-        assertThatThrownBy(() -> state.start(context(), Map.of(
+        assertThatThrownBy(() -> state.prepare(context(), Map.of(
                 "providerOutcome", "TIMEOUT", "effectPercentage", 101)))
                 .isInstanceOf(com.castrel.chaos.common.BizException.class)
                 .hasMessage("effectPercentage must be an integer between 0 and 100");
@@ -52,6 +52,6 @@ class PspScenarioStateTest {
 
     private ScenarioRunContext context() {
         return new ScenarioRunContext(
-            UUID.randomUUID().toString(), Instant.now().plusSeconds(60), 1, "psp-test-run");
+                UUID.randomUUID().toString(), Instant.now().plusSeconds(60), 1, "psp-test-run");
     }
 }

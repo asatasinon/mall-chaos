@@ -144,12 +144,12 @@ CREATE TABLE IF NOT EXISTS runner_customer_whitelist (
     CONSTRAINT fk_runner_customer_user FOREIGN KEY (customer_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS traffic_exercise_accounts (
+CREATE TABLE IF NOT EXISTS traffic_scenario_accounts (
   customer_id BIGINT NOT NULL PRIMARY KEY,
   role       VARCHAR(32) NOT NULL,
   enabled    TINYINT NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_traffic_exercise_user FOREIGN KEY (customer_id) REFERENCES users(id)
+  CONSTRAINT fk_traffic_scenario_user FOREIGN KEY (customer_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
@@ -301,7 +301,7 @@ CREATE TABLE IF NOT EXISTS user_behavior_log (
   COMMENT='User behavior log';
 
 -- =============================================================================
--- Storage growth exercise records (written only by fixed target business services)
+-- Storage growth records (written only by fixed target business services)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS storage_growth_records (
     id                   BIGINT        NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -312,7 +312,7 @@ CREATE TABLE IF NOT EXISTS storage_growth_records (
     INDEX idx_storage_growth_run_id (run_id),
     INDEX idx_storage_growth_source_service (source_service)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-  COMMENT='Storage growth exercise records';
+  COMMENT='Storage growth records';
 
 -- =============================================================================
 -- Castrel Shopfront Version 1 contract tables
@@ -378,8 +378,6 @@ CREATE TABLE IF NOT EXISTS cart_items (
   cart_id    BIGINT       NOT NULL,
   sku        VARCHAR(32)  NOT NULL,
   quantity   INT          NOT NULL,
-  exercise_run_id CHAR(36),
-  exercise_operation_id VARCHAR(128),
   created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_cart_sku (cart_id, sku),
@@ -510,10 +508,10 @@ CREATE TABLE IF NOT EXISTS customer_notifications (
   is_read     TINYINT(1)   NOT NULL DEFAULT 0,
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   read_at     DATETIME,
-  exercise_run_id CHAR(36),
+  operation_run_id CHAR(36),
   UNIQUE KEY uq_customer_notification_event (customer_id, event_id),
   INDEX idx_customer_notifications (customer_id, is_read, created_at),
-  INDEX idx_customer_notifications_exercise (exercise_run_id)
+  INDEX idx_customer_notifications_operation (operation_run_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS traffic_runs (

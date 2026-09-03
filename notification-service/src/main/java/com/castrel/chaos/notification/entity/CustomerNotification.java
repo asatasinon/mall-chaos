@@ -28,6 +28,6 @@ public class CustomerNotification {
     private LocalDateTime createdAt;
     @Column(name = "read_at")
     private LocalDateTime readAt;
-    @Column(name = "exercise_run_id")
-    private String exerciseRunId;
+    @Column(name = "operation_run_id")
+    private String operationRunId;
 }

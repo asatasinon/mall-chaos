@@ -9,8 +9,8 @@ import { extractFaultRunTargetSummary } from '../lib/fault-run-repository';
 import {
   ScenarioRequestCacheError,
   ScenarioRequestTimeoutError,
-} from './controlled-exercise-worker';
-import { readCatalogProductDetail, ScenarioWorkers } from './scenario-exercise-workers';
+} from './controlled-scenario-worker';
+import { readCatalogProductDetail, ScenarioWorkers } from './scenario-workers';
 
 test('catalog reader returns the low-cardinality cache result from Gateway metadata', async () => {
   let requestedPath = '';

@@ -18,7 +18,7 @@ export class NotificationRestartBrokerError extends Error {
 }
 
 export async function restartNotificationService(input: {
-  faultRunId?: string;
+  runId?: string;
   fencingToken?: number;
   traceId: string;
 }): Promise<NotificationRestartResult> {
@@ -33,7 +33,7 @@ export async function restartNotificationService(input: {
         'X-Trace-Id': input.traceId,
       },
       body: JSON.stringify({
-        ...(input.faultRunId ? { faultRunId: input.faultRunId, fencingToken: input.fencingToken } : {}),
+        ...(input.runId ? { runId: input.runId, fencingToken: input.fencingToken } : {}),
       }),
       signal: controller.signal,
     });
