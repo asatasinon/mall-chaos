@@ -24,17 +24,18 @@
 
 ## 总体进度
 
-- **总体状态：** Phase B 已完成
-- **总体进度：** 11 / 29 个任务组（42 / 98 个子任务）
-- **当前阶段：** Phase C：`/runbook` 页面、目录与 Tempo 参数面板
-- **当前问题：** RB-001、RB-002、RB-003 已解决
-- **可能的解决方案：** Phase B 已完成；开始 RB-C1，将 catalog、Markdown loader 和双语文章接入 Server Component 页面
+- **总体状态：** Phase C 已完成
+- **总体进度：** 16 / 29 个任务组（58 / 98 个子任务）
+- **当前阶段：** Phase D：Mermaid 与 Markdown 展示体验
+- **当前问题：** RB-001、RB-002、RB-003、RB-004 已解决
+- **可能的解决方案：** Phase C 已完成；开始 RB-D1，接入 Mermaid 客户端渲染、严格安全配置和失败回退
 
 | 阶段 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
 | A | Runbook 领域模型与受控内容加载 | 已完成 | 5 / 5 | 无 |
 | B | 双语 Markdown 内容与证据准确性 | 已完成 | 6 / 6 | A |
-| C | `/runbook` 页面、目录与 Tempo 参数面板 | 待开始 | 0 / 5 | A、B |
+| C | `/runbook` 页面、目录与 Tempo 参数面板 | 已完成 | 5 / 5 | A、B |
+| D | Mermaid 与 Markdown 展示体验 | 待开始 | 0 / 4 | B、C |
 | D | Mermaid 与 Markdown 展示体验 | 待开始 | 0 / 4 | B、C |
 | E | 国际化、导航与 production 镜像打包 | 待开始 | 0 / 4 | C、D |
 | F | 自动化、构建与浏览器验收 | 待开始 | 0 / 5 | A 至 E |
@@ -182,49 +183,49 @@ graph TD
 
 **阶段目标：** 在既有认证和控制台壳层中提供只读手册工作区、场景目录、文章和可复制的静态 Tempo 参数。
 
-**阶段状态：** 待开始  
-**阶段进度：** 0 / 5 个任务组（0 / 16 个子任务）  
-**问题：** 暂无  
-**可能的解决方案：** 页面保持 server-first，只有剪贴板和 Mermaid 组件需要客户端边界
+**阶段状态：** 已完成
+**阶段进度：** 5 / 5 个任务组（16 / 16 个子任务）
+**问题：** RB-004 已解决；RB-001、RB-002、RB-003 已解决
+**可能的解决方案：** server-first 页面、目录、普通 Markdown、Tempo 参数面板和复制交互已完成；进入 Phase D Mermaid 实现
 
 ### RB-C1. Server page 与数据装配
 
-- [ ] 新增 `traffic-control-plane/src/app/runbook/page.tsx`，读取 `getLocale()` 与 `searchParams.scenario`。
-- [ ] 使用 Phase A 的 parser、entry 和 loader 装配页面数据；不读取运行记录、Grafana URL 或外部服务配置。
-- [ ] 对受控内容读取失败显示可本地化的页面错误状态，不暴露内部文件路径或原始错误细节。
+- [x] 新增 `traffic-control-plane/src/app/runbook/page.tsx`，读取 `getLocale()` 与 `searchParams.scenario`。
+- [x] 使用 Phase A 的 parser、entry 和 loader 装配页面数据；不读取运行记录、Grafana URL 或外部服务配置。
+- [x] 对受控内容读取失败显示可本地化的页面错误状态，不暴露内部文件路径或原始错误细节。
 
 **完成判据：** `/runbook` 可作为 Server Component 渲染默认场景和已知 query 场景。
 
 ### RB-C2. 场景目录与选择行为
 
-- [ ] 新增 `components/runbook/RunbookWorkspace.tsx`，复用 `SCENARIO_GROUPS` 和场景 translation key 组织目录。
-- [ ] 目录项使用 `/runbook?scenario=<SCENARIO_ID>` 内部链接，当前项具有 `aria-current="page"`。
-- [ ] 目录和文章标题显示稳定场景码，并从 catalog 显示固定服务和操作；未知 query 安全回退。
+- [x] 新增 `components/runbook/RunbookWorkspace.tsx`，复用 `SCENARIO_GROUPS` 和场景 translation key 组织目录。
+- [x] 目录项使用 `/runbook?scenario=<SCENARIO_ID>` 内部链接，当前项具有 `aria-current="page"`。
+- [x] 目录和文章标题显示稳定场景码，并从 catalog 显示固定服务和操作；未知 query 安全回退。
 
 **完成判据：** 12 个场景可导航，语言切换后 query 仍被保留，且 NavBar `/runbook` 状态无需改造动态路由判断。
 
 ### RB-C3. Article renderer 与普通代码块
 
-- [ ] 新增 `RunbookArticle.tsx`，使用 `react-markdown` 与 `remark-gfm` 渲染受控 Markdown。
-- [ ] 支持标题、列表、表格、引用、inline code 和 fenced code block；不安装或启用 `rehype-raw`。
-- [ ] 为非 Mermaid 的 SQL、TraceQL、JSON、shell 等代码块保留标准文本渲染、可选择性和横向滚动。
+- [x] 新增 `RunbookArticle.tsx`，使用 `react-markdown` 与 `remark-gfm` 渲染受控 Markdown。
+- [x] 支持标题、列表、表格、引用、inline code 和 fenced code block；不安装或启用 `rehype-raw`。
+- [x] 为非 Mermaid 的 SQL、TraceQL、JSON、shell 等代码块保留标准文本渲染、可选择性和横向滚动。
 
 **完成判据：** 受控文章不执行原始 HTML，普通代码不会被 Mermaid renderer 误处理。
 
 ### RB-C4. Tempo 参数面板
 
-- [ ] 显示 allowlisted OTel 服务、route/业务路径、建议时间范围、服务/错误/慢请求查询和 waterfall 检查点。
-- [ ] 多服务场景按服务分别列出查询，避免不明确的合并语法。
-- [ ] 明示服务查询是起点，route 属性需按实际 trace 确认；业务 envelope error、慢请求和进程退出需结合其他证据判断。
-- [ ] 不添加 Grafana/Tempo 链接、URL 输入、重定向、trace ID 输入或运行 ID 查询功能。
+- [x] 显示 allowlisted OTel 服务、route/业务路径、建议时间范围、服务/错误/慢请求查询和 waterfall 检查点。
+- [x] 多服务场景按服务分别列出查询，避免不明确的合并语法。
+- [x] 明示服务查询是起点，route 属性需按实际 trace 确认；业务 envelope error、慢请求和进程退出需结合其他证据判断。
+- [x] 不添加 Grafana/Tempo 链接、URL 输入、重定向、trace ID 输入或运行 ID 查询功能。
 
 **完成判据：** 面板内容完全来自 typed metadata，无用户可编辑/可注入的查询字段。
 
 ### RB-C5. 剪贴板交互与错误回退
 
-- [ ] 新增 `CopyTextButton.tsx`，优先使用 `navigator.clipboard.writeText` 复制 metadata 派生的文本。
-- [ ] 使用受限浏览器回退处理 clipboard API 不可用的情况，不复制 HTML 或任意用户输入。
-- [ ] 使用 lucide `Copy` / `Check` 图标、本地化 `aria-label`、`title` 和短暂成功/失败反馈。
+- [x] 新增 `CopyTextButton.tsx`，优先使用 `navigator.clipboard.writeText` 复制 metadata 派生的文本。
+- [x] 使用受限浏览器回退处理 clipboard API 不可用的情况，不复制 HTML 或任意用户输入。
+- [x] 使用 lucide `Copy` / `Check` 图标、本地化 `aria-label`、`title` 和短暂成功/失败反馈。
 
 **完成判据：** 每个 Tempo 参数可复制，权限拒绝或旧浏览器不导致页面崩溃。
 
@@ -377,6 +378,7 @@ graph TD
 | RB-001 | 建立清单后统计复核 | 初始总数把“完成标准”复选框计入阶段子任务，导致 103 与任务组内实际 98 不一致。 | 可能造成后续进度汇报失真。 | 按 Phase A-F 任务组内复选项重新统计，修正为 98 个子任务；完成标准继续单独验收。 | 已解决 |
 | RB-002 | Phase B 前置核验 / RB-B2、RB-B5 | Inventory 两个观测接口实际使用 `POST`，而产品/技术设计和 Phase A metadata 曾写为 `GET`。 | 若不修正，文章和 Tempo route 说明会给出错误调用方法。 | 已按 `InventoryAvailabilityController`、`InventoryReservationController` 和 Gateway dispatch 修正为 `POST`；文章统一使用修正后的方法。 | 已解决 |
 | RB-003 | Phase B / 首批文章验证 | Phase A 的缺失文章测试使用了 `BROWSE_REPORT_SQL` 作为缺失 fixture；Phase B 创建该文章后，测试断言失效。 | `pnpm test:runbook` 在内容已正确存在时错误失败，阻断后续文章验证。 | 将断言改为验证 allowlisted Markdown 成功读取和不泄露服务器路径；非法 locale 测试继续覆盖 loader 错误分支。 | 已解决 |
+| RB-004 | Phase C / RB-C5 | 复制按钮初版通过点击后的 `activeElement` 反查查询容器，焦点已经落在按钮上时无法取得查询文本，复制必然失败。 | Tempo 查询参数无法复制，影响排障操作。 | 将查询文本作为 `CopyTextButton` 的显式 `value` prop 传入，保留 Clipboard API 和受限 fallback；lint 与 focused test 通过。 | 已解决 |
 
 ## 阶段更新记录
 
@@ -393,6 +395,9 @@ graph TD
 | 2026-09-03 | Phase B 前置事实复核 | 5 / 29（19 / 98 子任务） | B：0 / 6（0 / 23 子任务） | RB-002 已解决；RB-001 已解决 | Inventory 观测接口已统一为 `POST`，文章按当前 Controller 和 Gateway 实现编写 |
 | 2026-09-03 | 修正 RB-003 测试夹具 | 5 / 29（19 / 98 子任务） | B：0 / 6（0 / 23 子任务） | RB-003 已解决；RB-002、RB-001 已解决 | 缺失 fixture 改为稳定的成功读取断言，继续验证首批双语文章 |
 | 2026-09-03 | 完成 Phase B / RB-B1 至 RB-B6 | 11 / 29（42 / 98 子任务） | B：6 / 6（23 / 23 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 24 篇文章、精确章节、Mermaid 围栏和 metadata allowlist 测试通过；开始 Phase C 页面实现 |
+| 2026-09-04 | 开始 Phase C / RB-C1 至 RB-C5 | 11 / 29（42 / 98 子任务） | C：0 / 5（0 / 16 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 实现 server-first `/runbook` 页面、目录、Markdown、Tempo 参数面板和复制组件 |
+| 2026-09-04 | 完成 Phase C / RB-C1 至 RB-C5 | 16 / 29（58 / 98 子任务） | C：5 / 5（16 / 16 子任务） | RB-001、RB-002、RB-003、RB-004 已解决；无新增问题 | `test:runbook` 11/11、`test:i18n` 15/15、typecheck、lint 通过；开始 Phase D Mermaid 实现 |
+| 2026-09-04 | 开始 Phase C / RB-C1 至 RB-C5 | 11 / 29（42 / 98 子任务） | C：0 / 5（0 / 16 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 实现 server-first `/runbook` 页面、目录、Markdown、Tempo 参数面板和复制组件 |
 
 ## 完成标准
 

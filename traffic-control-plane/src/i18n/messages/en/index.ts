@@ -7,6 +7,7 @@ import Runner from './Runner.json';
 import Operations from './Operations.json';
 import Alerts from './Alerts.json';
 import Accessibility from './Accessibility.json';
+import Runbook from './Runbook.json';
 
 const messages = {
   Common,
@@ -18,6 +19,7 @@ const messages = {
   Operations,
   Alerts,
   Accessibility,
+  Runbook,
 };
 
 export default messages;

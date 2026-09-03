@@ -166,6 +166,7 @@ test('all bilingual articles are complete, paired, and use balanced Mermaid fenc
       const markdown = await loadRunbookMarkdown(locale, entry.scenario);
       assert.ok(markdown.trim().length > 0, `${locale}:${entry.scenario}`);
       assert.match(markdown, new RegExp(entry.scenario, 'u'), `${locale}:${entry.scenario}`);
+      assert.match(markdown, new RegExp(entry.targetService.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'u'), `${locale}:${entry.scenario}`);
       for (const heading of REQUIRED_ARTICLE_HEADINGS[locale]) {
         assert.equal(markdown.includes(`## ${heading}`), true, `${locale}:${entry.scenario}:${heading}`);
       }
