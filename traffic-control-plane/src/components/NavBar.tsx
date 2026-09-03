@@ -1,14 +1,14 @@
 'use client';
 
-import { useFormatter, useTranslations } from 'next-intl';
+import { useTranslations } from 'next-intl';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { LogOut } from 'lucide-react';
+import { formatNavigationDateTime } from './runner/utils';
 
 export default function NavBar() {
   const path = usePathname();
   const router = useRouter();
-  const format = useFormatter();
   const t = useTranslations('Navigation');
   const [time, setTime] = useState('');
   const links = [
@@ -19,11 +19,11 @@ export default function NavBar() {
   ];
 
   useEffect(() => {
-    const tick = () => setTime(format.dateTime(new Date(), 'compact'));
+    const tick = () => setTime(formatNavigationDateTime(new Date()));
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [format]);
+  }, []);
 
   return (
     <nav className="flex min-w-0 flex-1 items-stretch">

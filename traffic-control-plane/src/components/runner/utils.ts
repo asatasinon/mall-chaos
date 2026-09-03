@@ -1,5 +1,21 @@
 import { APP_TIME_ZONE } from '@/i18n/config';
 
+export function formatNavigationDateTime(value: Date): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+    timeZone: APP_TIME_ZONE,
+  }).formatToParts(value);
+  const getPart = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+
+  return `${getPart('year')}-${getPart('month')}-${getPart('day')} ${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
+}
+
 export function formatTimestamp(value: string | null | undefined, locale = 'en', fallback = '—'): string {
   return value ? new Intl.DateTimeFormat(locale, {
     dateStyle: 'short',

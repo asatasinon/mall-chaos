@@ -1,6 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatBytes, formatNumber, formatTimestamp, todayInShanghaiClient } from './utils';
+import {
+  formatBytes,
+  formatNavigationDateTime,
+  formatNumber,
+  formatTimestamp,
+  todayInShanghaiClient,
+} from './utils';
+
+test('formats navigation dates as yyyy-MM-dd HH:mm:ss in Shanghai time', () => {
+  assert.equal(
+    formatNavigationDateTime(new Date('2026-09-02T16:30:00.000Z')),
+    '2026-09-03 00:30:00',
+  );
+  assert.match(
+    formatNavigationDateTime(new Date('2026-01-02T03:04:05.000Z')),
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
+  );
+});
 
 test('formats dates with locale and Shanghai timezone semantics', () => {
   const value = '2026-09-02T16:30:00.000Z';
