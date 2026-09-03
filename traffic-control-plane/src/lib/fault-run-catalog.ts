@@ -196,8 +196,8 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     recoveryStrategy: 'MANUAL_CLEANUP',
     allowManualCleanup: true,
     parameters: [duration, requestInterval,
-      { name: 'totalBytes', kind: 'integer', unit: 'bytes', default: '1M', min: 1024, max: 1073741824 },
-      { name: 'appendBytes', kind: 'integer', unit: 'bytes', default: '8K', min: 1, max: 1048576 },
+      { name: 'totalBytes', kind: 'integer', unit: 'bytes', default: '10G', min: 1024 },
+      { name: 'appendBytes', kind: 'integer', unit: 'bytes', default: '16M', min: 1, max: 64 * 1024 * 1024 },
       { name: 'minFreeBytes', kind: 'integer', unit: 'bytes', default: '1M', min: 1, max: 1073741824 }],
   },
   PROMOTION_LOCK_CONTENTION: {

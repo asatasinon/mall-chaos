@@ -72,13 +72,13 @@ test('catalog normalizes short and full byte units', () => {
   );
   assert.deepEqual(
     validateScenarioParameters('NOTIFICATION_STORAGE_APPEND', {
-      durationSec: 30, totalBytes: '1g', appendBytes: '20k', minFreeBytes: '50mB',
+      durationSec: 30, totalBytes: 2 * 1024 ** 3, appendBytes: '64M', minFreeBytes: '50mB',
     }),
     {
       durationSec: 30,
       requestIntervalMs: 100,
-      totalBytes: 1024 ** 3,
-      appendBytes: 20 * 1024,
+      totalBytes: 2 * 1024 ** 3,
+      appendBytes: 64 * 1024 ** 2,
       minFreeBytes: 50 * 1024 ** 2,
     },
   );
@@ -87,10 +87,17 @@ test('catalog normalizes short and full byte units', () => {
     {
       durationSec: 30,
       requestIntervalMs: 100,
-      totalBytes: 1024 ** 2,
-      appendBytes: 8 * 1024,
+      totalBytes: 10 * 1024 ** 3,
+      appendBytes: 16 * 1024 ** 2,
       minFreeBytes: 1024 ** 2,
     },
+  );
+  assert.throws(
+    () => validateScenarioParameters('NOTIFICATION_STORAGE_APPEND', {
+      durationSec: 30, appendBytes: 64 * 1024 ** 2 + 1,
+    }),
+    (error: unknown) => error instanceof FaultRunValidationError
+      && error.message === 'INVALID_PARAMETER:appendBytes',
   );
 });
 

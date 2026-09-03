@@ -18,8 +18,8 @@ public class NotificationExerciseState {
     private volatile ScenarioRunContext storageRun;
     private volatile long requestIntervalMs = 100;
     private volatile int retainedBytesPerNotification = 1024 * 1024;
-    private volatile long totalStorageBytes = 16L * 1024 * 1024;
-    private volatile long appendBytes = 1024;
+    private volatile long totalStorageBytes = 10L * 1024 * 1024 * 1024;
+    private volatile long appendBytes = 16L * 1024 * 1024;
     private volatile long minFreeBytes = 1;
     private volatile long lastRetainedAt;
     private volatile long lastAppendedAt;
@@ -44,8 +44,8 @@ public class NotificationExerciseState {
             if (storageRun != null && storageRun.runId().equals(context.runId())) return;
             storageRun = context;
             requestIntervalMs = bounded(parameters, "requestIntervalMs", 100, 0, 60000);
-            totalStorageBytes = bounded(parameters, "totalBytes", 16L * 1024 * 1024, 1024, 1073741824);
-            appendBytes = bounded(parameters, "appendBytes", 1024, 1, 1048576);
+            totalStorageBytes = bounded(parameters, "totalBytes", 10L * 1024 * 1024 * 1024, 1024, Long.MAX_VALUE);
+            appendBytes = bounded(parameters, "appendBytes", 16L * 1024 * 1024, 1, 64L * 1024 * 1024);
             minFreeBytes = bounded(parameters, "minFreeBytes", 1, 1, 1073741824);
             storageBytes.set(0);
             guard.registerCleanup(context, () -> storageRun = null);
