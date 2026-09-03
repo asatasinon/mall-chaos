@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-Castrel Chaos is an e-commerce microservices platform purpose-built for **chaos engineering training**. It generates realistic business traffic and supports injecting network faults, JVM memory leaks, slow SQL, and database deadlocks — all observable through a full Prometheus/Alertmanager/Grafana/Loki/Tempo stack.
+Castrel Chaos is an e-commerce microservices platform purpose-built for **chaos engineering training**. It drives real business HTTP, SQL, Redis, JVM, storage, locking, and PSP behavior through a full Prometheus/Alertmanager/Grafana/Loki/Tempo stack; it is not a synthetic latency or error-response simulator.
 
-Before implementing any feature, read the relevant task spec in `_docs/tasks/` and check `_docs/tasks/README.md` for the task dependency graph. The canonical architecture and chaos design is in `_docs/plans/chaos-v2.md`.
+Before implementing a feature, read `product.md` and `task-list.md` in the relevant `_docs/<area>/` directory and use that task list's dependency section. The control-plane baseline is [_docs/chaos-inject-plane/product.md](_docs/chaos-inject-plane/product.md) and [_docs/chaos-inject-plane/tech.md](_docs/chaos-inject-plane/tech.md).
 
 ## Build Commands
 
@@ -61,7 +61,7 @@ traffic-control-plane → gateway-service → all business services
 
 11 Spring Boot modules share a parent POM plus one `common` module. All scenario control flows through `traffic-control-plane → gateway-service → one fixed target operation`.
 
-The **gateway-service** only dispatches catalog-defined scenarios to their fixed target operations. Slow SQL scenarios exercise the public catalog and order report paths through sustained Gateway requests.
+Only `traffic-control-plane` owns the catalog, run lifecycle, operator audit, and recovery semantics. The **gateway-service** reaches only the fixed business operations selected by that control plane; Gateway and target services must not expose catalog or run terminology. Slow SQL runs exercise the public catalog and order report paths through sustained Gateway requests.
 
 ## Module: `common`
 
@@ -75,20 +75,24 @@ Shared components auto-configured via `ServiceComponentAutoConfiguration` — **
 | `BizException` | Business errors with `errorCode` |
 | `TraceContext` | traceId propagation |
 | `DistributedLockService` | Redis-backed distributed lock |
-| `DataAuditService` | Table-lock injection (`LOCK TABLES ... WRITE`) disguised as data audit |
-| `LocalQueryCacheManager` | Memory leak via unbounded cache growth |
+| `DataAuditService` | JDBC-session-scoped table-lock lifecycle |
+| `LocalQueryCacheManager` | Local query-cache state |
 
 ## Key Conventions
 
-### Scenario Rules
+### Realism, Catalog, and Exposure Rules
 - Every scenario is catalog-defined, targets one fixed operation, and carries a server-validated `durationSec`
-- Slow SQL uses real catalog/order report SQL and sustained public requests, not auxiliary JOIN injection
-- Table locking uses a dedicated Inventory target operation and a JDBC session-owned `LOCK TABLES inventories WRITE`
+- Every observable effect must arise from a real business HTTP, SQL, Redis, JVM, storage, lock, or PSP path. Do not use `SLEEP()`, fabricated latency, controller-returned fake failures, random fake results, or purpose-built demo responses as the effect.
+- Slow SQL uses real catalog/order report SQL and sustained public requests, not auxiliary JOIN injection. Table locking uses a dedicated Inventory operation and a JDBC session-owned `LOCK TABLES inventories WRITE`.
+- `traffic-control-plane` is the repository's control panel and the sole location allowed to use Fault Run terminology, catalog scenario IDs, scenario display names, or descriptions of fault injection/exercises.
+- Outside `traffic-control-plane`, runtime source must not use those terms in routes, Endpoint names, controllers, classes, methods, DTOs, parameter names, error codes/messages, exception types/messages, logs, metric labels, trace attributes, comments, or configuration keys. Keep target-side names and behaviors business-semantic.
+- Do not expose a scenario ID, control-plane lifecycle state, or an exercise-specific field in consumer-facing requests, responses, headers, errors, logs, metrics, or traces. When internal correlation is necessary, use opaque technical context with no exercise semantics.
+- Client error handling must return the normal business envelope without raw stacks. Exception classes, methods, and messages outside the control plane must remain business-named so a user cannot infer an injected condition from an interface, error detail, or stack trace.
 
 ### Critical Invariants
 - Runner config updates require a `version` field (optimistic lock protection)
 - Inventory reset requires `expectedVersion` + distributed Redis lock
-- All chaos beans auto-disable after `durationSec` elapses
+- All target-side controlled resources expire or stop after `durationSec`; notification heap retention is the documented non-releasing exception
 - All business HTTP calls from traffic-control-plane must go through gateway-service
 
 ### application.yml Baseline
@@ -148,8 +152,15 @@ All logs are structured JSON with `traceId`, collected by Promtail → Loki.
 curl http://localhost:18080/actuator/health
 curl http://localhost:13086/internal/traffic/runner/status   # should show running=true
 
-# Run the 7-scenario interactive chaos verification
-./scripts/chaos/chaos-verify.sh
+# Run the maintained catalog product-detail smoke test
+./scripts/catalog-product-detail-smoke.sh
+
+# Verify that runtime source outside the control plane does not leak catalog terminology
+if rg -n -i --glob '!**/target/**' --glob '!traffic-control-plane/**' --glob '**/src/**' \
+  '故障注入|故障演练|故障场景|fault[ -]?injection|fault[ -]?exercise|chaos[ -]?scenario|fault[ -]?run|faultRunId|BROWSE_REPORT_SQL|ORDER_REPORT_SQL|BROWSE_SURGE|ORDER_QUERY_SURGE|CATALOG_REDIS_LARGE_VALUE|CART_CATALOG_DEPENDENCY|NOTIFICATION_HEAP_PRESSURE|NOTIFICATION_STORAGE_APPEND|PROMOTION_LOCK_CONTENTION|INVENTORY_TABLE_EXCLUSIVE|INVENTORY_ROW_LOCK|PSP_PROVIDER_OUTCOME' .; then
+  echo 'Control-plane terminology leaked into runtime source.' >&2
+  exit 1
+fi
 ```
 
 

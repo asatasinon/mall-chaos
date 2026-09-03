@@ -1,32 +1,49 @@
 # Castrel Chaos
 
-Castrel Chaos 是面向 SRE 培训的电商微服务平台。它通过真实业务请求、SQL、Redis、JVM、MySQL 锁和独立支付提供方，构造可观察、可恢复的 Fault Run 演练。
+Castrel Chaos 是面向 SRE 培训的电商微服务平台。它通过真实业务请求、SQL、Redis、JVM、存储、MySQL 锁和独立支付提供方，构造可观察、可恢复的业务异常演练；不以伪造延迟、伪造业务结果或 Controller 直返失败代替真实行为。
 
 ## 架构
 
 ```text
 消费者浏览器 -> shopfront:13090 -> gateway-service:18080 -> 业务服务
 运营浏览器   -> traffic-control-plane:13086
-                 |-> Fault Run API / Runner / 控制台
-                 |-> gateway-service（固定场景分发）
+                 |-> 受保护的运行控制 API / Runner / 控制台
+                 |-> gateway-service（固定业务操作）
                  |-> MySQL / Redis（运行记录与租约）
                  `-> notification-restart-broker（固定通知服务重启）
 ```
 
 控制面和 worker 不直连业务服务、PSP 或业务数据库表。业务请求必须经过 Gateway，运行记录和事件只写控制面数据表。消费者路径无法访问 `/internal/**` 运营入口。
 
-## 固定场景
+`traffic-control-plane` 是唯一持有场景 catalog、运行生命周期、运营审计和恢复控制语义的模块；其余运行时服务只保留自然的业务语义。场景 catalog 的权威实现是 [traffic-control-plane/src/lib/fault-run-catalog.ts](traffic-control-plane/src/lib/fault-run-catalog.ts)。
 
-控制台从唯一场景 catalog 渲染 11 个场景：
+## 受控场景
 
-- 商品浏览慢报表、订单查询慢报表
-- 商品浏览流量突增、订单查询流量突增
-- 购物车 Redis 大值读取、加购目录依赖失败
-- 通知内存压力、通知存储追加
-- 优惠券预留竞争、库存表独占锁
-- PSP 提供方拒付或超时
+控制台从唯一 catalog 渲染以下 12 个固定场景。每项的效果都来自列出的真实业务路径和资源行为：
+
+| 类别 | 场景 | 固定业务位置与真实行为 |
+| --- | --- | --- |
+| 报表 | 商品浏览慢 SQL | Catalog 商品浏览报表扫描历史行为数据。 |
+| 报表 | 订单报表慢 SQL | Order 客户订单报表查询历史订单并读取明细。 |
+| 流量 | 浏览流量突增 | Runner 经 Gateway 持续调用公开商品浏览 API。 |
+| 流量 | 订单查询突增 | Runner 经 Gateway 以合规演示客户持续调用订单查询 API。 |
+| 缓存 | 商品详情 Redis Hash | Catalog 商品详情 API 读取运行级 Hash 中的真实 Redis 大值。 |
+| 依赖 | 购物车依赖失败 | 加购前的 Cart-to-Catalog 商品校验真实失败，写入前终止。 |
+| JVM | JVM 内存泄漏 | Notification 保留高基数对象，允许 JVM 堆自然耗尽。 |
+| 存储 | 通知存储增长 | Notification 持久化事务追加受限、可识别的数据量。 |
+| 数据库 | 促销死锁 | 优惠券预留和过期清理以相反锁顺序运行真实事务。 |
+| 数据库 | 库存表锁 | 专用连接持有 `inventories` 表写锁，库存读取实际阻塞。 |
+| 数据库 | 库存行锁 | 专用事务对固定库存记录执行 `SELECT ... FOR UPDATE`，预留摘要实际等待。 |
+| 外部依赖 | PSP 外部依赖 | Payment 调用独立 PSP，按授权、拒付或超时得到真实远程结果。 |
 
 全环境同时只允许一条 `CREATING`、`ACTIVE` 或 `RECOVERING` 运行。每次运行带 `faultRunId`、`expiresAt`、单调 `fencingToken`、确认和幂等键。控制台展示活动锁、倒计时、运行事件、停止结果和恢复结果。
+
+## 真实性与术语隔离
+
+- 所有场景必须通过真实业务 HTTP、SQL、Redis、JVM、存储、锁或 PSP 调用产生可观察效果。禁止以 `SLEEP()`、伪造延迟、Controller 直接伪造业务失败、随机假结果或专用演示返回值模拟结果。
+- 除 `traffic-control-plane` 外，运行时源码不得出现“故障注入”“故障演练”“故障场景”及同义说明，也不得包含 catalog 场景 ID 或展示名称。该限制覆盖 Gateway、业务服务、`common` 和 `psp-simulator` 的路由、Endpoint、类/方法、DTO、参数、错误码、日志、指标、trace 属性、注释和配置键。
+- 非控制面服务如需关联一次受控运行，只能使用不带演练语义的内部关联信息；不得把场景名、控制状态或运营字段放入消费者请求、响应、Header、异常或可观测性数据。
+- 面向消费者的接口必须保持正常业务语义，并统一转换异常而不返回原始堆栈。异常类、方法与消息也必须采用业务命名，使用户无法从接口、错误详情或堆栈判断异常由演练触发。
 
 ## 本地启动
 
