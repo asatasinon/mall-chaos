@@ -17,7 +17,19 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Optional<Order> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey);
 
-    List<Order> findAllByUserIdOrderByCreatedAtDesc(Long userId);
+    @Query(value = """
+            SELECT o.*
+            FROM orders o
+            WHERE o.user_id = :userId
+            ORDER BY (
+                SELECT COUNT(*)
+                FROM orders prior
+                WHERE prior.user_id = o.user_id
+                  AND (prior.created_at > o.created_at
+                       OR (prior.created_at = o.created_at AND prior.id > o.id))
+            ), o.created_at DESC, o.id DESC
+            """, nativeQuery = true)
+    List<Order> findAllByUserIdOrderByHistoricalPosition(@Param("userId") Long userId);
 
     Page<Order> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
