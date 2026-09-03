@@ -12,8 +12,8 @@ export type ScenarioMeta = { label: string; description: string; icon: LucideIco
 export type ScenarioGroup = { label: string; scenarios: string[] };
 
 export const SCENARIO_META: Record<string, ScenarioMeta> = {
-  BROWSE_REPORT_SQL: { label: 'Browse report SQL', description: 'Run historical scans and query-plan comparisons on the product report path.', icon: DatabaseZap, tone: 'text-amber-700 dark:text-amber-300' },
-  ORDER_REPORT_SQL: { label: 'Order report SQL', description: 'Run the customer order report range and detail aggregation path.', icon: DatabaseZap, tone: 'text-amber-700 dark:text-amber-300' },
+  BROWSE_REPORT_SQL: { label: 'Product browse slow SQL', description: 'Run historical scans and query-plan comparisons on the product report path.', icon: DatabaseZap, tone: 'text-amber-700 dark:text-amber-300' },
+  ORDER_REPORT_SQL: { label: 'Order report slow SQL', description: 'Run the customer order report range and detail aggregation path.', icon: DatabaseZap, tone: 'text-amber-700 dark:text-amber-300' },
   BROWSE_SURGE: { label: 'Browse traffic surge', description: 'Sustain controlled concurrency against the real product API through Gateway.', icon: Flame, tone: 'text-orange-700 dark:text-orange-300' },
   ORDER_QUERY_SURGE: { label: 'Order query surge', description: 'Sustain compliant demo-customer traffic against the order query path.', icon: Flame, tone: 'text-orange-700 dark:text-orange-300' },
   CATALOG_REDIS_LARGE_VALUE: { label: 'Product detail Redis Hash', description: 'Create and read a bounded product-detail Hash through the real catalog API.', icon: DatabaseZap, tone: 'text-emerald-700 dark:text-emerald-300' },
@@ -31,14 +31,12 @@ export function getScenarioLabel(scenario: string) {
 }
 
 export const SCENARIO_GROUPS: ScenarioGroup[] = [
-  { label: 'Slow SQL', scenarios: ['BROWSE_REPORT_SQL', 'ORDER_REPORT_SQL'] },
-  { label: 'Traffic surge', scenarios: ['BROWSE_SURGE', 'ORDER_QUERY_SURGE'] },
-  { label: 'Large value', scenarios: ['CATALOG_REDIS_LARGE_VALUE'] },
-  { label: 'Dependency failure', scenarios: ['CART_CATALOG_DEPENDENCY'] },
-  { label: 'Memory leak', scenarios: ['NOTIFICATION_HEAP_PRESSURE'] },
-  { label: 'Storage growth', scenarios: ['NOTIFICATION_STORAGE_APPEND'] },
-  { label: 'Lock', scenarios: ['PROMOTION_LOCK_CONTENTION', 'INVENTORY_TABLE_EXCLUSIVE', 'INVENTORY_ROW_LOCK'] },
-  { label: 'External dependency', scenarios: ['PSP_PROVIDER_OUTCOME'] },
+  { label: 'Database faults', scenarios: ['BROWSE_REPORT_SQL', 'ORDER_REPORT_SQL', 'PROMOTION_LOCK_CONTENTION', 'INVENTORY_TABLE_EXCLUSIVE', 'INVENTORY_ROW_LOCK'] },
+  { label: 'Traffic load', scenarios: ['BROWSE_SURGE', 'ORDER_QUERY_SURGE'] },
+  { label: 'Cache faults', scenarios: ['CATALOG_REDIS_LARGE_VALUE'] },
+  { label: 'Business dependency failures', scenarios: ['CART_CATALOG_DEPENDENCY', 'PSP_PROVIDER_OUTCOME'] },
+  { label: 'JVM faults', scenarios: ['NOTIFICATION_HEAP_PRESSURE'] },
+  { label: 'Storage pressure', scenarios: ['NOTIFICATION_STORAGE_APPEND'] },
 ];
 
 export const ACTIVE_STATES = ['CREATING', 'ACTIVE', 'RECOVERING'];
