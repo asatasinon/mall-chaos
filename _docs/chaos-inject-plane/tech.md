@@ -82,8 +82,8 @@ flowchart LR
 | --- | --- | --- |
 | `BROWSE_REPORT_SQL` | catalog-service | 启停商品报表持续调用的目标侧状态/状态查询。 |
 | `ORDER_REPORT_SQL` | order-service | 启停订单报表持续调用的目标侧状态/状态查询。 |
-| `BROWSE_SURGE` | traffic-control-plane worker | 不需要业务服务控制；worker 经 Gateway 调用公开 API。 |
-| `ORDER_QUERY_SURGE` | traffic-control-plane worker | 同上。 |
+| `BROWSE_SURGE` | catalog-service | traffic-control-plane worker 经 Gateway 调用公开商品 API。 |
+| `ORDER_QUERY_SURGE` | order-service | traffic-control-plane worker 经 Gateway 调用公开订单 API。 |
 | `CATALOG_REDIS_LARGE_VALUE` | catalog-service | 建立、读取、清理运行级商品详情 Hash；由控制面持续调用公开商品详情 API。 |
 | `CART_CATALOG_DEPENDENCY` | catalog-service | 控制 Cart 商品校验依赖的暂态响应。 |
 | `NOTIFICATION_HEAP_PRESSURE` | notification-service | 通知保留路径的运行状态。 |

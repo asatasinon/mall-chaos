@@ -45,13 +45,17 @@ export class SqlFaultRunStore implements FaultRunStore {
 
 export class GatewayFaultRunTargetAdapter implements FaultRunTargetAdapter {
   async start(run: FaultRunRecord): Promise<unknown> {
-    if (run.targetService === 'traffic-control-plane') return { accepted: true, target: 'worker' };
+    if (run.scenario === 'BROWSE_SURGE' || run.scenario === 'ORDER_QUERY_SURGE') {
+      return { accepted: true, target: 'worker' };
+    }
     return getGatewayClient().postInternal(
       '/internal/gateway/operations/prepare', toGatewayPayload(run), run.traceId ?? undefined);
   }
 
   async stop(run: FaultRunRecord): Promise<unknown> {
-    if (run.targetService === 'traffic-control-plane') return { stopped: true, target: 'worker' };
+    if (run.scenario === 'BROWSE_SURGE' || run.scenario === 'ORDER_QUERY_SURGE') {
+      return { stopped: true, target: 'worker' };
+    }
     return getGatewayClient().postInternal(
       '/internal/gateway/operations/release',
       toGatewayPayload(run),

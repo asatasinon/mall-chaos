@@ -233,7 +233,7 @@
     },
     "concurrency": {
       "label": "Concurrency",
-      "description": "1-32 concurrent requests."
+      "description": "1 or more concurrent requests; no upper limit."
     },
     "requestIntervalMs": {
       "label": "Request interval",

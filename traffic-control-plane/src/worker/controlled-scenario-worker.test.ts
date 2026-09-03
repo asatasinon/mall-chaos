@@ -6,7 +6,7 @@ import type { FaultRunRecord } from '../lib/fault-run-repository';
 const run = {
   faultRunId: '123e4567-e89b-12d3-a456-426614174000',
   scenario: 'BROWSE_SURGE',
-  targetService: 'traffic-control-plane',
+  targetService: 'catalog-service',
   targetOperation: 'browse-api-worker',
   state: 'ACTIVE',
   parameters: { durationSec: 1 },

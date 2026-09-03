@@ -139,7 +139,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   BROWSE_SURGE: {
     scenario: 'BROWSE_SURGE',
-    targetService: 'traffic-control-plane',
+    targetService: 'catalog-service',
     targetOperation: 'browse-api-worker',
     maxDurationSec: 1800,
     recoveryStrategy: 'WORKER',
@@ -149,7 +149,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   ORDER_QUERY_SURGE: {
     scenario: 'ORDER_QUERY_SURGE',
-    targetService: 'traffic-control-plane',
+    targetService: 'order-service',
     targetOperation: 'order-query-worker',
     maxDurationSec: 1800,
     recoveryStrategy: 'WORKER',

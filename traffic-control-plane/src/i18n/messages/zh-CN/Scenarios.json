@@ -233,7 +233,7 @@
     },
     "concurrency": {
       "label": "并发数",
-      "description": "1-32 个并发请求。"
+      "description": "1 个及以上并发请求；无上限。"
     },
     "requestIntervalMs": {
       "label": "请求间隔",
