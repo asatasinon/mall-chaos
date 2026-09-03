@@ -6,8 +6,8 @@ import com.castrel.chaos.catalog.cache.ProductDetailCacheSerializer;
 import com.castrel.chaos.catalog.cache.ProductDetailCacheService;
 import com.castrel.chaos.catalog.dto.ProductDTO;
 import com.castrel.chaos.common.BizException;
-import com.castrel.chaos.common.coordination.ScenarioRunContext;
-import com.castrel.chaos.common.coordination.ScenarioRunGuard;
+import com.castrel.chaos.common.coordination.OperationRunContext;
+import com.castrel.chaos.common.coordination.OperationRunGuard;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -64,7 +64,7 @@ class ProductDetailCacheProvisioningServiceTest {
     private ValueOperations<String, String> valueOperations;
 
     @Mock
-    private ScenarioRunGuard runGuard;
+        private OperationRunGuard runGuard;
 
     private ProductDetailCacheSerializer serializer;
     private ProductDetailCacheProperties properties;
@@ -198,7 +198,7 @@ class ProductDetailCacheProvisioningServiceTest {
         assertThatThrownBy(() -> provisioningService.cleanup(context()))
                 .isInstanceOf(BizException.class)
                 .extracting("errorCode")
-                .isEqualTo("STALE_SCENARIO_RUN");
+                .isEqualTo("STALE_OPERATION");
 
         verify(redisTemplate, never()).delete(RUN_HASH);
     }
@@ -212,7 +212,7 @@ class ProductDetailCacheProvisioningServiceTest {
                 assertThatThrownBy(() -> provisioningService.cleanup(context()))
                                 .isInstanceOf(BizException.class)
                                 .extracting("errorCode")
-                                .isEqualTo("STALE_SCENARIO_RUN");
+                                .isEqualTo("STALE_OPERATION");
 
                 verify(redisTemplate, never()).delete(RUN_HASH);
         }
@@ -234,8 +234,8 @@ class ProductDetailCacheProvisioningServiceTest {
         verify(redisTemplate).delete(RUN_HASH);
     }
 
-    private ScenarioRunContext context() {
-        return new ScenarioRunContext(
+        private OperationRunContext context() {
+                return new OperationRunContext(
                 RUN_ID, Instant.now().plusSeconds(600), 7, "phase-d-test-001");
     }
 

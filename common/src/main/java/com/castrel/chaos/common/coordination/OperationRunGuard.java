@@ -17,9 +17,9 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 @Service
-public class ScenarioRunGuard {
+public class OperationRunGuard {
 
-    private static final String KEY_PREFIX = "castrel:scenario-run:fence:";
+    private static final String KEY_PREFIX = "castrel:operation-run:fence:";
     private static final DefaultRedisScript<Long> ACCEPT_SCRIPT = new DefaultRedisScript<>(
             "local current = redis.call('GET', KEYS[1]) "
                     + "if current == false or tonumber(ARGV[1]) >= tonumber(current) then "
@@ -32,20 +32,20 @@ public class ScenarioRunGuard {
     private final StringRedisTemplate redisTemplate;
     private final String serviceName;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "scenario-run-expiry");
+        Thread thread = new Thread(runnable, "operation-run-expiry");
         thread.setDaemon(true);
         return thread;
     });
     private final Map<String, CleanupRegistration> cleanups = new ConcurrentHashMap<>();
 
-    public ScenarioRunGuard(
+    public OperationRunGuard(
             StringRedisTemplate redisTemplate,
             @Value("${spring.application.name:unknown}") String serviceName) {
         this.redisTemplate = redisTemplate;
         this.serviceName = serviceName;
     }
 
-    public boolean acceptStart(ScenarioRunContext context) {
+    public boolean acceptStart(OperationRunContext context) {
         context.validate(Instant.now());
         long ttlMillis = Math.max(1, Duration.between(Instant.now(), context.expiresAt()).toMillis());
         Long accepted = redisTemplate.execute(
@@ -56,7 +56,7 @@ public class ScenarioRunGuard {
         return Long.valueOf(1L).equals(accepted);
     }
 
-    public void registerCleanup(ScenarioRunContext context, Runnable cleanup) {
+    public void registerCleanup(OperationRunContext context, Runnable cleanup) {
         context.validate(Instant.now());
         CleanupRegistration registration = new CleanupRegistration(cleanup, null);
         CleanupRegistration previous = cleanups.put(context.runId(), registration);
@@ -67,11 +67,11 @@ public class ScenarioRunGuard {
         registration.future = future;
     }
 
-    public boolean release(ScenarioRunContext context) {
+    public boolean release(OperationRunContext context) {
         return release(context, cleanups.remove(context.runId()));
     }
 
-    public boolean isAccepted(ScenarioRunContext context) {
+    public boolean isAccepted(OperationRunContext context) {
         try {
             String value = redisTemplate.opsForValue().get(key());
             return value != null && value.equals(String.valueOf(context.fencingToken()));
@@ -90,7 +90,7 @@ public class ScenarioRunGuard {
         cleanups.clear();
     }
 
-    private boolean release(ScenarioRunContext context, CleanupRegistration registration) {
+    private boolean release(OperationRunContext context, CleanupRegistration registration) {
         if (registration == null || !registration.claim()) return true;
         redisTemplate.execute(RELEASE_SCRIPT, List.of(key()), String.valueOf(context.fencingToken()));
         try {

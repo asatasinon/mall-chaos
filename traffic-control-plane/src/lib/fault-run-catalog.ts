@@ -160,7 +160,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   CATALOG_REDIS_LARGE_VALUE: {
     scenario: 'CATALOG_REDIS_LARGE_VALUE',
     targetService: 'catalog-service',
-    targetOperation: 'catalog-product-detail-large-value',
+    targetOperation: 'product-detail-cache',
     maxDurationSec: 1800,
     recoveryStrategy: 'TARGET',
     allowManualCleanup: true,

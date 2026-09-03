@@ -197,7 +197,6 @@ export class RunnerEngine {
         signal: lifecycleAbortController.signal,
         ...(runnerFaultRun ? {
           faultRunContext: createFaultRunContext(runnerFaultRun),
-          faultRunScenario: runnerFaultRun.scenario,
         } : {}),
       })
       .then((result) => this.finishLifecycle(result, t0))

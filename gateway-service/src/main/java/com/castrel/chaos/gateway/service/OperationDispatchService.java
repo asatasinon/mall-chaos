@@ -2,7 +2,7 @@ package com.castrel.chaos.gateway.service;
 
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.common.security.JwtTokenService;
-import com.castrel.chaos.gateway.config.ScenarioDispatchProperties;
+import com.castrel.chaos.gateway.config.OperationDispatchProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -11,14 +11,14 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-public class ScenarioDispatchService {
+public class OperationDispatchService {
 
-    private final ScenarioDispatchProperties properties;
+    private final OperationDispatchProperties properties;
     private final WebClient webClient;
     private final JwtTokenService jwtTokenService;
 
-    public ScenarioDispatchService(
-            ScenarioDispatchProperties properties,
+    public OperationDispatchService(
+            OperationDispatchProperties properties,
             WebClient.Builder webClientBuilder,
             JwtTokenService jwtTokenService) {
         this.properties = properties;
@@ -56,22 +56,23 @@ public class ScenarioDispatchService {
             String traceId) {
         String baseUrl = properties.getServiceUrl(serviceName);
         if (baseUrl == null || baseUrl.isBlank()) {
-            return Mono.error(new IllegalArgumentException("Fixed scenario target is not configured"));
+            return Mono.error(new IllegalArgumentException("Fixed operation target is not configured"));
         }
-        String runId = String.valueOf(body.get("runId"));
+        String runId = body.get("runId") instanceof String value ? value : null;
         return webClient.post()
                 .uri(baseUrl + path)
-                .header("Content-Type", "application/json")
-                .header(TraceContext.TRACE_ID_HEADER, traceId)
-                .header("X-Scenario-Run-Id", runId)
-                .header("X-Scenario-Run-Scenario", String.valueOf(body.getOrDefault("scenario", "")))
-                .header("X-Scenario-Run-Operation", String.valueOf(body.getOrDefault("operation", "")))
-                .header("X-Scenario-Run-Operation-Id", String.valueOf(body.getOrDefault("operationId", body.get("idempotencyKey"))))
-                .header("X-Scenario-Run-Expires-At", String.valueOf(body.getOrDefault("expiresAt", "")))
-                .header("X-Scenario-Run-Fencing-Token", String.valueOf(body.get("fencingToken")))
-                .header("X-Scenario-Run-Idempotency-Key", String.valueOf(body.getOrDefault("idempotencyKey", "")))
-                .header("X-Downstream-Principal", jwtTokenService.issueDownstreamPrincipal(
-                        0L, runId, List.of("SCENARIO_CONTROL")))
+                .headers(headers -> {
+                    headers.set("Content-Type", "application/json");
+                    headers.set(TraceContext.TRACE_ID_HEADER, traceId);
+                    if (runId != null) {
+                        headers.set("X-Operation-Run-Id", runId);
+                        headers.set("X-Operation-Run-Expires-At", String.valueOf(body.getOrDefault("expiresAt", "")));
+                        headers.set("X-Operation-Run-Fencing-Token", String.valueOf(body.get("fencingToken")));
+                        headers.set("X-Operation-Run-Idempotency-Key", String.valueOf(body.getOrDefault("idempotencyKey", "")));
+                        headers.set("X-Downstream-Principal", jwtTokenService.issueDownstreamPrincipal(
+                                0L, runId, List.of("OPERATION_CONTROL")));
+                    }
+                })
                 .bodyValue(requestBody)
                 .retrieve()
                 .bodyToMono(Object.class)
@@ -80,7 +81,7 @@ public class ScenarioDispatchService {
 
     private Mono<Object> requireSuccessfulResponse(Object response) {
         if (response instanceof Map<?, ?> map && map.get("code") instanceof Number code && code.intValue() >= 400) {
-            return Mono.error(new IllegalStateException("Fixed scenario target rejected request"));
+            return Mono.error(new IllegalStateException("Fixed operation target rejected request"));
         }
         return Mono.just(response);
     }

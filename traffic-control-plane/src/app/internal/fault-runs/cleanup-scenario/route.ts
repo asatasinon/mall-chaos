@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
   try {
     const result = await getGatewayClient().postInternal(
       '/internal/gateway/operations/cleanup-all',
-      { scenario },
+      { operation: 'notification-storage' },
       traceId,
     );
     await recordOperatorAudit({

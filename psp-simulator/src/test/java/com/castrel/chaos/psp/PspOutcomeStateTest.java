@@ -1,7 +1,7 @@
 package com.castrel.chaos.psp;
 
-import com.castrel.chaos.common.coordination.ScenarioRunContext;
-import com.castrel.chaos.common.coordination.ScenarioRunGuard;
+import com.castrel.chaos.common.coordination.OperationRunContext;
+import com.castrel.chaos.common.coordination.OperationRunGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,7 +21,7 @@ import static org.mockito.Mockito.when;
 class PspOutcomeStateTest {
 
     @Mock
-    private ScenarioRunGuard runGuard;
+    private OperationRunGuard runGuard;
 
     private PspOutcomeState state;
 
@@ -50,8 +50,8 @@ class PspOutcomeStateTest {
                 .hasMessage("effectPercentage must be an integer between 0 and 100");
     }
 
-    private ScenarioRunContext context() {
-        return new ScenarioRunContext(
+    private OperationRunContext context() {
+        return new OperationRunContext(
                 UUID.randomUUID().toString(), Instant.now().plusSeconds(60), 1, "psp-test-run");
     }
 }

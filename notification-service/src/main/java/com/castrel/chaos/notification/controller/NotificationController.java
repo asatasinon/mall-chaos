@@ -16,8 +16,8 @@ import com.castrel.chaos.notification.dto.CustomerNotificationDTO;
 import com.castrel.chaos.notification.dto.NotificationPreferenceDTO;
 import com.castrel.chaos.notification.dto.UpdateNotificationPreferenceRequest;
 import com.castrel.chaos.common.BizException;
-import com.castrel.chaos.common.coordination.ScenarioRunContext;
-import com.castrel.chaos.common.coordination.ScenarioRunGuard;
+import com.castrel.chaos.common.coordination.OperationRunContext;
+import com.castrel.chaos.common.coordination.OperationRunGuard;
 import com.castrel.chaos.notification.service.NotificationRetentionState;
 import com.castrel.chaos.notification.repository.CustomerNotificationRepository;
 import java.util.Map;
@@ -35,7 +35,7 @@ public class NotificationController {
     private NotificationRetentionState retentionState;
 
     @Autowired
-    private ScenarioRunGuard runGuard;
+    private OperationRunGuard runGuard;
 
     @Autowired
     private CustomerNotificationRepository customerNotificationRepository;
@@ -93,36 +93,52 @@ public class NotificationController {
         return ApiResponse.ok();
     }
 
-        @PostMapping("/internal/notification/retention/prepare")
-        public ApiResponse<Map<String, Object>> prepareRetention(
-            @RequestHeader("X-Scenario-Run-Scenario") String scenario,
-            @RequestHeader("X-Scenario-Run-Operation") String operation,
+    @PostMapping("/internal/notification/retention/prepare")
+    public ApiResponse<Map<String, Object>> prepareRetention(
             @RequestHeader org.springframework.http.HttpHeaders headers,
-            @RequestBody Map<String, Object> parameters) {
-        if ((!"NOTIFICATION_HEAP_PRESSURE".equals(scenario) || !"notification-retention".equals(operation))
-                && (!"NOTIFICATION_STORAGE_APPEND".equals(scenario) || !"notification-storage".equals(operation))) {
-            throw new BizException("SCENARIO_OPERATION_MISMATCH", "Unsupported notification operation");
-        }
-        if (!"NOTIFICATION_HEAP_PRESSURE".equals(scenario) || !"notification-retention".equals(operation)) {
-            throw new BizException("SCENARIO_OPERATION_MISMATCH", "Unsupported notification retention operation");
-        }
-        retentionState.prepare(ScenarioRunContext.fromHeaders(headers), scenario, parameters, runGuard);
-        return ApiResponse.ok(Map.of("accepted", true, "scenario", scenario));
+            @RequestBody(required = false) Map<String, Object> parameters) {
+        retentionState.prepareRetention(OperationRunContext.fromHeaders(headers), parameters, runGuard);
+        return ApiResponse.ok(Map.of("accepted", true, "operation", "notification-retention"));
     }
 
     @PostMapping("/internal/notification/retention/release")
     public ApiResponse<Map<String, Object>> releaseRetention(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
-        ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
+        OperationRunContext context = OperationRunContext.fromHeaders(headers);
         retentionState.release(context, runGuard);
         return ApiResponse.ok(Map.of("released", true, "runId", context.runId(),
             "retainedEntries", retentionState.retainedEntries()));
     }
 
+    @PostMapping("/internal/notification/storage/prepare")
+    public ApiResponse<Map<String, Object>> prepareStorage(
+            @RequestHeader org.springframework.http.HttpHeaders headers,
+            @RequestBody(required = false) Map<String, Object> parameters) {
+        retentionState.prepareStorage(OperationRunContext.fromHeaders(headers), parameters, runGuard);
+        return ApiResponse.ok(Map.of("accepted", true, "operation", "notification-storage"));
+    }
+
+    @PostMapping("/internal/notification/storage/release")
+    public ApiResponse<Map<String, Object>> releaseStorage(
+            @RequestHeader org.springframework.http.HttpHeaders headers) {
+        OperationRunContext context = OperationRunContext.fromHeaders(headers);
+        retentionState.release(context, runGuard);
+        return ApiResponse.ok(Map.of("released", true, "runId", context.runId()));
+    }
+
     @PostMapping("/internal/notification/retention/cleanup")
     public ApiResponse<Map<String, Object>> cleanupRetention(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
-        ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
+        OperationRunContext context = OperationRunContext.fromHeaders(headers);
+        retentionState.release(context, runGuard);
+        long deleted = customerNotificationRepository.deleteByOperationRunId(context.runId());
+        return ApiResponse.ok(Map.of("cleaned", true, "deletedNotifications", deleted));
+    }
+
+    @PostMapping("/internal/notification/storage/cleanup")
+    public ApiResponse<Map<String, Object>> cleanupStorage(
+            @RequestHeader org.springframework.http.HttpHeaders headers) {
+        OperationRunContext context = OperationRunContext.fromHeaders(headers);
         retentionState.release(context, runGuard);
         long deleted = customerNotificationRepository.deleteByOperationRunId(context.runId());
         return ApiResponse.ok(Map.of("cleaned", true, "deletedNotifications", deleted));
@@ -131,8 +147,8 @@ public class NotificationController {
     @PostMapping("/internal/notification/storage/cleanup-all")
     public ApiResponse<Map<String, Object>> cleanupAllStorage(
             @RequestBody Map<String, Object> body) {
-        if (body == null || !"NOTIFICATION_STORAGE_APPEND".equals(body.get("scenario")) || body.size() != 1) {
-            throw new BizException("SCENARIO_OPERATION_MISMATCH", "Unsupported notification scenario cleanup");
+        if (body == null || !"notification-storage".equals(body.get("operation")) || body.size() != 1) {
+            throw new BizException("OPERATION_MISMATCH", "Unsupported notification storage cleanup");
         }
         retentionState.stopAllStorageOperations(runGuard);
         long deleted = customerNotificationRepository.deleteByOperationRunIdIsNotNull();

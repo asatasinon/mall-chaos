@@ -73,16 +73,15 @@ spring:
           predicates:
             - Path=/api/products/**
 
-scenario-dispatch:
-  dispatch:
-    services:
-      catalog-service: ${CATALOG_SERVICE_URL:http://localhost:8082}
-      cart-service: ${CART_SERVICE_URL:http://localhost:8091}
-      order-service: ${ORDER_SERVICE_URL:http://localhost:8084}
-      promotion-service: ${PROMOTION_SERVICE_URL:http://localhost:8087}
-      inventory-service: ${INVENTORY_SERVICE_URL:http://localhost:8083}
-      notification-service: ${NOTIFICATION_SERVICE_URL:http://localhost:8090}
-      psp-simulator: ${PSP_SIMULATOR_URL:http://localhost:8092}
+operation-dispatch:
+  services:
+    catalog-service: ${CATALOG_SERVICE_URL:http://localhost:8082}
+    cart-service: ${CART_SERVICE_URL:http://localhost:8091}
+    order-service: ${ORDER_SERVICE_URL:http://localhost:8084}
+    promotion-service: ${PROMOTION_SERVICE_URL:http://localhost:8087}
+    inventory-service: ${INVENTORY_SERVICE_URL:http://localhost:8083}
+    notification-service: ${NOTIFICATION_SERVICE_URL:http://localhost:8090}
+    psp-simulator: ${PSP_SIMULATOR_URL:http://localhost:8092}
 management:
   endpoints:
     web:

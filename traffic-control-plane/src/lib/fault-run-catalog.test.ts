@@ -13,7 +13,7 @@ test('catalog exposes one fixed target for every scenario', () => {
   assert.equal(new Set(definitions.map((definition) => definition.scenario)).size, definitions.length);
   assert.equal(getScenarioDefinition('CATALOG_REDIS_LARGE_VALUE').targetService, 'catalog-service');
   assert.equal(getScenarioDefinition('CATALOG_REDIS_LARGE_VALUE').targetOperation,
-    'catalog-product-detail-large-value');
+    'product-detail-cache');
   assert.equal(getScenarioDefinition('INVENTORY_TABLE_EXCLUSIVE').targetOperation, 'inventory-availability-report');
   assert.equal(getScenarioDefinition('INVENTORY_ROW_LOCK').targetOperation, 'inventory-reservation-summary');
 });

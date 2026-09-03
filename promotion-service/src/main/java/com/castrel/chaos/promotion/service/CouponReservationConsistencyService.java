@@ -1,8 +1,8 @@
 package com.castrel.chaos.promotion.service;
 
 import com.castrel.chaos.common.BizException;
-import com.castrel.chaos.common.coordination.ScenarioRunContext;
-import com.castrel.chaos.common.coordination.ScenarioRunGuard;
+import com.castrel.chaos.common.coordination.OperationRunContext;
+import com.castrel.chaos.common.coordination.OperationRunGuard;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -24,19 +24,19 @@ import java.util.concurrent.TimeoutException;
 public class CouponReservationConsistencyService {
     private final JdbcTemplate jdbcTemplate;
     private final DataSource dataSource;
-    private final ScenarioRunGuard runGuard;
+    private final OperationRunGuard runGuard;
     private volatile Long couponId;
     private volatile Long reservationId;
     private volatile String activeRunId;
 
     public CouponReservationConsistencyService(JdbcTemplate jdbcTemplate, DataSource dataSource,
-                                               ScenarioRunGuard runGuard) {
+                                               OperationRunGuard runGuard) {
         this.jdbcTemplate = jdbcTemplate;
         this.dataSource = dataSource;
         this.runGuard = runGuard;
     }
 
-    public synchronized void prepare(ScenarioRunContext context) {
+    public synchronized void prepare(OperationRunContext context) {
         context.validate(Instant.now());
         if (!runGuard.acceptStart(context)) throw new BizException("STALE_OPERATION", "Operation token was rejected");
         Long preparedCoupon = jdbcTemplate.queryForObject(
@@ -54,7 +54,7 @@ public class CouponReservationConsistencyService {
         runGuard.registerCleanup(context, () -> removePreparedReservation(context));
     }
 
-    public synchronized Map<String, Object> checkReservationConsistency(ScenarioRunContext context)
+    public synchronized Map<String, Object> checkReservationConsistency(OperationRunContext context)
             throws SQLException, InterruptedException, TimeoutException {
         context.validate(Instant.now());
         if (!context.runId().equals(activeRunId) || !runGuard.isAccepted(context)) {
@@ -82,13 +82,13 @@ public class CouponReservationConsistencyService {
         return Map.of("status", "CONSISTENT");
     }
 
-    public synchronized void release(ScenarioRunContext context) {
+    public synchronized void release(OperationRunContext context) {
         context.validateForRelease();
         runGuard.release(context);
         removePreparedReservation(context);
     }
 
-    public synchronized void removePreparedReservation(ScenarioRunContext context) {
+    public synchronized void removePreparedReservation(OperationRunContext context) {
         context.validateForCleanup();
         if (!context.runId().equals(activeRunId)) return;
         if (reservationId != null) {

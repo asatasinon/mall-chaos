@@ -303,7 +303,6 @@ function toGatewayPayload(run: FaultRunRecord): Record<string, unknown> {
     expiresAt: run.expiresAt,
     fencingToken: run.fencingToken,
     idempotencyKey: run.idempotencyKey,
-    scenario: run.scenario,
     operation: run.targetOperation,
     parameters: run.parameters,
   };

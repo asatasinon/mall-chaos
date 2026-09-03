@@ -1,8 +1,8 @@
 package com.castrel.chaos.inventory.service;
 
 import com.castrel.chaos.common.BizException;
-import com.castrel.chaos.common.coordination.ScenarioRunContext;
-import com.castrel.chaos.common.coordination.ScenarioRunGuard;
+import com.castrel.chaos.common.coordination.OperationRunContext;
+import com.castrel.chaos.common.coordination.OperationRunGuard;
 import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
@@ -20,17 +20,17 @@ public class InventoryReservationService {
             + "FROM inventories WHERE sku = ? FOR UPDATE";
 
     private final DataSource dataSource;
-    private final ScenarioRunGuard runGuard;
+    private final OperationRunGuard runGuard;
     private volatile Connection reservationConnection;
     private volatile String activeRunId;
     private volatile long fencingToken;
 
-    public InventoryReservationService(DataSource dataSource, ScenarioRunGuard runGuard) {
+    public InventoryReservationService(DataSource dataSource, OperationRunGuard runGuard) {
         this.dataSource = dataSource;
         this.runGuard = runGuard;
     }
 
-    public synchronized void prepare(ScenarioRunContext context) {
+    public synchronized void prepare(OperationRunContext context) {
         context.validate(Instant.now());
         if (!runGuard.acceptStart(context)) throw new BizException("STALE_OPERATION", "Operation token was rejected");
         if (context.runId().equals(activeRunId) && fencingToken == context.fencingToken()) return;
@@ -61,7 +61,7 @@ public class InventoryReservationService {
         }
     }
 
-    public Map<String, Object> summary(ScenarioRunContext context) {
+    public Map<String, Object> summary(OperationRunContext context) {
         context.validate(Instant.now());
         if (!context.runId().equals(activeRunId) || fencingToken != context.fencingToken()
                 || !runGuard.isAccepted(context)) {
@@ -90,19 +90,19 @@ public class InventoryReservationService {
         }
     }
 
-    public synchronized void release(ScenarioRunContext context) {
+    public synchronized void release(OperationRunContext context) {
         context.validateForRelease();
         runGuard.release(context);
         closeResource(context);
     }
 
-    public synchronized Map<String, Object> remove(ScenarioRunContext context) {
+    public synchronized Map<String, Object> remove(OperationRunContext context) {
         context.validateForCleanup();
         runGuard.release(context);
         return closeResource(context);
     }
 
-    private synchronized Map<String, Object> closeResource(ScenarioRunContext context) {
+    private synchronized Map<String, Object> closeResource(OperationRunContext context) {
         if (activeRunId == null || !activeRunId.equals(context.runId())) return Map.of("released", true);
         try {
             if (reservationConnection != null && !reservationConnection.isClosed()) {

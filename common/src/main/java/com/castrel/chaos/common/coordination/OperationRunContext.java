@@ -5,18 +5,18 @@ import org.springframework.http.HttpHeaders;
 import java.time.Instant;
 import java.util.UUID;
 
-public record ScenarioRunContext(
+public record OperationRunContext(
         String runId,
         Instant expiresAt,
         long fencingToken,
         String idempotencyKey) {
 
-    public static ScenarioRunContext fromHeaders(HttpHeaders headers) {
-        return new ScenarioRunContext(
-                headers.getFirst("X-Scenario-Run-Id"),
-                parseInstant(headers.getFirst("X-Scenario-Run-Expires-At")),
-                parseLong(headers.getFirst("X-Scenario-Run-Fencing-Token")),
-                headers.getFirst("X-Scenario-Run-Idempotency-Key"));
+    public static OperationRunContext fromHeaders(HttpHeaders headers) {
+        return new OperationRunContext(
+                headers.getFirst("X-Operation-Run-Id"),
+                parseInstant(headers.getFirst("X-Operation-Run-Expires-At")),
+                parseLong(headers.getFirst("X-Operation-Run-Fencing-Token")),
+                headers.getFirst("X-Operation-Run-Idempotency-Key"));
     }
 
     public void validate(Instant now) {
@@ -25,10 +25,10 @@ public record ScenarioRunContext(
                 || fencingToken < 1
                 || idempotencyKey == null
                 || !idempotencyKey.matches("[A-Za-z0-9][A-Za-z0-9._:-]{7,127}")) {
-            throw new IllegalArgumentException("Invalid scenario run context");
+            throw new IllegalArgumentException("Invalid operation context");
         }
         if (!expiresAt.isAfter(now)) {
-            throw new IllegalArgumentException("Scenario run context is expired");
+            throw new IllegalArgumentException("Operation context is expired");
         }
     }
 
@@ -38,13 +38,13 @@ public record ScenarioRunContext(
                 || fencingToken < 1
                 || idempotencyKey == null
                 || !idempotencyKey.matches("[A-Za-z0-9][A-Za-z0-9._:-]{7,127}")) {
-            throw new IllegalArgumentException("Invalid scenario run context");
+            throw new IllegalArgumentException("Invalid operation context");
         }
     }
 
     public void validateForCleanup() {
         if (runId == null || !isUuid(runId) || fencingToken < 1) {
-            throw new IllegalArgumentException("Invalid scenario cleanup context");
+            throw new IllegalArgumentException("Invalid operation cleanup context");
         }
     }
 

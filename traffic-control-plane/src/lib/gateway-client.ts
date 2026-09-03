@@ -240,11 +240,10 @@ export class GatewayClient {
         ...(isGet ? {} : { 'Content-Type': 'application/json' }),
         Authorization: `Bearer ${context.session.accessToken}`,
         ...(context.faultRunContext ? {
-          'X-Scenario-Run-Id': context.faultRunContext.faultRunId,
-          'X-Scenario-Run-Expires-At': context.faultRunContext.expiresAt,
-          'X-Scenario-Run-Fencing-Token': String(context.faultRunContext.fencingToken),
-          'X-Scenario-Run-Idempotency-Key': context.faultRunContext.idempotencyKey,
-          ...(context.faultRunScenario ? { 'X-Scenario-Run-Scenario': context.faultRunScenario } : {}),
+          'X-Operation-Run-Id': context.faultRunContext.faultRunId,
+          'X-Operation-Run-Expires-At': context.faultRunContext.expiresAt,
+          'X-Operation-Run-Fencing-Token': String(context.faultRunContext.fencingToken),
+          'X-Operation-Run-Idempotency-Key': context.faultRunContext.idempotencyKey,
         } : {}),
       },
       signal: signal ?? context.signal,
@@ -310,7 +309,6 @@ export interface CustomerRequestContext {
   refresh: () => Promise<void>;
   signal?: AbortSignal;
   faultRunContext?: FaultRunContext;
-  faultRunScenario?: string;
 }
 
 interface ApiEnvelope<T> {

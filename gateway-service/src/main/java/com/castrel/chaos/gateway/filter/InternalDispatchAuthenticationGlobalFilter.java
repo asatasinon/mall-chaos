@@ -68,13 +68,10 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
                     requestHeaders.remove("X-User-Role");
                     requestHeaders.remove("X-Auth-Actor");
                     requestHeaders.remove("X-Downstream-Principal");
-                    requestHeaders.remove("X-Scenario-Run-Id");
-                    requestHeaders.remove("X-Scenario-Run-Scenario");
-                    requestHeaders.remove("X-Scenario-Run-Operation");
-                    requestHeaders.remove("X-Scenario-Run-Operation-Id");
-                    requestHeaders.remove("X-Scenario-Run-Expires-At");
-                    requestHeaders.remove("X-Scenario-Run-Fencing-Token");
-                    requestHeaders.remove("X-Scenario-Run-Idempotency-Key");
+                    requestHeaders.remove("X-Operation-Run-Id");
+                    requestHeaders.remove("X-Operation-Run-Expires-At");
+                    requestHeaders.remove("X-Operation-Run-Fencing-Token");
+                    requestHeaders.remove("X-Operation-Run-Idempotency-Key");
                 }))
                 .build();
         return chain.filter(sanitized);
@@ -87,13 +84,10 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
                 || headers.containsKey("X-Traffic-Runner-Action")
                 || headers.containsKey("X-Traffic-Runner-Payment-Strategy")
                 || headers.containsKey("X-Downstream-Principal")
-                || headers.containsKey("X-Scenario-Run-Id")
-                || headers.containsKey("X-Scenario-Run-Scenario")
-                || headers.containsKey("X-Scenario-Run-Operation")
-                || headers.containsKey("X-Scenario-Run-Operation-Id")
-                || headers.containsKey("X-Scenario-Run-Expires-At")
-                || headers.containsKey("X-Scenario-Run-Fencing-Token")
-                || headers.containsKey("X-Scenario-Run-Idempotency-Key")
+                || headers.containsKey("X-Operation-Run-Id")
+                || headers.containsKey("X-Operation-Run-Expires-At")
+                || headers.containsKey("X-Operation-Run-Fencing-Token")
+                || headers.containsKey("X-Operation-Run-Idempotency-Key")
                 || headers.containsKey("X-User-Id")
                 || headers.containsKey("X-User-Role")
                 || headers.containsKey("X-Auth-Actor");

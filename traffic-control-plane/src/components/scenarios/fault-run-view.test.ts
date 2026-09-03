@@ -11,7 +11,7 @@ test('builds a safe Catalog Hash view from target, worker, recovery, and audit e
       faultRunId,
       scenario: 'CATALOG_REDIS_LARGE_VALUE',
       targetService: 'catalog-service',
-      targetOperation: 'catalog-product-detail-large-value',
+      targetOperation: 'product-detail-cache',
       state: 'STOPPED',
       parameters: {
         durationSec: 60,
@@ -128,7 +128,7 @@ test('prefers recovery cleanup over an idempotent manual cleanup result', () => 
       faultRunId,
       scenario: 'CATALOG_REDIS_LARGE_VALUE',
       targetService: 'catalog-service',
-      targetOperation: 'catalog-product-detail-large-value',
+      targetOperation: 'product-detail-cache',
       state: 'STOPPED',
       parameters: {},
       expiresAt: '2026-09-02T07:00:00.000Z',

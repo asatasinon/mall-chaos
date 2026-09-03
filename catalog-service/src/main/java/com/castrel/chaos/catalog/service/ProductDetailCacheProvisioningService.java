@@ -6,8 +6,8 @@ import com.castrel.chaos.catalog.cache.ProductDetailCacheSerializer;
 import com.castrel.chaos.catalog.cache.ProductDetailCacheService;
 import com.castrel.chaos.catalog.dto.ProductDTO;
 import com.castrel.chaos.common.BizException;
-import com.castrel.chaos.common.coordination.ScenarioRunContext;
-import com.castrel.chaos.common.coordination.ScenarioRunGuard;
+import com.castrel.chaos.common.coordination.OperationRunContext;
+import com.castrel.chaos.common.coordination.OperationRunGuard;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.redis.core.RedisCallback;
@@ -29,8 +29,7 @@ import java.util.UUID;
 @Service
 public class ProductDetailCacheProvisioningService {
 
-    public static final String SCENARIO = "CATALOG_REDIS_LARGE_VALUE";
-    public static final String OPERATION = "catalog-product-detail-large-value";
+    public static final String TARGET_OPERATION = "product-detail-cache";
 
     private static final Set<String> ALLOWED_PARAMETERS = Set.of(
             "durationSec", "concurrency", "requestIntervalMs", "memberCount", "memberSizeBytes", "keyTtlSec");
@@ -56,7 +55,7 @@ public class ProductDetailCacheProvisioningService {
     private final ProductDetailCacheProperties properties;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
-    private final ScenarioRunGuard runGuard;
+    private final OperationRunGuard runGuard;
 
     public ProductDetailCacheProvisioningService(
             CatalogService catalogService,
@@ -65,7 +64,7 @@ public class ProductDetailCacheProvisioningService {
             ProductDetailCacheProperties properties,
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
-            ScenarioRunGuard runGuard) {
+            OperationRunGuard runGuard) {
         this.catalogService = catalogService;
         this.cacheService = cacheService;
         this.serializer = serializer;
@@ -75,10 +74,10 @@ public class ProductDetailCacheProvisioningService {
         this.runGuard = runGuard;
     }
 
-    public Map<String, Object> start(ScenarioRunContext context, Map<String, Object> parameters) {
+    public Map<String, Object> start(OperationRunContext context, Map<String, Object> parameters) {
         context.validate(Instant.now());
         if (!runGuard.acceptStart(context)) {
-            throw new BizException("STALE_SCENARIO_RUN", "Scenario token was rejected");
+            throw new BizException("STALE_OPERATION", "Operation token was rejected");
         }
 
         String runHash = cacheService.runHashKey(context.runId());
@@ -169,7 +168,7 @@ public class ProductDetailCacheProvisioningService {
         }
     }
 
-    public Map<String, Object> stop(ScenarioRunContext context) {
+    public Map<String, Object> stop(OperationRunContext context) {
         context.validateForRelease();
         Map<String, Object> result = cleanup(context);
         try {
@@ -180,7 +179,7 @@ public class ProductDetailCacheProvisioningService {
         return result;
     }
 
-    public Map<String, Object> cleanup(ScenarioRunContext context) {
+    public Map<String, Object> cleanup(OperationRunContext context) {
         context.validateForRelease();
         return cleanup(context.runId(), context.fencingToken());
     }
@@ -203,20 +202,20 @@ public class ProductDetailCacheProvisioningService {
         String fence = redisTemplate.opsForValue().get(cacheService.activeMarkerFenceKey());
         if (marker == null && owner == null && fence == null) return;
         if (runId.equals(owner) && String.valueOf(fencingToken).equals(fence)) return;
-        throw new BizException("STALE_SCENARIO_RUN", "Product detail marker belongs to another run");
+        throw new BizException("STALE_OPERATION", "Product detail marker belongs to another operation");
     }
 
     private void validateCleanupIdentity(String runId, long fencingToken) {
         try {
             UUID.fromString(runId);
         } catch (RuntimeException exception) {
-            throw new IllegalArgumentException("Invalid scenario cleanup context", exception);
+            throw new IllegalArgumentException("Invalid operation cleanup context", exception);
         }
-        if (fencingToken < 1) throw new IllegalArgumentException("Invalid scenario cleanup context");
+        if (fencingToken < 1) throw new IllegalArgumentException("Invalid operation cleanup context");
     }
 
     private ProvisioningParameters validateParameters(
-            ScenarioRunContext context, Map<String, Object> parameters) {
+            OperationRunContext context, Map<String, Object> parameters) {
         if (parameters == null || !ALLOWED_PARAMETERS.containsAll(parameters.keySet())) {
             throw new BizException("UNKNOWN_PARAMETER", "Unsupported product detail run parameter");
         }
@@ -234,7 +233,7 @@ public class ProductDetailCacheProvisioningService {
                     "Aggregate product detail cache size exceeds the service limit");
         }
         if (!context.expiresAt().isAfter(Instant.now())) {
-            throw new BizException("STALE_SCENARIO_RUN", "Scenario run has expired");
+            throw new BizException("STALE_OPERATION", "Operation has expired");
         }
         return new ProvisioningParameters(durationSec, memberCount, memberSizeBytes, keyTtlSec);
     }
@@ -259,7 +258,7 @@ public class ProductDetailCacheProvisioningService {
         return Duration.ofSeconds(Math.max(1, Math.min(requestedTtlSec, remainingWithGrace)));
     }
 
-    private ProductDetailCacheMarker marker(ScenarioRunContext context, String runHash, String probeSku) {
+    private ProductDetailCacheMarker marker(OperationRunContext context, String runHash, String probeSku) {
         ProductDetailCacheMarker marker = new ProductDetailCacheMarker();
         marker.setSchemaVersion(ProductDetailCacheSerializer.SCHEMA_VERSION);
         marker.setRunId(context.runId());
@@ -300,7 +299,7 @@ public class ProductDetailCacheProvisioningService {
         return Long.valueOf(1L).equals(cleared);
     }
 
-    private void cleanupQuietly(ScenarioRunContext context) {
+    private void cleanupQuietly(OperationRunContext context) {
         try {
             cleanup(context);
         } catch (RuntimeException ignored) {

@@ -1,8 +1,7 @@
 package com.castrel.chaos.psp;
 
 import com.castrel.chaos.common.ApiResponse;
-import com.castrel.chaos.common.BizException;
-import com.castrel.chaos.common.coordination.ScenarioRunContext;
+import com.castrel.chaos.common.coordination.OperationRunContext;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Value;
 import java.nio.charset.StandardCharsets;
@@ -43,30 +42,24 @@ public class PspController {
 
         @PostMapping("/internal/psp/provider-outcome/prepare")
         public ApiResponse<Map<String, Object>> prepareOutcome(
-            @RequestHeader("X-Scenario-Run-Scenario") String scenario,
-            @RequestHeader("X-Scenario-Run-Operation") String operation,
             @RequestHeader org.springframework.http.HttpHeaders headers,
             @RequestBody Map<String, Object> parameters) {
-        requireOperation(scenario, operation);
-        state.prepare(ScenarioRunContext.fromHeaders(headers), parameters);
-        return ApiResponse.ok(Map.of("accepted", true, "scenario", scenario));
+        state.prepare(OperationRunContext.fromHeaders(headers), parameters);
+            return ApiResponse.ok(Map.of("accepted", true, "operation", "provider-outcome"));
     }
 
         @PostMapping("/internal/psp/provider-outcome/release")
         public ApiResponse<Map<String, Object>> releaseOutcome(
-            @RequestHeader("X-Scenario-Run-Scenario") String scenario,
-            @RequestHeader("X-Scenario-Run-Operation") String operation,
             @RequestHeader org.springframework.http.HttpHeaders headers) {
-        requireOperation(scenario, operation);
-        ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
+        OperationRunContext context = OperationRunContext.fromHeaders(headers);
         state.release(context);
-        return ApiResponse.ok(Map.of("released", true, "runId", context.runId()));
+            return ApiResponse.ok(Map.of("released", true, "runId", context.runId(), "operation", "provider-outcome"));
     }
 
     @PostMapping("/internal/psp/provider-outcome/cleanup")
     public ApiResponse<Map<String, Object>> cleanupOutcome(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
-        ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
+        OperationRunContext context = OperationRunContext.fromHeaders(headers);
         state.release(context);
         return ApiResponse.ok(Map.of("cleaned", true));
     }
@@ -80,9 +73,4 @@ public class PspController {
         }
     }
 
-    private void requireOperation(String scenario, String operation) {
-        if (!"PSP_PROVIDER_OUTCOME".equals(scenario) || !"provider-outcome".equals(operation)) {
-            throw new BizException("SCENARIO_OPERATION_MISMATCH", "Unsupported provider operation");
-        }
-    }
 }

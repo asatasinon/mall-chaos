@@ -40,8 +40,7 @@ export async function POST(
       '/internal/gateway/operations/cleanup',
       {
         runId: run.faultRunId,
-        scenario: run.scenario,
-        targetService: run.targetService,
+        operation: run.targetOperation,
         fencingToken: run.fencingToken,
       },
       traceId,

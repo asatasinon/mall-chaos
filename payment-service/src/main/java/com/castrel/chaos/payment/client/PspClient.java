@@ -42,14 +42,14 @@ public class PspClient {
         String traceId = TraceContext.getTraceId();
         if (traceId != null) headers.set(TraceContext.TRACE_ID_HEADER, traceId);
         if (runId != null && !runId.isBlank()) {
-            headers.set("X-Scenario-Run-Id", runId);
+            headers.set("X-Operation-Run-Id", runId);
             org.springframework.web.context.request.ServletRequestAttributes attributes =
                     (org.springframework.web.context.request.ServletRequestAttributes)
                             org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
             if (attributes != null) {
-                copyHeader(attributes, headers, "X-Scenario-Run-Expires-At");
-                copyHeader(attributes, headers, "X-Scenario-Run-Fencing-Token");
-                copyHeader(attributes, headers, "X-Scenario-Run-Idempotency-Key");
+                copyHeader(attributes, headers, "X-Operation-Run-Expires-At");
+                copyHeader(attributes, headers, "X-Operation-Run-Fencing-Token");
+                copyHeader(attributes, headers, "X-Operation-Run-Idempotency-Key");
             }
         }
         try {

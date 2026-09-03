@@ -29,7 +29,6 @@ export interface CustomerSessionManagerDependencies {
 export interface SessionRunOptions {
   signal?: AbortSignal;
   faultRunContext?: FaultRunContext;
-  faultRunScenario?: string;
 }
 
 export class CustomerSessionManager {

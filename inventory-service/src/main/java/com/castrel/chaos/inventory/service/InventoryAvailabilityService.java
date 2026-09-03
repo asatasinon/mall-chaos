@@ -1,8 +1,8 @@
 package com.castrel.chaos.inventory.service;
 
 import com.castrel.chaos.common.BizException;
-import com.castrel.chaos.common.coordination.ScenarioRunContext;
-import com.castrel.chaos.common.coordination.ScenarioRunGuard;
+import com.castrel.chaos.common.coordination.OperationRunContext;
+import com.castrel.chaos.common.coordination.OperationRunGuard;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -19,18 +19,18 @@ public class InventoryAvailabilityService {
 
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
-    private final ScenarioRunGuard runGuard;
+    private final OperationRunGuard runGuard;
     private volatile Connection availabilityConnection;
     private volatile String activeRunId;
     private volatile long fencingToken;
 
-    public InventoryAvailabilityService(DataSource dataSource, JdbcTemplate jdbcTemplate, ScenarioRunGuard runGuard) {
+    public InventoryAvailabilityService(DataSource dataSource, JdbcTemplate jdbcTemplate, OperationRunGuard runGuard) {
         this.dataSource = dataSource;
         this.jdbcTemplate = jdbcTemplate;
         this.runGuard = runGuard;
     }
 
-    public synchronized void prepare(ScenarioRunContext context) {
+    public synchronized void prepare(OperationRunContext context) {
         context.validate(Instant.now());
         if (!runGuard.acceptStart(context)) throw new BizException("STALE_OPERATION", "Operation token was rejected");
         if (context.runId().equals(activeRunId) && fencingToken == context.fencingToken()) return;
@@ -53,7 +53,7 @@ public class InventoryAvailabilityService {
         }
     }
 
-    public Map<String, Object> report(ScenarioRunContext context) {
+    public Map<String, Object> report(OperationRunContext context) {
         context.validate(Instant.now());
         if (!context.runId().equals(activeRunId) || fencingToken != context.fencingToken()
                 || !runGuard.isAccepted(context)) {
@@ -65,19 +65,19 @@ public class InventoryAvailabilityService {
         return Map.of("rows", rows, "skuCount", rows.size(), "runId", context.runId());
     }
 
-    public synchronized void release(ScenarioRunContext context) {
+    public synchronized void release(OperationRunContext context) {
         context.validateForRelease();
         runGuard.release(context);
         closeResource(context);
     }
 
-    public synchronized Map<String, Object> remove(ScenarioRunContext context) {
+    public synchronized Map<String, Object> remove(OperationRunContext context) {
         context.validateForCleanup();
         runGuard.release(context);
         return closeResource(context);
     }
 
-    private synchronized Map<String, Object> closeResource(ScenarioRunContext context) {
+    private synchronized Map<String, Object> closeResource(OperationRunContext context) {
         if (activeRunId == null || !activeRunId.equals(context.runId())) return Map.of("released", true);
         try {
             if (availabilityConnection != null && !availabilityConnection.isClosed()) {

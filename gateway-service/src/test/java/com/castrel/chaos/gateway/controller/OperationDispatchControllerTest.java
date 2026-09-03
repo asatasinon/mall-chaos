@@ -1,7 +1,7 @@
 package com.castrel.chaos.gateway.controller;
 
 import com.castrel.chaos.gateway.service.FixedOperationDispatchService;
-import com.castrel.chaos.gateway.service.ScenarioDispatchService;
+import com.castrel.chaos.gateway.service.OperationDispatchService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,7 +18,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class ScenarioDispatchControllerTest {
+class OperationDispatchControllerTest {
 
     private static final String RUN_ID = "123e4567-e89b-12d3-a456-426614174000";
     private static final Map<String, Object> OPERATION_CONTEXT = Map.of(
@@ -28,20 +28,20 @@ class ScenarioDispatchControllerTest {
             "idempotencyKey", "operation-context-1");
 
     @Mock
-    private ScenarioDispatchService dispatchService;
+    private OperationDispatchService dispatchService;
 
     @Mock
     private FixedOperationDispatchService operationService;
 
-    private ScenarioDispatchController controller;
+    private OperationDispatchController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new ScenarioDispatchController(dispatchService, operationService);
+        controller = new OperationDispatchController(dispatchService, operationService);
     }
 
     @Test
-    void dispatchesInventoryAvailabilityToFixedTargetWithoutScenarioFields() {
+    void dispatchesInventoryAvailabilityToFixedTargetWithoutOperationFields() {
         when(operationService.dispatch(
                 "inventory-service", "/internal/inventory/availability/report", OPERATION_CONTEXT, "trace-1"))
                 .thenReturn(Mono.just(Map.of("skuCount", 5)));
@@ -58,8 +58,7 @@ class ScenarioDispatchControllerTest {
     @Test
     void dispatchesProductDetailPreparationToCatalog() {
         Map<String, Object> body = new LinkedHashMap<>(OPERATION_CONTEXT);
-        body.put("scenario", "CATALOG_REDIS_LARGE_VALUE");
-        body.put("operation", "catalog-product-detail-large-value");
+        body.put("operation", "product-detail-cache");
         body.put("parameters", Map.of("durationSec", 30));
         when(dispatchService.prepare(
                 "catalog-service", "/internal/catalog/product-details/cache/prepare", body, "trace-2"))
@@ -76,7 +75,7 @@ class ScenarioDispatchControllerTest {
     @Test
     void rejectsUnexpectedOperationContextFields() {
         Map<String, Object> invalidContext = new LinkedHashMap<>(OPERATION_CONTEXT);
-        invalidContext.put("scenario", "INVENTORY_TABLE_EXCLUSIVE");
+        invalidContext.put("unexpected", "value");
 
         var response = controller.inventoryAvailability(invalidContext, "trace-1").block();
 
@@ -85,9 +84,8 @@ class ScenarioDispatchControllerTest {
     }
 
     @Test
-    void rejectsLegacyCartLargeValueStart() {
+    void rejectsUnknownOperation() {
         Map<String, Object> startBody = new LinkedHashMap<>(OPERATION_CONTEXT);
-        startBody.put("scenario", "CART_REDIS_LARGE_VALUE");
         startBody.put("operation", "cart-large-value");
         startBody.put("parameters", Map.of("durationSec", 30));
 
@@ -98,9 +96,9 @@ class ScenarioDispatchControllerTest {
     }
 
     @Test
-    void rejectsLegacyCartScenarioWideCleanup() {
+    void rejectsUnsupportedStorageCleanupOperation() {
         var response = controller.cleanupAll(
-                Map.of("scenario", "CART_REDIS_LARGE_VALUE"), "trace-4").block();
+                Map.of("operation", "unknown-operation"), "trace-4").block();
 
         assertThat(response).isNotNull();
         assertThat(response.getCode()).isEqualTo(400);

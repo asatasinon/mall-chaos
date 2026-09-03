@@ -103,7 +103,7 @@ test('scenario worker reads only persisted member SKUs and does not create a cus
     faultRunId: '123e4567-e89b-12d3-a456-426614174000',
     scenario: 'CATALOG_REDIS_LARGE_VALUE',
     targetService: 'catalog-service',
-    targetOperation: 'catalog-product-detail-large-value',
+    targetOperation: 'product-detail-cache',
     state: 'ACTIVE',
     parameters: { concurrency: 1, requestIntervalMs: 0 },
     idempotencyKey: 'phase-e-worker-001',

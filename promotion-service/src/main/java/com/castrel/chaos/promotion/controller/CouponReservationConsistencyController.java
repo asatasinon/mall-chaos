@@ -1,7 +1,7 @@
 package com.castrel.chaos.promotion.controller;
 
 import com.castrel.chaos.common.ApiResponse;
-import com.castrel.chaos.common.coordination.ScenarioRunContext;
+import com.castrel.chaos.common.coordination.OperationRunContext;
 import com.castrel.chaos.promotion.service.CouponReservationConsistencyService;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,14 +21,14 @@ public class CouponReservationConsistencyController {
     @PostMapping("/prepare")
     public ApiResponse<Map<String, Object>> prepare(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
-        reservationConsistencyService.prepare(ScenarioRunContext.fromHeaders(headers));
+        reservationConsistencyService.prepare(OperationRunContext.fromHeaders(headers));
         return ApiResponse.ok(Map.of("accepted", true, "operation", "coupon-reservation-consistency"));
     }
 
     @PostMapping("/release")
     public ApiResponse<Map<String, Object>> release(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
-        ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
+        OperationRunContext context = OperationRunContext.fromHeaders(headers);
         reservationConsistencyService.release(context);
         return ApiResponse.ok(Map.of("released", true, "runId", context.runId()));
     }
@@ -36,7 +36,7 @@ public class CouponReservationConsistencyController {
     @PostMapping("/remove")
     public ApiResponse<Map<String, Object>> remove(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
-        ScenarioRunContext context = ScenarioRunContext.fromHeaders(headers);
+        OperationRunContext context = OperationRunContext.fromHeaders(headers);
         reservationConsistencyService.removePreparedReservation(context);
         return ApiResponse.ok(Map.of("cleaned", true));
     }
@@ -46,6 +46,6 @@ public class CouponReservationConsistencyController {
             @RequestHeader org.springframework.http.HttpHeaders headers)
             throws SQLException, InterruptedException, TimeoutException {
         return ApiResponse.ok(reservationConsistencyService.checkReservationConsistency(
-                ScenarioRunContext.fromHeaders(headers)));
+                OperationRunContext.fromHeaders(headers)));
     }
 }

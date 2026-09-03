@@ -1,8 +1,8 @@
 package com.castrel.chaos.psp;
 
 import com.castrel.chaos.common.BizException;
-import com.castrel.chaos.common.coordination.ScenarioRunContext;
-import com.castrel.chaos.common.coordination.ScenarioRunGuard;
+import com.castrel.chaos.common.coordination.OperationRunContext;
+import com.castrel.chaos.common.coordination.OperationRunGuard;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -10,21 +10,21 @@ import java.util.Map;
 
 @Component
 public class PspOutcomeState {
-    private final ScenarioRunGuard runGuard;
-    private volatile ScenarioRunContext activeRun;
+    private final OperationRunGuard runGuard;
+    private volatile OperationRunContext activeRun;
     private volatile String outcome = "AUTHORIZED";
     private int effectPercentage = 100;
     private long authorizationCount;
 
-    public PspOutcomeState(ScenarioRunGuard runGuard) {
+    public PspOutcomeState(OperationRunGuard runGuard) {
         this.runGuard = runGuard;
     }
 
-    public synchronized void prepare(ScenarioRunContext context, Map<String, Object> parameters) {
+    public synchronized void prepare(OperationRunContext context, Map<String, Object> parameters) {
         context.validate(Instant.now());
-        if (!runGuard.acceptStart(context)) throw new BizException("STALE_SCENARIO_RUN", "Scenario token was rejected");
+        if (!runGuard.acceptStart(context)) throw new BizException("STALE_OPERATION", "Operation token was rejected");
         if (activeRun != null && !activeRun.runId().equals(context.runId())) {
-            throw new BizException("SCENARIO_RUN_ALREADY_ACTIVE", "Another provider operation is active");
+            throw new BizException("OPERATION_ALREADY_ACTIVE", "Another provider operation is active");
         }
         if (activeRun != null && activeRun.runId().equals(context.runId())) return;
         Object configured = parameters == null ? null : parameters.get("providerOutcome");
@@ -48,13 +48,13 @@ public class PspOutcomeState {
         return currentEffectQuota > previousEffectQuota ? outcome : "AUTHORIZED";
     }
 
-    public synchronized void release(ScenarioRunContext context) {
+    public synchronized void release(OperationRunContext context) {
         context.validateForRelease();
         runGuard.release(context);
         clear(context);
     }
 
-    private synchronized void clear(ScenarioRunContext context) {
+    private synchronized void clear(OperationRunContext context) {
         if (activeRun != null && activeRun.runId().equals(context.runId())) {
             activeRun = null;
             outcome = "AUTHORIZED";
