@@ -16,7 +16,7 @@
 flowchart LR
   Delivery[normal notification delivery] --> Notification[notification-service]
   Notification --> Retention[NotificationRetentionState]
-  Retention --> Heap[(JVM heap retained byte[])]
+  Retention --> Heap[(JVM heap retained byte arrays)]
   Notification --> Store[(notification persistence)]
   Heap --> Health[health and process state]
 ```

@@ -13,6 +13,7 @@ export default function NavBar() {
   const [time, setTime] = useState('');
   const links = [
     { href: '/', label: t('scenarios') },
+    { href: '/runbook', label: t('runbook') },
     { href: '/runner', label: t('runner') },
     { href: '/operations', label: t('operations') },
     { href: '/alerts', label: t('alerts') },
@@ -26,7 +27,7 @@ export default function NavBar() {
   }, []);
 
   return (
-    <nav className="flex min-w-0 flex-1 items-stretch">
+    <nav className="console-nav flex min-w-0 flex-1 items-stretch overflow-x-auto overscroll-x-contain">
       {links.map((l) => {
         const active = path === l.href;
         return (
@@ -34,7 +35,7 @@ export default function NavBar() {
             key={l.href}
             href={l.href}
             className={[
-              'relative flex h-full items-center px-1.5 text-xs font-medium transition-colors sm:px-4 sm:text-sm',
+              'relative flex h-full shrink-0 items-center px-1.5 text-xs font-medium transition-colors sm:px-4 sm:text-sm',
               active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
             ].join(' ')}
           >

@@ -3,6 +3,7 @@
   "runner": "Runner",
   "operations": "Operations",
   "alerts": "Alerts",
+  "runbook": "Runbook",
   "signOut": "Sign out",
   "live": "Live",
   "protectedControl": "Protected Fault Run control",

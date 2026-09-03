@@ -3,6 +3,7 @@
   "runner": "流量运行器",
   "operations": "运维操作",
   "alerts": "告警",
+  "runbook": "操作手册",
   "signOut": "退出登录",
   "live": "实时",
   "protectedControl": "受保护的 Fault Run 控制台",

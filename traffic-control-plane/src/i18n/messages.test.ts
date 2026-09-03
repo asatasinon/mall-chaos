@@ -34,12 +34,16 @@ test('catalog placeholders and required namespaces stay aligned', () => {
   for (const key of [
     'Common.cancel',
     'Navigation.runner',
+    'Navigation.runbook',
     'Scenarios.networkError',
     'Scenarios.recoveryStrategies.TARGET',
     'Runner.runnerViews',
     'Operations.clearSelectedPartitions',
     'Alerts.newAlert',
     'Accessibility.chooseDate',
+    'Runbook.pageTitle',
+    'Runbook.tempoTitle',
+    'Runbook.mermaidError',
   ]) {
     assert.equal(typeof english[key], 'string', key);
     assert.equal(typeof chinese[key], 'string', key);

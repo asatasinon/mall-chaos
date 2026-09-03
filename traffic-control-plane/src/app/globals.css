@@ -96,6 +96,9 @@ body {
 
 a { color: inherit; text-decoration: none; }
 
+.console-nav { scrollbar-width: none; }
+.console-nav::-webkit-scrollbar { display: none; }
+
 /* ── Pulsing status indicator ─────────────────────────── */
 @keyframes status-pulse {
   0%, 100% { opacity: 1; }
@@ -163,6 +166,7 @@ a { color: inherit; text-decoration: none; }
   color: var(--foreground);
   font-size: 0.9rem;
   line-height: 1.75;
+  overflow-wrap: anywhere;
 }
 .runbook-article > :first-child { margin-top: 0; }
 .runbook-article h1,
@@ -208,6 +212,8 @@ a { color: inherit; text-decoration: none; }
   background: color-mix(in srgb, var(--muted) 42%, transparent);
   padding: 0.1rem 0.3rem;
   font: 0.85em ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .runbook-mermaid {
   min-width: 0;
