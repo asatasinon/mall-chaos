@@ -133,6 +133,93 @@ export class TrafficActionOrchestrator {
     this.persistence = persistence;
   }
 
+  async executeStorageGrowth(
+    trafficRunId: string,
+    faultRunContext: FaultRunContext,
+    options: { signal?: AbortSignal; requestIntervalMs: number; totalBytes: number },
+  ): Promise<RunnerActionResult> {
+    const lifecycleId = uuidv4();
+    const traceId = uuidv4().replace(/-/g, '');
+    const actionId = uuidv4();
+    const startedAt = Date.now();
+    const steps: LifecycleStepResult[] = [];
+    this.currentTrafficRunId = trafficRunId;
+    this.currentTraceId = traceId;
+    this.currentCustomerId = 0;
+
+    try {
+      let sizeBytes = 0;
+      let reachedTarget = false;
+      while (Date.now() < Date.parse(faultRunContext.expiresAt)) {
+        this.throwIfInterrupted(options.signal);
+        const response = await this.gateway.postInternal<StorageAppendResponse>(
+          '/internal/gateway/notification/storage/append',
+          {
+            runId: faultRunContext.faultRunId,
+            expiresAt: faultRunContext.expiresAt,
+            fencingToken: faultRunContext.fencingToken,
+            idempotencyKey: faultRunContext.idempotencyKey,
+          },
+          traceId,
+          options.signal,
+        );
+        sizeBytes = storageSizeBytes(response) ?? sizeBytes;
+        if (sizeBytes >= options.totalBytes) {
+          reachedTarget = true;
+          break;
+        }
+        const remainingMs = Date.parse(faultRunContext.expiresAt) - Date.now();
+        await waitForStorageInterval(Math.min(options.requestIntervalMs, Math.max(remainingMs, 0)), options.signal);
+      }
+      const step: LifecycleStepResult = {
+        actionId: uuidv4(),
+        lifecycleId,
+        actionType: 'NOTIFICATION_STORAGE_APPEND',
+        status: 'SUCCESS',
+        success: true,
+        resultCode: reachedTarget ? 'STORAGE_APPEND_COMPLETE' : 'STORAGE_APPEND_WINDOW_COMPLETE',
+        latencyMs: Date.now() - startedAt,
+      };
+      steps.push(step);
+      return {
+        actionId,
+        lifecycleId,
+        customerId: 0,
+        traceId,
+        success: true,
+        status: 'SUCCESS',
+        resultCode: reachedTarget ? 'STORAGE_APPEND_COMPLETE' : 'STORAGE_APPEND_WINDOW_COMPLETE',
+        steps,
+      };
+    } catch (error) {
+      const interrupted = options.signal?.aborted === true;
+      const errorCodeValue = interrupted ? 'LIFECYCLE_INTERRUPTED' : storageErrorCode(error);
+      steps.push({
+        actionId: uuidv4(),
+        lifecycleId,
+        actionType: 'NOTIFICATION_STORAGE_APPEND',
+        status: interrupted ? 'INTERRUPTED' : 'FAILED',
+        success: false,
+        errorCode: errorCodeValue,
+        latencyMs: Date.now() - startedAt,
+      });
+      return {
+        actionId,
+        lifecycleId,
+        customerId: 0,
+        traceId,
+        success: false,
+        status: interrupted ? 'INTERRUPTED' : 'FAILED',
+        errorCode: errorCodeValue,
+        steps,
+      };
+    } finally {
+      this.currentCustomerId = 0;
+      this.currentTrafficRunId = '';
+      this.currentTraceId = '';
+    }
+  }
+
   async executeLifecycle(
     trafficRunId: string,
     config: RunnerExecutionConfig,
@@ -489,6 +576,47 @@ function randomQuantity(maximum: number): number {
 function errorCode(error: unknown): string {
   if (error instanceof Error && /^[A-Z0-9_]+$/.test(error.message)) return error.message;
   return 'LIFECYCLE_FAILED';
+}
+
+function storageErrorCode(error: unknown): string {
+  if (error instanceof Error && /^[A-Z0-9_]+$/.test(error.message)) return error.message;
+  return 'STORAGE_APPEND_FAILED';
+}
+
+interface StorageAppendResponse {
+  data?: {
+    sizeBytes?: number;
+    data?: {
+      sizeBytes?: number;
+    };
+  };
+}
+
+function storageSizeBytes(response: StorageAppendResponse): number | undefined {
+  const sizeBytes = response.data?.data?.sizeBytes ?? response.data?.sizeBytes;
+  return typeof sizeBytes === 'number' && Number.isFinite(sizeBytes) ? sizeBytes : undefined;
+}
+
+function waitForStorageInterval(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (delayMs <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const complete = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    };
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      reject(new Error('LIFECYCLE_INTERRUPTED'));
+    };
+    const timer = setTimeout(complete, delayMs);
+    if (signal?.aborted) {
+      abort();
+    } else {
+      signal?.addEventListener('abort', abort, { once: true });
+    }
+  });
 }
 
 function boundedProductDetailTimeout(value: number | undefined): number {

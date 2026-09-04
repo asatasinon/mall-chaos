@@ -276,24 +276,24 @@ data:
                 1 - node_filesystem_avail_bytes{mountpoint="/data",fstype="ext4"}
                 /
                 node_filesystem_size_bytes{mountpoint="/data",fstype="ext4"}
-              ) * 100 > 85
+              ) * 100 > 70
             for: 3m
             labels:
               severity: warning
             annotations:
-              summary: 'Node data filesystem usage is high'
-              description: 'The /data filesystem on node {{ $labels.instance }} has exceeded 85% utilization (current: {{ $value | humanize }}%).'
+              summary: 'Node data filesystem available space is low'
+              description: 'The /data filesystem on node {{ $labels.instance }} has less than 30% available space (current utilization: {{ $value | humanize }}%).'
 
           - alert: NodeDataFilesystemGrowthRateHigh
             expr: |
               deriv(node_filesystem_avail_bytes{mountpoint="/data",fstype="ext4"}[15m])
-              < -10485760
-            for: 3m
+              < -2097152
+            for: 1m
             labels:
               severity: warning
             annotations:
               summary: 'Node storage usage is continuously increasing'
-              description: 'Available space on /data for node {{ $labels.instance }} is decreasing at {{ $value | humanize }} bytes/s; a sudden increase in storage usage may be occurring.'
+              description: 'Available space on /data for node {{ $labels.instance }} is decreasing faster than 2 MiB/s (current rate: {{ $value | humanize }} bytes/s); a sudden increase in storage usage may be occurring.'
 
           - alert: MySQLHighThreads
             expr: mysql_global_status_threads_connected > 100

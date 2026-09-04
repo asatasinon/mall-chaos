@@ -152,7 +152,7 @@ graph TD
 ### RB-B4. Notification 与 PSP 场景文章
 
 - [x] 编写 `NOTIFICATION_HEAP_PRESSURE` 英文/中文文章，说明高基数对象保留、非释放型恢复、健康失败和可能缺失的末尾 trace。
-- [x] 编写 `NOTIFICATION_STORAGE_APPEND` 英文/中文文章，说明普通通知记录、逻辑字节预留、运行级清理和不承诺物理磁盘写满的边界。
+- [x] 编写 `NOTIFICATION_STORAGE_APPEND` 英文/中文文章，说明专用真实文件追加接口、运行级清理和卷配额边界。
 - [x] 编写 `PSP_PROVIDER_OUTCOME` 英文/中文文章，说明授权、拒付、60 秒 PSP 返回与 Payment 30 秒客户端超时的实际链路。
 - [x] 明确 PSP 的 `effectPercentage` 影响活动期间授权，而不是所有支付请求必然失败。
 

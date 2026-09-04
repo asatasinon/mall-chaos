@@ -164,7 +164,7 @@ export type ScenarioRunbookMetadata = {
 | `CATALOG_REDIS_LARGE_VALUE` | `catalog-service` | `/api/products/{sku}` | Redis span、反序列化、超时和 5xx。 |
 | `CART_CATALOG_DEPENDENCY` | `cart-service`, `catalog-service` | `POST /api/cart/items`、商品校验 | Cart 下游调用异常与写入前失败。 |
 | `NOTIFICATION_HEAP_PRESSURE` | `notification-service` | 正常通知处理 | duration、error、健康失败或进程退出后的 trace 缺口。 |
-| `NOTIFICATION_STORAGE_APPEND` | `notification-service` | 正常通知持久化 | 逻辑容量保护、持久化错误和运行级清理。 |
+| `NOTIFICATION_STORAGE_APPEND` | `notification-service` | 专用 `POST /internal/notification/storage/append` 文件追加接口 | 真实文件容量保护、文件写入错误和按运行文件清理。 |
 | `PROMOTION_LOCK_CONTENTION` | `promotion-service` | 优惠券预留一致性 | deadlock、`SQLException`、JDBC duration 和失败请求。 |
 | `INVENTORY_TABLE_EXCLUSIVE` | `inventory-service` | `POST /internal/inventory/availability/report` | 表锁阻塞、超时、JDBC duration 和恢复。 |
 | `INVENTORY_ROW_LOCK` | `inventory-service` | `POST /internal/inventory/reservations/summary` | `SKU-001` 锁等待、超时、JDBC duration。 |

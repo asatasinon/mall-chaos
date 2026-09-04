@@ -110,11 +110,6 @@ public class NotificationService {
         notification.setRead(false);
         notification.setCreatedAt(LocalDateTime.now());
         retentionState.shouldRetain();
-        String operationRunId = retentionState.storageOperationRunId();
-        if (operationRunId != null) {
-            retentionState.reserveStorage(message.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
-            notification.setOperationRunId(operationRunId);
-        }
         customerNotificationRepository.save(notification);
         localQueryCacheManager.cacheIfNeeded("notification:" + orderNo, notification);
 

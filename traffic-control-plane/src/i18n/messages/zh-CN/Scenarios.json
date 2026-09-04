@@ -180,7 +180,7 @@
     },
     "NOTIFICATION_STORAGE_APPEND": {
       "label": "通知存储增长",
-      "description": "使用运行专属的通知事务数据增长持久化存储。"
+      "description": "通过专用通知追加接口真实增长磁盘存储。"
     },
     "PROMOTION_LOCK_CONTENTION": {
       "label": "促销死锁",

@@ -126,6 +126,15 @@ public class NotificationController {
         return ApiResponse.ok(Map.of("released", true, "runId", context.runId()));
     }
 
+    @PostMapping("/internal/notification/storage/append")
+    public ApiResponse<Map<String, Object>> appendStorage(
+            @RequestHeader org.springframework.http.HttpHeaders headers) {
+        OperationRunContext context = OperationRunContext.fromHeaders(headers);
+        long sizeBytes = retentionState.appendStorage(context, runGuard);
+        return ApiResponse.ok(Map.of("accepted", true, "operation", "notification-storage",
+            "runId", context.runId(), "sizeBytes", sizeBytes));
+    }
+
     @PostMapping("/internal/notification/retention/cleanup")
     public ApiResponse<Map<String, Object>> cleanupRetention(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
@@ -139,9 +148,8 @@ public class NotificationController {
     public ApiResponse<Map<String, Object>> cleanupStorage(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
         OperationRunContext context = OperationRunContext.fromHeaders(headers);
-        retentionState.release(context, runGuard);
-        long deleted = customerNotificationRepository.deleteByOperationRunId(context.runId());
-        return ApiResponse.ok(Map.of("cleaned", true, "deletedNotifications", deleted));
+        long deletedBytes = retentionState.cleanupStorage(context, runGuard);
+        return ApiResponse.ok(Map.of("cleaned", true, "deletedBytes", deletedBytes));
     }
 
     @PostMapping("/internal/notification/storage/cleanup-all")
@@ -150,9 +158,8 @@ public class NotificationController {
         if (body == null || !"notification-storage".equals(body.get("operation")) || body.size() != 1) {
             throw new BizException("OPERATION_MISMATCH", "Unsupported notification storage cleanup");
         }
-        retentionState.stopAllStorageOperations(runGuard);
-        long deleted = customerNotificationRepository.deleteByOperationRunIdIsNotNull();
-        return ApiResponse.ok(Map.of("cleaned", true, "deletedNotifications", deleted));
+        long deletedBytes = retentionState.cleanupAllStorage(runGuard);
+        return ApiResponse.ok(Map.of("cleaned", true, "deletedBytes", deletedBytes));
     }
 
     @PostMapping("/internal/notification/restart")

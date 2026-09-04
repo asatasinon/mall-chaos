@@ -41,6 +41,7 @@ export class RunnerEngine {
   private addressCreatedCount = 0;
   private cartReusedCount = 0;
   private pendingPaymentRetainedCount = 0;
+  private storageGrowthCompletedRunId: string | null = null;
   private readonly orchestrator = new TrafficActionOrchestrator();
 
   constructor() {
@@ -104,6 +105,7 @@ export class RunnerEngine {
       });
     }
     this.trafficRunPersistence = null;
+    this.storageGrowthCompletedRunId = null;
     await this.publishStatus();
     log.info({ trafficRunId }, 'Runner engine stopped');
   }
@@ -176,11 +178,6 @@ export class RunnerEngine {
     const t0 = Date.now();
     const trafficRunId = this.trafficRunId;
     if (this.trafficRunPersistence) await this.trafficRunPersistence;
-    const lifecycleAbortController = new AbortController();
-    this.lifecycleAbortController = lifecycleAbortController;
-    this.lifecycleStartedCount++;
-    this.lastLifecycleStartedAt = t0;
-    this.currentLifecycleId = null;
     const activeFaultRun = await loadActiveFaultRun();
     const runnerFaultRun = activeFaultRun
       && (activeFaultRun.scenario === 'NOTIFICATION_HEAP_PRESSURE'
@@ -188,18 +185,41 @@ export class RunnerEngine {
         || activeFaultRun.scenario === 'PSP_PROVIDER_OUTCOME')
       ? activeFaultRun
       : null;
-    this.lifecyclePromise = this.orchestrator.executeLifecycle(trafficRunId, {
-        maxItems: this.config.maxItems,
-        maxItemQuantity: this.config.maxItemQuantity,
-        paymentSuccessRatio: this.config.successfulPaymentRatio,
-        couponUsageRatio: this.config.couponUsageRatio,
-      }, {
+    const runnerFaultContext = runnerFaultRun ? createFaultRunContext(runnerFaultRun) : undefined;
+    if (runnerFaultRun?.scenario !== 'NOTIFICATION_STORAGE_APPEND') {
+      this.storageGrowthCompletedRunId = null;
+    }
+    if (runnerFaultRun?.scenario === 'NOTIFICATION_STORAGE_APPEND'
+        && this.storageGrowthCompletedRunId === runnerFaultRun.faultRunId) {
+      return;
+    }
+    const lifecycleAbortController = new AbortController();
+    this.lifecycleAbortController = lifecycleAbortController;
+    this.lifecycleStartedCount++;
+    this.lastLifecycleStartedAt = t0;
+    this.currentLifecycleId = null;
+    this.lifecyclePromise = (runnerFaultRun?.scenario === 'NOTIFICATION_STORAGE_APPEND'
+      ? this.orchestrator.executeStorageGrowth(trafficRunId, runnerFaultContext!, {
         signal: lifecycleAbortController.signal,
-        ...(runnerFaultRun ? {
-          faultRunContext: createFaultRunContext(runnerFaultRun),
-        } : {}),
+        requestIntervalMs: Number(runnerFaultRun.parameters.requestIntervalMs ?? 100),
+        totalBytes: Number(runnerFaultRun.parameters.totalBytes ?? 10 * 1024 ** 3),
       })
-      .then((result) => this.finishLifecycle(result, t0))
+      : this.orchestrator.executeLifecycle(trafficRunId, {
+          maxItems: this.config.maxItems,
+          maxItemQuantity: this.config.maxItemQuantity,
+          paymentSuccessRatio: this.config.successfulPaymentRatio,
+          couponUsageRatio: this.config.couponUsageRatio,
+        }, {
+          signal: lifecycleAbortController.signal,
+          ...(runnerFaultContext ? { faultRunContext: runnerFaultContext } : {}),
+        }))
+      .then((result) => {
+        if (runnerFaultRun?.scenario === 'NOTIFICATION_STORAGE_APPEND'
+            && result.resultCode === 'STORAGE_APPEND_COMPLETE') {
+          this.storageGrowthCompletedRunId = runnerFaultRun.faultRunId;
+        }
+        return this.finishLifecycle(result, t0);
+      })
       .finally(() => {
         if (this.lifecycleAbortController === lifecycleAbortController) {
           this.lifecycleAbortController = null;
@@ -227,7 +247,8 @@ export class RunnerEngine {
     const latencyMs = Date.now() - t0;
     void pushActivity({
       ts: t0,
-      action: 'CUSTOMER_LIFECYCLE',
+      action: result.steps?.some((step) => step.actionType === 'NOTIFICATION_STORAGE_APPEND')
+        ? 'NOTIFICATION_STORAGE_APPEND' : 'CUSTOMER_LIFECYCLE',
       success: result.success,
       latencyMs,
       trafficRunId,

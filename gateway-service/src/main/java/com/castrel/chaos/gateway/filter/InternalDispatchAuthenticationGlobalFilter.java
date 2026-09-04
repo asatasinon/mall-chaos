@@ -30,6 +30,7 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
             "/internal/gateway/inventory/availability",
             "/internal/gateway/inventory/reservations/summary",
             "/internal/gateway/promotion/consistency",
+            "/internal/gateway/notification/storage/append",
             "/internal/gateway/notification/restart");
 
     private final String internalServiceKey;

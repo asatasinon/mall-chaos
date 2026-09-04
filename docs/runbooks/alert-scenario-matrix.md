@@ -6,7 +6,7 @@
 
 - 当前规则可以覆盖大部分场景产生的**结果信号**，但不是每个场景都有专用告警。
 - 报表慢 SQL、锁竞争和 Redis 大值主要依赖 HTTP 延迟、HTTP 错误、JVM、连接池、MySQL 和 Redis 规则；流量突增另有 `TrafficSurge` 规则，但是否越过阈值仍取决于基线、并发、间隔和持续时间。
-- `NOTIFICATION_STORAGE_APPEND` 的 `totalBytes` 是应用内逻辑预留，不等于物理磁盘写满。只有实际数据库/文件系统指标越过阈值时，基础设施告警才会触发。
+- `NOTIFICATION_STORAGE_APPEND` 的 `totalBytes` 是运行专属文件的目标字节数；实际是否达到该大小仍受挂载路径、卷配额、可用空间和 I/O 结果影响。基础设施告警仍只在真实指标越过阈值时触发。
 - `PROMOTION_LOCK_CONTENTION`、`INVENTORY_TABLE_EXCLUSIVE` 和 `INVENTORY_ROW_LOCK` 当前没有死锁或锁等待专用告警，只能通过慢请求、错误、连接池和 MySQL 通用信号判断。
 - Compose 与 Kubernetes 必须使用同一组规则。Kubernetes ConfigMap 已同步 Compose 中的数据盘、InnoDB 写入和关联退化规则；部署后仍需确认 Prometheus 已加载新配置。
 
@@ -23,7 +23,7 @@
 | `CATALOG_REDIS_LARGE_VALUE` 商品详情 Redis 大值 | `RedisHighMemory`、`HighLatencyP99`、`HighHeapUsage`、`FrequentGCPause` | `CriticalHeapUsage`、`CriticalLatencyP99`、`HighErrorRate`、`NodeHighMemory` | 部分覆盖。当前没有 Redis 延迟、淘汰、单 key 大小或 Catalog cache 专用告警；逻辑字节预算也不等于 Redis 物理内存阈值。 |
 | `CART_CATALOG_DEPENDENCY` 加购依赖失败 | `HighErrorRate` | `CriticalLatencyP99`、`HighLatencyP99` | 部分覆盖。若 Cart 加购或 Catalog 校验的 503 被 Prometheus 记录为 5xx，按 URI 的错误率达到 5% 且持续 1 分钟才告警；没有 Cart-to-Catalog 专用告警。 |
 | `NOTIFICATION_HEAP_PRESSURE` 通知 JVM 内存压力 | `HighHeapUsage`、`CriticalHeapUsage`、`FrequentGCPause` | `HighErrorRate`、`HighLatencyP99`、`CriticalLatencyP99`、`NodeHighMemory`、`ServiceDown` | 较强覆盖。JVM 进入不可用后可触发 `ServiceDown`，但 OOM、告警时间和最后一条 trace 都不保证。 |
-| `NOTIFICATION_STORAGE_APPEND` 通知存储增长 | 无必然专用告警 | `MySQLInnoDBDataWriteRateHigh`、`NodeDataFilesystemGrowthRateHigh`、`NodeDataFilesystemUsageHigh`、`MySQLSlowQueries`、`HighErrorRate` | 弱覆盖。当前场景的主要容量控制是逻辑预留；应用保护错误不会自动计入 `NotificationFailRateHigh`，物理磁盘告警只在真实文件系统增长并越过阈值时触发。 |
+| `NOTIFICATION_STORAGE_APPEND` 通知存储增长 | `NodeDataFilesystemGrowthRateHigh`、`NodeDataFilesystemUsageHigh` | `HighErrorRate` | 条件覆盖。runner 经 Gateway 调用专用 append endpoint，主要增长来自 notification-service 挂载卷中的真实运行文件；该场景不调用订单、支付、发货或正常通知接口。文件容量保护错误也不会自动计入 `NotificationFailRateHigh`。 |
 | `PROMOTION_LOCK_CONTENTION` 促销锁竞争 | `HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLSlowQueries`、`MySQLHighThreads` | 部分覆盖。死锁/超时异常经目标服务或 Gateway 观测 URI 以 HTTP 5xx 返回并达到错误率阈值时触发 `HighErrorRate`；仅锁等待不超时则主要表现为慢请求。 |
 | `INVENTORY_TABLE_EXCLUSIVE` 库存表锁 | `HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLSlowQueries`、`MySQLHighThreads` | 部分覆盖。阻塞请求超时或异常经目标服务或 Gateway 观测 URI 以 HTTP 5xx 返回并达到错误率阈值时触发 `HighErrorRate`；`InventoryReserveFailRateHigh` 不会由该观测接口直接产生。 |
 | `INVENTORY_ROW_LOCK` 库存行锁 | `HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLSlowQueries`、`MySQLHighThreads` | 部分覆盖。行锁等待超时/异常经 Gateway 观测 URI 以 HTTP 5xx 返回并达到错误率阈值时触发 `HighErrorRate`；目标服务的业务 envelope 即使保持 200，也可能被 Gateway 转为 502。 |
@@ -50,8 +50,8 @@
 | 业务 | `RiskRejectRateHigh` | 风控拒绝比例大于 50%，持续 2 分钟 |
 | 业务 | `NotificationFailRateHigh` | 通知失败比例大于 10%，持续 1 分钟 |
 | 节点 | `NodeHighCPU` / `NodeHighMemory` | 节点 CPU 大于 80% / 内存大于 85%，均持续 2 分钟 |
-| 节点存储 | `NodeDataFilesystemUsageHigh` | `/data` 使用率大于 85%，持续 3 分钟 |
-| 节点存储 | `NodeDataFilesystemGrowthRateHigh` | `/data` 可用空间下降速率超过 10 MiB/秒，持续 3 分钟 |
+| 节点存储 | `NodeDataFilesystemUsageHigh` | `/data` 可用空间低于 30%（使用率大于 70%），持续 3 分钟 |
+| 节点存储 | `NodeDataFilesystemGrowthRateHigh` | `/data` 可用空间下降速率超过 2 MiB/秒，持续 1 分钟 |
 | MySQL | `MySQLHighThreads` / `MySQLSlowQueries` | 连接数大于 100 持续 1 分钟 / 慢查询速率大于 0.5 次/秒持续 1 分钟 |
 | MySQL | `MySQLInnoDBDataWriteRateHigh` | InnoDB 写入速率大于 1 MiB/秒，持续 1 分钟；级别为 `info` |
 | Redis | `RedisHighMemory` | Redis 使用率大于 80%，持续 2 分钟 |

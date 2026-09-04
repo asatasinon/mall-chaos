@@ -8,21 +8,24 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 public class NotificationRetentionState {
     private final CopyOnWriteArrayList<byte[]> retainedObjects = new CopyOnWriteArrayList<>();
-    private final AtomicLong storageBytes = new AtomicLong();
+    private final NotificationStorageGrowthWriter storageWriter;
     private volatile OperationRunContext retentionRun;
     private volatile OperationRunContext storageRun;
     private volatile long requestIntervalMs = 100;
     private volatile int retainedBytesPerNotification = 1024 * 1024;
     private volatile long totalStorageBytes = 10L * 1024 * 1024 * 1024;
     private volatile long appendBytes = 16L * 1024 * 1024;
-    private volatile long minFreeBytes = 1;
+    private volatile long minFreeBytes = 1L * 1024 * 1024;
     private volatile long lastRetainedAt;
     private volatile long lastAppendedAt;
+
+    public NotificationRetentionState(NotificationStorageGrowthWriter storageWriter) {
+        this.storageWriter = storageWriter;
+    }
 
     public synchronized void prepareRetention(OperationRunContext context,
                                                Map<String, Object> parameters,
@@ -43,12 +46,13 @@ public class NotificationRetentionState {
         validateStart(context, guard);
         ensureAvailable(context);
         if (storageRun != null && storageRun.runId().equals(context.runId())) return;
-        storageRun = context;
         requestIntervalMs = bounded(parameters, "requestIntervalMs", 100, 0, 60000);
         totalStorageBytes = bounded(parameters, "totalBytes", 10L * 1024 * 1024 * 1024, 1024, Long.MAX_VALUE);
         appendBytes = bounded(parameters, "appendBytes", 16L * 1024 * 1024, 1, 64L * 1024 * 1024);
-        minFreeBytes = bounded(parameters, "minFreeBytes", 1, 1, 1073741824);
-        storageBytes.set(0);
+        minFreeBytes = bounded(parameters, "minFreeBytes", 1L * 1024 * 1024, 1, 1073741824);
+        storageWriter.prepare(context.runId());
+        storageRun = context;
+        lastAppendedAt = 0;
         guard.registerCleanup(context, () -> clearStorage(context));
     }
 
@@ -76,25 +80,35 @@ public class NotificationRetentionState {
         return true;
     }
 
-    public String storageOperationRunId() {
+    public synchronized long appendStorage(OperationRunContext context, OperationRunGuard guard) {
+        context.validate(Instant.now());
+        if (!guard.isAccepted(context)) {
+            throw new BizException("STALE_OPERATION", "Operation token was rejected");
+        }
         OperationRunContext run = storageRun;
-        return run != null && run.expiresAt().isAfter(Instant.now()) ? run.runId() : null;
-    }
-
-    public long reserveStorage(long payloadBytes) {
-        if (storageOperationRunId() == null) return 0;
+        if (run == null || !run.runId().equals(context.runId())
+                || run.fencingToken() != context.fencingToken()) {
+            throw new BizException("STALE_OPERATION", "Operation token was rejected");
+        }
         long now = System.currentTimeMillis();
         if (now - lastAppendedAt < requestIntervalMs) {
             throw new BizException("STORAGE_APPEND_RATE_LIMIT", "Notification append rate is limited");
         }
-        long reservedBytes = Math.max(payloadBytes, appendBytes);
-        long next = storageBytes.addAndGet(reservedBytes);
-        if (next > totalStorageBytes || totalStorageBytes - next < minFreeBytes) {
-            storageBytes.addAndGet(-reservedBytes);
-            throw new BizException("STORAGE_CAPACITY_GUARD", "Notification storage guard is active");
-        }
+        long next = storageWriter.append(run.runId(), appendBytes, totalStorageBytes, minFreeBytes);
         lastAppendedAt = now;
         return next;
+    }
+
+    public synchronized long cleanupStorage(OperationRunContext context, OperationRunGuard guard) {
+        context.validateForCleanup();
+        guard.release(context);
+        clearStorage(context);
+        return storageWriter.delete(context.runId());
+    }
+
+    public synchronized long cleanupAllStorage(OperationRunGuard guard) {
+        stopAllStorageOperations(guard);
+        return storageWriter.deleteAll();
     }
 
     public int retainedEntries() {

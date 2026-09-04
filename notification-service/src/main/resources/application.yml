@@ -3,6 +3,8 @@ server:
 
 notification:
   fail-rate: 0.0
+  storage-growth:
+    path: ${NOTIFICATION_STORAGE_GROWTH_PATH:/service-data/storage-growth}
 
 spring:
   application:

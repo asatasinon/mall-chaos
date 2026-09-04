@@ -119,6 +119,51 @@ test('lifecycle keeps existing cart items, adds a new sellable SKU, creates miss
   assert.equal(closed, true);
 });
 
+test('storage growth uses the fixed append endpoint without opening a customer session', async () => {
+  const calls: Array<{ path: string; body: unknown; traceId?: string }> = [];
+  let sizeBytes = 0;
+  const gateway = {
+    async postInternal(path: string, body: unknown, traceId?: string) {
+      calls.push({ path, body, traceId });
+      sizeBytes += 1024 ** 2;
+      return { data: { accepted: true, sizeBytes } };
+    },
+  } as unknown as GatewayClient;
+  const sessions = {
+    openSession: async () => {
+      throw new Error('CUSTOMER_SESSION_MUST_NOT_OPEN');
+    },
+  } as unknown as CustomerSessionManager;
+  const orchestrator = new TrafficActionOrchestrator(gateway, sessions, noPersistence());
+  const faultRunContext = {
+    faultRunId: '11111111-1111-4111-8111-111111111111',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    fencingToken: 7,
+    idempotencyKey: 'storage-append-test',
+  };
+
+  const result = await orchestrator.executeStorageGrowth('run-1', faultRunContext, {
+    requestIntervalMs: 0,
+    totalBytes: 2 * 1024 ** 2,
+  });
+
+  assert.equal(result.status, 'SUCCESS');
+  assert.equal(result.resultCode, 'STORAGE_APPEND_COMPLETE');
+  assert.equal(result.steps?.[0]?.actionType, 'NOTIFICATION_STORAGE_APPEND');
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], {
+    path: '/internal/gateway/notification/storage/append',
+    body: {
+      runId: faultRunContext.faultRunId,
+      expiresAt: faultRunContext.expiresAt,
+      fencingToken: faultRunContext.fencingToken,
+      idempotencyKey: faultRunContext.idempotencyKey,
+    },
+    traceId: result.traceId,
+  });
+  assert.deepEqual(calls[1], calls[0]);
+});
+
 test('coupon branch selects only a candidate meeting the cart threshold', async () => {
   const context = makeContext();
   const calls: Array<{ path: string; body?: unknown }> = [];

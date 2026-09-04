@@ -180,7 +180,7 @@
     },
     "NOTIFICATION_STORAGE_APPEND": {
       "label": "Notification storage growth",
-      "description": "Grow persistent storage with run-scoped notification transaction data."
+      "description": "Grow real storage through a dedicated notification append endpoint."
     },
     "PROMOTION_LOCK_CONTENTION": {
       "label": "Promotion deadlock",

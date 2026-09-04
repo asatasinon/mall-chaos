@@ -89,7 +89,7 @@
 | `CATALOG_REDIS_LARGE_VALUE` | Redis 大值 | `catalog-service` 商品详情，`GET /api/products/{sku}` | 选中商品详情读取、Catalog 堆/网络、共享 Redis；只使用运行级 Hash 和 marker。 |
 | `CART_CATALOG_DEPENDENCY` | 加购依赖失败 | `cart-service -> catalog-service` 商品校验，`POST /api/cart/items` | 所有加购商品校验请求在写入 Cart 前失败；Catalog 其他业务 API 仍可用。 |
 | `NOTIFICATION_HEAP_PRESSURE` | 通知堆压力 | `notification-service` 正常通知处理路径 | 整个 Notification JVM 和通知处理能力；可能导致健康失败或进程退出。 |
-| `NOTIFICATION_STORAGE_APPEND` | 通知存储追加 | `notification-service` 正常通知持久化路径 | 通知持久化、运行级可识别记录和逻辑容量预算；停止后可能需要人工清理。 |
+| `NOTIFICATION_STORAGE_APPEND` | 通知存储追加 | runner 经 Gateway 调用 `notification-service` 专用文件追加接口 | notification-service 存储卷和运行级增长文件；不调用支付、订单或发货路径，停止后可能需要人工清理。 |
 | `PROMOTION_LOCK_CONTENTION` | 优惠券锁竞争 | `promotion-service` 预留一致性路径 | 演练准备的优惠券/预留事务及短时共享数据库锁竞争，可能产生 MySQL deadlock。 |
 | `INVENTORY_TABLE_EXCLUSIVE` | 库存表锁 | `inventory-service`，`POST /internal/inventory/availability/report` | 整个 `inventories` 表的读写可能被阻塞。 |
 | `INVENTORY_ROW_LOCK` | 库存行锁 | `inventory-service`，`POST /internal/inventory/reservations/summary` | 固定 `SKU-001` 记录及需要该行锁的事务。 |

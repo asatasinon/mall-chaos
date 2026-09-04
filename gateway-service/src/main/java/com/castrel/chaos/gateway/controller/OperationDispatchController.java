@@ -134,6 +134,14 @@ public class OperationDispatchController {
                 "Fixed promotion target unavailable");
     }
 
+        @PostMapping("/notification/storage/append")
+        public Mono<ApiResponse<Object>> notificationStorageAppend(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
+        return dispatchObservation(body, traceId, "notification-service", "/internal/notification/storage/append",
+            "Fixed notification storage target unavailable");
+        }
+
     private Mono<ApiResponse<Object>> dispatchObservation(
             Map<String, Object> body, String traceId, String serviceName, String path, String unavailableMessage) {
         Validation validation = validateObservation(body);
