@@ -154,7 +154,7 @@ flowchart LR
 - Java 服务的 trace、HTTP/JDBC/Redis span 与 exception event 由 OTel Java agent 自动产生；具体 span name 和属性代际需以实际 Tempo 数据为准。
 - `fault_runs.trace_id` 与 `X-Trace-Id` 是业务关联 ID。代码未证明它们会被装入 OTel `SpanContext`，不得以它们生成 Tempo trace 深链或承诺精确查询。
 - 必须用该业务关联 ID 追踪特定运行时，可在 Loki 中查询业务日志，并结合演练的时间窗口和目标服务检查 Tempo。
-- 被业务异常处理器包装的错误可能是 HTTP 200，因此不能只用 `status = error` 判定失败。
+- 业务服务异常会原样抛出，由 Gateway 统一转换为对应的 HTTP 5xx 和 `ApiResponse` envelope；排障仍应结合 HTTP 状态、exception event 和服务日志。
 - 堆压力导致进程退出时，末尾请求可能没有导出的 span；服务健康、容器重启和缺失 trace 同样是排障证据。
 
 ## 8. 内容准确性要求

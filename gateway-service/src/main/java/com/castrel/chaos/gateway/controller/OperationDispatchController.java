@@ -4,13 +4,11 @@ import com.castrel.chaos.common.ApiResponse;
 import com.castrel.chaos.common.TraceContext;
 import com.castrel.chaos.gateway.service.FixedOperationDispatchService;
 import com.castrel.chaos.gateway.service.OperationDispatchService;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
@@ -57,8 +55,7 @@ public class OperationDispatchController {
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
         Target target = validation.target();
         return dispatchService.prepare(target.service(), target.preparePath(), body, traceIdOrEmpty(traceId))
-                .map(ApiResponse::ok)
-                .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
+            .map(ApiResponse::ok);
     }
 
     @PostMapping("/operations/release")
@@ -69,8 +66,7 @@ public class OperationDispatchController {
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
         Target target = validation.target();
         return dispatchService.release(target.service(), target.releasePath(), body, traceIdOrEmpty(traceId))
-                .map(ApiResponse::ok)
-                .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
+            .map(ApiResponse::ok);
     }
 
     @PostMapping("/operations/cleanup")
@@ -84,8 +80,7 @@ public class OperationDispatchController {
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
         Target target = validation.target();
         return dispatchService.cleanup(target.service(), target.cleanupPath(), body, traceIdOrEmpty(traceId))
-                .map(ApiResponse::ok)
-                .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
+            .map(ApiResponse::ok);
     }
 
     @PostMapping("/operations/cleanup-all")
@@ -98,8 +93,7 @@ public class OperationDispatchController {
         }
         return dispatchService.cleanup("notification-service", "/internal/notification/storage/cleanup-all",
                         body, traceIdOrEmpty(traceId))
-                .map(ApiResponse::ok)
-                .onErrorMap(error -> targetUnavailable("Fixed target unavailable", error));
+            .map(ApiResponse::ok);
     }
 
     @PostMapping("/notification/restart")
@@ -113,8 +107,7 @@ public class OperationDispatchController {
         }
         return dispatchService.cleanup("notification-service", "/internal/notification/restart",
                         body, traceIdOrEmpty(traceId))
-                .map(ApiResponse::ok)
-                .onErrorMap(error -> targetUnavailable("Fixed notification target unavailable", error));
+            .map(ApiResponse::ok);
     }
 
     @PostMapping("/inventory/availability")
@@ -146,8 +139,7 @@ public class OperationDispatchController {
         Validation validation = validateObservation(body);
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
         return operationService.dispatch(serviceName, path, body, traceIdOrEmpty(traceId))
-                .map(ApiResponse::ok)
-                .onErrorMap(error -> targetUnavailable(unavailableMessage, error));
+            .map(ApiResponse::ok);
     }
 
     private Validation validate(Map<String, Object> body, boolean cleanup) {
@@ -206,10 +198,6 @@ public class OperationDispatchController {
 
     private static String traceIdOrEmpty(String traceId) {
         return traceId == null ? "" : traceId;
-    }
-
-    private static ResponseStatusException targetUnavailable(String message, Throwable cause) {
-        return new ResponseStatusException(HttpStatus.BAD_GATEWAY, message, cause);
     }
 
     private record Target(String service, String preparePath, String releasePath, String cleanupPath) {
