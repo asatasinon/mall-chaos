@@ -125,6 +125,7 @@ export class DataWarmupService {
         this.startLeaseHeartbeat();
         if (!(await renewLease(this.owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
         await markWarmupLeaseOwner(this.owner);
+        await syncWarmupProgressConfiguration();
         await reclaimStaleManualWarmupJobs();
         await this.runLeaseSession();
       } catch (error) {
@@ -834,6 +835,18 @@ async function markWarmupLeaseOwner(owner: string): Promise<void> {
   await getPool().query(
     `UPDATE data_warmup_progress SET lease_owner = ? WHERE table_name IN (?, ?)`,
     [owner, TABLES[0].name, TABLES[1].name],
+  );
+}
+
+async function syncWarmupProgressConfiguration(): Promise<void> {
+  await getPool().query(
+    `UPDATE data_warmup_progress
+        SET target_rows = ?, day_target_rows = ?,
+            status = CASE WHEN guard_reason = 'INVALID_DATA_WARMUP_CONFIGURATION' THEN 'BACKFILLING' ELSE status END,
+            guard_reason = CASE WHEN guard_reason = 'INVALID_DATA_WARMUP_CONFIGURATION' THEN NULL ELSE guard_reason END,
+            updated_at = CURRENT_TIMESTAMP(3)
+      WHERE table_name IN (?, ?)`,
+    [env.DATA_WARMUP_TARGET_ROWS, env.DATA_WARMUP_ROWS_PER_DAY, TABLES[0].name, TABLES[1].name],
   );
 }
 

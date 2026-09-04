@@ -143,7 +143,7 @@ Kubernetes broker 使用专用 `notification-restart-broker` ServiceAccount。Ro
 
 - 全部 Java、Node.js、worker、MySQL 会话和日切逻辑使用 `Asia/Shanghai`（`+08:00`）。
 - `product_price_history` 和 `user_behavior_log` 使用东八区 `RANGE COLUMNS` 日分区。
-- 预热窗口由 `DATA_WARMUP_WINDOW_DAYS`、`DATA_WARMUP_ROWS_PER_DAY` 和 `DATA_WARMUP_TARGET_ROWS` 共同决定，三个值必须保持一致：源码默认及 Kubernetes 当前为 `180 × 300,000 = 54,000,000`；Compose 的 `traffic-control-plane-worker` 显式配置为 `180 × 500,000 = 90,000,000`。
+- 预热窗口由 `DATA_WARMUP_WINDOW_DAYS`、`DATA_WARMUP_ROWS_PER_DAY` 和 `DATA_WARMUP_TARGET_ROWS` 共同决定，三个值必须保持一致：`180 × 300,000 = 54,000,000`。
 - 预热只由 standalone worker 持有 Redis lease 后写入；空间或表大小保护触发时暂停。设置 `DATA_WARMUP_ENABLED=false` 只禁用预热，不会停止 Runner、场景 worker、恢复和留存任务。
 - Fault Run、事件和运行专属审计明细保留 7 天；活动、恢复中、服务不可用或清理未完成记录不会被留存任务删除。
 

@@ -216,14 +216,14 @@ Inventory 的行级读取使用独立的专用 JDBC 连接执行 `SELECT ... FOR
 
 每个预热表是固定 180 天滑动窗口：
 
-$$180 \times 500{,}000 = 90{,}000{,}000$$
+$$180 \times 300{,}000 = 54{,}000{,}000$$
 
 | 表 | 分区时间列 | 初始数据 | 日切动作 |
 | --- | --- | --- | --- |
-| `product_price_history` | `effective_at` | 今天至前 179 天，每天 500,000 行 | 新增当天分区并写入 500,000 行，`DROP PARTITION` 删除第 180 天前的整日分区。 |
-| `user_behavior_log` | `created_at` | 今天至前 179 天，每天 500,000 行 | 新增当天分区并写入 500,000 行，`DROP PARTITION` 删除第 180 天前的整日分区。 |
+| `product_price_history` | `effective_at` | 今天至前 179 天，每天 300,000 行 | 新增当天分区并写入 300,000 行，`DROP PARTITION` 删除第 180 天前的整日分区。 |
+| `user_behavior_log` | `created_at` | 今天至前 179 天，每天 300,000 行 | 新增当天分区并写入 300,000 行，`DROP PARTITION` 删除第 180 天前的整日分区。 |
 
-两个表都使用按东八区自然日边界的 MySQL `RANGE COLUMNS` 日分区；分区命名采用 `pYYYYMMDD`，上界为下一日 `00:00:00 +08:00`。迁移必须在转换前调整主键和全部唯一键，使每个唯一键包含分区时间列，满足 MySQL 分区约束；不能依赖对 90M 行表执行无界 `DELETE`。
+两个表都使用按东八区自然日边界的 MySQL `RANGE COLUMNS` 日分区；分区命名采用 `pYYYYMMDD`，上界为下一日 `00:00:00 +08:00`。迁移必须在转换前调整主键和全部唯一键，使每个唯一键包含分区时间列，满足 MySQL 分区约束；不能依赖对 54M 行表执行无界 `DELETE`。
 
 初始化必须按日期分区生成，不能通过均匀随机 180 天时间再假定每日恰好 50 万。行为数据每个分区包含足量 `PAGE_VIEW`、`PRODUCT` 及真实 SKU 目标。
 
@@ -232,8 +232,8 @@ $$180 \times 500{,}000 = 90{,}000{,}000$$
 `DataWarmupService` 改为常驻服务：
 
 1. 获取 Redis 租约；未获取时仅上报非拥有状态并重试。
-2. 检查每张表的日期分区/配额；若缺少窗口内分区，进入 `BACKFILLING`，逐日补到每分区 500,000。
-3. 当前日期未达 500,000 时进入 `APPENDING`，按批大小、间隔和速率限制补足。
+2. 检查每张表的日期分区/配额；若缺少窗口内分区，进入 `BACKFILLING`，逐日补到每分区 300,000。
+3. 当前日期未达 300,000 时进入 `APPENDING`，按批大小、间隔和速率限制补足。
 4. 日期切换后先创建当天分区并完成当天配额，再进入 `ROLLOVER_CLEANUP`，使用 `DROP PARTITION` 删除窗口外最早整日分区。
 5. 完成后保持租约并定期检查当天配额；当天已完成时等待下一日期或租约/配置变化。
 6. 发生 MySQL 错误按有上限的退避重试；worker 持续补数直到达到固定窗口目标。
@@ -247,7 +247,7 @@ $$180 \times 500{,}000 = 90{,}000{,}000$$
 ```text
 DATA_WARMUP_ENABLED=true
 DATA_WARMUP_WINDOW_DAYS=180
-DATA_WARMUP_ROWS_PER_DAY=500000
+DATA_WARMUP_ROWS_PER_DAY=300000
 DATA_WARMUP_TARGET_ROWS=54000000
 DATA_WARMUP_BATCH_SIZE=500
 DATA_WARMUP_BATCH_INTERVAL_MS=1000
@@ -306,7 +306,7 @@ Compose 和 Kubernetes 中所有 Java 服务设置 `TZ=Asia/Shanghai` 与 `-Duse
 
 1. 建立 `fault_runs`、场景 catalog、Coordinator、运行 Route、审计和启动恢复。
 2. 替换 Gateway 分发为单目标场景映射，删除旧协议。
-3. 改造固定 180 天/90M 日分区预热 worker、Redis 租约、状态 API、东八区配置与分区迁移。
+3. 改造固定 180 天/54M 日分区预热 worker、Redis 租约、状态 API、东八区配置与分区迁移。
 4. 实现两条报表及其独立优化迁移/修复版本，再实现持续报表 worker。
 5. 实现流量突增、Cart 依赖、通知内存/存储、Promotion 死锁和 Inventory 表锁。
 6. 新增 PSP 服务与 Payment PSP Client。
@@ -316,7 +316,7 @@ Compose 和 Kubernetes 中所有 Java 服务设置 `TZ=Asia/Shanghai` 与 `-Duse
 ## 10. 验证
 
 1. 运行创建、到期停止、人工停止、控制面重启恢复和 Gateway 目标拒绝均有自动化测试。
-2. 预热初始化后每表存在 180 个东八区日期分区、每分区 50 万，合计约 90M；日切新增分区并删除最早分区；worker 重启可续跑，双 worker 只有一个租约拥有者。
+2. 预热初始化后每表存在 180 个东八区日期分区、每分区 30 万，合计约 54M；日切新增分区并删除最早分区；worker 重启可续跑，双 worker 只有一个租约拥有者。
 3. 报表初版返回历史数据并显示差执行计划；部署修复与索引后只返回当天数据，验证范围索引访问和无 N+1。
 4. Redis 大值运行只使用 Catalog 商品详情 API，验证一个 Hash 的 N 个 SKU fields、每个 value 的逻辑大小、probe miss 回源与清理隔离。Promotion 死锁运行持续调用优惠券预留一致性核对接口，验证真实 MySQL 死锁与停止后在途事务收敛；Inventory 表锁运行持续调用库存可用性报表接口，验证真实读取阻塞、释放后请求恢复。通知与 PSP 场景复用既有 Runner 的真实请求；其余流量突增和 Cart 依赖也均通过真实依赖路径验证。
 5. 内存场景只验证服务不可用和受限重启后的健康恢复，不验证自动释放或自动恢复。
