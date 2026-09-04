@@ -1,4 +1,4 @@
-import { BookOpen, ChevronRight, Clock3, Database, GitBranch, ShieldCheck } from 'lucide-react';
+import { BookOpen, Clock3, Database, GitBranch, ShieldCheck } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
 import { SCENARIO_GROUPS, getScenarioGroupLabel, getScenarioLabel } from '@/components/scenarios/meta';
@@ -89,10 +89,8 @@ export default async function RunbookWorkspace({
                         aria-current={active ? 'page' : undefined}
                         className={`group flex min-w-0 items-start gap-2 rounded-md px-2 py-2 text-xs transition-colors ${active ? 'bg-primary/10 text-foreground ring-1 ring-primary/30' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'}`}
                       >
-                        <ChevronRight aria-hidden="true" className={`mt-0.5 size-3 shrink-0 transition-transform ${active ? 'text-primary' : 'opacity-40 group-hover:translate-x-0.5'}`} />
                         <span className="min-w-0">
                           <span className="block break-words font-medium leading-4">{getScenarioLabel(item.scenario, translateScenario)}</span>
-                          <span className="mt-0.5 block break-all font-mono text-[10px] leading-4 opacity-60">{item.scenario}</span>
                         </span>
                       </a>
                     );
@@ -107,7 +105,6 @@ export default async function RunbookWorkspace({
           <section className="min-w-0 rounded-lg border border-border bg-card/55 p-5 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-5">
               <div className="min-w-0">
-                <p className="mb-2 break-all font-mono text-xs tracking-[0.08em] text-primary">{entry.scenario}</p>
                 <h2 className="text-2xl font-semibold tracking-tight">{scenarioLabel}</h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{entry.businessPath.join(' -> ')}</p>
               </div>

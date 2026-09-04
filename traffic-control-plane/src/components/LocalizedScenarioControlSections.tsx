@@ -45,11 +45,10 @@ export function ScenarioWorkspace({ scenarios, selectedScenario, setSelectedScen
           return <div key={group.labelKey} className="min-w-[14rem] lg:min-w-0">
             <button type="button" className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] transition-colors ${activeGroup ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`} aria-expanded={expanded} onClick={() => setExpandedGroups((current) => ({ ...current, [group.labelKey]: !expanded }))}><span>{groupLabel}</span><ChevronDown className={`size-3.5 transition-transform ${expanded ? '' : '-rotate-90'}`} /></button>
             {expanded && <div className="space-y-1 border-l border-border/70 pl-2">{items.map((item) => {
-              const index = scenarios.indexOf(item);
               const meta = SCENARIO_META[item.scenario] || { labelKey: item.scenario, descriptionKey: item.scenario, icon: Activity, tone: 'text-primary' };
               const Icon = meta.icon;
               const active = item.scenario === scenario.scenario;
-              return <button key={item.scenario} type="button" role="tab" aria-selected={active} className={`flex min-w-max items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors lg:w-full ${active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`} onClick={() => setSelectedScenario(item.scenario)}><span className="font-mono text-[10px] opacity-70">{String(index + 1).padStart(2, '0')}</span><Icon className={`size-4 shrink-0 ${active ? '' : meta.tone}`} /><span>{getScenarioLabel(item.scenario, translate)}</span></button>;
+              return <button key={item.scenario} type="button" role="tab" aria-selected={active} className={`flex min-w-max items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors lg:w-full ${active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`} onClick={() => setSelectedScenario(item.scenario)}><Icon className={`size-4 shrink-0 ${active ? '' : meta.tone}`} /><span>{getScenarioLabel(item.scenario, translate)}</span></button>;
             })}</div>}
           </div>;
         })}
