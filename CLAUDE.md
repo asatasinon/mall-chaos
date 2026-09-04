@@ -6,13 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Castrel Chaos is an e-commerce microservices platform purpose-built for **chaos engineering training**. It drives real business HTTP, SQL, Redis, JVM, storage, locking, and PSP behavior through a full Prometheus/Alertmanager/Grafana/Loki/Tempo stack; it is not a synthetic latency or error-response simulator.
 
-Before implementing a feature, read `product.md` and `task-list.md` in the relevant `_docs/<area>/` directory and use that task list's dependency section. The control-plane baseline is [_docs/chaos-inject-plane/product.md](_docs/chaos-inject-plane/product.md) and [_docs/chaos-inject-plane/tech.md](_docs/chaos-inject-plane/tech.md).
+Before implementing a feature, read `product.md`, `technical-design.md` (when present), and `task-list.md` in the relevant `_docs/<area>/` directory; follow the task list's dependency section. The control-plane baseline is [_docs/chaos-inject-plane/product.md](_docs/chaos-inject-plane/product.md), [_docs/chaos-inject-plane/tech.md](_docs/chaos-inject-plane/tech.md), and [_docs/chaos-inject-plane/task-list.md](_docs/chaos-inject-plane/task-list.md). Link to existing documentation instead of duplicating its details in code or new instructions.
 
 ## Build Commands
 
 ```bash
-# Install common module first (required before any single-service build)
-mvn clean install -pl common -DskipTests
+# Install common and required upstream modules first (required before a targeted service build)
+mvn clean install -pl common -am -DskipTests
 
 # Build all Java services
 mvn clean package -DskipTests
@@ -42,12 +42,24 @@ IMAGE_TAG=<tag> ./scripts/compose-up.sh -s hub -- --force-recreate
 # compose-up.sh helper pulls before starting, so use plain docker compose for
 # unpushed local images.
 
-# traffic-control-plane (Next.js) — local dev only
+# traffic-control-plane (Next.js)
 cd traffic-control-plane
-pnpm install
-pnpm dev        # Next.js web on :13086
-pnpm worker     # Runner worker process
+pnpm install                 # pnpm@10.27.0
+pnpm dev                     # Next.js web on :13086
+pnpm worker                  # runner, scenario workers, schedulers, and optional data warmup
+pnpm test:runner
+pnpm test:runbook
+pnpm test:i18n
+pnpm typecheck
 pnpm lint
+pnpm build
+
+# shopfront
+cd ../shopfront
+pnpm install
+pnpm typecheck
+pnpm lint
+pnpm test:e2e
 ```
 
 ## Architecture
@@ -59,9 +71,11 @@ Browser → traffic-control-plane :13086 (Next.js UI + Route Handlers)
 traffic-control-plane → gateway-service → all business services
 ```
 
-11 Spring Boot modules share a parent POM plus one `common` module. All scenario control flows through `traffic-control-plane → gateway-service → one fixed target operation`.
+The Spring Boot services share a parent POM plus one `common` module. All scenario control flows through `traffic-control-plane → gateway-service → one fixed target operation`.
 
 Only `traffic-control-plane` owns the catalog, run lifecycle, operator audit, and recovery semantics. The **gateway-service** reaches only the fixed business operations selected by that control plane; Gateway and target services must not expose catalog or run terminology. Slow SQL runs exercise the public catalog and order report paths through sustained Gateway requests.
+
+The standalone control-plane worker requires `CASTREL_INTERNAL_SERVICE_KEY` and starts the runner, recovery/retention jobs, replenishment schedulers, scenario workers, and data warmup. `DATA_WARMUP_ENABLED=false` disables only data warmup. It does not stop the other worker responsibilities. Worker shutdown must go through SIGINT/SIGTERM so leases and controlled resources are released.
 
 ## Module: `common`
 
@@ -95,6 +109,13 @@ Shared components auto-configured via `ServiceComponentAutoConfiguration` — **
 - All target-side controlled resources expire or stop after `durationSec`; notification heap retention is the documented non-releasing exception
 - All business HTTP calls from traffic-control-plane must go through gateway-service
 
+### Data Warmup
+- The current supported configuration is `180` days × `300000` rows/day = `54000000` target rows. The worker validates this tuple; do not change one value in isolation.
+- Warmup is a standalone leased mutation loop: one worker owns the Redis lease at a time, renews it with a heartbeat, and stops writes after lease loss. Do not repair it by deleting lease/progress ownership fields or by issuing ad hoc SQL.
+- Manual warmup operations use the protected control-plane jobs API, bounded dates/rows, CSRF, confirmation for cleanup, idempotency, and audit. Cleanup exclusions prevent automatic replenishment from recreating manually removed data.
+- Partition initialization is owned by [infra/mysql/init/05-warmup-partitions.sql](infra/mysql/init/05-warmup-partitions.sql); the worker performs compatibility checks, daily rollover, progress updates, and stale manual-job recovery. Change schema and runtime logic together.
+- If warmup behavior changes, update `traffic-control-plane/src/lib/env.ts`, `traffic-control-plane/src/worker/data-warmup.ts`, Compose/Kubernetes values, and the relevant design/runbook documentation together.
+
 ### application.yml Baseline
 Every service must include:
 ```yaml
@@ -112,6 +133,12 @@ logging:
 - `local` — localhost connectivity
 - `docker` — container networking (used in Compose and K8s)
 - `chaos` — kept for compatibility; **v2 does not use this to gate chaos endpoints**
+
+### Local Environment Pitfalls
+- `scripts/compose-up.sh` pulls images before starting and defaults to the internal registry. After local builds, use `docker compose up -d --no-build --pull never` or explicitly override the image source.
+- On Apple Silicon, Java images target `linux/amd64`; local startup can be slow. Disable optional Cloudwise/OTel agents with `ENABLE_CLOUDWISE_AGENT=false ENABLE_OTEL_AGENT=false` when verifying locally if those agents delay startup.
+- Full baseline verification starts infrastructure and can modify local MySQL/Redis state. Treat `scripts/test-baseline.sh` as an environment-affecting workflow, not a read-only test.
+- Full environment reset is destructive and is separate from control-plane run cleanup. Follow [docs/runbooks/environment-reset.md](docs/runbooks/environment-reset.md).
 
 ## Service Ports
 
@@ -155,6 +182,14 @@ curl http://localhost:13086/internal/traffic/runner/status   # should show runni
 # Run the maintained catalog product-detail smoke test
 ./scripts/catalog-product-detail-smoke.sh
 
+# Run the maintained full verification workflow (starts infrastructure)
+./scripts/test-baseline.sh
+
+# Validate configuration and manifests without starting the stack
+docker compose config --quiet
+kubectl kustomize k8s >/dev/null
+git diff --check
+
 # Verify that runtime source outside the control plane does not leak catalog terminology
 if rg -n -i --glob '!**/target/**' --glob '!traffic-control-plane/**' --glob '**/src/**' \
   '故障注入|故障演练|故障场景|fault[ -]?injection|fault[ -]?exercise|chaos[ -]?scenario|fault[ -]?run|faultRunId|BROWSE_REPORT_SQL|ORDER_REPORT_SQL|BROWSE_SURGE|ORDER_QUERY_SURGE|CATALOG_REDIS_LARGE_VALUE|CART_CATALOG_DEPENDENCY|NOTIFICATION_HEAP_PRESSURE|NOTIFICATION_STORAGE_APPEND|PROMOTION_LOCK_CONTENTION|INVENTORY_TABLE_EXCLUSIVE|INVENTORY_ROW_LOCK|PSP_PROVIDER_OUTCOME' .; then
@@ -162,6 +197,17 @@ if rg -n -i --glob '!**/target/**' --glob '!traffic-control-plane/**' --glob '**
   exit 1
 fi
 ```
+
+For a focused control-plane change, run `cd traffic-control-plane && pnpm test:runner && pnpm typecheck && pnpm lint`; for a focused shopfront change, run its typecheck, lint, and relevant Playwright test. Warmup changes currently have limited unit coverage, so add or run integration coverage for lease loss, configuration rejection, stale-job recovery, bounds, rollover, and cleanup exclusions.
+
+## Documentation Map
+
+- Product and acceptance scope: [_docs/chaos-inject-plane/product.md](_docs/chaos-inject-plane/product.md)
+- Control-plane design and contracts: [_docs/chaos-inject-plane/tech.md](_docs/chaos-inject-plane/tech.md)
+- Current implementation sequence and dependencies: [_docs/chaos-inject-plane/task-list.md](_docs/chaos-inject-plane/task-list.md)
+- Service topology: [docs/microservice-topology.md](docs/microservice-topology.md)
+- Architecture overview: [docs/architecture.md](docs/architecture.md)
+- Environment reset: [docs/runbooks/environment-reset.md](docs/runbooks/environment-reset.md)
 
 
 

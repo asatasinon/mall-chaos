@@ -9,6 +9,7 @@
   "sevenDayRuns": "Seven-day runs",
   "catalogTitle": "Scenario catalog",
   "catalogDescription": "Select one scenario to configure.",
+  "openRunbook": "View the corresponding operations manual",
   "scenarioCatalogAria": "Scenario catalog",
   "scenariosAria": "Scenarios",
   "recentRuns": "Recent runs · last 7 days",
