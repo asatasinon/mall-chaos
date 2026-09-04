@@ -39,9 +39,9 @@ spec:
             - name: DATA_WARMUP_WINDOW_DAYS
               value: "180"
             - name: DATA_WARMUP_ROWS_PER_DAY
-              value: "500000"
+              value: "300000"
             - name: DATA_WARMUP_TARGET_ROWS
-              value: "90000000"
+              value: "54000000"
             - name: DATA_WARMUP_BATCH_SIZE
               value: "500"
             - name: DATA_WARMUP_BATCH_INTERVAL_MS

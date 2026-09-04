@@ -33,7 +33,7 @@ export default function OperationsPage() {
     inventory: null,
     coupon: null,
   });
-  const [activeView, setActiveView] = useState<OperationsView>('scheduled');
+  const [activeView, setActiveView] = useState<OperationsView>('data');
   const [warmup, setWarmup] = useState<WarmupProgressResponse | null>(null);
   const [warmupJobs, setWarmupJobs] = useState<WarmupJob[]>([]);
   const [warmupLoading, setWarmupLoading] = useState(true);
@@ -235,11 +235,10 @@ export default function OperationsPage() {
     </div>
 
     <div role="tablist" aria-label={t('operationsViews')} className="flex w-full items-center gap-5">
-      <RunnerTabButton active={activeView === 'scheduled'} onClick={() => setActiveView('scheduled')}>{t('scheduledTasks')}</RunnerTabButton>
       <RunnerTabButton active={activeView === 'data'} onClick={() => setActiveView('data')}>{t('dataControl')}</RunnerTabButton>
+      <RunnerTabButton active={activeView === 'scheduled'} onClick={() => setActiveView('scheduled')}>{t('scheduledTasks')}</RunnerTabButton>
     </div>
 
-    {activeView === 'scheduled' && <ScheduledTasksPanel inventory={inventory} couponReplenishment={couponReplenishment} workerUnavailable={workerUnavailable} triggeringReplenishment={triggeringReplenishment} inventoryMessage={replenishmentMessages.inventory} couponMessage={replenishmentMessages.coupon} onTrigger={(type) => void triggerReplenishment(type)} />}
     {activeView === 'data' && <DataControlPanel
       warmup={warmup}
       jobs={warmupJobs}
@@ -264,6 +263,8 @@ export default function OperationsPage() {
       onRemoveDate={(date) => setWarmupDates((current) => current.filter((item) => item !== date))}
       onSubmit={submitWarmupJob}
     />}
+
+    {activeView === 'scheduled' && <ScheduledTasksPanel inventory={inventory} couponReplenishment={couponReplenishment} workerUnavailable={workerUnavailable} triggeringReplenishment={triggeringReplenishment} inventoryMessage={replenishmentMessages.inventory} couponMessage={replenishmentMessages.coupon} onTrigger={(type) => void triggerReplenishment(type)} />}
 
     {warmupCleanupConfirmation && <ConfirmDialog
       title={t('clearSelectedPartitions')}

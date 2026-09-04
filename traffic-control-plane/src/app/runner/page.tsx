@@ -32,7 +32,7 @@ export default function RunnerPage() {
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [activeView, setActiveView] = useState<'accounts' | 'activity'>('accounts');
+  const [activeView, setActiveView] = useState<'accounts' | 'activity'>('activity');
   const [expandedLifecycleId, setExpandedLifecycleId] = useState<string | null>(null);
   const [lifecycleSteps, setLifecycleSteps] = useState<Record<string, LifecycleStep[]>>({});
   const [form, setForm] = useState<ConfigForm>({
@@ -206,7 +206,7 @@ export default function RunnerPage() {
     />
     <RunnerViewTabs activeView={activeView} onChange={setActiveView} />
 
-    {activeView === 'accounts' && <AccountsPanel accountSummary={accountSummary} accountError={accountError} onToggleAccount={(label, enabled) => void toggleAccount(label, enabled)} />}
     {activeView === 'activity' && <ActivityPanel activity={activity} expandedLifecycleId={expandedLifecycleId} lifecycleSteps={lifecycleSteps} onToggleLifecycle={(entry) => void toggleLifecycle(entry)} />}
+    {activeView === 'accounts' && <AccountsPanel accountSummary={accountSummary} accountError={accountError} onToggleAccount={(label, enabled) => void toggleAccount(label, enabled)} />}
   </div>;
 }

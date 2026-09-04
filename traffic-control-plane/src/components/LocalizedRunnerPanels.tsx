@@ -124,8 +124,8 @@ export function LifecycleConfiguration({ config, editing, saving, form, onEdit, 
 export function RunnerViewTabs({ activeView, onChange }: { activeView: RunnerView; onChange: (view: RunnerView) => void }) {
   const t = useTranslations('Runner');
   return <div role="tablist" aria-label={t('runnerViews')} className="flex w-full items-center gap-5">
-    <RunnerTabButton active={activeView === 'accounts'} onClick={() => onChange('accounts')}>{t('accounts')}</RunnerTabButton>
     <RunnerTabButton active={activeView === 'activity'} onClick={() => onChange('activity')}>{t('activity')}</RunnerTabButton>
+    <RunnerTabButton active={activeView === 'accounts'} onClick={() => onChange('accounts')}>{t('accounts')}</RunnerTabButton>
   </div>;
 }
 

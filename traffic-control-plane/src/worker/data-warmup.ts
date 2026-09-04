@@ -888,8 +888,8 @@ function toProgress(row: Record<string, unknown>, partitions: string[]): WarmupP
 }
 
 function validateWarmupConfiguration(): void {
-  if (env.DATA_WARMUP_WINDOW_DAYS !== 180 || env.DATA_WARMUP_ROWS_PER_DAY !== 500000
-      || env.DATA_WARMUP_TARGET_ROWS !== 90000000
+  if (env.DATA_WARMUP_WINDOW_DAYS !== 180 || env.DATA_WARMUP_ROWS_PER_DAY !== 300000
+      || env.DATA_WARMUP_TARGET_ROWS !== 54000000
       || env.DATA_WARMUP_BATCH_SIZE < 1 || env.DATA_WARMUP_BATCH_SIZE > 5000
       || env.DATA_WARMUP_BATCH_INTERVAL_MS < 0) {
     throw new Error('INVALID_DATA_WARMUP_CONFIGURATION');

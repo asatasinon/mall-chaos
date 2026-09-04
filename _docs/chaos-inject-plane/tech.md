@@ -248,7 +248,7 @@ $$180 \times 500{,}000 = 90{,}000{,}000$$
 DATA_WARMUP_ENABLED=true
 DATA_WARMUP_WINDOW_DAYS=180
 DATA_WARMUP_ROWS_PER_DAY=500000
-DATA_WARMUP_TARGET_ROWS=90000000
+DATA_WARMUP_TARGET_ROWS=54000000
 DATA_WARMUP_BATCH_SIZE=500
 DATA_WARMUP_BATCH_INTERVAL_MS=1000
 APP_TIME_ZONE=Asia/Shanghai
@@ -258,7 +258,7 @@ APP_TIME_ZONE=Asia/Shanghai
 
 $$\text{TARGET_ROWS} = \text{WINDOW_DAYS} \times \text{ROWS_PER_DAY}$$
 
-生产实现可将 180、500000 和 90000000 设为固定值或配置默认值加硬上限，不能让运营 UI 任意调整。保护触发时不写入、不删除超出正常窗口外的额外数据，并暴露原因。
+生产实现可将 180、300000 和 54000000 设为固定值或配置默认值加硬上限，不能让运营 UI 任意调整。保护触发时不写入、不删除超出正常窗口外的额外数据，并暴露原因。
 
 Compose 和 Kubernetes 中所有 Java 服务设置 `TZ=Asia/Shanghai` 与 `-Duser.timezone=Asia/Shanghai`，Next.js/worker 设置 `TZ=Asia/Shanghai`，MySQL 设置 `default-time-zone = '+08:00'`。JDBC URL 强制服务端连接时区为 `+08:00`。启动健康检查验证应用时区、`@@global.time_zone`、`@@session.time_zone` 和日期边界均为东八区；所有 `CURRENT_DATE`、预热日切和报表“今日”语义以该会话时区执行。
 
