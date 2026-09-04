@@ -83,9 +83,9 @@ Confirm that new consistency requests stop, the run guard is released and the pr
 
 | Alert | Trigger condition | Meaning and boundary for this scenario |
 | --- | --- | --- |
-| `HighLatencyP99` | Consistency-request P99 exceeds 5 seconds for 3 minutes | Lock waits normally appear as latency before a request timeout. |
+| `HighLatencyP99` | Consistency-request P99 exceeds 5 seconds for 2 minutes | Lock waits normally appear as latency before a request timeout. |
 | `CriticalLatencyP99` | Consistency-request P99 exceeds 10 seconds for 1 minute | Indicates that lock waits have caused critical request latency. |
-| `HighErrorRate` | A deadlock or lock-wait timeout is exposed as HTTP 5xx by the target service or Gateway observation URI, and the corresponding service/URI ratio exceeds 5% for 2 minutes | This is the primary conditional result alert; contention alone does not guarantee it. |
+| `HighErrorRate` | A deadlock or lock-wait timeout is exposed as HTTP 5xx by the target service or Gateway observation URI, and the corresponding service/URI ratio exceeds 5% for 1 minute | This is the primary conditional result alert; contention alone does not guarantee it. |
 | `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending`, `MySQLSlowQueries`, `MySQLHighThreads` | The pool or MySQL reaches the relevant rule threshold | May appear when contention spreads to the pool or database. |
 | No deadlock/lock-wait-specific alert | Not applicable | Correlate request-failure events, Tempo JDBC spans and MySQL diagnostics. |
 

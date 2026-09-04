@@ -80,9 +80,9 @@ sequenceDiagram
 
 | 告警 | 触发条件 | 本场景中的含义与边界 |
 | --- | --- | --- |
-| `MySQLInnoDBDataWriteRateHigh` | InnoDB 写入速率超过 1 MiB/秒，持续 2 分钟 | 只有真实数据库写入速率达到阈值时才触发。 |
-| `NodeDataFilesystemGrowthRateHigh` | `/data` 可用空间下降速率超过 10 MiB/秒，持续 5 分钟 | 需要真实文件系统持续增长；逻辑预留不等于该指标。 |
-| `NodeDataFilesystemUsageHigh` | `/data` 使用率超过 85%，持续 5 分钟 | 需要物理文件系统使用率达到阈值。 |
+| `MySQLInnoDBDataWriteRateHigh` | InnoDB 写入速率超过 1 MiB/秒，持续 1 分钟 | 只有真实数据库写入速率达到阈值时才触发。 |
+| `NodeDataFilesystemGrowthRateHigh` | `/data` 可用空间下降速率超过 10 MiB/秒，持续 3 分钟 | 需要真实文件系统持续增长；逻辑预留不等于该指标。 |
+| `NodeDataFilesystemUsageHigh` | `/data` 使用率超过 85%，持续 3 分钟 | 需要物理文件系统使用率达到阈值。 |
 | `MySQLSlowQueries`、`HighErrorRate`、Hikari 连接池告警 | 慢查询、5xx 比例或连接池达到对应规则阈值 | 只有实际请求以 5xx 返回并满足 URI 错误率阈值时才触发 `HighErrorRate`；逻辑容量保护通常是业务 envelope，不会自动触发 `NotificationFailRateHigh`。 |
 | 无必然专用告警 | 不适用 | `totalBytes` 和 `appendBytes` 是逻辑预留参数，不证明物理磁盘已写满；应结合运行事件、通知记录、MySQL/节点指标和 Tempo 判断。 |
 

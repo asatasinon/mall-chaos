@@ -80,8 +80,8 @@ catalog 要求 `durationSec`。协调器经 Gateway 发送固定 prepare/release
 
 | 告警 | 触发条件 | 本场景中的含义与边界 |
 | --- | --- | --- |
-| `HighErrorRate` | Catalog 校验 URI 的 5xx 比例超过 5%，持续 2 分钟 | 激活期间 Catalog 校验返回 503 可能触发；外层 Cart 可能包装成业务 envelope 并保持 HTTP 200。 |
-| `HighLatencyP99` | 对应请求 P99 超过 5 秒，持续 3 分钟 | 依赖调用变慢并达到阈值时触发。 |
+| `HighErrorRate` | Catalog 校验 URI 的 5xx 比例超过 5%，持续 1 分钟 | 激活期间 Catalog 校验返回 503 可能触发；外层 Cart 可能包装成业务 envelope 并保持 HTTP 200。 |
+| `HighLatencyP99` | 对应请求 P99 超过 5 秒，持续 2 分钟 | 依赖调用变慢并达到阈值时触发。 |
 | `CriticalLatencyP99` | 对应请求 P99 超过 10 秒，持续 1 分钟 | 依赖调用延迟达到严重级别时触发。 |
 | 无 Cart-to-Catalog 专用告警 | 不适用 | 应将 Prometheus 结果与 Catalog 503、Cart 日志、Tempo client/server span 及 `fault_run_events` 一起判断。 |
 

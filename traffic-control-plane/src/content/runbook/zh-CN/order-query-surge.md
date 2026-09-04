@@ -83,12 +83,12 @@ catalog 接受 `durationSec`、`concurrency`、`requestIntervalMs` 和 `pageSize
 
 | 告警 | 触发条件 | 本场景中的含义与边界 |
 | --- | --- | --- |
-| `HighLatencyP99` | Gateway/order-service 请求 P99 超过 5 秒，持续 3 分钟 | 说明受控订单查询流量已影响请求延迟。 |
+| `HighLatencyP99` | Gateway/order-service 请求 P99 超过 5 秒，持续 2 分钟 | 说明受控订单查询流量已影响请求延迟。 |
 | `CriticalLatencyP99` | Gateway/order-service 请求 P99 超过 10 秒，持续 1 分钟 | 说明请求延迟已达到严重级别。 |
-| `HighErrorRate` | 对应服务、URI 的 5xx 比例超过 5%，持续 2 分钟 | 只有订单查询请求实际返回 5xx 才触发。 |
+| `HighErrorRate` | 对应服务、URI 的 5xx 比例超过 5%，持续 1 分钟 | 只有订单查询请求实际返回 5xx 才触发。 |
 | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`MySQLSlowQueries` | 连接池、MySQL 连接数或慢查询达到对应规则阈值 | 查询流量扩大并占用数据库资源时可能出现。 |
 | `NodeHighCPU`、`NodeHighMemory` | 节点 CPU 或内存达到对应规则阈值 | 只有共享基础设施资源越过阈值时才会触发。 |
-| `OrderFailureRateHigh` | 订单创建失败比例超过 10%，持续 2 分钟 | 本场景不直接触发；只有共享资源连带影响订单创建路径时才可能出现。 |
+| `OrderFailureRateHigh` | 订单创建失败比例超过 10%，持续 1 分钟 | 本场景不直接触发；只有共享资源连带影响订单创建路径时才可能出现。 |
 
 ## 限制与安全解释
 

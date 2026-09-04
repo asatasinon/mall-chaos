@@ -88,12 +88,12 @@ Payment 通常会先于模拟器的 60 秒响应在客户端超时。实际结�
 
 | 告警 | 触发条件 | 本场景中的含义与边界 |
 | --- | --- | --- |
-| `PaymentFailureRateHigh` | 支付失败比例超过 10%，持续 2 分钟 | `DECLINED` 结果达到足够请求量和比例时触发。 |
-| `PaymentTimeoutSpike` | 支付超时速率超过 0.5 次/秒，持续 2 分钟 | `TIMEOUT` 结果达到速率阈值时触发。 |
-| `HighLatencyP99`、`CriticalLatencyP99` | 支付/PSP 请求 P99 分别超过 5 秒持续 3 分钟、超过 10 秒持续 1 分钟 | PSP 超时通常会增加请求延迟，但不保证越过阈值。 |
-| `HighErrorRate` | 对应 URI 的 5xx 比例超过 5%，持续 2 分钟 | 只有支付或 PSP 请求实际以 5xx 返回才触发。 |
+| `PaymentFailureRateHigh` | 支付失败比例超过 10%，持续 1 分钟 | `DECLINED` 结果达到足够请求量和比例时触发。 |
+| `PaymentTimeoutSpike` | 支付超时速率超过 0.5 次/秒，持续 1 分钟 | `TIMEOUT` 结果达到速率阈值时触发。 |
+| `HighLatencyP99`、`CriticalLatencyP99` | 支付/PSP 请求 P99 分别超过 5 秒持续 2 分钟、超过 10 秒持续 1 分钟 | PSP 超时通常会增加请求延迟，但不保证越过阈值。 |
+| `HighErrorRate` | 对应 URI 的 5xx 比例超过 5%，持续 1 分钟 | 只有支付或 PSP 请求实际以 5xx 返回才触发。 |
 | `CorrelatedServiceDegradation` | 支付超时速率大于零，持续 1 分钟 | 触发信息级关联退化告警；`AUTHORIZED` 预期不触发上述结果告警。 |
-| `OrderFailureRateHigh` | 订单创建失败比例超过 10%，持续 2 分钟 | 只有支付结果连带影响订单创建路径时才可能出现。 |
+| `OrderFailureRateHigh` | 订单创建失败比例超过 10%，持续 1 分钟 | 只有支付结果连带影响订单创建路径时才可能出现。 |
 
 ## 限制与安全解释
 

@@ -83,12 +83,12 @@ Confirm `SCENARIO_WORKER_STOPPED`, zero or converging in-flight requests, and a 
 
 | Alert | Trigger condition | Meaning and boundary for this scenario |
 | --- | --- | --- |
-| `HighLatencyP99` | Gateway/order-service request P99 exceeds 5 seconds for 3 minutes | Indicates that controlled order-query traffic has affected request latency. |
+| `HighLatencyP99` | Gateway/order-service request P99 exceeds 5 seconds for 2 minutes | Indicates that controlled order-query traffic has affected request latency. |
 | `CriticalLatencyP99` | Gateway/order-service request P99 exceeds 10 seconds for 1 minute | Indicates that request latency has reached the critical level. |
-| `HighErrorRate` | The service/URI 5xx ratio exceeds 5% for 2 minutes | Fires only when order-query requests actually return 5xx. |
+| `HighErrorRate` | The service/URI 5xx ratio exceeds 5% for 1 minute | Fires only when order-query requests actually return 5xx. |
 | `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending`, `MySQLHighThreads`, `MySQLSlowQueries` | Pool, MySQL connection count or slow-query rate reaches the relevant rule threshold | May occur when query traffic expands into database resources. |
 | `NodeHighCPU`, `NodeHighMemory` | Node CPU or memory reaches the relevant rule threshold | Fires only when shared infrastructure crosses a threshold. |
-| `OrderFailureRateHigh` | Order-creation failure ratio exceeds 10% for 2 minutes | This scenario does not directly trigger it; shared-resource impact must reach the order-creation path. |
+| `OrderFailureRateHigh` | Order-creation failure ratio exceeds 10% for 1 minute | This scenario does not directly trigger it; shared-resource impact must reach the order-creation path. |
 
 ## Limits and safe interpretation
 

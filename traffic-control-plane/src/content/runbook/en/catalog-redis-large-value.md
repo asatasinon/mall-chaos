@@ -94,10 +94,10 @@ Confirm the worker has stopped, the active marker is absent, the run Hash has be
 
 | Alert | Trigger condition | Meaning and boundary for this scenario |
 | --- | --- | --- |
-| `RedisHighMemory` | Redis utilization exceeds 80% for 3 minutes | The run-scoped Hash may increase shared Redis utilization, but crossing the threshold is not guaranteed. |
-| `HighLatencyP99`, `CriticalLatencyP99` | Detail-request P99 exceeds 5 seconds for 3 minutes or 10 seconds for 1 minute | Indicates that large-value reads have affected product-detail latency. |
+| `RedisHighMemory` | Redis utilization exceeds 80% for 2 minutes | The run-scoped Hash may increase shared Redis utilization, but crossing the threshold is not guaranteed. |
+| `HighLatencyP99`, `CriticalLatencyP99` | Detail-request P99 exceeds 5 seconds for 2 minutes or 10 seconds for 1 minute | Indicates that large-value reads have affected product-detail latency. |
 | `HighHeapUsage`, `CriticalHeapUsage`, `FrequentGCPause` | Heap usage exceeds 85%/95%, or Major GC rate exceeds 0.1 per second for the relevant duration | Large-value deserialization may increase Catalog JVM pressure. |
-| `HighErrorRate` | The Catalog URI 5xx ratio exceeds 5% for 2 minutes | Fires only when detail requests actually return 5xx; shared node pressure may also produce `NodeHighMemory`. |
+| `HighErrorRate` | The Catalog URI 5xx ratio exceeds 5% for 1 minute | Fires only when detail requests actually return 5xx; shared node pressure may also produce `NodeHighMemory`. |
 | No Redis large-key-specific alert | Not applicable | There is no single-key-size, eviction, latency or Catalog-cache-specific alert; the logical byte budget is not Redis physical utilization. |
 
 ## Limits and safe interpretation

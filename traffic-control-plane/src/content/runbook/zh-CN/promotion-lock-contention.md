@@ -83,9 +83,9 @@ sequenceDiagram
 
 | 告警 | 触发条件 | 本场景中的含义与边界 |
 | --- | --- | --- |
-| `HighLatencyP99` | 一致性请求 P99 超过 5 秒，持续 3 分钟 | 锁等待未超时时通常先看到该告警。 |
+| `HighLatencyP99` | 一致性请求 P99 超过 5 秒，持续 2 分钟 | 锁等待未超时时通常先看到该告警。 |
 | `CriticalLatencyP99` | 一致性请求 P99 超过 10 秒，持续 1 分钟 | 说明锁等待已造成严重请求延迟。 |
-| `HighErrorRate` | 死锁或锁等待超时经目标服务或 Gateway 观测 URI 以 HTTP 5xx 返回，且对应 service/URI 的 5xx 比例超过 5%，持续 2 分钟 | 这是锁场景的主要条件性结果告警；锁竞争本身不保证立即触发。 |
+| `HighErrorRate` | 死锁或锁等待超时经目标服务或 Gateway 观测 URI 以 HTTP 5xx 返回，且对应 service/URI 的 5xx 比例超过 5%，持续 1 分钟 | 这是锁场景的主要条件性结果告警；锁竞争本身不保证立即触发。 |
 | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLSlowQueries`、`MySQLHighThreads` | 连接池或 MySQL 达到对应规则阈值 | 竞争扩大到连接池或数据库层时可能伴随出现。 |
 | 无死锁/锁等待专用告警 | 不适用 | 应结合请求失败事件、Tempo JDBC span 和 MySQL 诊断判断。 |
 

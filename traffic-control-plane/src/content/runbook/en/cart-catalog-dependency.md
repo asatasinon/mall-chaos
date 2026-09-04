@@ -80,8 +80,8 @@ Confirm the target release/cleanup event and that the Catalog dependency state i
 
 | Alert | Trigger condition | Meaning and boundary for this scenario |
 | --- | --- | --- |
-| `HighErrorRate` | The Catalog validation URI 5xx ratio exceeds 5% for 2 minutes | The active dependency may return 503 and trigger it; the outer Cart request may wrap the failure in a business envelope and remain HTTP 200. |
-| `HighLatencyP99` | Request P99 exceeds 5 seconds for 3 minutes | Fires when the dependency call becomes slow enough to cross the threshold. |
+| `HighErrorRate` | The Catalog validation URI 5xx ratio exceeds 5% for 1 minute | The active dependency may return 503 and trigger it; the outer Cart request may wrap the failure in a business envelope and remain HTTP 200. |
+| `HighLatencyP99` | Request P99 exceeds 5 seconds for 2 minutes | Fires when the dependency call becomes slow enough to cross the threshold. |
 | `CriticalLatencyP99` | Request P99 exceeds 10 seconds for 1 minute | Fires when dependency latency reaches the critical level. |
 | No Cart-to-Catalog-specific alert | Not applicable | Correlate Prometheus results with the Catalog 503, Cart logs, Tempo client/server spans and `fault_run_events`. |
 

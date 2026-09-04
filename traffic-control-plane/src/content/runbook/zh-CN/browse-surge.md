@@ -80,9 +80,9 @@ catalog 接受 `durationSec`、`concurrency`、`requestIntervalMs` 和 `pageSize
 
 | 告警 | 触发条件 | 本场景中的含义与边界 |
 | --- | --- | --- |
-| `HighLatencyP99` | Gateway/Catalog 请求 P99 超过 5 秒，持续 3 分钟 | 说明受控浏览流量已影响请求延迟。 |
+| `HighLatencyP99` | Gateway/Catalog 请求 P99 超过 5 秒，持续 2 分钟 | 说明受控浏览流量已影响请求延迟。 |
 | `CriticalLatencyP99` | Gateway/Catalog 请求 P99 超过 10 秒，持续 1 分钟 | 说明请求延迟已达到严重级别。 |
-| `HighErrorRate` | 对应服务、URI 的 5xx 比例超过 5%，持续 2 分钟 | 只有浏览请求实际返回 5xx 才触发，生成流量本身不会触发。 |
+| `HighErrorRate` | 对应服务、URI 的 5xx 比例超过 5%，持续 1 分钟 | 只有浏览请求实际返回 5xx 才触发，生成流量本身不会触发。 |
 | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`MySQLSlowQueries` | 连接池、MySQL 连接数或慢查询达到对应规则阈值 | 流量压力扩大到数据库连接资源时可能出现。 |
 | `NodeHighCPU`、`NodeHighMemory`、`RedisHighMemory` | 节点 CPU/内存或 Redis 使用率达到对应规则阈值 | 只有共享基础设施资源越过阈值时才会触发。 |
 | 无流量专用告警 | 不适用 | 应将 worker 事件与 Gateway/Catalog 的 HTTP、JDBC/Redis span 一起核对。 |

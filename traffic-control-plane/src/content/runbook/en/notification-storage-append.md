@@ -80,9 +80,9 @@ Confirm release stopped new reservations, then use the fixed run-ID cleanup oper
 
 | Alert | Trigger condition | Meaning and boundary for this scenario |
 | --- | --- | --- |
-| `MySQLInnoDBDataWriteRateHigh` | InnoDB write rate exceeds 1 MiB per second for 2 minutes | Fires only when actual database write rate reaches the threshold. |
-| `NodeDataFilesystemGrowthRateHigh` | `/data` available space decreases faster than 10 MiB per second for 5 minutes | Requires real filesystem growth; logical reservation is not this metric. |
-| `NodeDataFilesystemUsageHigh` | `/data` utilization exceeds 85% for 5 minutes | Requires physical filesystem utilization to reach the threshold. |
+| `MySQLInnoDBDataWriteRateHigh` | InnoDB write rate exceeds 1 MiB per second for 1 minute | Fires only when actual database write rate reaches the threshold. |
+| `NodeDataFilesystemGrowthRateHigh` | `/data` available space decreases faster than 10 MiB per second for 3 minutes | Requires real filesystem growth; logical reservation is not this metric. |
+| `NodeDataFilesystemUsageHigh` | `/data` utilization exceeds 85% for 3 minutes | Requires physical filesystem utilization to reach the threshold. |
 | `MySQLSlowQueries`, `HighErrorRate`, Hikari pool alerts | Slow-query rate, 5xx ratio or pool state reaches the relevant rule threshold | `HighErrorRate` requires actual HTTP 5xx responses and the URI ratio threshold; logical capacity protection is usually a business envelope and does not automatically produce `NotificationFailRateHigh`. |
 | No guaranteed dedicated alert | Not applicable | `totalBytes` and `appendBytes` are logical reservation parameters, not proof of a full physical disk; correlate run events, notification rows, MySQL/node metrics and Tempo. |
 

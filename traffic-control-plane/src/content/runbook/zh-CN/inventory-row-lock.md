@@ -94,9 +94,9 @@ catalog 接受 `durationSec`、`concurrency` 和 `requestIntervalMs`。专用准
 
 | 告警 | 触发条件 | 本场景中的含义与边界 |
 | --- | --- | --- |
-| `HighLatencyP99` | 库存摘要请求 P99 超过 5 秒，持续 3 分钟 | 行锁等待未超时时通常先表现为慢请求。 |
+| `HighLatencyP99` | 库存摘要请求 P99 超过 5 秒，持续 2 分钟 | 行锁等待未超时时通常先表现为慢请求。 |
 | `CriticalLatencyP99` | 库存摘要请求 P99 超过 10 秒，持续 1 分钟 | 说明行锁等待已造成严重请求延迟。 |
-| `HighErrorRate` | 行锁等待超时或数据库异常经 Gateway 观测 URI 以 HTTP 5xx 返回，且 5xx 比例超过 5%，持续 2 分钟 | 这是锁场景的主要条件性结果告警；目标服务业务 envelope 即使 HTTP 200，也可能被 Gateway 转为 502。 |
+| `HighErrorRate` | 行锁等待超时或数据库异常经 Gateway 观测 URI 以 HTTP 5xx 返回，且 5xx 比例超过 5%，持续 1 分钟 | 这是锁场景的主要条件性结果告警；目标服务业务 envelope 即使 HTTP 200，也可能被 Gateway 转为 502。 |
 | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLSlowQueries`、`MySQLHighThreads` | 连接池或 MySQL 达到对应规则阈值 | 并发等待消耗连接或扩大到数据库层时可能出现。 |
 | 无行锁等待专用告警 | 不适用 | 应将告警与 `SCENARIO_REQUEST_FAILED`、Tempo exception/JDBC span 和 MySQL 行锁等待诊断关联。 |
 

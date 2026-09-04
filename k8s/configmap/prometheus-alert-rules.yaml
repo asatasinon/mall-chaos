@@ -22,12 +22,12 @@ data:
 
           - alert: InfraExporterDown
             expr: up{service=~"node|mysql|redis"} == 0
-            for: 2m
+            for: 1m
             labels:
               severity: warning
             annotations:
               summary: 'Infrastructure exporter {{ $labels.service }} is down'
-              description: 'Exporter {{ $labels.service }} (job={{ $labels.job }}) has stopped responding for more than 2 minutes.'
+              description: 'Exporter {{ $labels.service }} (job={{ $labels.job }}) has stopped responding for more than 1 minute.'
 
       # 2. HTTP request error rate and latency
       - name: castrel-http-performance
@@ -39,7 +39,7 @@ data:
               /
               sum(rate(http_server_requests_seconds_count[5m])) by (service, uri)
               > 0.05
-            for: 2m
+            for: 1m
             labels:
               severity: critical
             annotations:
@@ -51,7 +51,7 @@ data:
               histogram_quantile(0.99,
                 sum(rate(http_server_requests_seconds_bucket[5m])) by (service, uri, le)
               ) > 5
-            for: 3m
+            for: 2m
             labels:
               severity: warning
             annotations:
@@ -80,7 +80,7 @@ data:
               /
               jvm_memory_max_bytes{area="heap"}
               > 0.85
-            for: 3m
+            for: 2m
             labels:
               severity: warning
             annotations:
@@ -103,7 +103,7 @@ data:
           - alert: FrequentGCPause
             expr: |
               rate(jvm_gc_pause_seconds_count{action="end of major GC"}[5m]) > 0.1
-            for: 3m
+            for: 2m
             labels:
               severity: warning
             annotations:
@@ -120,7 +120,7 @@ data:
               /
               hikaricp_connections_max
               > 0.80
-            for: 2m
+            for: 1m
             labels:
               severity: warning
             annotations:
@@ -159,7 +159,7 @@ data:
               /
               (rate(order_create_success_count_total[5m]) + rate(order_create_fail_count_total[5m]))
               > 0.10
-            for: 2m
+            for: 1m
             labels:
               severity: critical
             annotations:
@@ -172,7 +172,7 @@ data:
               /
               (rate(payment_charge_success_count_total[5m]) + rate(payment_charge_fail_count_total[5m]))
               > 0.10
-            for: 2m
+            for: 1m
             labels:
               severity: critical
             annotations:
@@ -182,7 +182,7 @@ data:
           - alert: PaymentTimeoutSpike
             expr: |
               rate(payment_charge_timeout_count_total[5m]) > 0.5
-            for: 2m
+            for: 1m
             labels:
               severity: warning
             annotations:
@@ -195,7 +195,7 @@ data:
               /
               (rate(inventory_reserve_success_count_total[5m]) + rate(inventory_reserve_fail_count_total[5m]))
               > 0.20
-            for: 2m
+            for: 1m
             labels:
               severity: warning
             annotations:
@@ -208,7 +208,7 @@ data:
               /
               (rate(risk_pre_check_pass_count_total[5m]) + rate(risk_pre_check_reject_count_total[5m]))
               > 0.50
-            for: 3m
+            for: 2m
             labels:
               severity: warning
             annotations:
@@ -221,7 +221,7 @@ data:
               /
               (rate(notification_sent_count_total[5m]) + rate(notification_fail_count_total[5m]))
               > 0.10
-            for: 2m
+            for: 1m
             labels:
               severity: warning
             annotations:
@@ -234,7 +234,7 @@ data:
         rules:
           - alert: NodeHighCPU
             expr: 100 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance) * 100 > 80
-            for: 3m
+            for: 2m
             labels:
               severity: warning
             annotations:
@@ -243,7 +243,7 @@ data:
 
           - alert: NodeHighMemory
             expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
-            for: 3m
+            for: 2m
             labels:
               severity: warning
             annotations:
@@ -257,7 +257,7 @@ data:
                 /
                 node_filesystem_size_bytes{mountpoint="/data",fstype="ext4"}
               ) * 100 > 85
-            for: 5m
+            for: 3m
             labels:
               severity: warning
             annotations:
@@ -268,7 +268,7 @@ data:
             expr: |
               deriv(node_filesystem_avail_bytes{mountpoint="/data",fstype="ext4"}[15m])
               < -10485760
-            for: 5m
+            for: 3m
             labels:
               severity: warning
             annotations:
@@ -277,7 +277,7 @@ data:
 
           - alert: MySQLHighThreads
             expr: mysql_global_status_threads_connected > 100
-            for: 2m
+            for: 1m
             labels:
               severity: warning
             annotations:
@@ -286,7 +286,7 @@ data:
 
           - alert: MySQLSlowQueries
             expr: rate(mysql_global_status_slow_queries[5m]) > 0.5
-            for: 2m
+            for: 1m
             labels:
               severity: warning
             annotations:
@@ -297,7 +297,7 @@ data:
             expr: |
               rate(mysql_global_status_innodb_data_written[5m])
               > 1048576
-            for: 2m
+            for: 1m
             labels:
               severity: info
             annotations:
@@ -306,7 +306,7 @@ data:
 
           - alert: RedisHighMemory
             expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 80
-            for: 3m
+            for: 2m
             labels:
               severity: warning
             annotations:

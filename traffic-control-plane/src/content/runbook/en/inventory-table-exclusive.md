@@ -94,11 +94,11 @@ Confirm new observation calls stop, the dedicated connection executes `UNLOCK TA
 
 | Alert | Trigger condition | Meaning and boundary for this scenario |
 | --- | --- | --- |
-| `HighLatencyP99` | Inventory-report P99 exceeds 5 seconds for 3 minutes | A table-lock block normally appears as slow requests before timeout. |
+| `HighLatencyP99` | Inventory-report P99 exceeds 5 seconds for 2 minutes | A table-lock block normally appears as slow requests before timeout. |
 | `CriticalLatencyP99` | Inventory-report P99 exceeds 10 seconds for 1 minute | Indicates that the table-lock block has caused critical request latency. |
-| `HighErrorRate` | A table-lock-blocked request is exposed as a timeout or HTTP 5xx by the target service or Gateway observation URI, and the ratio reaches 5% for 2 minutes | This is the primary conditional result alert; acquiring the lock does not guarantee it fires. |
+| `HighErrorRate` | A table-lock-blocked request is exposed as a timeout or HTTP 5xx by the target service or Gateway observation URI, and the ratio reaches 5% for 1 minute | This is the primary conditional result alert; acquiring the lock does not guarantee it fires. |
 | `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending`, `MySQLSlowQueries`, `MySQLHighThreads` | The pool or MySQL reaches the relevant rule threshold | May appear when blocked requests consume connections or pressure reaches the database. |
-| `InventoryReserveFailRateHigh` | Inventory reservation failure ratio exceeds 20% for 2 minutes | Is not produced directly by this availability observation endpoint; use lock diagnostics, Tempo and `fault_run_events`. |
+| `InventoryReserveFailRateHigh` | Inventory reservation failure ratio exceeds 20% for 1 minute | Is not produced directly by this availability observation endpoint; use lock diagnostics, Tempo and `fault_run_events`. |
 
 ## Limits and safe interpretation
 

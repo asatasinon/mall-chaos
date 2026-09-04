@@ -90,9 +90,9 @@ Confirm `REPORT_WORKER_STOPPED`, the coordinator recovery events and closure of 
 
 | Alert | Trigger condition | Meaning and boundary for this scenario |
 | --- | --- | --- |
-| `HighLatencyP99` | Report-request P99 exceeds 5 seconds for 3 minutes | Indicates slower order-report requests; it does not confirm that the scenario started. |
+| `HighLatencyP99` | Report-request P99 exceeds 5 seconds for 2 minutes | Indicates slower order-report requests; it does not confirm that the scenario started. |
 | `CriticalLatencyP99` | Report-request P99 exceeds 10 seconds for 1 minute | Indicates that report latency has reached the critical level. |
-| `MySQLSlowQueries` | Slow-query rate exceeds 0.5 per second for 2 minutes | The N+1 reads and historical order scan may produce this signal; the result depends on order volume and database settings. |
+| `MySQLSlowQueries` | Slow-query rate exceeds 0.5 per second for 1 minute | The N+1 reads and historical order scan may produce this signal; the result depends on order volume and database settings. |
 | `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending` | Pool utilization or pending connections reaches the relevant rule threshold | May occur when the larger N+1 read pattern consumes connections. |
 | `MySQLHighThreads`, `NodeHighCPU` | MySQL connection count or node CPU reaches the relevant rule threshold | Appears only when pressure spreads to shared resources. |
 | No order-report-specific alert | Not applicable | Running the scenario does not guarantee crossing a threshold; correlate `fault_run_events`, Tempo JDBC spans, query counts and MySQL diagnostics. |

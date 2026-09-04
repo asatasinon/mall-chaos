@@ -76,9 +76,9 @@ Confirm new retention work has stopped. If the service remains healthy, verify n
 
 | Alert | Trigger condition | Meaning and boundary for this scenario |
 | --- | --- | --- |
-| `HighHeapUsage` | Heap usage exceeds 85% for 3 minutes | Indicates that retained objects have created significant JVM pressure. |
+| `HighHeapUsage` | Heap usage exceeds 85% for 2 minutes | Indicates that retained objects have created significant JVM pressure. |
 | `CriticalHeapUsage` | Heap usage exceeds 95% for 1 minute | Indicates near-exhaustion and possible OOM. |
-| `FrequentGCPause` | Major GC rate exceeds 0.1 per second for 3 minutes | Indicates that heap pressure is affecting GC behavior. |
+| `FrequentGCPause` | Major GC rate exceeds 0.1 per second for 2 minutes | Indicates that heap pressure is affecting GC behavior. |
 | `HighLatencyP99`, `CriticalLatencyP99`, `HighErrorRate`, `NodeHighMemory` | Request latency, 5xx ratio or node memory reaches the relevant rule threshold | May appear when JVM pressure spreads to request or node resources. |
 | `ServiceDown` | Business-service `up == 0` for 1 minute | May fire after the process loses its health signal; retention, OOM, alert timing and the final trace are not guaranteed. |
 

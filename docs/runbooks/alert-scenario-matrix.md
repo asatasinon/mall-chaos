@@ -21,7 +21,7 @@
 | `BROWSE_SURGE` 商品浏览流量突增 | `HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`MySQLSlowQueries`、`NodeHighCPU`、`NodeHighMemory`、`RedisHighMemory` | 条件覆盖。流量生成本身不告警，只有 Gateway/Catalog 或其后端资源越过阈值才告警。 |
 | `ORDER_QUERY_SURGE` 订单查询流量突增 | `HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`MySQLSlowQueries`、`NodeHighCPU`、`NodeHighMemory` | 条件覆盖。订单查询突增不直接触发订单创建失败告警；只有共享资源受到连带影响时才会出现业务告警。 |
 | `CATALOG_REDIS_LARGE_VALUE` 商品详情 Redis 大值 | `RedisHighMemory`、`HighLatencyP99`、`HighHeapUsage`、`FrequentGCPause` | `CriticalHeapUsage`、`CriticalLatencyP99`、`HighErrorRate`、`NodeHighMemory` | 部分覆盖。当前没有 Redis 延迟、淘汰、单 key 大小或 Catalog cache 专用告警；逻辑字节预算也不等于 Redis 物理内存阈值。 |
-| `CART_CATALOG_DEPENDENCY` 加购依赖失败 | `HighErrorRate` | `CriticalLatencyP99`、`HighLatencyP99` | 部分覆盖。若 Cart 加购或 Catalog 校验的 503 被 Prometheus 记录为 5xx，按 URI 的错误率达到 5% 且持续 2 分钟才告警；没有 Cart-to-Catalog 专用告警。 |
+| `CART_CATALOG_DEPENDENCY` 加购依赖失败 | `HighErrorRate` | `CriticalLatencyP99`、`HighLatencyP99` | 部分覆盖。若 Cart 加购或 Catalog 校验的 503 被 Prometheus 记录为 5xx，按 URI 的错误率达到 5% 且持续 1 分钟才告警；没有 Cart-to-Catalog 专用告警。 |
 | `NOTIFICATION_HEAP_PRESSURE` 通知 JVM 内存压力 | `HighHeapUsage`、`CriticalHeapUsage`、`FrequentGCPause` | `HighErrorRate`、`HighLatencyP99`、`CriticalLatencyP99`、`NodeHighMemory`、`ServiceDown` | 较强覆盖。JVM 进入不可用后可触发 `ServiceDown`，但 OOM、告警时间和最后一条 trace 都不保证。 |
 | `NOTIFICATION_STORAGE_APPEND` 通知存储增长 | 无必然专用告警 | `MySQLInnoDBDataWriteRateHigh`、`NodeDataFilesystemGrowthRateHigh`、`NodeDataFilesystemUsageHigh`、`MySQLSlowQueries`、`HighErrorRate` | 弱覆盖。当前场景的主要容量控制是逻辑预留；应用保护错误不会自动计入 `NotificationFailRateHigh`，物理磁盘告警只在真实文件系统增长并越过阈值时触发。 |
 | `PROMOTION_LOCK_CONTENTION` 促销锁竞争 | `HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLSlowQueries`、`MySQLHighThreads` | 部分覆盖。死锁/超时异常经目标服务或 Gateway 观测 URI 以 HTTP 5xx 返回并达到错误率阈值时触发 `HighErrorRate`；仅锁等待不超时则主要表现为慢请求。 |
@@ -37,26 +37,26 @@
 
 | 规则组 | 告警 | 触发条件 |
 | --- | --- | --- |
-| HTTP | `HighErrorRate` | 同一 `service`、`uri` 的 5xx 比例大于 5%，持续 2 分钟 |
-| HTTP | `HighLatencyP99` / `CriticalLatencyP99` | P99 分别大于 5 秒持续 3 分钟 / 大于 10 秒持续 1 分钟 |
-| JVM | `HighHeapUsage` / `CriticalHeapUsage` | 堆使用率分别大于 85% 持续 3 分钟 / 大于 95% 持续 1 分钟 |
-| JVM | `FrequentGCPause` | Major GC 速率大于 0.1 次/秒，持续 3 分钟 |
-| 数据库连接池 | `HikariPoolExhaustion` / `HikariPoolFull` | 活跃连接占最大连接数分别大于 80% 持续 2 分钟 / 大于 95% 持续 1 分钟 |
+| HTTP | `HighErrorRate` | 同一 `service`、`uri` 的 5xx 比例大于 5%，持续 1 分钟 |
+| HTTP | `HighLatencyP99` / `CriticalLatencyP99` | P99 分别大于 5 秒持续 2 分钟 / 大于 10 秒持续 1 分钟 |
+| JVM | `HighHeapUsage` / `CriticalHeapUsage` | 堆使用率分别大于 85% 持续 2 分钟 / 大于 95% 持续 1 分钟 |
+| JVM | `FrequentGCPause` | Major GC 速率大于 0.1 次/秒，持续 2 分钟 |
+| 数据库连接池 | `HikariPoolExhaustion` / `HikariPoolFull` | 活跃连接占最大连接数分别大于 80% 持续 1 分钟 / 大于 95% 持续 1 分钟 |
 | 数据库连接池 | `HikariPoolPending` | 等待连接数大于 10，持续 1 分钟 |
-| 业务 | `OrderFailureRateHigh` / `PaymentFailureRateHigh` | 对应成功/失败比例大于 10%，持续 2 分钟 |
-| 业务 | `PaymentTimeoutSpike` | 支付超时速率大于 0.5 次/秒，持续 2 分钟 |
-| 业务 | `InventoryReserveFailRateHigh` | 库存预留失败比例大于 20%，持续 2 分钟 |
-| 业务 | `RiskRejectRateHigh` | 风控拒绝比例大于 50%，持续 3 分钟 |
-| 业务 | `NotificationFailRateHigh` | 通知失败比例大于 10%，持续 2 分钟 |
-| 节点 | `NodeHighCPU` / `NodeHighMemory` | 节点 CPU 大于 80% / 内存大于 85%，均持续 3 分钟 |
-| 节点存储 | `NodeDataFilesystemUsageHigh` | `/data` 使用率大于 85%，持续 5 分钟 |
-| 节点存储 | `NodeDataFilesystemGrowthRateHigh` | `/data` 可用空间下降速率超过 10 MiB/秒，持续 5 分钟 |
-| MySQL | `MySQLHighThreads` / `MySQLSlowQueries` | 连接数大于 100 持续 2 分钟 / 慢查询速率大于 0.5 次/秒持续 2 分钟 |
-| MySQL | `MySQLInnoDBDataWriteRateHigh` | InnoDB 写入速率大于 1 MiB/秒，持续 2 分钟；级别为 `info` |
-| Redis | `RedisHighMemory` | Redis 使用率大于 80%，持续 3 分钟 |
+| 业务 | `OrderFailureRateHigh` / `PaymentFailureRateHigh` | 对应成功/失败比例大于 10%，持续 1 分钟 |
+| 业务 | `PaymentTimeoutSpike` | 支付超时速率大于 0.5 次/秒，持续 1 分钟 |
+| 业务 | `InventoryReserveFailRateHigh` | 库存预留失败比例大于 20%，持续 1 分钟 |
+| 业务 | `RiskRejectRateHigh` | 风控拒绝比例大于 50%，持续 2 分钟 |
+| 业务 | `NotificationFailRateHigh` | 通知失败比例大于 10%，持续 1 分钟 |
+| 节点 | `NodeHighCPU` / `NodeHighMemory` | 节点 CPU 大于 80% / 内存大于 85%，均持续 2 分钟 |
+| 节点存储 | `NodeDataFilesystemUsageHigh` | `/data` 使用率大于 85%，持续 3 分钟 |
+| 节点存储 | `NodeDataFilesystemGrowthRateHigh` | `/data` 可用空间下降速率超过 10 MiB/秒，持续 3 分钟 |
+| MySQL | `MySQLHighThreads` / `MySQLSlowQueries` | 连接数大于 100 持续 1 分钟 / 慢查询速率大于 0.5 次/秒持续 1 分钟 |
+| MySQL | `MySQLInnoDBDataWriteRateHigh` | InnoDB 写入速率大于 1 MiB/秒，持续 1 分钟；级别为 `info` |
+| Redis | `RedisHighMemory` | Redis 使用率大于 80%，持续 2 分钟 |
 | 关联判断 | `CorrelatedServiceDegradation` | HTTP 5xx 与库存预留失败或支付超时同时存在，持续 1 分钟；级别为 `info` |
 
-`ServiceDown` 在业务服务 `up == 0` 持续 1 分钟时触发；`InfraExporterDown` 在 Node、MySQL 或 Redis exporter 不可用持续 2 分钟时触发。它们属于平台健康告警，不是某个场景的专属告警。`RiskRejectRateHigh` 也没有当前目录中直接控制风控结果的场景，主要用于正常业务流量中的异常拒绝率。
+`ServiceDown` 在业务服务 `up == 0` 持续 1 分钟时触发；`InfraExporterDown` 在 Node、MySQL 或 Redis exporter 不可用持续 1 分钟时触发。它们属于平台健康告警，不是某个场景的专属告警。`RiskRejectRateHigh` 也没有当前目录中直接控制风控结果的场景，主要用于正常业务流量中的异常拒绝率。
 
 ## 目前仍缺少的专用信号
 

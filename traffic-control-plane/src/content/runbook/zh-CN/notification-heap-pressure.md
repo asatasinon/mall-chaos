@@ -76,9 +76,9 @@ flowchart LR
 
 | 告警 | 触发条件 | 本场景中的含义与边界 |
 | --- | --- | --- |
-| `HighHeapUsage` | 堆使用率超过 85%，持续 3 分钟 | 表示保留对象已造成明显 JVM 堆压力。 |
+| `HighHeapUsage` | 堆使用率超过 85%，持续 2 分钟 | 表示保留对象已造成明显 JVM 堆压力。 |
 | `CriticalHeapUsage` | 堆使用率超过 95%，持续 1 分钟 | 表示接近堆耗尽，可能进一步导致 OOM。 |
-| `FrequentGCPause` | Major GC 速率超过 0.1 次/秒，持续 3 分钟 | 表示堆压力已影响 GC 行为。 |
+| `FrequentGCPause` | Major GC 速率超过 0.1 次/秒，持续 2 分钟 | 表示堆压力已影响 GC 行为。 |
 | `HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate`、`NodeHighMemory` | 请求延迟、5xx 比例或节点内存达到对应规则阈值 | JVM 压力扩大到请求或节点层时可能伴随出现。 |
 | `ServiceDown` | 业务服务 `up == 0`，持续 1 分钟 | 进程失去健康信号时可能触发；OOM、告警时间和最后一条 trace 都不保证发生。 |
 
