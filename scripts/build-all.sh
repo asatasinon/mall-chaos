@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # build-all.sh — Build all service JARs and Docker images
-# Usage: PLATFORM=linux/amd64 ./scripts/build-all.sh [--image-source|-s <dockerhub|hub|internal>] [--push] [--tag <tag>]
+# Usage: PLATFORM=linux/amd64 ./scripts/build-all.sh [--image-source|-s <dockerhub|hub|internal>] [--pull] [--push] [--tag <tag>]
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compose-common.sh"
@@ -9,16 +9,18 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 PUSH_IMAGE=false
+PULL_BASE_IMAGES=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --push) PUSH_IMAGE=true; shift ;;
+    --pull) PULL_BASE_IMAGES=true; shift ;;
     --tag)  IMAGE_TAG="$2"; shift 2 ;;
     --image-source|-s|--hub)
       [[ $# -lt 2 ]] && { echo "$1 requires a value" >&2; exit 1; }
       CASTREL_IMAGE_SOURCE="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: PLATFORM=linux/amd64 ./scripts/build-all.sh [--image-source|-s <dockerhub|hub|internal>] [--push] [--tag <tag>]"
+      echo "Usage: PLATFORM=linux/amd64 ./scripts/build-all.sh [--image-source|-s <dockerhub|hub|internal>] [--pull] [--push] [--tag <tag>]"
       exit 0 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
@@ -39,7 +41,7 @@ castrel_docker_build() {
   local build_exit_code
   build_log="$(mktemp)"
 
-  if docker build "$@" 2>&1 | tee "$build_log"; then
+  if docker build "${DOCKER_PULL_ARGS[@]}" "$@" 2>&1 | tee "$build_log"; then
     rm -f "$build_log"
     return 0
   fi
@@ -48,7 +50,7 @@ castrel_docker_build() {
   if grep -Eq '(^|[[:space:]])(parent )?snapshot [^[:space:]]+ does not exist' "$build_log"; then
     echo "BuildKit cache snapshot is missing; retrying without cache."
     rm -f "$build_log"
-    docker build --no-cache "$@"
+    docker build "${DOCKER_PULL_ARGS[@]}" --no-cache "$@"
     return $?
   fi
 
@@ -77,7 +79,17 @@ mvn clean install -pl common -am -DskipTests -q
 
 DOCKER_BUILD_ARGS=(--build-arg "BASE_IMAGE_REGISTRY=${BASE_IMAGE_REGISTRY}")
 DOCKER_PLATFORM_ARGS=(--platform "${PLATFORM}")
+if [[ "$PULL_BASE_IMAGES" == "true" ]]; then
+  DOCKER_PULL_ARGS=(--pull)
+else
+  DOCKER_PULL_ARGS=(--pull=false)
+fi
 echo "Docker platform: ${PLATFORM}"
+if [[ "$PULL_BASE_IMAGES" == "true" ]]; then
+  echo "Base images: pull enabled"
+else
+  echo "Base images: use local cache"
+fi
 
 echo ""
 echo "=== Building & packaging services ==="
