@@ -20,9 +20,9 @@ spec:
             - containerPort: 3000
           env:
             - name: GF_SECURITY_ADMIN_USER
-              value: "admin"
+              value: "castrel"
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: "admin"
+              value: "C@stre1_best_ai"
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "true"
             - name: GF_AUTH_ANONYMOUS_ORG_ROLE

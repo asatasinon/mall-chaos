@@ -165,7 +165,7 @@ logging:
 
 | Service | URL | Credentials |
 |---|---|---|
-| Grafana | http://localhost:13000 | admin / admin |
+| Grafana | http://localhost:13000 | castrel / C@stre1_best_ai |
 | Prometheus | http://localhost:19090 | castrel / castrel (Basic Auth via nginx) |
 | Loki | http://localhost:13100 | castrel / castrel |
 | Tempo | http://localhost:13200 | castrel / castrel |
