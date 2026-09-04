@@ -178,7 +178,7 @@ flowchart LR
 7. 普通 SQL、TraceQL、JSON 和 shell 代码块不会被 Mermaid 组件接管；Tempo 查询可从页面复制。
 8. 手册不包含 Grafana Explore 外链、Tempo trace 深链、外部重定向、任意 URL 输入或基于 `traceId` 的查询承诺。
 9. 桌面和窄屏下，目录、中文长文本、表格、代码块和 Mermaid SVG 不发生不可用的遮挡或溢出。
-10. 文档内容随 `traffic-control-plane` production image 一起发布，不依赖仓库根目录 `_docs` 在运行时可访问。
+10. 文档内容随 `traffic-control-plane` production image 一起发布，不依赖仓库根目录 `docs` 在运行时可访问。
 
 ## 10. 发布边界
 

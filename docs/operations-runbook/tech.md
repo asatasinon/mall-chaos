@@ -20,7 +20,7 @@
 - 现有 `src/middleware.ts` 已保护除登录/会话外的页面和 API；`/runbooks` 自动继承保护，不应修改 middleware。
 - 支持的 locale 仅为 `en` 和 `zh-CN`，由 `control_plane_locale` Cookie 决定；不使用 `[locale]` 路由段。
 - `fault-run-catalog.ts` 是当前 12 个场景、固定目标、参数、时长与恢复策略的唯一机器可读事实来源。
-- Markdown 内容必须位于控制台 build context 内，不能在 production runtime 读取仓库根目录 `_docs`。
+- Markdown 内容必须位于控制台 build context 内，不能在 production runtime 读取仓库根目录 `docs`。
 - Mermaid 依赖浏览器 DOM；不得在 Server Component 或 Node runtime 中初始化 Mermaid。
 - 不生成 Grafana Explore URL、Tempo trace URL 或外部重定向；页面只提供手动查询参数。
 - `X-Trace-Id` / `fault_runs.trace_id` 是自定义业务关联 ID，未被证明为 OTel trace ID，不能成为 Tempo 深链输入。
@@ -221,7 +221,7 @@ export const runtime = 'nodejs';
 
 所有文章都有相同章节结构：目的与固定目标、实际实现逻辑、参数与生命周期、影响范围、预期证据、Tempo 排障、恢复验证、限制与注意事项。
 
-English 与中文文章在语义上成对覆盖。稳定值如服务名、场景码、API path、表名、错误码和 TraceQL 不翻译。文章以当前代码为权威；`_docs/chaos-inject-plane/product.md` 和 `_docs/chaos-inject-plane/tech.md` 仅是编写素材，不能作为 runtime loader 的读取路径。
+English 与中文文章在语义上成对覆盖。稳定值如服务名、场景码、API path、表名、错误码和 TraceQL 不翻译。文章以当前代码为权威；`docs/chaos-inject-plane/product.md` 和 `docs/chaos-inject-plane/tech.md` 仅是编写素材，不能作为 runtime loader 的读取路径。
 
 ## 7. Route 与组件设计
 

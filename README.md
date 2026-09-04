@@ -193,4 +193,4 @@ kubectl kustomize k8s >/dev/null
 git diff --check
 ```
 
-架构和场景细节见 [_docs/chaos-inject-plane/product.md](_docs/chaos-inject-plane/product.md)、[_docs/chaos-inject-plane/tech.md](_docs/chaos-inject-plane/tech.md) 和 [_docs/chaos-inject-plane/task-list.md](_docs/chaos-inject-plane/task-list.md)。告警与场景覆盖、触发阈值和当前缺口见 [docs/runbooks/alert-scenario-matrix.md](docs/runbooks/alert-scenario-matrix.md)。
+架构和场景细节见 [docs/chaos-inject-plane/product.md](docs/chaos-inject-plane/product.md)、[docs/chaos-inject-plane/tech.md](docs/chaos-inject-plane/tech.md) 和 [docs/chaos-inject-plane/task-list.md](docs/chaos-inject-plane/task-list.md)。告警与场景覆盖、触发阈值和当前缺口见 [docs/runbooks/alert-scenario-matrix.md](docs/runbooks/alert-scenario-matrix.md)。

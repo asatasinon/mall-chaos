@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Castrel Chaos is an e-commerce microservices platform purpose-built for **chaos engineering training**. It drives real business HTTP, SQL, Redis, JVM, storage, locking, and PSP behavior through a full Prometheus/Alertmanager/Grafana/Loki/Tempo stack; it is not a synthetic latency or error-response simulator.
 
-Before implementing a feature, read `product.md`, `technical-design.md` (when present), and `task-list.md` in the relevant `_docs/<area>/` directory; follow the task list's dependency section. The control-plane baseline is [_docs/chaos-inject-plane/product.md](_docs/chaos-inject-plane/product.md), [_docs/chaos-inject-plane/tech.md](_docs/chaos-inject-plane/tech.md), and [_docs/chaos-inject-plane/task-list.md](_docs/chaos-inject-plane/task-list.md). Link to existing documentation instead of duplicating its details in code or new instructions.
+Before implementing a feature, read `product.md`, `technical-design.md` (when present), and `task-list.md` in the relevant `docs/<area>/` directory; follow the task list's dependency section. The control-plane baseline is [docs/chaos-inject-plane/product.md](docs/chaos-inject-plane/product.md), [docs/chaos-inject-plane/tech.md](docs/chaos-inject-plane/tech.md), and [docs/chaos-inject-plane/task-list.md](docs/chaos-inject-plane/task-list.md). Link to existing documentation instead of duplicating its details in code or new instructions.
 
 ## Build Commands
 
@@ -202,9 +202,9 @@ For a focused control-plane change, run `cd traffic-control-plane && pnpm test:r
 
 ## Documentation Map
 
-- Product and acceptance scope: [_docs/chaos-inject-plane/product.md](_docs/chaos-inject-plane/product.md)
-- Control-plane design and contracts: [_docs/chaos-inject-plane/tech.md](_docs/chaos-inject-plane/tech.md)
-- Current implementation sequence and dependencies: [_docs/chaos-inject-plane/task-list.md](_docs/chaos-inject-plane/task-list.md)
+- Product and acceptance scope: [docs/chaos-inject-plane/product.md](docs/chaos-inject-plane/product.md)
+- Control-plane design and contracts: [docs/chaos-inject-plane/tech.md](docs/chaos-inject-plane/tech.md)
+- Current implementation sequence and dependencies: [docs/chaos-inject-plane/task-list.md](docs/chaos-inject-plane/task-list.md)
 - Service topology: [docs/microservice-topology.md](docs/microservice-topology.md)
 - Architecture overview: [docs/architecture.md](docs/architecture.md)
 - Environment reset: [docs/runbooks/environment-reset.md](docs/runbooks/environment-reset.md)

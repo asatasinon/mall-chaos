@@ -19,7 +19,7 @@
 5. 任务未完成、测试未通过或浏览器验证未完成时不得标记为 `[x]`；被阻塞的任务使用 `[!]` 并关联问题 ID。
 6. 不修改 `gateway-service`、业务服务、OTel agent、Grafana/Tempo、告警、Kubernetes 或 `docker-compose.yml`。手册只在 `traffic-control-plane` 内实现。
 7. 手册不生成 Grafana Explore 链接、Tempo trace 深链、外部重定向，也不把 `X-Trace-Id` 或 `fault_runs.trace_id` 当作 OTel trace ID。
-8. 长篇文章只来自控制台源码目录的受控 Markdown；不得放在 `public/`，不得读取仓库根目录 `_docs` 作为 production runtime 内容。
+8. 长篇文章只来自控制台源码目录的受控 Markdown；不得放在 `public/`，不得读取仓库根目录 `docs` 作为 production runtime 内容。
 9. 本清单按任务组统计总体进度。子任务全部完成且任务组验证通过，才算一个完成任务组。
 
 ## 总体进度
@@ -100,7 +100,7 @@ graph TD
 - [x] 新增 `traffic-control-plane/src/lib/runbook-content.ts`，只接受 `en` / `zh-CN` 和经 `resolveRunbookScenario()` 验证的 scenario。
 - [x] 只以 metadata allowlist `articleFile` 形成路径，使用 `node:fs/promises` 读取 UTF-8 内容。
 - [x] 对缺失、空白或不可读内容提供明确的受控错误结果，页面可显示本地化不可用状态。
-- [x] 不从 `public/`、仓库根目录 `_docs`、请求参数或外部地址读取文章。
+- [x] 不从 `public/`、仓库根目录 `docs`、请求参数或外部地址读取文章。
 
 **完成判据：** loader 的路径不会被 query 注入，且失败模式可被测试精确验证。
 
@@ -312,7 +312,7 @@ graph TD
 - [x] 保持文章不进入 `public/`，以避免受 middleware 保护的内容被静态绕过。
 - [x] 执行 `docker compose build traffic-control-plane`，在 image 中确认 `/app/src/content/runbook` 和英文/中文文章存在。
 
-**完成判据：** standalone runtime 可从容器内读取文章，不依赖宿主仓库 `_docs`。
+**完成判据：** standalone runtime 可从容器内读取文章，不依赖宿主仓库 `docs`。
 
 ---
 
