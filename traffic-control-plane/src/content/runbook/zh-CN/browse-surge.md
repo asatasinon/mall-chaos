@@ -76,6 +76,17 @@ catalog 接受 `durationSec`、`concurrency`、`requestIntervalMs` 和 `pageSize
 
 确认 `SCENARIO_WORKER_STOPPED` 且在途数收敛。worker 停止后，正常 `GET /api/products` 应恢复，现有 Runner 配置保持不变。检查 Gateway 和 Catalog 健康状态，并与 worker 停止后的正常延迟比较。
 
+## 告警关联
+
+| 告警 | 触发条件 | 本场景中的含义与边界 |
+| --- | --- | --- |
+| `HighLatencyP99` | Gateway/Catalog 请求 P99 超过 5 秒，持续 3 分钟 | 说明受控浏览流量已影响请求延迟。 |
+| `CriticalLatencyP99` | Gateway/Catalog 请求 P99 超过 10 秒，持续 1 分钟 | 说明请求延迟已达到严重级别。 |
+| `HighErrorRate` | 对应服务、URI 的 5xx 比例超过 5%，持续 2 分钟 | 只有浏览请求实际返回 5xx 才触发，生成流量本身不会触发。 |
+| `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`MySQLSlowQueries` | 连接池、MySQL 连接数或慢查询达到对应规则阈值 | 流量压力扩大到数据库连接资源时可能出现。 |
+| `NodeHighCPU`、`NodeHighMemory`、`RedisHighMemory` | 节点 CPU/内存或 Redis 使用率达到对应规则阈值 | 只有共享基础设施资源越过阈值时才会触发。 |
+| 无流量专用告警 | 不适用 | 应将 worker 事件与 Gateway/Catalog 的 HTTP、JDBC/Redis span 一起核对。 |
+
 ## 限制与安全解释
 
 本场景是受控流量生成，不是 Catalog fault toggle，也不保证一定产生错误。结果取决于并发、间隔、page size、基线流量和资源容量。控制面 worker 不是可查询的 OTel `service.name`；Tempo 应查询 Gateway 和下游 Java 服务。`X-Trace-Id` 仅用于业务关联。

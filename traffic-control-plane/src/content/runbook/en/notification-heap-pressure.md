@@ -72,6 +72,16 @@ Inspect notification HTTP spans, exception events, request duration and the timi
 
 Confirm new retention work has stopped. If the service remains healthy, verify normal notification delivery. If it is unavailable, use the fixed protected notification restart workflow and wait for health recovery. After restart, verify the retained-object count is reset with the new process and check normal notification processing.
 
+## Alert mapping
+
+| Alert | Trigger condition | Meaning and boundary for this scenario |
+| --- | --- | --- |
+| `HighHeapUsage` | Heap usage exceeds 85% for 3 minutes | Indicates that retained objects have created significant JVM pressure. |
+| `CriticalHeapUsage` | Heap usage exceeds 95% for 1 minute | Indicates near-exhaustion and possible OOM. |
+| `FrequentGCPause` | Major GC rate exceeds 0.1 per second for 3 minutes | Indicates that heap pressure is affecting GC behavior. |
+| `HighLatencyP99`, `CriticalLatencyP99`, `HighErrorRate`, `NodeHighMemory` | Request latency, 5xx ratio or node memory reaches the relevant rule threshold | May appear when JVM pressure spreads to request or node resources. |
+| `ServiceDown` | Business-service `up == 0` for 1 minute | May fire after the process loses its health signal; retention, OOM, alert timing and the final trace are not guaranteed. |
+
 ## Limits and safe interpretation
 
 The code proves unbounded retention while active, not that a particular heap size, OOM, alert or recovery time will occur. Release is non-releasing by design. The control-plane `traceId` and `X-Trace-Id` are business correlation values and cannot be used as verified Tempo trace IDs.

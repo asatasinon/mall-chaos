@@ -86,6 +86,17 @@ Inspect the report HTTP span, the order query, repeated `order_items` JDBC spans
 
 Confirm `REPORT_WORKER_STOPPED`, the coordinator recovery events and closure of the worker customer session. New report requests should stop after the run is recovered. To verify a repair, deploy the date predicate, matching index and aggregate query separately; check that results contain only the intended day and that the JDBC query count and execution plan improve.
 
+## Alert mapping
+
+| Alert | Trigger condition | Meaning and boundary for this scenario |
+| --- | --- | --- |
+| `HighLatencyP99` | Report-request P99 exceeds 5 seconds for 3 minutes | Indicates slower order-report requests; it does not confirm that the scenario started. |
+| `CriticalLatencyP99` | Report-request P99 exceeds 10 seconds for 1 minute | Indicates that report latency has reached the critical level. |
+| `MySQLSlowQueries` | Slow-query rate exceeds 0.5 per second for 2 minutes | The N+1 reads and historical order scan may produce this signal; the result depends on order volume and database settings. |
+| `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending` | Pool utilization or pending connections reaches the relevant rule threshold | May occur when the larger N+1 read pattern consumes connections. |
+| `MySQLHighThreads`, `NodeHighCPU` | MySQL connection count or node CPU reaches the relevant rule threshold | Appears only when pressure spreads to shared resources. |
+| No order-report-specific alert | Not applicable | Running the scenario does not guarantee crossing a threshold; correlate `fault_run_events`, Tempo JDBC spans, query counts and MySQL diagnostics. |
+
 ## Limits and safe interpretation
 
 This is sustained baseline report traffic, not a guaranteed delay injection. The number of historical orders, database statistics, indexes and the selected lifecycle account determine the observed result. Do not use `fault_runs.trace_id` or `X-Trace-Id` as a Tempo trace ID; use Loki business correlation plus the run time window when necessary.

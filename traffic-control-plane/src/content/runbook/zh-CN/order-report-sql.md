@@ -86,6 +86,17 @@ catalog 要求 `durationSec`。报表 worker 负责重复调用，在到期或�
 
 确认 `REPORT_WORKER_STOPPED`、协调器恢复事件和 worker 客户会话已关闭。运行恢复后不应再有新的报表请求。若要验证修复，应单独部署日期条件、匹配索引和聚合查询，确认结果只包含目标日期，并检查 JDBC 查询次数和执行计划是否改善。
 
+## 告警关联
+
+| 告警 | 触发条件 | 本场景中的含义与边界 |
+| --- | --- | --- |
+| `HighLatencyP99` | 报表请求 P99 超过 5 秒，持续 3 分钟 | 说明订单报表请求变慢，不是场景启动确认。 |
+| `CriticalLatencyP99` | 报表请求 P99 超过 10 秒，持续 1 分钟 | 说明请求延迟已达到严重级别。 |
+| `MySQLSlowQueries` | 慢查询速率超过 0.5 次/秒，持续 2 分钟 | N+1 读取和历史订单扫描可能产生该信号，实际取决于订单量和数据库配置。 |
+| `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending` | 连接池使用率或等待连接数达到对应规则阈值 | N+1 读取扩大并占用连接时可能触发。 |
+| `MySQLHighThreads`、`NodeHighCPU` | MySQL 连接数或节点 CPU 达到对应规则阈值 | 只有共享资源压力扩散时才会出现。 |
+| 无订单报表专用告警 | 不适用 | 场景运行不保证跨过告警阈值；应结合 `fault_run_events`、Tempo JDBC span、查询次数和 MySQL 诊断判断。 |
+
 ## 限制与安全解释
 
 本场景是持续 baseline 报表流量，不是保证延迟的注入。历史订单数、数据库统计信息、索引和选定 lifecycle account 决定实际结果。不要将 `fault_runs.trace_id` 或 `X-Trace-Id` 当作 Tempo trace ID；需要关联时使用 Loki 业务关联和运行时间窗口。

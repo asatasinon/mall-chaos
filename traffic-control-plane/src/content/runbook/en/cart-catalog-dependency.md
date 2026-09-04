@@ -76,6 +76,15 @@ Inspect the Cart HTTP span, Catalog client/server span, response status, excepti
 
 Confirm the target release/cleanup event and that the Catalog dependency state is no longer active. Retry a valid add-item request after recovery and verify a normal CartItem mutation. Check that other Catalog operations continue to work and no failed request created a CartItem.
 
+## Alert mapping
+
+| Alert | Trigger condition | Meaning and boundary for this scenario |
+| --- | --- | --- |
+| `HighErrorRate` | The Catalog validation URI 5xx ratio exceeds 5% for 2 minutes | The active dependency may return 503 and trigger it; the outer Cart request may wrap the failure in a business envelope and remain HTTP 200. |
+| `HighLatencyP99` | Request P99 exceeds 5 seconds for 3 minutes | Fires when the dependency call becomes slow enough to cross the threshold. |
+| `CriticalLatencyP99` | Request P99 exceeds 10 seconds for 1 minute | Fires when dependency latency reaches the critical level. |
+| No Cart-to-Catalog-specific alert | Not applicable | Correlate Prometheus results with the Catalog 503, Cart logs, Tempo client/server spans and `fault_run_events`. |
+
 ## Limits and safe interpretation
 
 This is a service-local dependency response control, not a full Catalog outage and not an arbitrary downstream failure injector. It is single-run state and does not accept a user-selected service, URL or path. `fault_runs.trace_id` and `X-Trace-Id` are business correlation values, not Tempo trace IDs.

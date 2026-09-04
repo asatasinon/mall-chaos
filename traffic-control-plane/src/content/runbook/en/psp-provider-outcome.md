@@ -84,6 +84,17 @@ Inspect the Payment client span, PSP server span, response/exception event and t
 
 Confirm the target release reset the provider outcome and counter. Run a normal authorization and verify `AUTHORIZED` behavior, then check payment and dependent workflow status. For a declined run, verify the expected failed payment state; for timeout, verify the client timeout and timeout metric.
 
+## Alert mapping
+
+| Alert | Trigger condition | Meaning and boundary for this scenario |
+| --- | --- | --- |
+| `PaymentFailureRateHigh` | Payment-failure ratio exceeds 10% for 2 minutes | A `DECLINED` outcome triggers it only with sufficient request volume and ratio. |
+| `PaymentTimeoutSpike` | Payment-timeout rate exceeds 0.5 per second for 2 minutes | A `TIMEOUT` outcome triggers it when the rate crosses the threshold. |
+| `HighLatencyP99`, `CriticalLatencyP99` | Payment/PSP request P99 exceeds 5 seconds for 3 minutes or 10 seconds for 1 minute | PSP timeouts usually increase latency, but crossing the threshold is not guaranteed. |
+| `HighErrorRate` | The corresponding URI 5xx ratio exceeds 5% for 2 minutes | Fires only when payment or PSP requests actually return 5xx. |
+| `CorrelatedServiceDegradation` | Payment-timeout rate is greater than zero for 1 minute | Produces the info-level correlated-degradation alert; `AUTHORIZED` is not expected to produce these result alerts. |
+| `OrderFailureRateHigh` | Order-creation failure ratio exceeds 10% for 2 minutes | May appear only when the payment result affects the order-creation path. |
+
 ## Limits and safe interpretation
 
 Outcome selection is deterministic quota behavior, not random per-request choice. Exact response timing depends on client, network and deployment limits. A stored `traceId` or `X-Trace-Id` is business correlation only and must not be treated as a Tempo trace ID.

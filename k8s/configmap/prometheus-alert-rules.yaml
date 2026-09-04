@@ -12,7 +12,7 @@ data:
         interval: 30s
         rules:
           - alert: ServiceDown
-            expr: up{service!~"node|mysql|redis"} == 0
+            expr: up{service!~"node|mysql|redis|traffic-control-plane"} == 0
             for: 1m
             labels:
               severity: critical
@@ -250,6 +250,31 @@ data:
               summary: 'Node memory usage is too high'
               description: 'Memory usage on node {{ $labels.instance }} exceeded 85% (current: {{ $value | humanize }}%).'
 
+          - alert: NodeDataFilesystemUsageHigh
+            expr: |
+              (
+                1 - node_filesystem_avail_bytes{mountpoint="/data",fstype="ext4"}
+                /
+                node_filesystem_size_bytes{mountpoint="/data",fstype="ext4"}
+              ) * 100 > 85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'Node data filesystem usage is high'
+              description: 'The /data filesystem on node {{ $labels.instance }} has exceeded 85% utilization (current: {{ $value | humanize }}%).'
+
+          - alert: NodeDataFilesystemGrowthRateHigh
+            expr: |
+              deriv(node_filesystem_avail_bytes{mountpoint="/data",fstype="ext4"}[15m])
+              < -10485760
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'Node storage usage is continuously increasing'
+              description: 'Available space on /data for node {{ $labels.instance }} is decreasing at {{ $value | humanize }} bytes/s; a sudden increase in storage usage may be occurring.'
+
           - alert: MySQLHighThreads
             expr: mysql_global_status_threads_connected > 100
             for: 2m
@@ -268,6 +293,17 @@ data:
               summary: 'MySQL slow queries are increasing'
               description: 'The MySQL slow query rate is {{ $value | humanize }} per second; an SQL performance issue may exist.'
 
+          - alert: MySQLInnoDBDataWriteRateHigh
+            expr: |
+              rate(mysql_global_status_innodb_data_written[5m])
+              > 1048576
+            for: 2m
+            labels:
+              severity: info
+            annotations:
+              summary: 'MySQL InnoDB data write rate is high'
+              description: 'MySQL InnoDB data is being written at {{ $value | humanize }} bytes/s, exceeding 1 MiB/s; a sudden increase in storage usage may be occurring.'
+
           - alert: RedisHighMemory
             expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 80
             for: 3m
@@ -276,3 +312,21 @@ data:
             annotations:
               summary: 'Redis memory usage is too high'
               description: 'Redis memory usage is {{ $value | humanize }}%, exceeding the 80% threshold.'
+
+      # 7. Correlated service degradation
+      - name: castrel-chaos-detection
+        interval: 30s
+        rules:
+          - alert: CorrelatedServiceDegradation
+            expr: |
+              (rate(http_server_requests_seconds_count{status=~"5.."}[5m]) > 0)
+              and
+              (rate(inventory_reserve_fail_count_total[5m]) > 0)
+              or
+              (rate(payment_charge_timeout_count_total[5m]) > 0)
+            for: 1m
+            labels:
+              severity: info
+            annotations:
+              summary: 'Correlated service degradation detected'
+              description: 'Multiple services are reporting errors or timeouts simultaneously.'

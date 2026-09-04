@@ -84,6 +84,17 @@ Payment 通常会先于模拟器的 60 秒响应在客户端超时。实际结�
 
 确认 target release 已重置 provider outcome 和计数器。运行一次正常授权并确认 `AUTHORIZED` 行为，再检查支付和后续流程状态。拒付运行应验证预期的失败支付状态；超时运行应验证客户端超时和 timeout 指标。
 
+## 告警关联
+
+| 告警 | 触发条件 | 本场景中的含义与边界 |
+| --- | --- | --- |
+| `PaymentFailureRateHigh` | 支付失败比例超过 10%，持续 2 分钟 | `DECLINED` 结果达到足够请求量和比例时触发。 |
+| `PaymentTimeoutSpike` | 支付超时速率超过 0.5 次/秒，持续 2 分钟 | `TIMEOUT` 结果达到速率阈值时触发。 |
+| `HighLatencyP99`、`CriticalLatencyP99` | 支付/PSP 请求 P99 分别超过 5 秒持续 3 分钟、超过 10 秒持续 1 分钟 | PSP 超时通常会增加请求延迟，但不保证越过阈值。 |
+| `HighErrorRate` | 对应 URI 的 5xx 比例超过 5%，持续 2 分钟 | 只有支付或 PSP 请求实际以 5xx 返回才触发。 |
+| `CorrelatedServiceDegradation` | 支付超时速率大于零，持续 1 分钟 | 触发信息级关联退化告警；`AUTHORIZED` 预期不触发上述结果告警。 |
+| `OrderFailureRateHigh` | 订单创建失败比例超过 10%，持续 2 分钟 | 只有支付结果连带影响订单创建路径时才可能出现。 |
+
 ## 限制与安全解释
 
 结果选择是确定性配额，不是每个请求随机选择。具体响应时间取决于客户端、网络和部署限制。保存的 `traceId` 或 `X-Trace-Id` 仅用于业务关联，不能当作 Tempo trace ID。

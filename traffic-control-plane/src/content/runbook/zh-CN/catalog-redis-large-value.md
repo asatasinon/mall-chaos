@@ -90,6 +90,16 @@ sequenceDiagram
 
 确认 worker 已停止、active marker 不存在、运行 Hash 已删除，并且协调器记录清理/恢复结果。恢复后验证正常商品详情读取使用默认路径，且无关商品数据和缓存 key 仍可用。
 
+## 告警关联
+
+| 告警 | 触发条件 | 本场景中的含义与边界 |
+| --- | --- | --- |
+| `RedisHighMemory` | Redis 使用率超过 80%，持续 3 分钟 | 运行级 Hash 增大可能推高共享 Redis 使用率，但不保证达到阈值。 |
+| `HighLatencyP99`、`CriticalLatencyP99` | 详情请求 P99 分别超过 5 秒持续 3 分钟、超过 10 秒持续 1 分钟 | 说明大值读取影响了商品详情响应。 |
+| `HighHeapUsage`、`CriticalHeapUsage`、`FrequentGCPause` | 堆使用率超过 85%/95%，或 Major GC 速率超过 0.1 次/秒并达到对应持续时间 | 大值反序列化可能增加 Catalog JVM 压力。 |
+| `HighErrorRate` | Catalog 对应 URI 的 5xx 比例超过 5%，持续 2 分钟 | 只有详情请求实际返回 5xx 才触发；共享节点压力可能伴随 `NodeHighMemory`。 |
+| 无 Redis 大 key 专用告警 | 不适用 | 当前没有单 key 大小、淘汰、延迟或 Catalog cache 专用告警；逻辑字节预算不等于 Redis 物理使用率。 |
+
 ## 限制与安全解释
 
 逻辑字节大小是 envelope 预算，不等于 Redis allocator 使用量或物理内存承诺。本场景不是通用 Catalog 故障。TTL 和清理提供边界，但恢复后仍应检查运行专属 key 和 marker。页面显示的 `traceId` 仅为业务关联值，未验证为 OTel trace ID。

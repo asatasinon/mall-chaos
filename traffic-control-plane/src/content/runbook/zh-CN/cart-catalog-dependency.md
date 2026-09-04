@@ -76,6 +76,15 @@ catalog 要求 `durationSec`。协调器经 Gateway 发送固定 prepare/release
 
 确认 target release/cleanup 事件，且 Catalog dependency state 不再激活。恢复后重试合法加购并确认正常 CartItem mutation；检查其他 Catalog 操作仍可用，失败请求没有创建 CartItem。
 
+## 告警关联
+
+| 告警 | 触发条件 | 本场景中的含义与边界 |
+| --- | --- | --- |
+| `HighErrorRate` | Catalog 校验 URI 的 5xx 比例超过 5%，持续 2 分钟 | 激活期间 Catalog 校验返回 503 可能触发；外层 Cart 可能包装成业务 envelope 并保持 HTTP 200。 |
+| `HighLatencyP99` | 对应请求 P99 超过 5 秒，持续 3 分钟 | 依赖调用变慢并达到阈值时触发。 |
+| `CriticalLatencyP99` | 对应请求 P99 超过 10 秒，持续 1 分钟 | 依赖调用延迟达到严重级别时触发。 |
+| 无 Cart-to-Catalog 专用告警 | 不适用 | 应将 Prometheus 结果与 Catalog 503、Cart 日志、Tempo client/server span 及 `fault_run_events` 一起判断。 |
+
 ## 限制与安全解释
 
 这是服务本地的依赖响应控制，不是完整 Catalog 宕机，也不接受任意下游失败参数。它是单运行状态，不接受用户指定服务、URL 或路径。`fault_runs.trace_id` 和 `X-Trace-Id` 是业务关联值，不是 Tempo trace ID。

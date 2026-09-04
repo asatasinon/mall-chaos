@@ -79,6 +79,16 @@ sequenceDiagram
 
 确认新的一致性请求停止、run guard 已释放、准备预留已删除。验证正常 Promotion 行为，并检查一致性核对没有提交业务变更。必要时使用数据库锁诊断确认没有运行遗留的等待事务。
 
+## 告警关联
+
+| 告警 | 触发条件 | 本场景中的含义与边界 |
+| --- | --- | --- |
+| `HighLatencyP99` | 一致性请求 P99 超过 5 秒，持续 3 分钟 | 锁等待未超时时通常先看到该告警。 |
+| `CriticalLatencyP99` | 一致性请求 P99 超过 10 秒，持续 1 分钟 | 说明锁等待已造成严重请求延迟。 |
+| `HighErrorRate` | 死锁或锁等待超时经目标服务或 Gateway 观测 URI 以 HTTP 5xx 返回，且对应 service/URI 的 5xx 比例超过 5%，持续 2 分钟 | 这是锁场景的主要条件性结果告警；锁竞争本身不保证立即触发。 |
+| `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLSlowQueries`、`MySQLHighThreads` | 连接池或 MySQL 达到对应规则阈值 | 竞争扩大到连接池或数据库层时可能伴随出现。 |
+| 无死锁/锁等待专用告警 | 不适用 | 应结合请求失败事件、Tempo JDBC span 和 MySQL 诊断判断。 |
+
 ## 限制与安全解释
 
 反向锁顺序创造了真实竞争机会，但死锁、等待时长和受害事务由 MySQL、JDBC driver 与并发负载决定。本场景不是通用 Promotion 宕机。`fault_runs.trace_id` 和 `X-Trace-Id` 是业务关联值，不是已验证的 OTel trace ID。

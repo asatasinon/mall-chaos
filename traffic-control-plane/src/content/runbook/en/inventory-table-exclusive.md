@@ -90,6 +90,16 @@ Inspect the report HTTP span, the JDBC read, lock-wait duration and exception ev
 
 Confirm new observation calls stop, the dedicated connection executes `UNLOCK TABLES`, and the connection closes. Then issue a normal availability report and verify that it completes. Check that no table lock or waiting session owned by the run remains.
 
+## Alert mapping
+
+| Alert | Trigger condition | Meaning and boundary for this scenario |
+| --- | --- | --- |
+| `HighLatencyP99` | Inventory-report P99 exceeds 5 seconds for 3 minutes | A table-lock block normally appears as slow requests before timeout. |
+| `CriticalLatencyP99` | Inventory-report P99 exceeds 10 seconds for 1 minute | Indicates that the table-lock block has caused critical request latency. |
+| `HighErrorRate` | A table-lock-blocked request is exposed as a timeout or HTTP 5xx by the target service or Gateway observation URI, and the ratio reaches 5% for 2 minutes | This is the primary conditional result alert; acquiring the lock does not guarantee it fires. |
+| `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending`, `MySQLSlowQueries`, `MySQLHighThreads` | The pool or MySQL reaches the relevant rule threshold | May appear when blocked requests consume connections or pressure reaches the database. |
+| `InventoryReserveFailRateHigh` | Inventory reservation failure ratio exceeds 20% for 2 minutes | Is not produced directly by this availability observation endpoint; use lock diagnostics, Tempo and `fault_run_events`. |
+
 ## Limits and safe interpretation
 
 The implementation proves a write lock on `inventories`, not a fixed timeout or a guaranteed response duration. MySQL and driver settings determine how long blocked requests wait. A successful trace after release is stronger recovery evidence than assuming a fixed elapsed time.

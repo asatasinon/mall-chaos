@@ -85,7 +85,7 @@ export default async function RunbookWorkspace({
                     return (
                       <a
                         key={item.scenario}
-                        href={`/runbook?scenario=${encodeURIComponent(item.scenario)}`}
+                        href={`/runbooks?scenario=${encodeURIComponent(item.scenario)}`}
                         aria-current={active ? 'page' : undefined}
                         className={`group flex min-w-0 items-start gap-2 rounded-md px-2 py-2 text-xs transition-colors ${active ? 'bg-primary/10 text-foreground ring-1 ring-primary/30' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'}`}
                       >

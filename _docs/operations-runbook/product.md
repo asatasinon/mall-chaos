@@ -51,8 +51,8 @@
 
 ### 4.1 路由与访问
 
-- 手册入口为受保护路由 `/runbook`。
-- 文章选择使用 `/runbook?scenario=<SCENARIO_ID>`，例如 `/runbook?scenario=INVENTORY_TABLE_EXCLUSIVE`。
+- 手册入口为受保护路由 `/runbooks`。
+- 文章选择使用 `/runbooks?scenario=<SCENARIO_ID>`，例如 `/runbooks?scenario=INVENTORY_TABLE_EXCLUSIVE`。
 - 未登录访问沿用控制台既有认证中间件，跳转到 `/login` 并保留 `returnTo`。
 - 手册不调用内部写 API，不新增 CSRF 流程，也不改变 Operator 身份或权限模型。
 
@@ -169,8 +169,8 @@ flowchart LR
 
 ## 9. 验收标准
 
-1. 登录后的导航存在手册入口；未认证访问 `/runbook` 沿用现有登录跳转行为。
-2. `/runbook` 可显示全部 12 个 catalog 场景，`?scenario=` 可选择每个已知场景，未知值不会导致页面崩溃或文件路径读取。
+1. 登录后的导航存在手册入口；未认证访问 `/runbooks` 沿用现有登录跳转行为。
+2. `/runbooks` 可显示全部 12 个 catalog 场景，`?scenario=` 可选择每个已知场景，未知值不会导致页面崩溃或文件路径读取。
 3. 每个场景都有非空 English 和简体中文文章，文章覆盖实现逻辑、影响范围、恢复、证据和 Tempo 参数。
 4. 切换 English/简体中文后，当前场景 query、页面语言和文章内容同步变化，稳定机器值保持原样。
 5. Markdown 可正确渲染标题、列表、表格、普通代码块和 Mermaid 图表。

@@ -34,7 +34,7 @@
 | --- | --- | --- | --- | --- |
 | A | Runbook 领域模型与受控内容加载 | 已完成 | 5 / 5 | 无 |
 | B | 双语 Markdown 内容与证据准确性 | 已完成 | 6 / 6 | A |
-| C | `/runbook` 页面、目录与 Tempo 参数面板 | 已完成 | 5 / 5 | A、B |
+| C | `/runbooks` 页面、目录与 Tempo 参数面板 | 已完成 | 5 / 5 | A、B |
 | D | Mermaid 与 Markdown 展示体验 | 已完成 | 4 / 4 | B、C |
 | E | 国际化、导航与 production 镜像打包 | 已完成 | 4 / 4 | C、D |
 | F | 自动化、构建与浏览器验收 | 已完成 | 5 / 5 | A 至 E |
@@ -106,7 +106,7 @@ graph TD
 
 ### RB-A5. Node runtime 和任务测试骨架
 
-- [x] 在 `src/app/runbook/page.tsx` 预声明 `export const runtime = 'nodejs'`，保证后续文件系统读取不落到 Edge runtime。
+- [x] 在 `src/app/runbooks/page.tsx` 预声明 `export const runtime = 'nodejs'`，保证后续文件系统读取不落到 Edge runtime。
 - [x] 新增 `traffic-control-plane/src/lib/runbook.test.ts` 和 `package.json` 的 `test:runbook` 脚本骨架。
 - [x] 覆盖 catalog/metadata 一对一、解析安全回退、固定 Tempo 配方字段和禁止 URL/trace ID 输入的纯函数测试。
 
@@ -178,7 +178,7 @@ graph TD
 
 ---
 
-## Phase C：`/runbook` 页面、目录与 Tempo 参数面板
+## Phase C：`/runbooks` 页面、目录与 Tempo 参数面板
 
 **阶段目标：** 在既有认证和控制台壳层中提供只读手册工作区、场景目录、文章和可复制的静态 Tempo 参数。
 
@@ -189,19 +189,19 @@ graph TD
 
 ### RB-C1. Server page 与数据装配
 
-- [x] 新增 `traffic-control-plane/src/app/runbook/page.tsx`，读取 `getLocale()` 与 `searchParams.scenario`。
+- [x] 新增 `traffic-control-plane/src/app/runbooks/page.tsx`，读取 `getLocale()` 与 `searchParams.scenario`。
 - [x] 使用 Phase A 的 parser、entry 和 loader 装配页面数据；不读取运行记录、Grafana URL 或外部服务配置。
 - [x] 对受控内容读取失败显示可本地化的页面错误状态，不暴露内部文件路径或原始错误细节。
 
-**完成判据：** `/runbook` 可作为 Server Component 渲染默认场景和已知 query 场景。
+**完成判据：** `/runbooks` 可作为 Server Component 渲染默认场景和已知 query 场景。
 
 ### RB-C2. 场景目录与选择行为
 
 - [x] 新增 `components/runbook/RunbookWorkspace.tsx`，复用 `SCENARIO_GROUPS` 和场景 translation key 组织目录。
-- [x] 目录项使用 `/runbook?scenario=<SCENARIO_ID>` 内部链接，当前项具有 `aria-current="page"`。
+- [x] 目录项使用 `/runbooks?scenario=<SCENARIO_ID>` 内部链接，当前项具有 `aria-current="page"`。
 - [x] 目录和文章标题显示稳定场景码，并从 catalog 显示固定服务和操作；未知 query 安全回退。
 
-**完成判据：** 12 个场景可导航，语言切换后 query 仍被保留，且 NavBar `/runbook` 状态无需改造动态路由判断。
+**完成判据：** 12 个场景可导航，语言切换后 query 仍被保留，且 NavBar `/runbooks` 状态无需改造动态路由判断。
 
 ### RB-C3. Article renderer 与普通代码块
 
@@ -293,8 +293,8 @@ graph TD
 ### RB-E2. 导航和共享壳层集成
 
 - [x] 在 `Navigation.json` 的 English/中文目录增加 `runbook` 翻译。
-- [x] 修改 `src/components/NavBar.tsx` 增加 `/runbook` 项，维持现有无语言前缀链接、登出和 strict pathname active 行为。
-- [x] 验证现有 `LocaleSwitcher` 切换后保留 `/runbook?scenario=...`，不修改认证/CSRF Cookie 或业务请求。
+- [x] 修改 `src/components/NavBar.tsx` 增加 `/runbooks` 项，维持现有无语言前缀链接、登出和 strict pathname active 行为。
+- [x] 验证现有 `LocaleSwitcher` 切换后保留 `/runbooks?scenario=...`，不修改认证/CSRF Cookie 或业务请求。
 
 **完成判据：** 登录后可从主导航到达手册，切换语言不丢失当前文章。
 
@@ -359,10 +359,10 @@ graph TD
 
 ### RB-F5. 浏览器、响应式与鉴权验收
 
-- [x] 登录后访问 `/runbook` 和全部 12 个 query 场景，验证目录、固定目标、文章、Tempo 参数和复制按钮。
+- [x] 登录后访问 `/runbooks` 和全部 12 个 query 场景，验证目录、固定目标、文章、Tempo 参数和复制按钮。
 - [x] 在 EN/中文、浅色/深色主题间切换，确认 query、`<html lang>`、UI 文案、文章及 Mermaid SVG 同步更新。
 - [x] 在桌面和窄屏验证目录、长中文文本、表格、代码、Mermaid 图、键盘焦点和复制反馈。
-- [x] 使用无效 Mermaid 样例确认局部源码回退；使用未登录会话确认 `/runbook` 仍遵循既有 `returnTo` 登录跳转。
+- [x] 使用无效 Mermaid 样例确认局部源码回退；使用未登录会话确认 `/runbooks` 仍遵循既有 `returnTo` 登录跳转。
 
 **完成判据：** 产品规格第 9 节全部验收项通过，发现的问题已在问题跟踪和阶段更新记录中反映。
 
@@ -381,12 +381,12 @@ graph TD
 | RB-005 | Phase D / RB-D1、RB-D3 | `react-markdown` fenced code 同时生成 `code.language-*` 和外层 `pre`；初版仅替换 code 会保留不合适的 pre，且多 class 场景的 Mermaid 分类测试与实现边界不一致。 | Mermaid 图可能无法以稳定图表容器显示，普通代码语言边界存在误判风险。 | 通过 renderer 探针确认 props；同步自定义 `code`/`pre`，仅按 `language-mermaid` token 解包 Mermaid，普通代码剥离 AST `node` 属性；使用输入快照避免主题/文章切换时旧异步结果覆盖。 | 已解决 |
 | RB-006 | Phase D / RB-D4 | Mermaid SVG、主题重绘、语法错误回退和桌面/窄屏布局尚未完成真实浏览器走查；静态检查不能证明 hydration、DOM/SVG 和实际视口布局可用。 | 在未完成视觉和交互验证前关闭 D4 可能掩盖图表空白、主题不同步、回退失效或窄屏溢出。 | 已用真实浏览器验证：SVG 非空、light/dark 重绘、无效语法局部源码回退、`figure`/`figcaption` 语义、390px 页面无横向溢出；结果已恢复并记录。 | 已解决 |
 | RB-007 | Phase D / RB-D4 复制反馈 | 本地浏览器的 Clipboard API 可能因权限策略拒绝或迟迟不 resolve，直接等待会使复制按钮没有确定的可见结果。 | 操作人员无法判断查询是否已复制，浏览器走查也可能被权限 Promise 阻塞。 | 为 `navigator.clipboard.writeText` 增加 1 秒上限；立即拒绝时使用同步 fallback，超时时显示本地化 `复制失败`；已验证 stub 成功显示 `已复制`、真实权限路径有界显示失败。 | 已解决 |
-| RB-008 | Phase E / RB-E1 至 RB-E4 | `/runbook` 已使用 Runbook namespace 和依赖，但主导航、显式 required-key 断言和 Dockerfile 内容复制在 Phase E 开始时尚未完成。 | 页面可能无法从控制台导航到达，消息回归不易发现，standalone runtime 可能无法读取 Markdown。 | 增加双语 `Navigation.runbook`、NavBar 项、message required-key 断言、依赖/lockfile 确认和 Dockerfile 内容复制；i18n、typecheck、lint、build、Docker image 文件检查均通过。 | 已解决 |
+| RB-008 | Phase E / RB-E1 至 RB-E4 | `/runbooks` 已使用 Runbook namespace 和依赖，但主导航、显式 required-key 断言和 Dockerfile 内容复制在 Phase E 开始时尚未完成。 | 页面可能无法从控制台导航到达，消息回归不易发现，standalone runtime 可能无法读取 Markdown。 | 增加双语 `Navigation.runbook`、NavBar 项、message required-key 断言、依赖/lockfile 确认和 Dockerfile 内容复制；i18n、typecheck、lint、build、Docker image 文件检查均通过。 | 已解决 |
 | RB-009 | Phase E / RB-E4 | 在 Apple Silicon 主机上构建并运行默认 `linux/amd64` control-plane image 时出现平台不匹配 warning。 | 当前 image 构建和内容检查成功；跨平台运行可能有额外仿真开销。 | 镜像检查使用显式 `--platform linux/amd64` 完成；生产部署按目标节点架构构建/拉取对应 image，当前不扩大功能范围。 | 已解决 |
 | RB-010 | Phase F / RB-F1 至 RB-F5 | 最终验证尚未在当前工作区重新执行，且 12 个场景的双语/主题/响应式/鉴权浏览器走查尚未形成完整证据。 | 在关闭 Phase F 前可能遗漏依赖锁定、production bundle、场景 query、语言切换或鉴权回归问题。 | F1-F5 已全部通过：`test:runbook`、`test:i18n`、`test:runner`、typecheck、lint、build、Docker image 检查和全场景浏览器走查均完成。 | 已解决 |
 | RB-011 | Phase F / 清单格式检查 | Phase F 状态和问题行带有 Markdown 行尾空格，导致 `git diff --check` 失败。 | 不影响运行时功能，但会阻断清单格式验收。 | 删除行尾空格，并重新运行 `git diff --check`；没有扩大功能范围。 | 已解决 |
 | RB-012 | Phase F / RB-F5 | 390px 浏览器测量显示全局 `<main>` 的内部 scrollWidth 被文章中的长路径/行内代码撑宽，虽然 body/header 没有溢出。 | 窄屏主滚动区域可能出现隐藏的横向滚动或内容被裁切。 | 为 `.runbook-article` 和 `.runbook-code-inline` 增加 `overflow-wrap:anywhere` / `word-break:break-word`，保留 `pre` 与 Mermaid viewport 的局部横向滚动；修复后 body/header/main/article 均无溢出，图表仅自身滚动。 | 已解决 |
-| RB-013 | Phase F / RB-F5 | `operator_session` 为 HttpOnly，页面 JavaScript 无法直接清除它，初次未登录验收脚本仍处于已认证状态。 | 可能误判 middleware 未登录跳转行为。 | 使用隔离浏览器的 CDP `Network.clearBrowserCookies` 清除会话后重新验证；访问 `/runbook?scenario=PSP_PROVIDER_OUTCOME` 正确跳转并保留 `returnTo`。 | 已解决 |
+| RB-013 | Phase F / RB-F5 | `operator_session` 为 HttpOnly，页面 JavaScript 无法直接清除它，初次未登录验收脚本仍处于已认证状态。 | 可能误判 middleware 未登录跳转行为。 | 使用隔离浏览器的 CDP `Network.clearBrowserCookies` 清除会话后重新验证；访问 `/runbooks?scenario=PSP_PROVIDER_OUTCOME` 正确跳转并保留 `returnTo`。 | 已解决 |
 | RB-014 | Phase F / RB-F5 | `NOTIFICATION_HEAP_PRESSURE` 文章的 Mermaid 节点标签包含嵌套 `[]`，Mermaid 解析失败并只显示源码回退。 | 一个场景的实现图无法渲染，暴露了只有浏览器全场景回归才能发现的内容语法问题。 | 将节点标签改为不含 Mermaid 保留括号的等价文本，并同步修复 English 和 `zh-CN` 文章；两种语言均验证为非空 SVG。 | 已解决 |
 | RB-015 | Phase F / RB-F5 | 新增第五个主导航项后，390px 下 `NavBar` 内容宽于 header 可用区域，导致 header 内部存在隐藏横向溢出。 | 窄屏导航项可能被裁切，操作人员无法可靠访问全部控制台页面。 | 让 `.console-nav` 独立承接横向滚动，并让导航链接保持稳定宽度；修复后 header/body 无横向溢出，导航自身可滚动访问全部 5 项。 | 已解决 |
 
@@ -405,11 +405,11 @@ graph TD
 | 2026-09-03 | Phase B 前置事实复核 | 5 / 29（19 / 98 子任务） | B：0 / 6（0 / 23 子任务） | RB-002 已解决；RB-001 已解决 | Inventory 观测接口已统一为 `POST`，文章按当前 Controller 和 Gateway 实现编写 |
 | 2026-09-03 | 修正 RB-003 测试夹具 | 5 / 29（19 / 98 子任务） | B：0 / 6（0 / 23 子任务） | RB-003 已解决；RB-002、RB-001 已解决 | 缺失 fixture 改为稳定的成功读取断言，继续验证首批双语文章 |
 | 2026-09-03 | 完成 Phase B / RB-B1 至 RB-B6 | 11 / 29（42 / 98 子任务） | B：6 / 6（23 / 23 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 24 篇文章、精确章节、Mermaid 围栏和 metadata allowlist 测试通过；开始 Phase C 页面实现 |
-| 2026-09-04 | 开始 Phase C / RB-C1 至 RB-C5 | 11 / 29（42 / 98 子任务） | C：0 / 5（0 / 16 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 实现 server-first `/runbook` 页面、目录、Markdown、Tempo 参数面板和复制组件 |
+| 2026-09-04 | 开始 Phase C / RB-C1 至 RB-C5 | 11 / 29（42 / 98 子任务） | C：0 / 5（0 / 16 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 实现 server-first `/runbooks` 页面、目录、Markdown、Tempo 参数面板和复制组件 |
 | 2026-09-04 | 完成 Phase C / RB-C1 至 RB-C5 | 16 / 29（58 / 98 子任务） | C：5 / 5（16 / 16 子任务） | RB-001、RB-002、RB-003、RB-004 已解决；无新增问题 | `test:runbook` 11/11、`test:i18n` 15/15、typecheck、lint 通过；开始 Phase D Mermaid 实现 |
 | 2026-09-04 | 开始 Phase D / RB-D1 至 RB-D4 | 16 / 29（58 / 98 子任务） | D：0 / 4（0 / 12 子任务） | RB-001、RB-002、RB-003、RB-004 已解决；无新增问题 | 确认 `react-markdown` fenced code 渲染边界后，实现 Mermaid 客户端 SVG、严格安全配置、源码回退和 scoped styles |
 | 2026-09-04 | 完成 Phase D / RB-D1 至 RB-D4 | 20 / 29（70 / 98 子任务） | D：4 / 4（12 / 12 子任务） | RB-001、RB-002、RB-003、RB-004、RB-005 已解决；无新增问题 | `test:runbook` 12/12、lint 通过；typecheck/build 作为后续 Phase E/F 继续验证，开始 Phase E |
-| 2026-09-04 | 开始 Phase C / RB-C1 至 RB-C5 | 11 / 29（42 / 98 子任务） | C：0 / 5（0 / 16 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 实现 server-first `/runbook` 页面、目录、Markdown、Tempo 参数面板和复制组件 |
+| 2026-09-04 | 开始 Phase C / RB-C1 至 RB-C5 | 11 / 29（42 / 98 子任务） | C：0 / 5（0 / 16 子任务） | RB-001、RB-002、RB-003 已解决；无新增问题 | 实现 server-first `/runbooks` 页面、目录、Markdown、Tempo 参数面板和复制组件 |
 | 2026-09-04 | 修正 Phase D 进度记录 | 19 / 29（67 / 98 子任务） | D：3 / 4（9 / 12 子任务） | RB-006 待处理；RB-001 至 RB-005 已解决 | 静态实现、typecheck、lint 和 build 已通过；D4 保留真实浏览器走查，完成后再进入 Phase E |
 | 2026-09-04 | 完成 Phase D / RB-D1 至 RB-D4 | 20 / 29（70 / 98 子任务） | D：4 / 4（12 / 12 子任务） | RB-001 至 RB-007 已解决；无新增问题 | 浏览器验证通过：SVG 非空、主题重绘、无效 Mermaid 局部回退、390px 无页面横向溢出；`test:runbook` 12/12、typecheck、lint、build 通过；进入 Phase E |
 | 2026-09-04 | 开始 Phase E / RB-E1 至 RB-E4 | 20 / 29（70 / 98 子任务） | E：0 / 4（0 / 12 子任务） | RB-008 待处理；RB-001 至 RB-007 已解决 | 补齐导航、Runbook message 显式 parity 断言和 Markdown 内容显式复制，随后验证 i18n、typecheck、lint 和 Docker build |
@@ -428,5 +428,5 @@ graph TD
 - [x] Phase A-F 全部任务组完成，任务组进度达到 `29 / 29`，子任务进度达到 `98 / 98`。
 - [x] 12 个场景的 English / 简体中文文章、catalog metadata、Tempo 参数和 Mermaid 样例均完整并通过对应测试。
 - [x] `pnpm test:runbook`、`pnpm test:i18n`、`pnpm typecheck`、`pnpm lint`、`pnpm build` 和 `docker compose build traffic-control-plane` 通过。
-- [x] `/runbook` 的登录保护、语言切换、主题切换、响应式、Markdown、Mermaid 和复制操作完成浏览器验收。
+- [x] `/runbooks` 的登录保护、语言切换、主题切换、响应式、Markdown、Mermaid 和复制操作完成浏览器验收。
 - [x] 每项已知问题都有状态、影响、可能解决方案和阶段更新记录；没有被隐藏的阻塞任务。

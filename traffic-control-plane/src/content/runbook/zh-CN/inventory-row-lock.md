@@ -90,6 +90,16 @@ catalog 接受 `durationSec`、`concurrency` 和 `requestIntervalMs`。专用准
 
 确认新的摘要调用停止、持有事务回滚、连接关闭且没有运行遗留的行锁。发起一次正常预留摘要并确认返回；检查没有激活表锁场景，其他 SKU 行也没有被主动持有。
 
+## 告警关联
+
+| 告警 | 触发条件 | 本场景中的含义与边界 |
+| --- | --- | --- |
+| `HighLatencyP99` | 库存摘要请求 P99 超过 5 秒，持续 3 分钟 | 行锁等待未超时时通常先表现为慢请求。 |
+| `CriticalLatencyP99` | 库存摘要请求 P99 超过 10 秒，持续 1 分钟 | 说明行锁等待已造成严重请求延迟。 |
+| `HighErrorRate` | 行锁等待超时或数据库异常经 Gateway 观测 URI 以 HTTP 5xx 返回，且 5xx 比例超过 5%，持续 2 分钟 | 这是锁场景的主要条件性结果告警；目标服务业务 envelope 即使 HTTP 200，也可能被 Gateway 转为 502。 |
+| `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLSlowQueries`、`MySQLHighThreads` | 连接池或 MySQL 达到对应规则阈值 | 并发等待消耗连接或扩大到数据库层时可能出现。 |
+| 无行锁等待专用告警 | 不适用 | 应将告警与 `SCENARIO_REQUEST_FAILED`、Tempo exception/JDBC span 和 MySQL 行锁等待诊断关联。 |
+
 ## 限制与安全解释
 
 本场景持有固定行锁，不保证固定超时。等待时长取决于 MySQL、JDBC driver 和并发工作。它比 `INVENTORY_TABLE_EXCLUSIVE` 更窄，但共享资源耗尽仍可能扩大运维影响。`X-Trace-Id` 是业务关联值，不是已验证的 Tempo trace ID。

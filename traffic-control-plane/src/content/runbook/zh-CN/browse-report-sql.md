@@ -80,6 +80,17 @@ catalog 要求提供 `durationSec`，并按场景最大值限制。worker 负责
 
 停止或到期后确认 `REPORT_WORKER_STOPPED`、恢复事件以及不再产生新的报表 worker 请求。确认 Catalog 报表接口恢复正常。若要验证优化，应另行部署应用/索引修复，检查日期边界结果正确性以及 `EXPLAIN` 或 `EXPLAIN ANALYZE`；停止本场景不等于完成优化验证。
 
+## 告警关联
+
+| 告警 | 触发条件 | 本场景中的含义与边界 |
+| --- | --- | --- |
+| `HighLatencyP99` | 报表请求 P99 超过 5 秒，持续 3 分钟 | 说明商品报表请求变慢，不是场景启动确认。 |
+| `CriticalLatencyP99` | 报表请求 P99 超过 10 秒，持续 1 分钟 | 说明请求延迟已达到严重级别。 |
+| `MySQLSlowQueries` | 慢查询速率超过 0.5 次/秒，持续 2 分钟 | 扫描历史行为数据可能产生该信号，实际取决于数据量和数据库配置。 |
+| `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending` | 连接池使用率或等待连接数达到对应规则阈值 | 报表扫描扩大并占用连接时可能触发。 |
+| `MySQLHighThreads`、`NodeHighCPU` | MySQL 连接数或节点 CPU 达到对应规则阈值 | 只有共享资源压力扩散时才会出现。 |
+| 无商品报表专用告警 | 不适用 | 场景运行或 baseline SQL 存在缺陷，都不保证越过告警阈值；应结合 `fault_run_events`、Tempo JDBC span 和 MySQL 诊断判断。 |
+
 ## 限制与安全解释
 
 场景名称描述的是报表工作负载，不保证一定产生慢查询。实际延迟、扫描量和索引收益取决于预热数据、索引和部署环境。`fault_runs.trace_id` 与 `X-Trace-Id` 是业务关联值，未验证为 OTel trace ID；需要关联单次运行时，应在 Loki 使用该业务值并结合时间窗口。

@@ -17,7 +17,7 @@
 关键约束：
 
 - 当前应用使用 Next.js App Router、`output: 'standalone'`、React 19、Tailwind 和 `next-intl`。
-- 现有 `src/middleware.ts` 已保护除登录/会话外的页面和 API；`/runbook` 自动继承保护，不应修改 middleware。
+- 现有 `src/middleware.ts` 已保护除登录/会话外的页面和 API；`/runbooks` 自动继承保护，不应修改 middleware。
 - 支持的 locale 仅为 `en` 和 `zh-CN`，由 `control_plane_locale` Cookie 决定；不使用 `[locale]` 路由段。
 - `fault-run-catalog.ts` 是当前 12 个场景、固定目标、参数、时长与恢复策略的唯一机器可读事实来源。
 - Markdown 内容必须位于控制台 build context 内，不能在 production runtime 读取仓库根目录 `_docs`。
@@ -30,7 +30,7 @@
 ```mermaid
 flowchart LR
     Operator[Operator browser] --> Middleware[Operator middleware]
-    Middleware --> RunbookPage[/runbook Server Component]
+    Middleware --> RunbookPage[/runbooks Server Component]
     RunbookPage --> Catalog[fault-run-catalog.ts]
     RunbookPage --> Metadata[runbook.ts]
     RunbookPage --> Loader[runbook-content.ts]
@@ -44,7 +44,7 @@ flowchart LR
 
 运行流：
 
-1. 认证后的浏览器请求 `/runbook?scenario=<SCENARIO_ID>`。
+1. 认证后的浏览器请求 `/runbooks?scenario=<SCENARIO_ID>`。
 2. 服务端页面读取当前 locale 和受限的 scenario query。
 3. 页面从 catalog 推导稳定目标信息，从 typed runbook metadata 获取影响范围和 Tempo 查询配方，并加载对应语言的 Markdown。
 4. `react-markdown` 服务器渲染常规 Markdown；只有 Mermaid fenced block 在 hydration 后由客户端组件绘制 SVG。
@@ -57,7 +57,7 @@ flowchart LR
 ```text
 traffic-control-plane/
   src/
-    app/runbook/page.tsx
+    app/runbooks/page.tsx
     components/runbook/
       RunbookWorkspace.tsx
       RunbookArticle.tsx
@@ -227,7 +227,7 @@ English 与中文文章在语义上成对覆盖。稳定值如服务名、场景
 
 ### 7.1 Server page
 
-`src/app/runbook/page.tsx` 是 Server Component：
+`src/app/runbooks/page.tsx` 是 Server Component：
 
 1. 用 `getLocale()` 获取经过现有 `next-intl` request config 校验后的语言。
 2. 读取并解析 `searchParams.scenario`。
@@ -243,10 +243,10 @@ English 与中文文章在语义上成对覆盖。稳定值如服务名、场景
 目录项目使用普通内部 anchor：
 
 ```tsx
-<a href={`/runbook?scenario=${entry.scenario}`}>...</a>
+<a href={`/runbooks?scenario=${entry.scenario}`}>...</a>
 ```
 
-当前项使用 `aria-current="page"`。采用 query 而非动态子路由，可保持 `NavBar` 当前对 `/runbook` 的严格 active 判断，也使现有 `LocaleSwitcher.router.refresh()` 自然保留选中场景。
+当前项使用 `aria-current="page"`。采用 query 而非动态子路由，可保持 `NavBar` 当前对 `/runbooks` 的严格 active 判断，也使现有 `LocaleSwitcher.router.refresh()` 自然保留选中场景。
 
 ### 7.3 Article 与复制组件
 
@@ -316,7 +316,7 @@ mermaid.initialize({
 
 长篇文章不进入 `NextIntlClientProvider` 的完整 message payload。现有 `messages.test.ts` 会递归验证两种语言的 key 和 ICU placeholder 一致；该测试应增加 `Navigation.runbook` 与所需 `Runbook` key。
 
-`NavBar.tsx` 增加 `/runbook` 入口和 `Navigation.runbook` 翻译。页面属于现有 `ConsoleChrome`，不新增独立 layout 或认证壳层。
+`NavBar.tsx` 增加 `/runbooks` 入口和 `Navigation.runbook` 翻译。页面属于现有 `ConsoleChrome`，不新增独立 layout 或认证壳层。
 
 ## 10. 样式与响应式
 
@@ -389,7 +389,7 @@ Docker build 后检查 production image 的 `/app/src/content/runbook` 存在，
 
 ### 12.3 浏览器走查
 
-1. 登录后访问 `/runbook` 与 12 个 `?scenario=` 值，确认目录、文章和固定目标准确显示。
+1. 登录后访问 `/runbooks` 与 12 个 `?scenario=` 值，确认目录、文章和固定目标准确显示。
 2. 在 EN/中文间切换，确认 query、`<html lang>`、UI 文案、正文与 Mermaid 图内容同步变化。
 3. 在浅色/深色主题切换，确认 Mermaid SVG 重绘且文字/连线清晰。
 4. 在桌面与窄屏检查目录、长中文段落、表格、TraceQL、SQL 和大图的滚动与焦点顺序。
@@ -400,7 +400,7 @@ Docker build 后检查 production image 的 `/app/src/content/runbook` 存在，
 
 1. 添加 Markdown/Mermaid 依赖及 runbook metadata、scenario 解析、内容 loader 和纯函数测试。
 2. 编写成对的 12 篇 English/简体中文文章，并让测试验证完整性。
-3. 实现 `/runbook` server page、目录、文章渲染、Tempo 参数面板与复制组件。
+3. 实现 `/runbooks` server page、目录、文章渲染、Tempo 参数面板与复制组件。
 4. 实现隔离的 Mermaid client renderer、主题重绘、错误回退和 scoped styles。
 5. 加入导航和轻量 i18n namespace。
 6. 修改 Dockerfile 打包内容并执行测试、构建、Docker build 和浏览器走查。

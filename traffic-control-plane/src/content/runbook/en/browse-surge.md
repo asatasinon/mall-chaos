@@ -76,6 +76,17 @@ Inspect request rate, HTTP server duration, product-query spans, downstream inve
 
 Confirm `SCENARIO_WORKER_STOPPED` and that the in-flight count converges. After recovery, normal `GET /api/products` traffic should work with the existing Runner configuration unchanged. Check Gateway and Catalog health and compare request latency after the worker has stopped.
 
+## Alert mapping
+
+| Alert | Trigger condition | Meaning and boundary for this scenario |
+| --- | --- | --- |
+| `HighLatencyP99` | Gateway/Catalog request P99 exceeds 5 seconds for 3 minutes | Indicates that controlled browse traffic has affected request latency. |
+| `CriticalLatencyP99` | Gateway/Catalog request P99 exceeds 10 seconds for 1 minute | Indicates that request latency has reached the critical level. |
+| `HighErrorRate` | The service/URI 5xx ratio exceeds 5% for 2 minutes | Fires only when browse requests actually return 5xx; traffic generation alone does not trigger it. |
+| `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending`, `MySQLHighThreads`, `MySQLSlowQueries` | Pool, MySQL connection count or slow-query rate reaches the relevant rule threshold | May occur when traffic pressure expands into database connections. |
+| `NodeHighCPU`, `NodeHighMemory`, `RedisHighMemory` | Node CPU/memory or Redis utilization reaches the relevant rule threshold | Fires only when shared infrastructure crosses a threshold. |
+| No traffic-specific alert | Not applicable | Correlate worker events with Gateway/Catalog HTTP and JDBC/Redis spans. |
+
 ## Limits and safe interpretation
 
 This is controlled traffic generation, not a Catalog fault toggle and not a guaranteed error source. Observed saturation depends on concurrency, interval, page size, baseline traffic and resource capacity. The control-plane worker is not a queryable OTel `service.name`; use Gateway and downstream Java services in Tempo. `X-Trace-Id` is business correlation only.

@@ -90,6 +90,16 @@ Inspect the summary HTTP span, both JDBC lock reads, duration and exception even
 
 Confirm new summary calls stop, the held transaction rolls back, its connection closes and no run-owned row lock remains. Issue a normal reservation summary and verify it returns. Check that the table-lock scenario was not activated and other SKU rows were not intentionally held.
 
+## Alert mapping
+
+| Alert | Trigger condition | Meaning and boundary for this scenario |
+| --- | --- | --- |
+| `HighLatencyP99` | Inventory-summary P99 exceeds 5 seconds for 3 minutes | A row-lock wait normally appears as slow requests before timeout. |
+| `CriticalLatencyP99` | Inventory-summary P99 exceeds 10 seconds for 1 minute | Indicates that the row-lock wait has caused critical request latency. |
+| `HighErrorRate` | A row-lock wait timeout or database failure is exposed as HTTP 5xx by the Gateway observation URI, and the ratio reaches 5% for 2 minutes | This is the primary conditional result alert; the target business envelope may be HTTP 200 and is converted to 502 by Gateway when rejected. |
+| `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending`, `MySQLSlowQueries`, `MySQLHighThreads` | The pool or MySQL reaches the relevant rule threshold | May appear when concurrent waits consume connections or increase database pressure. |
+| No row-lock-wait-specific alert | Not applicable | Correlate alerts with `SCENARIO_REQUEST_FAILED`, Tempo exception/JDBC spans and MySQL row-lock-wait diagnostics. |
+
 ## Limits and safe interpretation
 
 This scenario holds a fixed row lock, not a guaranteed timeout. Wait duration depends on MySQL, the JDBC driver and concurrent work. It is narrower than `INVENTORY_TABLE_EXCLUSIVE`, but shared resource exhaustion can broaden the operational impact. `X-Trace-Id` is business correlation, not a verified Tempo trace ID.

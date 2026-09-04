@@ -79,6 +79,17 @@ Inspect the customer authentication/client span, order-list HTTP span, JDBC quer
 
 Confirm `SCENARIO_WORKER_STOPPED`, zero or converging in-flight requests, and a closed customer session. Run a normal customer order-list request after recovery and confirm the regular Runner configuration and order data are unchanged.
 
+## Alert mapping
+
+| Alert | Trigger condition | Meaning and boundary for this scenario |
+| --- | --- | --- |
+| `HighLatencyP99` | Gateway/order-service request P99 exceeds 5 seconds for 3 minutes | Indicates that controlled order-query traffic has affected request latency. |
+| `CriticalLatencyP99` | Gateway/order-service request P99 exceeds 10 seconds for 1 minute | Indicates that request latency has reached the critical level. |
+| `HighErrorRate` | The service/URI 5xx ratio exceeds 5% for 2 minutes | Fires only when order-query requests actually return 5xx. |
+| `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending`, `MySQLHighThreads`, `MySQLSlowQueries` | Pool, MySQL connection count or slow-query rate reaches the relevant rule threshold | May occur when query traffic expands into database resources. |
+| `NodeHighCPU`, `NodeHighMemory` | Node CPU or memory reaches the relevant rule threshold | Fires only when shared infrastructure crosses a threshold. |
+| `OrderFailureRateHigh` | Order-creation failure ratio exceeds 10% for 2 minutes | This scenario does not directly trigger it; shared-resource impact must reach the order-creation path. |
+
 ## Limits and safe interpretation
 
 This scenario is controlled normal traffic, not a guaranteed order-service failure. The selected account’s order count, database statistics, concurrent business traffic and resource limits determine the result. It targets `GET /api/orders`; `ORDER_REPORT_SQL` is a separate `GET /api/reports/order-query` path. The displayed `traceId` values are not verified OTel trace IDs.

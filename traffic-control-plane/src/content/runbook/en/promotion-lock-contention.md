@@ -79,6 +79,16 @@ Because the observation route is an internal consistency capability, confirm the
 
 Confirm that new consistency requests stop, the run guard is released and the prepared reservation is removed. Verify normal promotion behavior and inspect the database for no committed business mutation from the consistency check. If necessary, use database lock diagnostics to confirm no transaction remains waiting on the prepared rows.
 
+## Alert mapping
+
+| Alert | Trigger condition | Meaning and boundary for this scenario |
+| --- | --- | --- |
+| `HighLatencyP99` | Consistency-request P99 exceeds 5 seconds for 3 minutes | Lock waits normally appear as latency before a request timeout. |
+| `CriticalLatencyP99` | Consistency-request P99 exceeds 10 seconds for 1 minute | Indicates that lock waits have caused critical request latency. |
+| `HighErrorRate` | A deadlock or lock-wait timeout is exposed as HTTP 5xx by the target service or Gateway observation URI, and the corresponding service/URI ratio exceeds 5% for 2 minutes | This is the primary conditional result alert; contention alone does not guarantee it. |
+| `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending`, `MySQLSlowQueries`, `MySQLHighThreads` | The pool or MySQL reaches the relevant rule threshold | May appear when contention spreads to the pool or database. |
+| No deadlock/lock-wait-specific alert | Not applicable | Correlate request-failure events, Tempo JDBC spans and MySQL diagnostics. |
+
 ## Limits and safe interpretation
 
 The opposing lock order creates a real opportunity for contention, but deadlock, wait duration and victim selection depend on MySQL, the JDBC driver and concurrent load. The scenario is not a general promotion outage. `fault_runs.trace_id` and `X-Trace-Id` remain business correlation values, not verified OTel trace IDs.

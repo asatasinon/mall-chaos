@@ -13,7 +13,7 @@ export default function NavBar() {
   const [time, setTime] = useState('');
   const links = [
     { href: '/', label: t('scenarios') },
-    { href: '/runbook', label: t('runbook') },
+    { href: '/runbooks', label: t('runbook') },
     { href: '/runner', label: t('runner') },
     { href: '/operations', label: t('operations') },
     { href: '/alerts', label: t('alerts') },

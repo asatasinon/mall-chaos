@@ -76,6 +76,16 @@ Inspect the notification HTTP span, JDBC insert span, exception events and respo
 
 Confirm release stopped new reservations, then use the fixed run-ID cleanup operation when authorized. Verify the cleanup count and query for remaining rows associated with that run. Confirm unrelated notification rows remain and normal notification delivery succeeds.
 
+## Alert mapping
+
+| Alert | Trigger condition | Meaning and boundary for this scenario |
+| --- | --- | --- |
+| `MySQLInnoDBDataWriteRateHigh` | InnoDB write rate exceeds 1 MiB per second for 2 minutes | Fires only when actual database write rate reaches the threshold. |
+| `NodeDataFilesystemGrowthRateHigh` | `/data` available space decreases faster than 10 MiB per second for 5 minutes | Requires real filesystem growth; logical reservation is not this metric. |
+| `NodeDataFilesystemUsageHigh` | `/data` utilization exceeds 85% for 5 minutes | Requires physical filesystem utilization to reach the threshold. |
+| `MySQLSlowQueries`, `HighErrorRate`, Hikari pool alerts | Slow-query rate, 5xx ratio or pool state reaches the relevant rule threshold | `HighErrorRate` requires actual HTTP 5xx responses and the URI ratio threshold; logical capacity protection is usually a business envelope and does not automatically produce `NotificationFailRateHigh`. |
+| No guaranteed dedicated alert | Not applicable | `totalBytes` and `appendBytes` are logical reservation parameters, not proof of a full physical disk; correlate run events, notification rows, MySQL/node metrics and Tempo. |
+
 ## Limits and safe interpretation
 
 `appendBytes` contributes to a logical reservation; it is not physical file append size and does not prove a disk-full condition. Cleanup is intentionally manual and scoped by run identity. `fault_runs.trace_id` and `X-Trace-Id` are business correlation values, not Tempo trace IDs.

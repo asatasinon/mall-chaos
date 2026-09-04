@@ -90,6 +90,16 @@ catalog 要求 `durationSec`。协调器准备固定目标，目标在 release�
 
 确认新的观测调用停止、专用连接执行 `UNLOCK TABLES` 并关闭。然后发起一次正常可用性报表并确认完成，检查没有运行遗留的表锁或等待会话。
 
+## 告警关联
+
+| 告警 | 触发条件 | 本场景中的含义与边界 |
+| --- | --- | --- |
+| `HighLatencyP99` | 库存报表请求 P99 超过 5 秒，持续 3 分钟 | 表锁阻塞在超时前通常先表现为慢请求。 |
+| `CriticalLatencyP99` | 库存报表请求 P99 超过 10 秒，持续 1 分钟 | 说明表锁阻塞已造成严重请求延迟。 |
+| `HighErrorRate` | 表锁阻塞请求经目标服务或 Gateway 观测 URI 超时或异常，以 HTTP 5xx 返回，且 5xx 比例超过 5%，持续 2 分钟 | 这是锁场景的主要条件性结果告警；锁建立本身不保证立即触发。 |
+| `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLSlowQueries`、`MySQLHighThreads` | 连接池或 MySQL 达到对应规则阈值 | 阻塞请求占用连接或扩大到数据库层时可能出现。 |
+| `InventoryReserveFailRateHigh` | 库存预留失败比例超过 20%，持续 2 分钟 | 不由这个库存可用性观测接口直接产生。应结合数据库锁诊断、Tempo 和 `fault_run_events` 判断。 |
+
 ## 限制与安全解释
 
 代码证明的是对 `inventories` 的写表锁，不保证固定超时或响应时长。MySQL 和 driver 配置决定阻塞请求等待多久。释放后的成功 trace 比等待固定时间更可靠地说明恢复。

@@ -82,6 +82,17 @@ Inspect the HTTP span duration, the JDBC child spans, the database statement sha
 
 After stop or expiry, confirm `REPORT_WORKER_STOPPED`, the recovery events and the absence of new report-worker requests. Verify that the Catalog report endpoint responds normally. If validating an optimization, deploy the application/index change separately, compare result correctness at the day boundary, and compare `EXPLAIN` or `EXPLAIN ANALYZE`; stopping this run is not an optimization verification.
 
+## Alert mapping
+
+| Alert | Trigger condition | Meaning and boundary for this scenario |
+| --- | --- | --- |
+| `HighLatencyP99` | Report-request P99 exceeds 5 seconds for 3 minutes | Indicates slower product-report requests; it does not confirm that the scenario started. |
+| `CriticalLatencyP99` | Report-request P99 exceeds 10 seconds for 1 minute | Indicates that report latency has reached the critical level. |
+| `MySQLSlowQueries` | Slow-query rate exceeds 0.5 per second for 2 minutes | Scanning historical behavior data may produce this signal; the result depends on data volume and database settings. |
+| `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending` | Pool utilization or pending connections reaches the relevant rule threshold | May occur when the larger report scan consumes connections. |
+| `MySQLHighThreads`, `NodeHighCPU` | MySQL connection count or node CPU reaches the relevant rule threshold | Appears only when pressure spreads to shared resources. |
+| No product-report-specific alert | Not applicable | Running the scenario or using baseline SQL does not guarantee crossing a threshold; correlate `fault_run_events`, Tempo JDBC spans and MySQL diagnostics. |
+
 ## Limits and safe interpretation
 
 The scenario name describes the report workload, not a guaranteed slow-query injection. Latency, scan volume and the benefit of an index depend on the populated data window and the deployment. `fault_runs.trace_id` and `X-Trace-Id` are business correlation values, not verified OTel trace IDs. Use the business value in Loki together with the time range when an exact run must be correlated.
