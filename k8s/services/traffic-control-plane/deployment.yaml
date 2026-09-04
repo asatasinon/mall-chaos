@@ -38,6 +38,8 @@ spec:
                 secretKeyRef:
                   name: traffic-lifecycle-secret
                   key: NOTIFICATION_RESTART_BROKER_KEY
+            - name: MYSQL_POOL_CONNECTION_LIMIT
+              value: "5"
           resources:
             requests:
               memory: "256Mi"

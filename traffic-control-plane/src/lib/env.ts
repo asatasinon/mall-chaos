@@ -16,6 +16,7 @@ export const env = {
   MYSQL_USER: process.env.MYSQL_USER || 'castrel',
   MYSQL_PASSWORD: process.env.MYSQL_PASSWORD || 'castrel',
   MYSQL_DATABASE: process.env.MYSQL_DATABASE || 'castrel',
+  MYSQL_POOL_CONNECTION_LIMIT: boundedInteger(process.env.MYSQL_POOL_CONNECTION_LIMIT, 5, 3, 20),
 
   // Redis for distributed locking and runtime coordination
   REDIS_HOST: process.env.REDIS_HOST || 'localhost',
@@ -37,8 +38,10 @@ export const env = {
   DATA_WARMUP_WINDOW_DAYS: parseInt(process.env.DATA_WARMUP_WINDOW_DAYS || '180', 10),
   DATA_WARMUP_ROWS_PER_DAY: parseInt(process.env.DATA_WARMUP_ROWS_PER_DAY || '300000', 10),
   DATA_WARMUP_TARGET_ROWS: parseInt(process.env.DATA_WARMUP_TARGET_ROWS || '54000000', 10),
-  DATA_WARMUP_BATCH_SIZE: parseInt(process.env.DATA_WARMUP_BATCH_SIZE || '500', 10),
+  DATA_WARMUP_BATCH_SIZE: parseInt(process.env.DATA_WARMUP_BATCH_SIZE || '1000', 10),
   DATA_WARMUP_BATCH_INTERVAL_MS: parseInt(process.env.DATA_WARMUP_BATCH_INTERVAL_MS || '1000', 10),
+  DATA_WARMUP_MAX_CONCURRENCY: boundedInteger(process.env.DATA_WARMUP_MAX_CONCURRENCY, 2, 1, 4),
+  DATA_WARMUP_DB_CONCURRENCY: boundedInteger(process.env.DATA_WARMUP_DB_CONCURRENCY, 2, 1, 4),
   APP_TIME_ZONE: process.env.APP_TIME_ZONE || 'Asia/Shanghai',
   PRODUCT_DETAIL_REQUEST_TIMEOUT_MS: boundedInteger(
     process.env.PRODUCT_DETAIL_REQUEST_TIMEOUT_MS, 5000, 100, 30_000),

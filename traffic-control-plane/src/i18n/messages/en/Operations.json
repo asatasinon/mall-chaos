@@ -24,6 +24,7 @@
   "target": "Target",
   "actualRows": "{count} rows",
   "todayRows": "{completed}/{target} today",
+  "dayRows": "{date} {completed}/{target}",
   "warmupStatusLoading": "Loading warmup status...",
   "warmupStatusUnavailable": "Warmup status is unavailable",
   "manualOperationQueue": "Manual operation queue",

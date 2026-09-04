@@ -43,9 +43,15 @@ spec:
             - name: DATA_WARMUP_TARGET_ROWS
               value: "54000000"
             - name: DATA_WARMUP_BATCH_SIZE
-              value: "500"
+              value: "1000"
             - name: DATA_WARMUP_BATCH_INTERVAL_MS
               value: "1000"
+            - name: DATA_WARMUP_MAX_CONCURRENCY
+              value: "2"
+            - name: DATA_WARMUP_DB_CONCURRENCY
+              value: "2"
+            - name: MYSQL_POOL_CONNECTION_LIMIT
+              value: "5"
           resources:
             requests:
               memory: "256Mi"

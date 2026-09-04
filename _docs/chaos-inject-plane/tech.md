@@ -249,10 +249,15 @@ DATA_WARMUP_ENABLED=true
 DATA_WARMUP_WINDOW_DAYS=180
 DATA_WARMUP_ROWS_PER_DAY=300000
 DATA_WARMUP_TARGET_ROWS=54000000
-DATA_WARMUP_BATCH_SIZE=500
+DATA_WARMUP_BATCH_SIZE=1000
 DATA_WARMUP_BATCH_INTERVAL_MS=1000
+DATA_WARMUP_MAX_CONCURRENCY=2
+DATA_WARMUP_DB_CONCURRENCY=2
+MYSQL_POOL_CONNECTION_LIMIT=5
 APP_TIME_ZONE=Asia/Shanghai
 ```
+
+每张表由一个独立的单 worker 任务队列持续处理，两个队列默认可以并行运行；`DATA_WARMUP_MAX_CONCURRENCY` 限制队列任务总并发。表数据写入、分区 DDL 和人工任务 mutation 使用按表 mutex，跨表 mutation 还受 `DATA_WARMUP_DB_CONCURRENCY` 信号量限制，并为控制面请求在连接池中保留至少一个连接。
 
 前三个窗口数值相互验证，必须满足：
 
@@ -263,6 +268,117 @@ $$\text{TARGET_ROWS} = \text{WINDOW_DAYS} \times \text{ROWS_PER_DAY}$$
 Compose 和 Kubernetes 中所有 Java 服务设置 `TZ=Asia/Shanghai` 与 `-Duser.timezone=Asia/Shanghai`，Next.js/worker 设置 `TZ=Asia/Shanghai`，MySQL 设置 `default-time-zone = '+08:00'`。JDBC URL 强制服务端连接时区为 `+08:00`。启动健康检查验证应用时区、`@@global.time_zone`、`@@session.time_zone` 和日期边界均为东八区；所有 `CURRENT_DATE`、预热日切和报表“今日”语义以该会话时区执行。
 
 `/internal/traffic/runner/data-warmup/progress` 返回：状态、每表目标/实际行数、当前日期配额/完成量、rows/sec、当前日期行数、最早/最新时间、表字节、最近成功时间、过期分区删除数、Redis 租约拥有者、错误/保护原因。
+
+### 5.4 运行流程
+
+自动预热和手动预热由同一个常驻 worker 执行。手动接口只负责校验请求并将任务写入队列表，实际数据 mutation 由持有 Redis 租约的 worker 完成。
+
+```mermaid
+flowchart TB
+  subgraph API["手动任务 API"]
+    U["操作员提交 INJECT 或 CLEANUP"] --> V{"CSRF、表名、日期、配额校验<br/>CLEANUP 需要 confirmed=true"}
+    V -- "失败" --> E400["返回 400"]
+    V -- "通过" --> J["写入 data_warmup_manual_jobs<br/>status = QUEUED"]
+    J --> AUDIT["记录操作审计<br/>返回 202 + jobId"]
+  end
+
+  subgraph WORKER["traffic-control-plane 常驻 worker"]
+    S["worker 启动"] --> C{"预热启用且固定配置有效?"}
+    C -- "关闭" --> DISABLED["两张表标记 DISABLED"]
+    C -- "配置错误" --> CONFIG_ERROR["标记 ERROR<br/>退避后重试"]
+    C -- "正常" --> INIT["创建/同步进度表<br/>回收过期 RUNNING 任务"]
+    INIT --> LEASE{"获取 Redis 数据预热租约?"}
+    LEASE -- "未获取" --> RETRY["等待后重试"]
+    RETRY --> LEASE
+    LEASE -- "获取成功" --> OWNER["续租并启动心跳<br/>标记两张表 lease_owner"]
+    OWNER --> SESSION["进入租约会话"]
+    SESSION --> Q1["product_price_history<br/>独立自动队列"]
+    SESSION --> Q2["user_behavior_log<br/>独立自动队列"]
+    SESSION --> MQ["手动任务循环"]
+
+    subgraph AUTO["自动预热：每条表队列独立重复执行"]
+      Q1 --> T["按本表执行 processTable"]
+      Q2 --> T
+      T --> P1["确保当天分区<br/>查找窗口内缺失日期"]
+      P1 --> P2{"存在缺失日期?"}
+      P2 -- "是" --> P3["BACKFILLING<br/>逐日按批填满"]
+      P2 -- "否" --> P4{"当天未达配额且未被排除?"}
+      P3 --> P4
+      P4 -- "是" --> P5["APPENDING<br/>按批追加当天数据"]
+      P4 -- "否" --> P6["ROLLOVER_CLEANUP"]
+      P5 --> P6
+      P6 --> P7["DROP PARTITION<br/>刷新行数、速率和时间范围"]
+      P7 --> P8["等待 batch interval"]
+      P8 --> T
+    end
+
+    subgraph MANUAL["手动任务循环"]
+      MQ --> M1["恢复旧的 PAUSED_GUARD 任务"]
+      M1 --> M2{"认领最早的 QUEUED 任务?"}
+      M2 -- "没有" --> M3["等待后重新扫描"]
+      M3 --> MQ
+      M2 -- "有" --> M4["标记 RUNNING<br/>写入 claim_owner"]
+      M4 --> M5{"operation"}
+
+      M5 -- "INJECT" --> I1["移除日期排除标记<br/>确保目标日期分区存在"]
+      I1 --> I2["按批 INSERT"]
+      I2 --> I3{"批次或日期是否完成?"}
+      I3 -- "未完成" --> I2
+      I3 -- "完成" --> I4["续租并更新 processed_rows"]
+      I4 --> DONE["标记 COMPLETED"]
+
+      M5 -- "CLEANUP" --> K1["添加日期排除标记"]
+      K1 --> K2["DROP PARTITION"]
+      K2 --> K3["更新任务进度并刷新表状态"]
+      K3 --> DONE
+      DONE --> MQ
+
+      I2 -. "停止或租约丢失" .-> REQUEUE["重新置为 QUEUED"]
+      K2 -. "停止或租约丢失" .-> REQUEUE
+      I2 -. "其他异常" .-> FAILED["标记 FAILED"]
+      K2 -. "其他异常" .-> FAILED
+    end
+  end
+
+  subgraph GUARDS["两条流程共用的控制"]
+    L["单个 Redis 租约<br/>多个 worker 只有一个 owner"]
+    TL["总任务并发限制<br/>DATA_WARMUP_MAX_CONCURRENCY"]
+    LK["按表 mutex<br/>同表自动和手动 mutation 串行"]
+    DB["DB mutation semaphore<br/>DATA_WARMUP_DB_CONCURRENCY"]
+    POOL["MySQL connection pool<br/>保留至少一个连接给控制面"]
+  end
+
+  J -. "任务稍后由 worker 扫描" .-> MQ
+  OWNER -.-> L
+  Q1 -.-> TL
+  Q2 -.-> TL
+  P3 -.-> LK
+  P5 -.-> LK
+  I2 -.-> LK
+  K1 -.-> LK
+  K2 -.-> LK
+  LK -.-> DB
+  DB -.-> POOL
+```
+
+#### 自动预热
+
+- worker 只有在取得 Redis 租约后才启动表队列；未取得租约时只等待并重试。
+- `product_price_history` 和 `user_behavior_log` 各有一条独立队列。两条队列可以并行运行，但每条队列内部仍按“建分区、补缺失日期、补当天、清理过期分区”的顺序执行。
+- 每个批次完成后更新进度并等待 `DATA_WARMUP_BATCH_INTERVAL_MS`。发生数据库异常时，两张表进入 `ERROR` 状态并按上限退避。
+
+#### 手动预热
+
+- `POST /internal/traffic/runner/data-warmup/jobs` 只负责 CSRF、参数和清理确认校验，然后将任务置为 `QUEUED` 并记录审计。
+- worker 每轮最多认领一条任务并置为 `RUNNING`。`INJECT` 按日期和批次写入；`CLEANUP` 先记录日期排除，再删除对应分区，避免自动预热立即将人工删除的数据补回来。
+- 正常结束标记为 `COMPLETED`；普通异常标记为 `FAILED`；worker 停止或 Redis 租约丢失时重新置为 `QUEUED`，下次取得租约后续跑。
+
+#### 并发与停止
+
+- 总任务并发由 `DATA_WARMUP_MAX_CONCURRENCY` 控制，默认两条表队列同时运行。
+- 同一表的自动写入、人工写入、分区创建、分区删除和排除标记操作共用该表 mutex；不同表之间不互相阻塞。
+- DB mutation 还受 `DATA_WARMUP_DB_CONCURRENCY` 限制，实际值不超过连接池上限减一；`MYSQL_POOL_CONNECTION_LIMIT` 默认 5，为控制面请求保留连接。
+- 租约心跳失败、进程停止或任务取消会停止新任务；当前批次结束后释放表锁、回收任务状态并清空两张表的 `lease_owner`。
 
 ## 6. 通知服务重启
 

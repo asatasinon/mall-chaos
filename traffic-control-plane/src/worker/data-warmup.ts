@@ -15,6 +15,8 @@ const TABLES = [
 const SKUS = Array.from({ length: 50 }, (_, index) => `SKU-${String(index + 1).padStart(3, '0')}`);
 
 type WarmupStatus = 'BACKFILLING' | 'APPENDING' | 'ROLLOVER_CLEANUP' | 'ERROR' | 'DISABLED';
+type WarmupTable = typeof TABLES[number];
+type WarmupTableName = WarmupTable['name'];
 export type ManualWarmupOperation = 'INJECT' | 'CLEANUP';
 export type ManualWarmupJobStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
@@ -39,7 +41,54 @@ class AsyncMutex {
   }
 }
 
-const warmupMutationLock = new AsyncMutex();
+export class AsyncSemaphore {
+  private availableSlots: number;
+  private readonly waiters: Array<() => void> = [];
+
+  constructor(limit: number) {
+    this.availableSlots = Math.max(1, Math.floor(limit));
+  }
+
+  async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    await this.acquire();
+    try {
+      return await operation();
+    } finally {
+      this.release();
+    }
+  }
+
+  private async acquire(): Promise<void> {
+    if (this.availableSlots > 0) {
+      this.availableSlots -= 1;
+      return;
+    }
+    await new Promise<void>((resolve) => this.waiters.push(resolve));
+  }
+
+  private release(): void {
+    const next = this.waiters.shift();
+    if (next) {
+      next();
+      return;
+    }
+    this.availableSlots += 1;
+  }
+}
+
+const warmupTaskLimiter = new AsyncSemaphore(Math.min(TABLES.length, env.DATA_WARMUP_MAX_CONCURRENCY));
+const warmupDbLimiter = new AsyncSemaphore(
+  Math.min(env.DATA_WARMUP_DB_CONCURRENCY, Math.max(env.MYSQL_POOL_CONNECTION_LIMIT - 1, 1)),
+);
+const warmupMutationLocks = new Map<WarmupTableName, AsyncMutex>(
+  TABLES.map((table) => [table.name, new AsyncMutex()] as const),
+);
+
+function runWarmupMutation<T>(table: WarmupTable, operation: () => Promise<T>): Promise<T> {
+  const mutationLock = warmupMutationLocks.get(table.name);
+  if (!mutationLock) throw new Error('INVALID_WARMUP_TABLE');
+  return mutationLock.runExclusive(() => warmupDbLimiter.runExclusive(operation));
+}
 
 export interface WarmupProgress {
   tableName: string;
@@ -143,23 +192,26 @@ export class DataWarmupService {
   private async runLeaseSession(): Promise<void> {
     this.leaseSessionActive = true;
     this.manualLoopPromise = this.runManualLoop();
+    const tableQueuePromises = TABLES.map((table) => this.runTableQueue(table));
     try {
-      while (this.canProcess()) {
-        for (const table of TABLES) {
-          await this.processTable(table);
-          if (!this.canProcess()) break;
-        }
-        if (!this.canProcess()) break;
-        if (!(await renewLease(this.owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
-        await this.sleepOrStop(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
-      }
-      if (!this.stopped && !this.leaseHeld) throw new Error('DATA_WARMUP_LEASE_LOST');
+      await Promise.all(tableQueuePromises);
     } finally {
       this.leaseSessionActive = false;
+      await Promise.allSettled(tableQueuePromises);
       await this.manualLoopPromise?.catch((error) => {
         log.error({ error }, 'Manual warmup loop failed');
       });
       this.manualLoopPromise = null;
+    }
+  }
+
+  private async runTableQueue(table: WarmupTable): Promise<void> {
+    while (this.canProcess()) {
+      await warmupTaskLimiter.runExclusive(async () => {
+        if (this.canProcess()) await this.processTable(table);
+      });
+      if (!this.canProcess()) break;
+      await this.sleepOrStop(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
     }
   }
 
@@ -197,14 +249,14 @@ export class DataWarmupService {
     if (missingDays.length > 0) {
       await setWarmupStatus(table.name, 'BACKFILLING', this.owner);
       for (const date of missingDays) {
-        if (await fillDate(table, date, this.owner, () => this.canProcess())) return;
+        if (await fillDate(table, date, this.owner, () => this.canProcess(), 'BACKFILLING')) return;
         if (!this.canProcess()) return;
       }
     }
     const currentRows = await countDateRows(table, today);
     if (currentRows < env.DATA_WARMUP_ROWS_PER_DAY && !(await isWarmupDateExcluded(table.name, today))) {
       await setWarmupStatus(table.name, 'APPENDING', this.owner);
-      if (await fillDate(table, today, this.owner, () => this.canProcess())) return;
+      if (await fillDate(table, today, this.owner, () => this.canProcess(), 'APPENDING')) return;
     }
     if (!this.canProcess()) return;
     await setWarmupStatus(table.name, 'ROLLOVER_CLEANUP', this.owner);
@@ -440,7 +492,7 @@ async function insertManualWarmupBatch(
   table: typeof TABLES[number], date: string, dateIndex: number, inserted: number, rowCount: number,
   totalRows: number, jobId: number, owner: string,
 ): Promise<void> {
-  await warmupMutationLock.runExclusive(async () => {
+  await runWarmupMutation(table, async () => {
     const connection = await getPool().getConnection();
     try {
       await connection.beginTransaction();
@@ -554,12 +606,16 @@ function toManualWarmupJob(row: Record<string, unknown>): ManualWarmupJob {
   };
 }
 
-async function fillDate(table: typeof TABLES[number], date: string, owner: string, shouldContinue: () => boolean): Promise<boolean> {
+async function fillDate(
+  table: typeof TABLES[number], date: string, owner: string, shouldContinue: () => boolean,
+  status: Extract<WarmupStatus, 'BACKFILLING' | 'APPENDING'>,
+): Promise<boolean> {
   let completed = await countDateRows(table, date);
   if (completed >= env.DATA_WARMUP_ROWS_PER_DAY) {
     await refreshProgress(table, date, null, owner);
     return false;
   }
+  await setWarmupStatus(table.name, status, owner, { currentDate: date, dayCompletedRows: completed, rowsPerSec: 0 });
   const startedAt = Date.now();
   while (completed < env.DATA_WARMUP_ROWS_PER_DAY) {
     if (!shouldContinue()) return true;
@@ -570,7 +626,7 @@ async function fillDate(table: typeof TABLES[number], date: string, owner: strin
     if (!(await renewLease(owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
     if (!shouldContinue()) return true;
     const elapsed = Math.max(1, Date.now() - startedAt);
-    await setWarmupStatus(table.name, 'APPENDING', owner, {
+    await setWarmupStatus(table.name, status, owner, {
       currentDate: date,
       dayCompletedRows: completed,
       rowsPerSec: Math.round(completed * 1000 / elapsed),
@@ -583,7 +639,7 @@ async function fillDate(table: typeof TABLES[number], date: string, owner: strin
 }
 
 async function insertDailyWarmupRows(table: typeof TABLES[number], date: string, rowCount: number, owner: string): Promise<number> {
-  return warmupMutationLock.runExclusive(async () => {
+  return runWarmupMutation(table, async () => {
     const connection = await getPool().getConnection();
     try {
       await connection.beginTransaction();
@@ -612,7 +668,7 @@ async function insertDailyWarmupRows(table: typeof TABLES[number], date: string,
 
 async function ensureCurrentPartition(table: typeof TABLES[number], date: string, owner: string): Promise<void> {
   const partitionName = `p${date.replaceAll('-', '')}`;
-  await warmupMutationLock.runExclusive(async () => {
+  await runWarmupMutation(table, async () => {
     await assertWarmupLeaseOwner(getPool(), table.name, owner);
     const [rows] = await getPool().query(
       `SELECT partition_name FROM information_schema.partitions
@@ -639,7 +695,7 @@ async function dropExpiredPartition(table: typeof TABLES[number], windowStart: s
 
 async function dropPartition(table: typeof TABLES[number], date: string, owner: string): Promise<boolean> {
   const partitionName = `p${date.replaceAll('-', '')}`;
-  return warmupMutationLock.runExclusive(async () => {
+  return runWarmupMutation(table, async () => {
     await assertWarmupLeaseOwner(getPool(), table.name, owner);
     const [rows] = await getPool().query(
       `SELECT partition_name FROM information_schema.partitions
@@ -690,21 +746,25 @@ async function isWarmupDateExcluded(
 }
 
 async function addWarmupExclusion(tableName: string, date: string, owner: string): Promise<void> {
-  await warmupMutationLock.runExclusive(async () => {
-    await assertWarmupLeaseOwner(getPool(), tableName, owner);
+  const table = TABLES.find((candidate) => candidate.name === tableName);
+  if (!table) throw new Error('INVALID_WARMUP_TABLE');
+  await runWarmupMutation(table, async () => {
+    await assertWarmupLeaseOwner(getPool(), table.name, owner);
     await getPool().query(
       `INSERT IGNORE INTO data_warmup_manual_exclusions (table_name, date_value) VALUES (?, ?)`,
-      [tableName, date],
+      [table.name, date],
     );
   });
 }
 
 async function removeWarmupExclusion(tableName: string, date: string, owner: string): Promise<void> {
-  await warmupMutationLock.runExclusive(async () => {
-    await assertWarmupLeaseOwner(getPool(), tableName, owner);
+  const table = TABLES.find((candidate) => candidate.name === tableName);
+  if (!table) throw new Error('INVALID_WARMUP_TABLE');
+  await runWarmupMutation(table, async () => {
+    await assertWarmupLeaseOwner(getPool(), table.name, owner);
     await getPool().query(
       `DELETE FROM data_warmup_manual_exclusions WHERE table_name = ? AND date_value = ?`,
-      [tableName, date],
+      [table.name, date],
     );
   });
 }

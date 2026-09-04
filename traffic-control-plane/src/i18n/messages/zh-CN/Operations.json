@@ -24,6 +24,7 @@
   "target": "目标",
   "actualRows": "{count} 行",
   "todayRows": "今日 {completed}/{target}",
+  "dayRows": "{date} {completed}/{target}",
   "warmupStatusLoading": "正在加载预热状态...",
   "warmupStatusUnavailable": "预热状态不可用",
   "manualOperationQueue": "手动操作队列",

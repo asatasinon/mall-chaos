@@ -12,7 +12,7 @@ export function getPool(): mysql.Pool {
       password: env.MYSQL_PASSWORD,
       database: env.MYSQL_DATABASE,
       waitForConnections: true,
-      connectionLimit: 5,
+      connectionLimit: env.MYSQL_POOL_CONNECTION_LIMIT,
       queueLimit: 0,
     });
   }
