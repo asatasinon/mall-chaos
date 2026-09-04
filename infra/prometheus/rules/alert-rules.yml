@@ -39,6 +39,26 @@ groups:
           summary: '{{ $labels.service }} has a high error rate'
           description: 'The error rate for URI {{ $labels.uri }} on service {{ $labels.service }} has exceeded 5% over the last 5 minutes (current: {{ $value | humanizePercentage }}).'
 
+      - alert: TrafficSurge
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count[5m])) by (service, uri)
+            > 10
+          )
+          and
+          (
+            sum(rate(http_server_requests_seconds_count[5m])) by (service, uri)
+            /
+            sum(rate(http_server_requests_seconds_count[1h])) by (service, uri)
+            > 2
+          )
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} is receiving a traffic surge'
+          description: 'Request traffic for URI {{ $labels.uri }} on service {{ $labels.service }} is {{ $value | humanize }} requests per second, more than twice its 1-hour average.'
+
       - alert: HighLatencyP99
         expr: |
           histogram_quantile(0.99,

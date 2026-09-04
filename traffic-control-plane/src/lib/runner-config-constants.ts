@@ -1,0 +1,1 @@
+export const LIFECYCLE_INTERVALS = [60, 30, 20, 10, 5] as const;

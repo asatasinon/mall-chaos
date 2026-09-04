@@ -5,7 +5,7 @@
 ## 结论
 
 - 当前规则可以覆盖大部分场景产生的**结果信号**，但不是每个场景都有专用告警。
-- 报表慢 SQL、流量突增、锁竞争和 Redis 大值主要依赖 HTTP 延迟、HTTP 错误、JVM、连接池、MySQL 和 Redis 规则；是否越过阈值取决于数据量、并发、间隔、资源容量和持续时间。
+- 报表慢 SQL、锁竞争和 Redis 大值主要依赖 HTTP 延迟、HTTP 错误、JVM、连接池、MySQL 和 Redis 规则；流量突增另有 `TrafficSurge` 规则，但是否越过阈值仍取决于基线、并发、间隔和持续时间。
 - `NOTIFICATION_STORAGE_APPEND` 的 `totalBytes` 是应用内逻辑预留，不等于物理磁盘写满。只有实际数据库/文件系统指标越过阈值时，基础设施告警才会触发。
 - `PROMOTION_LOCK_CONTENTION`、`INVENTORY_TABLE_EXCLUSIVE` 和 `INVENTORY_ROW_LOCK` 当前没有死锁或锁等待专用告警，只能通过慢请求、错误、连接池和 MySQL 通用信号判断。
 - Compose 与 Kubernetes 必须使用同一组规则。Kubernetes ConfigMap 已同步 Compose 中的数据盘、InnoDB 写入和关联退化规则；部署后仍需确认 Prometheus 已加载新配置。
@@ -18,8 +18,8 @@
 | --- | --- | --- | --- |
 | `BROWSE_REPORT_SQL` 商品浏览慢 SQL | `HighLatencyP99`、`CriticalLatencyP99`、`MySQLSlowQueries` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`HighErrorRate`、`NodeHighCPU` | 部分覆盖。没有商品报表专用告警；慢 SQL 的扫描量和请求 P99 必须达到各自阈值。 |
 | `ORDER_REPORT_SQL` 订单查询慢 SQL | `HighLatencyP99`、`CriticalLatencyP99`、`MySQLSlowQueries` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`HighErrorRate`、`NodeHighCPU` | 部分覆盖。没有订单报表专用告警；N+1 和历史数据量可能只表现为慢请求，不一定耗尽连接池。 |
-| `BROWSE_SURGE` 商品浏览流量突增 | `HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`MySQLSlowQueries`、`NodeHighCPU`、`NodeHighMemory`、`RedisHighMemory` | 条件覆盖。流量生成本身不告警，只有 Gateway/Catalog 或其后端资源越过阈值才告警。 |
-| `ORDER_QUERY_SURGE` 订单查询流量突增 | `HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`MySQLSlowQueries`、`NodeHighCPU`、`NodeHighMemory` | 条件覆盖。订单查询突增不直接触发订单创建失败告警；只有共享资源受到连带影响时才会出现业务告警。 |
+| `BROWSE_SURGE` 商品浏览流量突增 | `TrafficSurge`、`HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`MySQLSlowQueries`、`NodeHighCPU`、`NodeHighMemory`、`RedisHighMemory` | `TrafficSurge` 在单个 service/URI 的 5 分钟请求速率大于 10 req/s 且超过 1 小时平均值的 2 倍、持续 1 分钟时触发；资源告警仍取决于实际容量。 |
+| `ORDER_QUERY_SURGE` 订单查询流量突增 | `TrafficSurge`、`HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate` | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`MySQLSlowQueries`、`NodeHighCPU`、`NodeHighMemory` | `TrafficSurge` 在单个 service/URI 的 5 分钟请求速率大于 10 req/s 且超过 1 小时平均值的 2 倍、持续 1 分钟时触发；订单查询突增不直接触发订单创建失败告警。 |
 | `CATALOG_REDIS_LARGE_VALUE` 商品详情 Redis 大值 | `RedisHighMemory`、`HighLatencyP99`、`HighHeapUsage`、`FrequentGCPause` | `CriticalHeapUsage`、`CriticalLatencyP99`、`HighErrorRate`、`NodeHighMemory` | 部分覆盖。当前没有 Redis 延迟、淘汰、单 key 大小或 Catalog cache 专用告警；逻辑字节预算也不等于 Redis 物理内存阈值。 |
 | `CART_CATALOG_DEPENDENCY` 加购依赖失败 | `HighErrorRate` | `CriticalLatencyP99`、`HighLatencyP99` | 部分覆盖。若 Cart 加购或 Catalog 校验的 503 被 Prometheus 记录为 5xx，按 URI 的错误率达到 5% 且持续 1 分钟才告警；没有 Cart-to-Catalog 专用告警。 |
 | `NOTIFICATION_HEAP_PRESSURE` 通知 JVM 内存压力 | `HighHeapUsage`、`CriticalHeapUsage`、`FrequentGCPause` | `HighErrorRate`、`HighLatencyP99`、`CriticalLatencyP99`、`NodeHighMemory`、`ServiceDown` | 较强覆盖。JVM 进入不可用后可触发 `ServiceDown`，但 OOM、告警时间和最后一条 trace 都不保证。 |
@@ -38,6 +38,7 @@
 | 规则组 | 告警 | 触发条件 |
 | --- | --- | --- |
 | HTTP | `HighErrorRate` | 同一 `service`、`uri` 的 5xx 比例大于 5%，持续 1 分钟 |
+| HTTP | `TrafficSurge` | 同一 `service`、`uri` 的 5 分钟请求速率大于 10 req/s，且超过 1 小时平均请求速率的 2 倍，持续 1 分钟 |
 | HTTP | `HighLatencyP99` / `CriticalLatencyP99` | P99 分别大于 5 秒持续 2 分钟 / 大于 10 秒持续 1 分钟 |
 | JVM | `HighHeapUsage` / `CriticalHeapUsage` | 堆使用率分别大于 85% 持续 2 分钟 / 大于 95% 持续 1 分钟 |
 | JVM | `FrequentGCPause` | Major GC 速率大于 0.1 次/秒，持续 2 分钟 |

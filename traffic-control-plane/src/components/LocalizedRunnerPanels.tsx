@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { NumberField, RunnerMetric, RunnerTabButton, SelectField } from '@/components/runner/RunnerControls';
+import { LIFECYCLE_INTERVALS } from '@/lib/runner-config-constants';
 import type {
   AccountSummary,
   ActivityEntry,
@@ -18,7 +19,6 @@ import type {
 } from '@/components/runner/types';
 import { formatTimestamp } from '@/components/runner/utils';
 
-const INTERVALS = [60, 30, 20, 10];
 type RunnerView = 'accounts' | 'activity';
 type DisplayTranslator = (key: string) => string;
 
@@ -102,7 +102,7 @@ export function LifecycleConfiguration({ config, editing, saving, form, onEdit, 
     <CardContent className="space-y-4">
       {editing ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <SelectField label={t('interval')} value={form.lifecycleIntervalSec} options={INTERVALS.map(String)} onChange={(value) => onFormChange({ lifecycleIntervalSec: value })} />
+          <SelectField label={t('interval')} value={form.lifecycleIntervalSec} options={LIFECYCLE_INTERVALS.map(String)} onChange={(value) => onFormChange({ lifecycleIntervalSec: value })} />
           <NumberField label={t('maxItems')} value={form.maxItems} onChange={(value) => onFormChange({ maxItems: value })} />
           <NumberField label={t('maxQuantity')} value={form.maxItemQuantity} onChange={(value) => onFormChange({ maxItemQuantity: value })} />
           <NumberField label={t('paymentSuccessPercent')} value={form.successfulPaymentRatio} onChange={(value) => onFormChange({ successfulPaymentRatio: value })} />

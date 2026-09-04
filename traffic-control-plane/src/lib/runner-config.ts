@@ -1,6 +1,7 @@
 import { getPool } from './db';
+import { LIFECYCLE_INTERVALS } from './runner-config-constants';
 
-export const LIFECYCLE_INTERVALS = [60, 30, 20, 10] as const;
+export { LIFECYCLE_INTERVALS } from './runner-config-constants';
 export type TrafficMode = 'CUSTOMER_LIFECYCLE';
 
 const RUNNER_CONFIG_FIELDS = new Set([

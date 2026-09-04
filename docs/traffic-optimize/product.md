@@ -82,7 +82,7 @@ runner 使用真实客户登录，意味着它不再以 `TRAFFIC_RUNNER` 服务�
 ## 5. 流量配置与可观测性
 
 生命周期 runner 使用真实演示客户登录，不使用 runner credential。控制台只允许配置
-`60s`、`30s`、`20s`、`10s` 四档串行间隔、最大商品种类、单 SKU 数量、成功支付比例和优惠券使用比例。
+`60s`、`30s`、`20s`、`10s`、`5s` 五档串行间隔、最大商品种类、单 SKU 数量、成功支付比例和优惠券使用比例。
 账号 JSON 仅由服务端环境变量或部署 Secret 注入；账号配置为空或无效、或内部服务密钥缺失时 worker fail-closed。账号参与状态由控制台写入 `runner_customer_whitelist`，不放在环境变量中。
 补券和库存补齐由 worker 启动时及 UTC 每六小时经 Gateway 触发，领域服务独占业务数据写入；常规生命周期不调用 inventory reset。
 
@@ -91,7 +91,7 @@ runner 使用真实客户登录，意味着它不再以 `TRAFFIC_RUNNER` 服务�
 runner 配置至少包含：
 
 - 生命周期模式启用状态。
-- 串行生命周期执行间隔，只能选择 `60s`、`30s`、`20s` 或 `10s`。
+- 串行生命周期执行间隔，只能选择 `60s`、`30s`、`20s`、`10s` 或 `5s`。
 - 最大商品种类 `maxItems` 与单 SKU 最大数量 `maxItemQuantity`。
 - 成功支付比例 `successfulPaymentRatio`，取值范围为 $[0,1]$。
 - 取消比例，固定为 $1 - successfulPaymentRatio$。

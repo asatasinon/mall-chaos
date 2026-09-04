@@ -41,7 +41,7 @@
 ### A1. 生命周期配置与活动 Schema
 
 - [x] 新建生命周期配置模型，包含 `traffic_mode`、`lifecycle_interval_sec`、`successful_payment_ratio` 和 `coupon_usage_ratio`。
-- [x] `lifecycle_interval_sec` 仅接受 `60`、`30`、`20`、`10`，保留配置 `version` 乐观锁。
+- [x] `lifecycle_interval_sec` 仅接受 `60`、`30`、`20`、`10`、`5`，保留配置 `version` 乐观锁。
 - [x] 为 `traffic_actions` 增加 nullable `lifecycle_id`，为 `(traffic_run_id, lifecycle_id, created_at)` 建索引；父记录使用 `CUSTOMER_LIFECYCLE`，子步骤保留稳定动作类型。
 - [x] 增加运行补齐状态持久化或等价可查询记录：窗口 ID、操作类型、状态、开始/完成时间、重试次数、结果摘要和关联 ID；禁止保存秘密。
 - [x] 新建初始化 SQL、数据访问层和配置 DTO，不读取、写入或迁移旧 runner 配置字段。
@@ -165,7 +165,7 @@
 
 **阶段进度：5 / 5**
 
-目标：用四档固定间隔调度完整生命周期，准确展示真实执行节奏、活动和补齐状态。
+目标：用五档固定间隔调度完整生命周期，准确展示真实执行节奏、活动和补齐状态。
 
 ### D1. RunnerEngine 串行间隔调度
 
@@ -210,7 +210,7 @@
 
 ### E1. Runner 控制台与内部 API
 
-- [x] 配置 API 以 `version` 接收 lifecycle mode、四档间隔、支付成功比例和用券比例；服务端校验所有边界。
+- [x] 配置 API 以 `version` 接收 lifecycle mode、五档间隔、支付成功比例和用券比例；服务端校验所有边界。
 - [x] 增加间隔单选、成功支付/取消比例、用券/无券比例、账号健康摘要、父子活动展开、补券/补库存状态。
 - [x] 配置修改与手动安全操作写入 operator audit；页面不展示 email、密码、token 或原始请求头。
 
@@ -254,7 +254,7 @@
 
 ### F4. Worker、活动与部署验证
 
-- [ ] 验证 `60/30/20/10` 四档均严格串行、实际间隔有记录，以及生命周期耗时超过间隔时不会并发或重复启动。
+- [ ] 验证 `60/30/20/10/5` 五档均严格串行、实际间隔有记录，以及生命周期耗时超过间隔时不会并发或重复启动。
 - [ ] 验证可从父生命周期重建完整步骤顺序、活动中不存在秘密，以及 Redis/DB 记录与 Gateway/订单关联一致。
 - [ ] 验证运营人员可在不访问秘密的前提下判断 runner、券池、库存基线及故障注入是否健康。
 - [ ] 对 `traffic-control-plane`、部署配置和文档运行定向搜索，验证不存在旧 action mix、QPS、峰值、周期、抖动、runner credential、支付策略或 inventory reset scheduler 的实现、配置和引用。
@@ -269,7 +269,7 @@
 - [ ] 为两个 worker 补齐调度器增加启动、UTC 六小时、锁竞争、崩溃/锁过期、Gateway 失败重试、重复投递测试。
 - [ ] 为故障注入场景添加测试，确认失败只在 `faultScenarioId` 启用时出现，并与常规流量隔离。
 - [ ] 以有效 JWT/内部服务 Secret 和演示账号 Secret 启动干净 Compose 环境；验证启动补齐、六小时窗口、失败重试和幂等重送。
-- [ ] 分别执行 `alice`、`bob` 的有券成功支付、无券成功支付、有券取消、购物车复用和自动补地址生命周期，并验证四档串行间隔、中断后的 `PENDING_PAYMENT` 保留和既有补偿。
+- [ ] 分别执行 `alice`、`bob` 的有券成功支付、无券成功支付、有券取消、购物车复用和自动补地址生命周期，并验证五档串行间隔、中断后的 `PENDING_PAYMENT` 保留和既有补偿。
 - [ ] 验证 Gateway 拒绝直连、跨客户券读取、无 token、伪造身份头、浏览器/Shopfront 调用内部补齐命令；运行最低发布验证命令：
 
 ```bash
@@ -291,5 +291,5 @@ mvn test -pl promotion-service,inventory-service,order-service,gateway-service
 2. 优惠券和库存均由 worker 启动补齐及六小时周期补齐维持基线；worker 不直写业务数据、不调用 reset。
 3. 客户/内部补齐路由具备明确 Gateway 鉴权和入口隔离，且直接访问和越权访问均被拒绝。
 4. 常规流量与故障注入流量通过 `faultScenarioId` 明确分离；故障不会伪装成常规随机失败。
-5. 运营控制台只提供四档执行间隔与安全的比例/状态观测；全链路记录可关联且不含秘密。
+5. 运营控制台只提供五档执行间隔与安全的比例/状态观测；全链路记录可关联且不含秘密。
 6. 自动化与 Compose 验收覆盖两个账号、有券/无券、支付/取消、补地址、购物车续用、补齐、串行调度、中断待支付和安全拒绝矩阵。

@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS runner_profile (
     background_actions_enabled TINYINT NOT NULL DEFAULT 0,
     version                  INT NOT NULL DEFAULT 1,
     CONSTRAINT chk_runner_profile_mode CHECK (traffic_mode = 'CUSTOMER_LIFECYCLE'),
-    CONSTRAINT chk_runner_profile_interval CHECK (lifecycle_interval_sec IN (60, 30, 20, 10)),
+    CONSTRAINT chk_runner_profile_interval CHECK (lifecycle_interval_sec IN (60, 30, 20, 10, 5)),
     CONSTRAINT chk_runner_profile_payment_ratio CHECK (successful_payment_ratio BETWEEN 0 AND 1),
     CONSTRAINT chk_runner_profile_coupon_ratio CHECK (coupon_usage_ratio BETWEEN 0 AND 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
