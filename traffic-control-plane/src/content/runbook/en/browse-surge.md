@@ -84,7 +84,7 @@ Confirm `SCENARIO_WORKER_STOPPED` and that the in-flight count converges. After 
 | `CriticalLatencyP99` | Gateway/Catalog request P99 exceeds 10 seconds for 1 minute | Indicates that request latency has reached the critical level. |
 | `HighErrorRate` | The service/URI 5xx ratio exceeds 5% for 1 minute | Fires only when browse requests actually return 5xx; traffic generation alone does not trigger it. |
 | `TrafficSurge` | The 5-minute request rate for a service/URI exceeds 10 requests per second and is more than twice its 1-hour average for 1 minute | Directly identifies sustained measured traffic growth; correlate it with worker events because the alert does not prove that every generated request reached the business service. |
-| `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending`, `MySQLHighThreads`, `MySQLSlowQueries` | Pool, MySQL connection count or slow-query rate reaches the relevant rule threshold | May occur when traffic pressure expands into database connections. |
+| `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending`, `MySQLHighThreads`, `MySQLSlowQueries` | Pool alerts reach their relevant rule thresholds; MySQL connections exceed 255 for 1 minute; or slow-query rate exceeds 0.5 per second for 1 minute | May occur when traffic pressure expands into database connections. |
 | `NodeHighCPU`, `NodeHighMemory`, `RedisHighMemory` | Node CPU/memory or Redis utilization reaches the relevant rule threshold | Fires only when shared infrastructure crosses a threshold. |
 
 ## Limits and safe interpretation

@@ -2,51 +2,52 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What This Project Is
+## Purpose and Current Scope
 
-Castrel Chaos is an e-commerce microservices platform purpose-built for **chaos engineering training**. It drives real business HTTP, SQL, Redis, JVM, storage, locking, and PSP behavior through a full Prometheus/Alertmanager/Grafana/Loki/Tempo stack; it is not a synthetic latency or error-response simulator.
+Castrel Chaos is an e-commerce microservices platform for chaos-engineering training. It produces observable behavior through real business HTTP, SQL, Redis, JVM, storage, locking, and PSP paths. It is not a synthetic latency, fake-result, or controller-error simulator.
 
-Before implementing a feature, read `product.md`, `technical-design.md` (when present), and `task-list.md` in the relevant `docs/<area>/` directory; follow the task list's dependency section. The control-plane baseline is [docs/chaos-inject-plane/product.md](docs/chaos-inject-plane/product.md), [docs/chaos-inject-plane/tech.md](docs/chaos-inject-plane/tech.md), and [docs/chaos-inject-plane/task-list.md](docs/chaos-inject-plane/task-list.md). Link to existing documentation instead of duplicating its details in code or new instructions.
+Treat current code and configuration as the authoritative inputs before changing behavior:
 
-## Build Commands
+- [traffic-control-plane/src/lib/fault-run-catalog.ts](traffic-control-plane/src/lib/fault-run-catalog.ts) is the machine-readable scenario contract. Do not duplicate mutable catalog facts elsewhere.
+- `traffic-control-plane` owns the catalog, run lifecycle, operator audit, and recovery control. Its standalone worker runs customer lifecycle traffic, scenario executors, replenishment, expired-run recovery, retention, and optional data warmup.
+- `shopfront -> gateway-service -> business services` is the consumer path. The control plane reaches business operations through Gateway; only data warmup writes its two dedicated history tables directly while holding a Redis lease.
+- [README.md](README.md) owns operator/deployer setup. Keep this file focused on maintainer decisions, invariants, and validation.
+- Planning and task documents are optional background when present. Do not make root documentation or runtime behavior depend on them.
+
+## Build, Test, and Run
+
+Use JDK 21, Maven 3.8+, Node.js 22, and pnpm 10.27.0. Node 22 matches the control-plane and Shopfront Dockerfiles. Run the following from the repository root unless a command changes directory.
 
 ```bash
-# Install common and required upstream modules first (required before a targeted service build)
+# Install common and required upstream modules before a targeted Java build.
 mvn clean install -pl common -am -DskipTests
 
-# Build all Java services
+# Build all Java services or one service.
 mvn clean package -DskipTests
-
-# Build a single service
 mvn clean package -pl order-service -DskipTests
 
-# Build all Docker images (also runs Maven internally)
+# Build all Docker images. The default target platform is linux/amd64.
 ./scripts/build-all.sh
 
-# Start local environment with pre-built images (pulls from registry)
+# Start registry images. The helper defaults to the internal image source,
+# pulls before starting, and starts detached when no Compose arguments are given.
 ./scripts/compose-up.sh
+./scripts/compose-up.sh -s hub
 
-# Start with locally built images (after build-all.sh)
+# Start locally built, unpushed images without pulling remote tags.
 docker compose up -d --no-build --pull never --force-recreate
+PLATFORM=linux/amd64 ./scripts/build-all.sh -s hub --tag local
+REGISTRY=castrel IMAGE_TAG=local docker compose up -d --no-build --pull never --force-recreate
 
-# Build and run local Docker Hub-style tags without pulling remote images
-./scripts/build-all.sh -s hub 
-REGISTRY=castrel docker compose up -d --no-build --pull never --force-recreate
-
-# Build, push, and start a Docker Hub tag
+# Build, push, and start a Docker Hub-style image tag.
 ./scripts/build-all.sh -s hub --tag <tag> --push
 IMAGE_TAG=<tag> ./scripts/compose-up.sh -s hub -- --force-recreate
 
-# Note: -s hub selects the image source; it does not select a service. build-all.sh
-# builds all images, and images are only uploaded when --push is provided. The
-# compose-up.sh helper pulls before starting, so use plain docker compose for
-# unpushed local images.
-
-# traffic-control-plane (Next.js)
+# traffic-control-plane Web/API and worker run as separate processes.
 cd traffic-control-plane
-pnpm install                 # pnpm@10.27.0
-pnpm dev                     # Next.js web on :13086
-pnpm worker                  # runner, scenario workers, schedulers, and optional data warmup
+pnpm install
+pnpm dev                     # Web/API on :13086
+pnpm worker                  # runner, scenario workers, recovery, retention, replenishment, warmup
 pnpm test:runner
 pnpm test:runbook
 pnpm test:i18n
@@ -62,62 +63,70 @@ pnpm lint
 pnpm test:e2e
 ```
 
-## Architecture
+`-s hub` selects an image source, not a service. `build-all.sh` pushes only with `--push`; do not use `compose-up.sh` for unpushed local tags because it pulls first. The Web/API needs `CONTROL_PLANE_SESSION_SECRET` or its `CASTREL_JWT_SECRET` fallback. The worker additionally requires `CASTREL_INTERNAL_SERVICE_KEY` and a valid non-empty `TRAFFIC_LIFECYCLE_ACCOUNTS` value.
 
+## Architecture and Ownership
+
+```text
+Browser -> shopfront :13090 -> gateway-service :18080 -> business services
+Operator -> traffic-control-plane :13086 (Next.js Web/API)
+traffic-control-plane-worker -> gateway-service -> fixed business operations
 ```
-Browser → traffic-control-plane :13086 (Next.js UI + Route Handlers)
-        → gateway-service :18080
 
-traffic-control-plane → gateway-service → all business services
-```
+`traffic-control-plane` alone owns the catalog, run lifecycle, operator audit, and recovery semantics. The Web/API does not run background jobs. The standalone worker starts the lifecycle runner, report and traffic executors, other scenario workers, coupon/inventory replenishment, expired-run recovery, daily retention, and optional data warmup. `DATA_WARMUP_ENABLED=false` disables only warmup. Stop a source worker with `SIGINT` or `SIGTERM` so it can release leases and controlled resources.
 
-The Spring Boot services share a parent POM plus one `common` module. All scenario control flows through `traffic-control-plane → gateway-service → one fixed target operation`.
-
-Only `traffic-control-plane` owns the catalog, run lifecycle, operator audit, and recovery semantics. The **gateway-service** reaches only the fixed business operations selected by that control plane; Gateway and target services must not expose catalog or run terminology. Slow SQL runs exercise the public catalog and order report paths through sustained Gateway requests.
-
-The standalone control-plane worker requires `CASTREL_INTERNAL_SERVICE_KEY` and starts the runner, recovery/retention jobs, replenishment schedulers, scenario workers, and data warmup. `DATA_WARMUP_ENABLED=false` disables only data warmup. It does not stop the other worker responsibilities. Worker shutdown must go through SIGINT/SIGTERM so leases and controlled resources are released.
+All control-plane business HTTP calls must go through `gateway-service`, which reaches only the fixed operation selected by the catalog. A target service may accept a protected generic `operation` plus opaque `runId`, expiry, idempotency, and fencing context; it must not receive catalog identity or control-plane lifecycle state. Data warmup is the sole database exception: the worker writes the two warmup tables while holding its Redis lease.
 
 ## Module: `common`
 
-Package root: `com.castrel.chaos.common`
+Package root: `com.castrel.chaos.common`.
 
-Shared components auto-configured via `ServiceComponentAutoConfiguration` — **never duplicate these in individual services**:
+Shared components are auto-configured through `ServiceComponentAutoConfiguration`; do not duplicate them in individual services.
 
 | Class | Purpose |
 |---|---|
-| `ApiResponse<T>` | Uniform response envelope (`code`, `message`, `data`) |
-| `BizException` | Business errors with `errorCode` |
-| `TraceContext` | traceId propagation |
-| `DistributedLockService` | Redis-backed distributed lock |
-| `DataAuditService` | JDBC-session-scoped table-lock lifecycle |
-| `LocalQueryCacheManager` | Local query-cache state |
+| `ApiResponse<T>` | Uniform response envelope: `code`, `message`, and `data`. |
+| `BizException` | Business errors with `errorCode`. |
+| `TraceContext` | `traceId` propagation. |
+| `DistributedLockService` | Redis-backed distributed locking. |
+| `DataAuditService` | JDBC-session-scoped table-lock lifecycle. |
+| `LocalQueryCacheManager` | Local query-cache state. |
 
-## Key Conventions
+## Non-Negotiable Runtime Rules
 
-### Realism, Catalog, and Exposure Rules
-- Every scenario is catalog-defined, targets one fixed operation, and carries a server-validated `durationSec`
-- Every observable effect must arise from a real business HTTP, SQL, Redis, JVM, storage, lock, or PSP path. Do not use `SLEEP()`, fabricated latency, controller-returned fake failures, random fake results, or purpose-built demo responses as the effect.
-- Slow SQL uses real catalog/order report SQL and sustained public requests, not auxiliary JOIN injection. Table locking uses a dedicated Inventory operation and a JDBC session-owned `LOCK TABLES inventories WRITE`.
-- `traffic-control-plane` is the repository's control panel and the sole location allowed to use Fault Run terminology, catalog scenario IDs, scenario display names, or descriptions of fault injection/exercises.
-- Outside `traffic-control-plane`, runtime source must not use those terms in routes, Endpoint names, controllers, classes, methods, DTOs, parameter names, error codes/messages, exception types/messages, logs, metric labels, trace attributes, comments, or configuration keys. Keep target-side names and behaviors business-semantic.
-- Do not expose a scenario ID, control-plane lifecycle state, or an exercise-specific field in consumer-facing requests, responses, headers, errors, logs, metrics, or traces. When internal correlation is necessary, use opaque technical context with no exercise semantics.
-- Client error handling must return the normal business envelope without raw stacks. Exception classes, methods, and messages outside the control plane must remain business-named so a user cannot infer an injected condition from an interface, error detail, or stack trace.
+### Realism and catalog
 
-### Critical Invariants
-- Runner config updates require a `version` field (optimistic lock protection)
-- Inventory reset requires `expectedVersion` + distributed Redis lock
-- All target-side controlled resources expire or stop after `durationSec`; notification heap retention is the documented non-releasing exception
-- All business HTTP calls from traffic-control-plane must go through gateway-service
+- Every observable effect must come from a real business HTTP, SQL, Redis, JVM, storage, lock, or PSP path. Never use `SLEEP()`, fixed delays, fabricated latency, controller-returned fake failures, random fake results, purpose-built demo responses, or disconnected test endpoints as the effect.
+- Every scenario is defined in the catalog, targets one fixed business operation, validates its parameters and `durationSec` server-side, and declares a recovery/cleanup strategy. Do not create a second source of truth.
+- Slow SQL must use the real Catalog/Order reports and sustained Gateway requests. Table locking uses a JDBC-session-owned `LOCK TABLES inventories WRITE`; row locking uses a real transaction and `SELECT ... FOR UPDATE`; PSP behavior must pass through the independent PSP HTTP client.
+- Do not turn contingent runtime effects into promises. Storage append means run-scoped file growth, not proof of a full disk. Lock waits, deadlocks, OOM, health failures, alerts, and recovery duration depend on the deployed runtime.
 
-### Data Warmup
-- The current supported configuration is `180` days × `300000` rows/day = `54000000` target rows. The worker validates this tuple; do not change one value in isolation.
-- Warmup is a standalone leased mutation loop: one worker owns the Redis lease at a time, renews it with a heartbeat, and stops writes after lease loss. Do not repair it by deleting lease/progress ownership fields or by issuing ad hoc SQL.
-- Manual warmup operations use the protected control-plane jobs API, bounded dates/rows, CSRF, confirmation for cleanup, idempotency, and audit. Cleanup exclusions prevent automatic replenishment from recreating manually removed data.
-- Partition initialization is owned by [infra/mysql/init/05-warmup-partitions.sql](infra/mysql/init/05-warmup-partitions.sql); the worker performs compatibility checks, daily rollover, progress updates, and stale manual-job recovery. Change schema and runtime logic together.
-- If warmup behavior changes, update `traffic-control-plane/src/lib/env.ts`, `traffic-control-plane/src/worker/data-warmup.ts`, Compose/Kubernetes values, and the relevant design/runbook documentation together.
+### Ownership, terminology, and public contracts
 
-### application.yml Baseline
+- `traffic-control-plane` is the sole location for Fault Run terms, catalog IDs, display names, and control semantics. The user term `traffic-control-panel` means this directory.
+- Outside `traffic-control-plane/**`, including all source-owned `src/**` configuration, use business-semantic names only. Do not use fault-injection/exercise/scenario terminology, catalog IDs, or control-plane display names in routes, endpoints, types, fields, messages, logs, metrics, traces, comments, health responses, or configuration keys.
+- A protected `/internal/**` service protocol may carry generic `operation`, opaque `runId`, expiry, idempotency, and fencing context. It must not carry a scenario identity, expose Fault Run field names, or interpret catalog/lifecycle semantics; Gateway keeps it off consumer paths.
+- Consumer-facing requests, responses, headers, errors, raw stacks, logs, metrics, and traces must not expose scenario IDs, display names, lifecycle state, `faultRunId`, internal operation headers, or exercise-specific fields. Convert errors to the normal business envelope without raw stacks.
+- Before merging a scenario change: validate the catalog, exercise the target business path, inspect visible errors and stacks, review target-side prose for copied display names, and run `./scripts/check-runtime-terminology.sh`. Operator documentation may name scenarios; target-side runtime source may not.
+
+### State, recovery, and request invariants
+
+- Runner configuration updates require `version` for optimistic locking. Inventory reset requires `expectedVersion` and the distributed Redis lock.
+- `durationSec` ends a controlled activity or lease; it does not guarantee deletion of every resource artifact. Notification storage growth is cleaned only through the allowed, confirmed run-scoped cleanup. Notification heap retention is explicitly non-releasing.
+- Every control-plane business HTTP call goes through `gateway-service`.
+
+## Data Warmup Contract
+
+- The supported tuple is `180` days x `300000` rows/day = `54000000` target rows. The worker validates the tuple; do not change one number in isolation.
+- Warmup is a standalone leased mutation loop: one worker holds the Redis lease, renews it with a heartbeat, and stops writing after lease loss. Do not repair it by deleting lease/progress ownership fields or running ad hoc SQL.
+- Manual jobs use the protected control-plane API, bounded dates/rows, CSRF, confirmation for cleanup, idempotency, and audit. Cleanup exclusions prevent automatic replenishment from recreating deliberately removed data.
+- [infra/mysql/init/05-warmup-partitions.sql](infra/mysql/init/05-warmup-partitions.sql) owns partition initialization. The worker owns compatibility checks, daily rollover, progress updates, and stale manual-job recovery. Change schema and runtime logic together.
+- A warmup change also updates `traffic-control-plane/src/lib/env.ts`, `traffic-control-plane/src/worker/data-warmup.ts`, Compose and Kubernetes values, and the relevant design/runbook documentation.
+
+## Java Service Baseline
+
 Every service must include:
+
 ```yaml
 management:
   endpoints.web.exposure.include: health,info,prometheus
@@ -126,88 +135,96 @@ management:
     sampling.probability: 1.0
 logging:
   pattern:
-    json: true   # structured JSON for Loki ingestion
+    json: true
 ```
 
-### Spring Profiles
-- `local` — localhost connectivity
-- `docker` — container networking (used in Compose and K8s)
-- `chaos` — kept for compatibility; **v2 does not use this to gate chaos endpoints**
+Profiles: `local` uses localhost connectivity, `docker` uses container networking (Compose and Kubernetes), and `chaos` is legacy compatibility only; it does not gate business endpoints or control-plane behavior.
 
-### Local Environment Pitfalls
-- `scripts/compose-up.sh` pulls images before starting and defaults to the internal registry. After local builds, use `docker compose up -d --no-build --pull never` or explicitly override the image source.
-- On Apple Silicon, Java images target `linux/amd64`; local startup can be slow. Disable optional Cloudwise/OTel agents with `ENABLE_CLOUDWISE_AGENT=false ENABLE_OTEL_AGENT=false` when verifying locally if those agents delay startup.
-- Full baseline verification starts infrastructure and can modify local MySQL/Redis state. Treat `scripts/test-baseline.sh` as an environment-affecting workflow, not a read-only test.
-- Full environment reset is destructive and is separate from control-plane run cleanup. Follow [docs/runbooks/environment-reset.md](docs/runbooks/environment-reset.md).
+## Local Environment and Deployment Pitfalls
 
-## Service Ports
+- `scripts/compose-up.sh` defaults to the internal image source, pulls before starting, starts detached when no `up` arguments are supplied, and auto-includes an available SkyWalking override. After local builds use `docker compose up -d --no-build --pull never`; otherwise the helper can replace unpushed images with remote ones.
+- For SkyWalking use `COMPOSE_PROFILES=skywalking TRACING_MODE=both ./scripts/compose-up.sh`. The helper downloads the MySQL connector when the repository override is selected. A manual Compose invocation must ensure that connector JAR already exists; it does not receive the helper's automatic override/download behavior. SkyWalking is Compose-only; Kubernetes deploys the Tempo stack.
+- Compose enables the Cloudwise agent by default. On Apple Silicon, Java images target `linux/amd64` and startup can be slow; use `ENABLE_CLOUDWISE_AGENT=false ENABLE_OTEL_AGENT=false` when optional agents delay a local check.
+- `./scripts/test-baseline.sh` runs Maven tests, starts/checks local MySQL and Redis, then runs control-plane typecheck/lint and Shopfront typecheck/lint/Playwright. It does not run `test:runner`, `test:runbook`, `test:i18n`, a build, or catalog smoke unless separately requested.
+- `./scripts/catalog-product-detail-smoke.sh` requires a running full stack and valid operator credentials. It creates and cleans up a control-plane run, changes Redis state, and sends Gateway traffic; it is not a read-only health probe.
+- The uncredentialed health checks are `gateway-service` actuator health and the control-plane root route. `/internal/traffic/runner/status` is an operator-protected endpoint and requires an authenticated session.
+- Kubernetes Secret templates intentionally contain development placeholders and do not inject independent operator credentials/session secret by default. Follow [README.md](README.md) before a shared deployment.
+- Full environment reset is destructive and separate from control-plane run cleanup. Inspect `scripts/mysql-reset.sh` and the current Compose state before running it.
 
-| Service | Host Port (Compose) | Container Port |
-|---|---|---|
-| gateway-service | 18080 | 8080 |
-| user-service | not published (container network only) | 8081 |
-| cart-service | not published (container network only) | 8091 |
-| catalog-service | not published (container network only) | 8082 |
-| inventory-service | not published (container network only) | 8083 |
-| order-service | not published (container network only) | 8084 |
-| payment-service | not published (container network only) | 8085 |
-| traffic-control-plane | 13086 | 3086 |
-| promotion-service | not published (container network only) | 8087 |
-| risk-service | not published (container network only) | 8088 |
-| fulfillment-service | not published (container network only) | 8089 |
-| notification-service | not published (container network only) | 8090 |
-| shopfront | 13090 | 3090 |
-| MySQL | 13306 | 3306 |
-| Redis | 16379 | 6379 |
-| Grafana | 13000 | 3000 |
+## Service and Observability Ports
 
-## Observability
+Business services below are container-network-only unless a host port is shown. The complete deployer-facing port map, including exposure guidance, lives in [README.md](README.md).
 
-| Service | URL | Credentials |
-|---|---|---|
-| Grafana | http://localhost:13000 | castrel / C@stre1_best_ai |
-| Prometheus | http://localhost:19090 | castrel / castrel (Basic Auth via nginx) |
-| Loki | http://localhost:13100 | castrel / castrel |
-| Tempo | http://localhost:13200 | castrel / castrel |
+| Service | Host / container port |
+|---|---:|
+| gateway-service | `18080` / `8080` |
+| user-service | not published / `8081` |
+| cart-service | not published / `8091` |
+| catalog-service | not published / `8082` |
+| inventory-service | not published / `8083` |
+| order-service | not published / `8084` |
+| payment-service | not published / `8085` |
+| psp-simulator | not published / `8092` |
+| promotion-service | not published / `8087` |
+| risk-service | not published / `8088` |
+| fulfillment-service | not published / `8089` |
+| notification-service | not published / `8090` |
+| notification-restart-broker | not published / `8095` |
+| traffic-control-plane | `13086` / `3086` |
+| shopfront | `13090` / `3090` |
+| MySQL | `13306` / `3306` |
+| Redis | `16379` / `6379` |
+| Grafana | `13000` / `3000` |
 
-All logs are structured JSON with `traceId`, collected by Promtail → Loki.
+| Observability endpoint | Host port | Access |
+|---|---:|---|
+| Prometheus / Alertmanager | `19090` / `19093` | `obs-auth-proxy`, Basic Auth `castrel` / `castrel` in the development Compose file. |
+| Loki / Tempo HTTP API | `13100` / `13200` | `obs-auth-proxy`, same development Basic Auth. |
+| Tempo OTLP gRPC / HTTP ingestion | `14317` / `14318` | No authentication in the current Compose file; restrict outside local use. |
+| node / MySQL / Redis exporter | `19100` / `19104` / `19121` | Metrics endpoints. |
+| SkyWalking UI / OAP | `13091`, `11800`, `12800` | Optional Compose profile only. |
 
-## Verification
+Java services emit structured JSON logs with `traceId`; Promtail collects them for Loki. Compose enables Grafana anonymous Viewer access and ships development credentials. Never carry those defaults into a shared deployment.
+
+## Validation
+
+Choose the narrowest check that covers the changed behavior, then widen only when the change crosses an ownership boundary.
 
 ```bash
-# Health check after startup
-curl http://localhost:18080/actuator/health
-curl http://localhost:13086/internal/traffic/runner/status   # should show running=true
+# After stack startup: anonymous health checks only.
+curl -fsS http://localhost:18080/actuator/health
+curl -fsSI http://localhost:13086/
 
-# Run the maintained catalog product-detail smoke test
+# Focused control-plane changes.
+(cd traffic-control-plane && pnpm test:runner && pnpm typecheck && pnpm lint)
+
+# Scenario documentation and localization changes.
+(cd traffic-control-plane && pnpm test:runbook && pnpm test:i18n)
+
+# Focused Shopfront changes.
+(cd shopfront && pnpm typecheck && pnpm lint && pnpm test:e2e)
+
+# Scenario behavior on a complete, disposable local stack; changes runtime state.
 ./scripts/catalog-product-detail-smoke.sh
 
-# Run the maintained full verification workflow (starts infrastructure)
+# Cross-service workflow; starts/checks local MySQL and Redis.
 ./scripts/test-baseline.sh
 
-# Validate configuration and manifests without starting the stack
+# Static deployment and source checks.
 docker compose config --quiet
 kubectl kustomize k8s >/dev/null
+./scripts/check-runtime-terminology.sh
 git diff --check
-
-# Verify that runtime source outside the control plane does not leak catalog terminology
-if rg -n -i --glob '!**/target/**' --glob '!traffic-control-plane/**' --glob '**/src/**' \
-  '故障注入|故障演练|故障场景|fault[ -]?injection|fault[ -]?exercise|chaos[ -]?scenario|fault[ -]?run|faultRunId|BROWSE_REPORT_SQL|ORDER_REPORT_SQL|BROWSE_SURGE|ORDER_QUERY_SURGE|CATALOG_REDIS_LARGE_VALUE|CART_CATALOG_DEPENDENCY|NOTIFICATION_HEAP_PRESSURE|NOTIFICATION_STORAGE_APPEND|PROMOTION_LOCK_CONTENTION|INVENTORY_TABLE_EXCLUSIVE|INVENTORY_ROW_LOCK|PSP_PROVIDER_OUTCOME' .; then
-  echo 'Control-plane terminology leaked into runtime source.' >&2
-  exit 1
-fi
 ```
 
-For a focused control-plane change, run `cd traffic-control-plane && pnpm test:runner && pnpm typecheck && pnpm lint`; for a focused shopfront change, run its typecheck, lint, and relevant Playwright test. Warmup changes currently have limited unit coverage, so add or run integration coverage for lease loss, configuration rejection, stale-job recovery, bounds, rollover, and cleanup exclusions.
+The terminology script catches explicit injection terms and catalog identifiers in runtime source outside the control plane. It does not replace review of target-side prose, public contracts, exception envelopes, or raw-stack suppression for display-name leakage. Warmup changes need coverage for lease loss, tuple rejection, stale-job recovery, bounds, rollover, and cleanup exclusions; the existing unit suite is not a substitute for that behavior-level verification.
 
-## Documentation Map
+## Current Functionality
 
-- Product and acceptance scope: [docs/chaos-inject-plane/product.md](docs/chaos-inject-plane/product.md)
-- Control-plane design and contracts: [docs/chaos-inject-plane/tech.md](docs/chaos-inject-plane/tech.md)
-- Current implementation sequence and dependencies: [docs/chaos-inject-plane/task-list.md](docs/chaos-inject-plane/task-list.md)
-- Service topology: [docs/microservice-topology.md](docs/microservice-topology.md)
-- Architecture overview: [docs/architecture.md](docs/architecture.md)
-- Environment reset: [docs/runbooks/environment-reset.md](docs/runbooks/environment-reset.md)
+- Scenario operations: the control plane manages one catalog-defined run at a time, drives fixed real business/resource paths, records lifecycle/audit evidence, and applies catalog-defined recovery or confirmed cleanup.
+- Customer lifecycle: the worker uses configured accounts to maintain normal customer traffic and supports report and traffic execution without exposing control-plane context to consumer requests.
+- Data warmup: one worker owns a Redis lease, maintains the supported historical-data target with bounded writes, and stops writing when it loses ownership.
+- Observability: Java services emit structured logs with `traceId`; Prometheus, Grafana, Loki and Tempo are provided by the deployment configuration.
 
 
 

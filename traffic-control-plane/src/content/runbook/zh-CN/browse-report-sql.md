@@ -88,7 +88,7 @@ catalog 要求提供 `durationSec`，并按场景最大值限制。worker 负责
 | `CriticalLatencyP99` | 报表请求 P99 超过 10 秒，持续 1 分钟 | 说明请求延迟已达到严重级别。 |
 | `MySQLSlowQueries` | 慢查询速率超过 0.5 次/秒，持续 1 分钟 | 扫描历史行为数据可能产生该信号，实际取决于数据量和数据库配置。 |
 | `HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending` | 连接池使用率或等待连接数达到对应规则阈值 | 报表扫描扩大并占用连接时可能触发。 |
-| `MySQLHighThreads`、`NodeHighCPU` | MySQL 连接数或节点 CPU 达到对应规则阈值 | 只有共享资源压力扩散时才会出现。 |
+| `MySQLHighThreads`、`NodeHighCPU` | MySQL 连接数超过 255，持续 1 分钟；或节点 CPU 达到对应规则阈值 | 只有共享资源压力扩散时才会出现。 |
 | 无商品报表专用告警 | 不适用 | 场景运行或 baseline SQL 存在缺陷，都不保证越过告警阈值；应结合 `fault_run_events`、Tempo JDBC span 和 MySQL 诊断判断。 |
 
 ## 限制与安全解释

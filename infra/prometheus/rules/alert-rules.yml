@@ -284,13 +284,13 @@ groups:
           description: 'Available space on /data for node {{ $labels.instance }} is decreasing faster than 2 MiB/s (current rate: {{ $value | humanize }} bytes/s); a sudden increase in storage usage may be occurring.'
 
       - alert: MySQLHighThreads
-        expr: mysql_global_status_threads_connected > 100
+        expr: mysql_global_status_threads_connected > 255
         for: 1m
         labels:
           severity: warning
         annotations:
           summary: 'MySQL connection count is high'
-          description: 'MySQL currently has {{ $value }} connections, exceeding the threshold of 100.'
+          description: 'MySQL currently has {{ $value }} connections, exceeding the threshold of 255.'
 
       - alert: MySQLSlowQueries
         expr: rate(mysql_global_status_slow_queries[5m]) > 0.5

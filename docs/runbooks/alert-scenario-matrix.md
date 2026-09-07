@@ -52,7 +52,7 @@
 | 节点 | `NodeHighCPU` / `NodeHighMemory` | 节点 CPU 大于 80% / 内存大于 85%，均持续 2 分钟 |
 | 节点存储 | `NodeDataFilesystemUsageHigh` | `/data` 可用空间低于 30%（使用率大于 70%），持续 3 分钟 |
 | 节点存储 | `NodeDataFilesystemGrowthRateHigh` | `/data` 可用空间下降速率超过 2 MiB/秒，持续 1 分钟 |
-| MySQL | `MySQLHighThreads` / `MySQLSlowQueries` | 连接数大于 100 持续 1 分钟 / 慢查询速率大于 0.5 次/秒持续 1 分钟 |
+| MySQL | `MySQLHighThreads` / `MySQLSlowQueries` | 连接数大于 255 持续 1 分钟 / 慢查询速率大于 0.5 次/秒持续 1 分钟 |
 | MySQL | `MySQLInnoDBDataWriteRateHigh` | InnoDB 写入速率大于 1 MiB/秒，持续 1 分钟；级别为 `info` |
 | Redis | `RedisHighMemory` | Redis 使用率大于 80%，持续 2 分钟 |
 | 关联判断 | `CorrelatedServiceDegradation` | HTTP 5xx 与库存预留失败或支付超时同时存在，持续 1 分钟；级别为 `info` |
