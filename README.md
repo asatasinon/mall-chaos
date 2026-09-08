@@ -285,5 +285,6 @@ git diff --check
 
 ## 补充资料
 
+- 当前系统架构与主要功能： [docs/architecture-overview.md](docs/architecture-overview.md)
 - 当前告警覆盖、触发阈值和已知缺口： [docs/runbooks/alert-scenario-matrix.md](docs/runbooks/alert-scenario-matrix.md)
 - 当前服务拓扑： [docs/microservice-topology.md](docs/microservice-topology.md)
