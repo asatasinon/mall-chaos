@@ -58,9 +58,99 @@ Castrel Chaos 主要解决“**如何让故障像真实业务故障**”：
 4. 记录审计、运行事件、业务指标、日志和 Trace；
 5. 让 Worker、目标服务和控制面能够恢复或清理。
 
-## 3. ITBench 是什么
+### 2.3 先理解 SRE：ITBench 里的“题目”是什么
 
-### 3.1 ITBench 的核心组成
+**SRE（Site Reliability Engineering，站点可靠性工程）**，可以理解为用软件工程的方法管理线上系统的可靠性。它关注的不是“系统有没有一次报错”，而是：
+
+- 服务是否持续可用；
+- 请求延迟和错误率是否在可接受范围；
+- 故障是否能被及时发现；
+- 能否根据指标、日志、Trace、事件和拓扑定位根因；
+- 修复后是否真正恢复，而不是只让一个探针变绿；
+- 系统是否能在流量、依赖和资源变化下保持稳定。
+
+对初学者来说，可以把一次 SRE 事件理解成下面的闭环：
+
+```text
+正常服务
+  -> 某个配置、依赖、资源或网络状态发生变化
+  -> 用户请求、指标、日志或 Trace 出现异常
+  -> 产生告警或可观测信号
+  -> 工程师/Agent 诊断根因
+  -> 执行修复
+  -> 验证业务和平台恢复
+```
+
+SRE 与 Chaos Engineering 不是同义词：
+
+| 概念 | 关注点 |
+| --- | --- |
+| SRE | 如何定义、监控、维护和持续改进服务可靠性 |
+| Chaos Engineering | 如何有控制地制造故障或异常，检验系统和团队的恢复能力 |
+| ITBench SRE 场景 | 用可复现的问题环境训练/评估 Agent 的发现、诊断和修复能力 |
+| Castrel Chaos 场景 | 让异常经过真实电商业务、资源和依赖链路，观察故障传播与恢复 |
+
+ITBench 文档对 SRE 场景的核心要求是：应用应保持可用，Agent 需要正确判断根因并提供解决方案。这里的“故障”不只包括宕机，也可以是错误配置、服务发现异常、网络策略、Service Mesh、资源配额、扩缩容、依赖失败或功能开关等问题。
+
+## 3. 先看优缺点和适用边界
+
+在进入两个项目的实现细节之前，先给出最重要的判断：
+
+| 项目 | 最强的地方 | 主要代价 |
+| --- | --- | --- |
+| **ITBench** | 场景规格、环境隔离、观测采集、Ground Truth、批量执行和 Agent 比较 | Kubernetes、Ansible、AWX、Recorder 和外部依赖较多，完整运行门槛较高 |
+| **Castrel Chaos** | 真实电商业务链路、SQL/Redis/JVM/存储/锁/支付依赖、在线停止和恢复 | 当前共享资源较多，Agent 评估、并行 Trial、Worker 多副本和证据归档仍需建设 |
+
+### 3.1 ITBench 的优势
+
+1. **规格和复用能力强**：Application、Tool、Fault、Waiter 和 Scenario 分层，机制可以跨场景复用。
+2. **实验边界清楚**：环境、Agent 权限、观测、Ground Truth、状态和结果归档有明确位置。
+3. **批量执行能力好**：本地环境和 AWX 多 Runner 可以覆盖开发与规模化实验。
+4. **领域覆盖较宽**：同时面向 SRE、FinOps 和 CISO。
+5. **适合研究和横向比较**：场景定义、Recorder、Bundle 和 Leaderboard 接入可以支持不同 Agent 的比较。
+
+### 3.2 ITBench 的局限
+
+1. 组件和外部依赖较多，本地完整运行门槛高。
+2. SRE/FinOps 与 CISO 的运行和评估协议仍不完全统一。
+3. Agent 权限在隔离 Sandbox 中可以较宽，不适合直接迁移到生产集群。
+4. 生成产物、文档、异步工作流和清理节点存在持续维护成本。
+5. 很多任务侧重 Kubernetes、平台、成本或合规问题，不一定经过完整消费者业务状态机。
+
+### 3.3 Castrel Chaos 的优势
+
+1. **业务真实性强**：异常嵌入商品、购物车、Checkout、支付、履约和通知。
+2. **资源级效果丰富**：SQL、Redis、JVM、文件系统、表锁、行锁和 PSP 都是真实路径。
+3. **在线生命周期完整**：Fault Run 具备持久状态、幂等、fencing、lease、补偿、恢复和审计。
+4. **业务面与控制面隔离清楚**：消费者不能访问内部 operation，业务服务不暴露控制面语义。
+5. **适合互动式演练**：Operator 可以观察一次运行、停止它，并查看恢复结果。
+
+### 3.4 Castrel Chaos 当前需要补强的地方
+
+1. **还没有统一的 Agent 接入和评分协议**：当前 Runner 是正常客户流量，不是 AI Agent。
+2. **并行实验隔离不足**：MySQL、Redis、连接池和 I/O 共享，不能直接把单环境扩展成多 Trial。
+3. **Worker 所有权和重协调需要加强**：直接扩容可能带来重复执行和重复恢复。
+4. **部分 Worker 的 Coordinator drain 不完整**：`ScenarioWorkers` 已注册 run-specific drain，报表和流量 Worker 仍主要依赖自身扫描或进程停止。
+5. **评估证据未形成统一档案**：有实时指标、日志、Trace 和运行事件，但缺少稳定的 Evidence Manifest。
+6. **确定性不够统一**：正常业务中存在随机失败率，PSP timeout 仍使用固定等待，不适合严格复现实验。
+7. **Schema 演进能力有限**：已有特定手工 migration，但总体仍偏向 clean install 合同。
+8. **数据预热和完整观测成本较高**：默认规模可能明显竞争 MySQL、磁盘、连接和网络资源。
+
+### 3.5 一句话选择建议
+
+| 目标 | 更适合的项目 | 原因 |
+| --- | --- | --- |
+| 比较多个 AI Agent 谁更会排障 | ITBench | 场景、环境、观测和结果边界更适合标准化。 |
+| 培训业务系统故障传播 | Castrel Chaos | 故障会经过真实 Checkout、支付、库存、通知等链路。 |
+| 练习 Kubernetes 平台运维 | ITBench | 故障和工具直接围绕 Kubernetes、网络、调度、成本和合规。 |
+| 练习数据库、缓存、JVM、支付依赖异常 | Castrel Chaos | 场景直接作用于这些真实资源和依赖。 |
+| 单次本地交互式演练 | Castrel Chaos | Compose、控制台和固定业务路径更容易启动。 |
+| 多次执行、跨 Agent 比较 | ITBench | AWX/Runner 和结果 Bundle 更适合批量运行。 |
+| 构建业务真实性更强的 Agent 基准 | 两者结合 | Castrel 提供运行时，ITBench 思路提供实验和评估层。 |
+
+## 4. ITBench 是什么
+
+### 4.1 ITBench 的核心组成
 
 ITBench 的场景通常由以下几类对象组合而成：
 
@@ -76,7 +166,7 @@ Recorder     记录故障过程中的观测数据
 
 这些对象通过模板、索引、JSON Schema 和 Ansible Role 组织起来。场景规格不是一段孤立脚本，而是可以被生成、校验、部署和清理的资源。
 
-### 3.2 ITBench 的运行流程
+### 4.2 ITBench 的运行流程
 
 ```mermaid
 flowchart LR
@@ -104,7 +194,7 @@ flowchart LR
   -> 清理考场
 ```
 
-### 3.3 ITBench 的规模化能力
+### 4.3 ITBench 的规模化能力
 
 ITBench 支持：
 
@@ -123,9 +213,210 @@ ITBench 支持：
 - AWX 的执行单元、托管环境、外部 Agent 和 Leaderboard 服务，不等于一个统一的本地 `Trial` 数据库模型；
 - 对象或拓扑 Snapshot 不等于完整数据库、Redis、文件和外部依赖环境的可恢复快照。
 
-## 4. Castrel Chaos 是什么
+### 4.4 ITBench SRE 使用的 Applications
 
-### 4.1 Castrel 的核心组成
+在 ITBench 中，**Application 不是单纯的一份业务源码**。它是可以被场景部署到 Kubernetes、被观测、被注入故障并在结束后清理的一套示例工作负载。一个 Application 通常同时包含：
+
+```text
+业务/示例微服务
+  + Kubernetes Namespace 和部署清单
+  + Service / Gateway 等访问入口
+  + Prometheus 监控规则
+  + 可选 HPA
+  + 可选负载生成器
+  + 版本和平台信息
+```
+
+当前 ITBench SRE application library 中有两个主要应用；场景通过 `spec.applications` 选择它们。根据当前工作树的 67 个 SRE `scenario.yaml`：
+
+- 5 个场景使用 `bookInfo`；
+- 62 个场景使用 `opentelemetryDemo`；
+- 当前没有场景同时启用两个应用。
+
+这不是“两个应用只能同时存在一个”的平台硬限制，而是当前场景资源的组织方式。
+
+#### 1. BookInfo：Istio Service Mesh 示例应用
+
+| 项目 | 内容 |
+| --- | --- |
+| ITBench ID | `book-info` |
+| 来源 | Istio 官方仓库的 BookInfo 示例 |
+| Namespace | `book-info` |
+| 典型组件 | `productpage`、`details`、`reviews` 多版本、`ratings`，并通过 Gateway API 对外提供访问 |
+| 平台关注点 | Istio、Ambient Mesh、Gateway、服务发现、流量治理、mTLS 和 Kubernetes 网络/访问策略 |
+| ITBench 附加能力 | Product page 简单负载生成器、Prometheus PodMonitor、PrometheusRule，可选 HPA |
+| 适合的 SRE 题目 | Service selector 错误、Gateway 授权策略、Namespace Ambient 模式、mTLS、工作负载或存储配置异常 |
+
+BookInfo 的价值在于拓扑相对容易讲清楚，但已经包含典型的微服务调用关系和 Service Mesh 控制面。比如用户访问 `productpage`，请求还会继续调用 `details`、`reviews` 和 `ratings`。因此一个入口故障可能表现为：
+
+```text
+productpage 请求失败/变慢
+  -> 下游 reviews 或 details 异常
+  -> Service、Gateway、mTLS 或网络策略成为排查方向
+  -> Agent 需要结合服务状态、配置和 Trace 定位问题
+```
+
+#### 2. OpenTelemetry Demo：Astronomy Shop 多服务示例应用
+
+| 项目 | 内容 |
+| --- | --- |
+| ITBench ID | `opentelemetry-demo` |
+| 来源 | OpenTelemetry 官方 Demo，通常称为 Astronomy Shop |
+| Namespace | `otel-demo` |
+| 部署方式 | OpenTelemetry Demo Helm Chart |
+| 典型组件 | `frontend`、`checkout`、`product-catalog`、`recommendation`、`payment`、`ad`、`kafka` 等多种服务和依赖 |
+| 平台关注点 | OpenTelemetry 指标/日志/Trace、跨服务调用、异步依赖、配置开关、资源配额和扩缩容 |
+| ITBench 附加能力 | 模拟用户和负载生成器、可选浏览器流量、可选 HPA、应用级 PrometheusRule |
+| 适合的 SRE 题目 | Feature Flag、支付/商品/推荐依赖异常、Kafka 问题、Service 删除、容器命令或环境变量错误、资源配额和扩缩容问题 |
+
+OpenTelemetry Demo 更适合展示“一个用户请求跨越很多服务和依赖”的复杂排障过程。例如：
+
+```text
+用户访问前端
+  -> frontend 调用 product-catalog / recommendation
+  -> checkout 继续调用支付、运输、货币或消息相关服务
+  -> 某个依赖配置错误或服务不可达
+  -> 前端可能只显示一个通用错误
+  -> Agent 需要通过 Trace、日志、指标和 Kubernetes 状态向下游追踪
+```
+
+ITBench 还会在部分场景中打开模拟浏览器流量或 HPA，使 SRE 问题不只是“服务挂了”，也包括：
+
+- 流量增加后是否正确扩容；
+- 扩容是否受到资源配额限制；
+- 某个服务的高延迟如何传播到上游；
+- 配置开关导致的业务行为变化如何被观测；
+- 异步组件或依赖失败如何在 Trace 和日志中体现。
+
+#### 两个 Application 的选择逻辑
+
+| 选择 | 适合讲解的重点 | 不应误解为 |
+| --- | --- | --- |
+| BookInfo | Service Mesh、Gateway、流量治理、mTLS、服务发现和小型拓扑 | 只有简单 Demo，不能代表 SRE 问题 |
+| OpenTelemetry Demo | 复杂微服务、跨服务 Trace、日志、指标、异步依赖、资源和成本 | 只是一套观测工具；它本身也是被诊断的业务应用 |
+
+从架构上看，ITBench 的 `Application` 与 `Tool` 是两个不同层次：
+
+```text
+Application = 被诊断的系统
+Tool        = 帮助 Agent 观察系统的工具
+
+BookInfo / OpenTelemetry Demo
+        + Prometheus / OpenTelemetry / Jaeger / ClickHouse / OpenCost
+        + Fault / Waiter
+        = 一个可运行的 SRE 场景
+```
+
+这也是 ITBench 与 Castrel 的一个重要差异：ITBench 可以替换被测 Application，而 Castrel 当前把电商业务拓扑作为平台本身的一部分。
+
+### 4.5 ITBench 使用什么框架
+
+ITBench 不是一个单独的“故障注入 SDK”，而是由多个层次组成的 Kubernetes 场景编排框架：
+
+| 层次 | 使用的框架/技术 | 作用 |
+| --- | --- | --- |
+| 依赖和运行入口 | `uv`、Python、Makefile | 安装依赖、生成配置和提供统一命令入口 |
+| 场景描述 | YAML、Jinja2 模板、JSON Schema | 描述 Application、Tool、Fault、Waiter 和 Scenario |
+| 自动化执行 | Ansible Core、Ansible Role、Ansible Playbook | 部署应用、安装工具、注入故障、等待状态和清理资源 |
+| Kubernetes 操作 | `kubernetes.core` Ansible Collection、Kubernetes API、Helm | 创建、读取、修改、删除和等待 Kubernetes 资源 |
+| 异步执行 | Ansible Runner | 在本地或脚本中异步执行 Fault Group |
+| 批量编排 | AWX、`awx.awx` Collection | 在多个 Runner 集群上重复执行场景和 Trial |
+| 故障工具 | Chaos Mesh、Istio、Gateway API、OpenCost 等 | 提供具体的网络、Service Mesh、资源、成本和平台故障能力 |
+| 测试和质量检查 | Ansible Lint、Molecule、Python 单元测试、E2E | 验证 Role、Fault、Waiter、脚本和完整场景 |
+
+当前仓库的主要版本基线包括 Python `>=3.12,<3.15`、Ansible Core `2.21.3`、Ansible Runner `2.4.3`、AWX Kit `24.6.1`、`kubernetes.core` Collection `6.5.0`；Chaos Mesh 通过 Helm Chart `2.8.4` 安装。版本会随仓库更新，宣讲时应以对应 checkout 的 `pyproject.toml`、`requirements.yaml` 和 Tool Role 为准。
+
+可以把它理解为：
+
+```text
+Scenario YAML
+    -> Jinja2 / Schema 校验和生成
+    -> Ansible Playbook / Role
+    -> Kubernetes API、Helm 或 Chaos Mesh
+    -> 应用和平台状态发生变化
+    -> Recorder 收集指标、日志、Trace、事件和拓扑
+```
+
+因此，**Ansible 是主要的编排和执行框架，Kubernetes 是故障发生的运行环境，Chaos Mesh/ Istio 等是部分具体故障机制**。不能简单地说“ITBench 使用 Chaos Mesh 注入所有故障”。
+
+### 4.6 ITBench 是如何注入故障的
+
+一次 SRE/FinOps 场景的故障注入大致经过以下步骤：
+
+```mermaid
+flowchart TD
+    Scenario[scenario.yaml] --> Make[make inject-scenario-faults]
+    Make --> Python[inject_scenario_faults.py]
+    Python --> Groups[按 fault group 启动 Ansible Runner]
+    Groups --> Manage[manage_faults.yaml]
+    Manage --> Pre[执行 pre-injection Waiter]
+    Pre --> Dispatch[faults_task_files 按 Fault ID 分发]
+    Dispatch --> Implement[inject_<fault-id>.yaml]
+    Implement --> K8s[Kubernetes API / Helm / Chaos Mesh / Istio]
+    K8s --> Effect[应用或平台出现真实可观测变化]
+    Effect --> Post[执行 post-injection Waiter]
+    Post --> Agent[Agent 观察、诊断和修复]
+```
+
+具体流程可以拆成九步：
+
+1. **读取 Scenario**：`scenario.yaml` 的 `spec.faults` 由一个或多个 Fault Group 组成；每组可以包含多个 `injections`，以及注入前后的 `waitFor`。
+2. **启动入口**：执行 `SCENARIO_NUMBER=<id> make inject-scenario-faults`，Makefile 调用 `scripts/inject_scenario_faults.py`。
+3. **按 Fault Group 并行**：Python 脚本读取 Fault Group 数量，为每个组调用 `ansible_runner.interface.run_async`，并传递 `scenario_id` 与 `faults_index`。不同组可以并行，同一组内的注入仍按声明顺序执行。
+4. **解析场景和等待条件**：`manage_faults.yaml` 加载场景，选中当前 Fault Group，分别构造 pre-injection 和 post-injection Waiter 列表。
+5. **执行前置 Waiter**：例如等待 Pod 删除、Deployment 重启、扩缩容或其他 Kubernetes 状态完成，保证故障在可理解的时序点发生。
+6. **按 Fault ID 分发**：`roles/faults/tasks/inject.yaml` 根据 `faults_task_files` 将 Fault ID 映射到 `inject_<fault-id>.yaml`，并把场景参数作为 `fault_args` 传入。
+7. **调用具体机制**：实现文件通常使用 `kubernetes.core.k8s` 创建/修改/删除资源，使用 `kubernetes.core.k8s_info` 查询和等待状态，也可以创建辅助 Deployment、ConfigMap、RBAC、负载脚本或 Chaos Mesh Schedule。
+8. **等待效果传播**：执行 post-injection Waiter，等待 Endpoint、Pod、Deployment、Chaos Mesh 实验或其他资源达到预期状态，然后把环境交给 Agent。
+9. **结束和清理**：`stop-scenario` 会停止 Recorder、执行 `remove_faults`、销毁 Application 和 Tool。清理受控资源与 Agent 修复原始故障不是一回事；例如被修改的 Service、ConfigMap 或 Deployment 可能需要 Agent 按 Ground Truth 修复，完整销毁环境则作为最终兜底。
+
+### 4.7 ITBench 的故障注入不是单一机制
+
+ITBench 的 Fault ID 最终映射到不同的底层操作，常见类型包括：
+
+| 故障机制 | 示例 | 典型底层操作 |
+| --- | --- | --- |
+| Kubernetes Service/网络 | 删除 Service、错误 Service selector、修改 target port、NetworkPolicy 阻断入口 | Patch/Delete Kubernetes Service、NetworkPolicy 和相关对象 |
+| 工作负载配置 | 错误镜像、错误启动命令、错误环境变量、错误 readiness probe | Patch Deployment/StatefulSet/Pod template，触发滚动更新或 Pod 失败 |
+| 工作负载容量 | 扩容到零、错误资源 requests/limits、资源配额不足、错误 HPA | Patch replicas、ResourceQuota、HPA 或容器资源 |
+| 调度和节点 | Cordon Node、错误节点选择、Pod anti-affinity、优先级抢占 | 修改 Node/Deployment/调度相关对象 |
+| 应用配置 | OpenTelemetry Demo 的 `flagd-config` 功能开关 | Patch ConfigMap，并等待相关 Deployment 重启 |
+| Service Mesh | 严格 mTLS、Gateway AuthorizationPolicy、关闭 Istio Ambient 模式 | 创建或修改 Istio PeerAuthentication、AuthorizationPolicy、Namespace/Workload 标签 |
+| 运行时压力 | Kubernetes API Server 请求突增、Valkey 内存压力 | 创建辅助 ServiceAccount、RBAC、Deployment 和负载生成脚本 |
+| 专用故障引擎 | 定时 Chaos Mesh 实验 | 创建 `chaos-mesh.org` Schedule/Experiment，并等待 `AllInjected` 状态 |
+
+例如，OpenTelemetry Demo 的功能开关故障不是让某个 Controller 直接返回错误，而是：
+
+```text
+读取 otel-demo/flagd-config
+  -> 修改 demo.flagd.json 中的目标 flag
+  -> 重启 flagd 和受影响工作负载
+  -> 让真实前端/下游请求产生高延迟、错误或异常流量
+  -> Agent 从 Trace、日志、指标和 Kubernetes 配置中定位原因
+```
+
+再比如 BookInfo 的 Service selector 故障会把 Service 指向不存在的标签，导致 Endpoint 被移除；Agent 需要从请求失败、Service、Endpoint 和调用链信号中判断这是服务发现/路由问题，而不是简单看到一个预制错误码。
+
+### 4.8 ITBench 一次场景执行中的注入、修复和清理边界
+
+ITBench 的一次场景执行至少涉及三种不同动作：
+
+| 动作 | 目的 | 典型执行者 |
+| --- | --- | --- |
+| Fault injection | 有意把系统置于问题状态 | Fault Role / Ansible / Kubernetes API / Chaos Mesh |
+| Agent remediation | 根据观测和 Ground Truth 修复问题 | 外部 Agent 或人工工程师 |
+| Environment cleanup | 删除场景环境和注入留下的资源 | Ansible/AWX Stop Workflow |
+
+这三者不能混为一谈：
+
+- 注入成功只表示问题被施加，不表示 Agent 已经解决；
+- Agent 修复成功只表示目标状态恢复，不等于所有 Recorder 和临时资源已删除；
+- `remove_faults` 会清理可识别的 Fault 资源，例如 Chaos Mesh Schedule、集群级辅助对象和节点状态，但不应被理解为对所有业务对象变更都自动做语义回滚；
+- 完整的 `stop-scenario` 会进一步销毁应用和工具，用于恢复干净的实验环境。
+
+## 5. Castrel Chaos 是什么
+
+### 5.1 Castrel 的核心组成
 
 Castrel Chaos 首先是一套电商系统：
 
@@ -155,7 +446,7 @@ Shopfront
 - 负责停止、恢复、清理和留存；
 - 由独立 Worker 执行持续流量、报表、资源竞争、补给和数据预热。
 
-### 4.2 Castrel 的两条主要链路
+### 5.2 Castrel 的两条主要链路
 
 #### 消费者业务链路
 
@@ -191,7 +482,7 @@ flowchart LR
 
 控制面不是一个“随便让业务服务返回错误”的接口。它只能通过 Gateway 调用代码中固定的 operation；目标服务只接收通用的运行上下文，不理解控制面展示名和生命周期语义。
 
-### 4.3 Castrel 当前场景举例
+### 5.3 Castrel 当前场景举例
 
 | 场景类型 | 真实路径 | 能观察到的影响 |
 | --- | --- | --- |
@@ -206,9 +497,9 @@ flowchart LR
 
 这里的 `Runner` 是正常客户生命周期或受控流量执行器，不是 AI Agent。
 
-## 5. 两个项目的架构对比
+## 6. 两个项目的架构对比
 
-### 5.1 用一个比喻理解
+### 6.1 用一个比喻理解
 
 | 比喻 | ITBench | Castrel Chaos |
 | --- | --- | --- |
@@ -219,7 +510,7 @@ flowchart LR
 | 批量能力 | AWX Head/Runner、多执行环境 | 当前单环境、单控制面、单 Worker 假设 |
 | 主要价值 | 可比性、可组合性、评估和规模化 | 真实业务因果链、控制、恢复和可观察性 |
 
-### 5.2 核心维度对比
+### 6.2 核心维度对比
 
 | 维度 | ITBench | Castrel Chaos |
 | --- | --- | --- |
@@ -235,7 +526,7 @@ flowchart LR
 | 扩展方式 | 新增模板、Schema、Role、场景和生成产物 | 新增 Catalog、Gateway operation、目标服务、Worker、恢复和测试 |
 | 默认复杂度 | 组件多、环境准备成本高 | 业务服务多、数据和观测成本高，但本地入口更直接 |
 
-### 5.3 谁更适合什么目标
+### 6.3 谁更适合什么目标
 
 | 目标 | 更适合的项目 | 原因 |
 | --- | --- | --- |
@@ -246,43 +537,6 @@ flowchart LR
 | 单次本地交互式演练 | Castrel Chaos | Compose、控制台和固定业务路径更容易启动。 |
 | 多次执行、跨 Agent 比较 | ITBench | AWX/Runner 和结果 Bundle 更适合批量运行。 |
 | 构建业务真实性更强的 Agent 基准 | 两者结合 | Castrel 提供运行时，ITBench 思路提供实验和评估层。 |
-
-## 6. 各自的优势与局限
-
-### 6.1 ITBench 的优势
-
-1. **规格和复用能力强**：Application、Tool、Fault、Waiter 和 Scenario 分层，机制可以跨场景复用。
-2. **实验边界清楚**：环境、Agent 权限、观测、Ground Truth、状态和结果归档有明确位置。
-3. **批量执行能力好**：本地环境和 AWX 多 Runner 可以覆盖开发与规模化实验。
-4. **领域覆盖较宽**：同时面向 SRE、FinOps 和 CISO。
-5. **适合研究和横向比较**：场景定义、Recorder、Bundle 和 Leaderboard 接入可以支持不同 Agent 的比较。
-
-### 6.2 ITBench 的局限
-
-1. 组件和外部依赖较多，本地完整运行门槛高。
-2. SRE/FinOps 与 CISO 的运行和评估协议仍不完全统一。
-3. Agent 权限在隔离 Sandbox 中可以较宽，不适合直接迁移到生产集群。
-4. 生成产物、文档、异步工作流和清理节点存在持续维护成本。
-5. 很多任务侧重 Kubernetes、平台、成本或合规问题，不一定经过完整消费者业务状态机。
-
-### 6.3 Castrel Chaos 的优势
-
-1. **业务真实性强**：异常嵌入商品、购物车、Checkout、支付、履约和通知。
-2. **资源级效果丰富**：SQL、Redis、JVM、文件系统、表锁、行锁和 PSP 都是真实路径。
-3. **在线生命周期完整**：Fault Run 具备持久状态、幂等、fencing、lease、补偿、恢复和审计。
-4. **业务面与控制面隔离清楚**：消费者不能访问内部 operation，业务服务不暴露控制面语义。
-5. **适合互动式演练**：Operator 可以观察一次运行、停止它，并查看恢复结果。
-
-### 6.4 Castrel Chaos 当前需要补强的地方
-
-1. **还没有统一的 Agent 接入和评分协议**：当前 Runner 是正常客户流量，不是 AI Agent。
-2. **并行实验隔离不足**：MySQL、Redis、连接池和 I/O 共享，不能直接把单环境扩展成多 Trial。
-3. **Worker 所有权和重协调需要加强**：直接扩容可能带来重复执行和重复恢复。
-4. **部分 Worker 的 Coordinator drain 不完整**：`ScenarioWorkers` 已注册 run-specific drain，报表和流量 Worker 仍主要依赖自身扫描或进程停止。
-5. **评估证据未形成统一档案**：有实时指标、日志、Trace 和运行事件，但缺少稳定的 Evidence Manifest。
-6. **确定性不够统一**：正常业务中存在随机失败率，PSP timeout 仍使用固定等待，不适合严格复现实验。
-7. **Schema 演进能力有限**：已有特定手工 migration，但总体仍偏向 clean install 合同。
-8. **数据预热和完整观测成本较高**：默认规模可能明显竞争 MySQL、磁盘、连接和网络资源。
 
 ## 7. Castrel Chaos 的演化方向
 
@@ -582,11 +836,12 @@ flowchart TB
 如果用于现场介绍，可以按以下顺序讲：
 
 1. **先讲问题**：传统故障演示不一定真实，传统 Agent 评测不一定经过真实业务。
-2. **再讲 ITBench**：它把场景、环境、工具、Ground Truth 和多次执行标准化。
-3. **再讲 Castrel**：它把故障放进真实电商业务、数据库、缓存、JVM、锁和支付链路。
-4. **用一张图对比**：ITBench 是“标准化考场”，Castrel 是“真实业务演练场”。
-5. **说明互补关系**：Castrel 可以成为更真实的业务故障运行时，ITBench 的思想可以补齐评估和实验归档。
-6. **最后讲路线图**：先修 Worker 和状态机，再做 Contract/Evidence/Evaluator，最后做多 Trial 和生态。
+2. **先给结论**：先说明 ITBench 的标准化/评估优势，以及 Castrel 的业务真实性/恢复优势。
+3. **补充 SRE 背景**：解释可靠性、Chaos Engineering、故障注入和恢复验证分别是什么。
+4. **再讲 ITBench**：它把场景、环境、工具、Ground Truth 和多次执行标准化。
+5. **再讲 Castrel**：它把故障放进真实电商业务、数据库、缓存、JVM、锁和支付链路。
+6. **深入架构差异**：ITBench 是“标准化考场”，Castrel 是“真实业务演练场”。
+7. **说明互补关系并讲路线图**：Castrel 可以成为更真实的业务故障运行时，先修 Worker 和状态机，再做 Contract/Evidence/Evaluator，最后做多 Trial 和生态。
 
 结束时可以用这句话总结：
 
