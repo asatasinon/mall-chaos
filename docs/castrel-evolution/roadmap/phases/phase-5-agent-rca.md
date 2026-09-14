@@ -24,6 +24,58 @@ Pilot candidate 至少满足：
 
 推荐先从 `BROWSE_SURGE`、`PSP_PROVIDER_OUTCOME` 等有明确告警和业务路径的候选中选择一个，最终以阶段 0 的实际阈值和环境验证结果为准；不默认把推荐名称当作已选场景。
 
+## 5.0 先补告警接收与关联基础
+
+这是阶段 5 的前置子阶段，必须在外部 Agent 接入前完成。阶段 0 只负责核对现状、记录阻塞和选择候选场景；阶段 5 负责补齐缺失实现。
+
+### 必须实现
+
+1. **控制面 Alertmanager webhook route**
+   - 实现配置中使用的 `POST /internal/alertmanager/webhook` 或等价内部 route。
+   - 只允许 Alertmanager 所在内部网络调用；不把该 route 作为外部 Agent API。
+   - 解析 Alertmanager webhook payload 的 `status`、`groupKey`、`commonLabels`、`commonAnnotations` 和 `alerts[]`。
+   - 同时处理 `firing`、`resolved`、grouped alerts 和 `send_resolved`。
+2. **告警接收记录**
+   - 保存 `fingerprint`、alert name、severity、service、startsAt、endsAt/resolvedAt、receivedAt、groupKey、status 和关联结果。
+   - 保存最小字段，不保存指标、日志、Trace 或完整 Alertmanager payload 中的秘密/无关内容。
+   - 对同一 fingerprint 和 startsAt 做幂等去重，重复 webhook 不重复创建告警实例。
+3. **告警与 Fault Run 关联**
+   - 根据 Scenario Contract 的 alert contract、服务、规则、时间窗口和 active Fault Run 进行关联。
+   - 零匹配写入 `UNMATCHED_ALERT`。
+   - 多匹配写入 `AMBIGUOUS_ALERT`，不得向 Agent 投递。
+   - 生成服务端 opaque `alertRef`，外部 Agent 只看到该引用。
+4. **Alertmanager 外部 receiver**
+   - Alertmanager 直接向外部 Agent webhook 投递，不新增 Alert Delivery Gateway。
+   - receiver 使用部署侧 Nginx Basic Auth 保护的 Agent webhook 地址和 Basic Auth 配置。
+   - Alertmanager 的内部控制面 webhook 与外部 Agent webhook 是两个独立 receiver。
+5. **AgentSubmission 接收入口**
+   - 对外提交入口由统一 Nginx Basic Auth 拦截未认证请求。
+   - 通过 `agent-submission.v1` JSON Schema 校验。
+   - 校验 `alertRef` 是否存在、是否关联唯一运行、评估是否关闭。
+   - 保存幂等的 submission metadata，然后自动排队 Evaluator。
+
+### 必须测试
+
+- Alertmanager `firing` payload。
+- Alertmanager `resolved` payload。
+- grouped alerts 拆分为独立 alert fingerprint。
+- 重复 webhook 幂等。
+- `send_resolved` 关闭告警关联。
+- 无匹配和多匹配 Fault Run。
+- Alertmanager 到控制面 webhook 的内部网络访问。
+- Alertmanager 到外部 Agent webhook 的 Basic Auth。
+- 未认证访问 Agent webhook/提交入口被 Nginx 拒绝。
+- 相同 `submissionId` 重试不重复排队。
+- 无效 `alertRef`、未知 fingerprint 和已关闭评估被拒绝。
+
+### 该子阶段不实现
+
+- 不实现 Agent 细粒度授权。
+- 不实现 Observation Gateway。
+- 不实现 Agent 自动 remediation。
+- 不实现多 Trial 或环境隔离。
+- 不把 Alertmanager 当前 API/UI 的 Nginx 认证误当作内部 webhook 认证。
+
 ## 触发链路
 
 ```text
