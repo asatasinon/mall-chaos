@@ -48,6 +48,8 @@ Pilot candidate 至少满足：
    - Alertmanager 直接向外部 Agent webhook 投递，不新增 Alert Delivery Gateway。
    - receiver 使用部署侧 Nginx Basic Auth 保护的 Agent webhook 地址和 Basic Auth 配置。
    - Alertmanager 的内部控制面 webhook 与外部 Agent webhook 是两个独立 receiver。
+   - 只为阶段 5 选定的 alert name/service 配置专用 child route，不把默认、warning 或 critical 全量告警发送给 Agent。
+   - Agent webhook URL、Basic Auth 用户名/密码由部署配置提供，不接受 Agent 在运行时注册任意 callback URL。
 5. **AgentSubmission 接收入口**
    - 对外提交入口由统一 Nginx Basic Auth 拦截未认证请求。
    - 通过 `agent-submission.v1` JSON Schema 校验。
@@ -194,6 +196,8 @@ observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 - 告警恢复为 `resolved` 不会使提交失效；恢复只影响观测时间线和后续 remediation 状态。
 - 服务端只拒绝无法关联或明确关闭的提交；如果观测 retention 已无法复查，提交仍可接收，但评估结果为 `EVIDENCE_UNAVAILABLE` 或部分证据不可用。
 - 新一轮重新 firing 且 `startsAt` 改变时，生成新的 alertRef 和新的告警接收记录。
+- v0 不因为经过固定分钟数、告警变为 resolved 或 Fault Run 到期而自动关闭评估；`evaluationClosedAt` 只在 Operator/服务端显式关闭或本次评估完成明确终态流程后写入。
+- 评估为 `COMPLETED` 后，新的 AgentSubmission 默认不再替换原报告；如需重新评估，Operator 必须显式重试或重新打开评估并记录原因。
 
 这几个时间必须分开：
 
@@ -205,6 +209,8 @@ observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 | Agent submission `submittedAt` | Agent 报告中的自报时间，仅作审计信息 |
 | `evaluationClosedAt` | 服务端/Operator 关闭该告警评估的时间，可为空 |
 | Observability retention end | Prometheus/Loki/Tempo 仍可查询该窗口的最晚时间 |
+
+告警接收记录的保留时间与观测 retention 分开：观测数据可以过期并导致 `EVIDENCE_UNAVAILABLE`，但告警接收记录、AgentSubmission 和评估状态仍应按 Fault Run/控制面 retention 保留，便于审计。
 
 `alertRef` 只是关联键，不是观测凭据。Agent 使用部署侧提供的统一 Nginx Basic Auth 访问现有观测入口：
 
@@ -307,6 +313,89 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
   "extensions": {}
 }
 ```
+
+### 字段说明
+
+#### 顶层字段
+
+| 字段路径 | 类型 | 必填 | 来源/写入者 | 说明与 Evaluator 用途 |
+| --- | --- | --- | --- | --- |
+| `schemaVersion` | string | 是 | Agent，受 Schema 限制 | 固定为 `agent-submission.v1`，用于选择解析和校验规则。 |
+| `submissionId` | string | 是 | Agent 提供，服务端校验唯一性 | 本次提交的幂等键和审计键；同值重试不得重复排队。 |
+| `alertRef` | object | 是 | Agent 原样回传告警 envelope 中的值 | 关联告警接收记录和服务端运行上下文；Agent 不能自行创建或修改。 |
+| `alertRef.fingerprint` | string | 是 | 告警接收系统生成 | Alertmanager 告警实例指纹。 |
+| `alertRef.startsAt` | RFC 3339 string | 是 | 告警接收系统生成 | 告警开始时间；用于复查窗口，不代表当前仍 firing。 |
+| `alertRef.receivedAt` | RFC 3339 string | 是 | 控制面生成 | 控制面首次接收告警时间；Agent 只能回传，不能修改。 |
+| `submittedAt` | RFC 3339 string | 是 | Agent 提供，服务端另记接收时间 | Agent 自报生成时间，只用于审计，不决定评估资格或 retention。 |
+| `agent` | object | 是 | Agent | 标识 Agent 实现，不包含凭据或内部连接信息。 |
+| `agent.name` | string | 是 | Agent | Agent 名称。 |
+| `agent.version` | string | 是 | Agent | Agent 版本，用于结果分组和复现。 |
+| `diagnosis` | object | 是 | Agent | RCA 分析主体。 |
+| `evidenceRefs` | array | 是 | Agent | Agent 使用过的证据引用；Evaluator 会重新查询验证。 |
+| `remediationRecommendation` | object | 是 | Agent | 针对实际业务/基础设施问题的修复建议，不是 Fault Run 控制动作。 |
+| `limitations` | array[string] | 是 | Agent | Agent 已知的证据缺口、不确定性和不能证明的结论。 |
+| `extensions` | object | 否 | Agent | 非核心扩展字段；Evaluator v1 不依赖其内容评分。 |
+
+#### `diagnosis` 字段
+
+| 字段路径 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `diagnosis.summary` | string | 是 | 面向人的 RCA 一句话摘要。 |
+| `diagnosis.symptoms` | array[string] | 建议 | 观察到的症状，例如延迟、错误、依赖不可用或资源压力。不能把未经查询验证的猜测写成事实。 |
+| `diagnosis.rootCause` | object | 是 | Agent 对根因的结构化判断。 |
+| `diagnosis.rootCause.category` | enum | 是 | `DATABASE_QUERY`、`CACHE`、`DEPENDENCY`、`LOCK`、`JVM`、`STORAGE`、`EXTERNAL_PROVIDER`、`TRAFFIC`、`CONFIGURATION` 或 `UNKNOWN`。 |
+| `diagnosis.rootCause.service` | string | 是 | Agent 判断的主要业务/基础设施服务。 |
+| `diagnosis.rootCause.resource` | string | 是 | 受影响的资源、操作、依赖或配置对象。 |
+| `diagnosis.rootCause.explanation` | string | 是 | 用证据支持的根因解释；不能包含内部密钥或控制面秘密。 |
+| `diagnosis.affectedServices` | array[string] | 是 | 受影响或需要关注的服务。 |
+| `diagnosis.affectedResources` | array[string] | 是 | 受影响的表、缓存、锁、文件、依赖或业务路径。 |
+| `diagnosis.confidence` | number `0..1` | 是 | Agent 自评置信度，不等于 Evaluator 确认结果。 |
+| `diagnosis.uncertainties` | array[string] | 是 | 未确认的查询、数据缺口和替代解释。允许为空数组。 |
+
+#### `evidenceRefs` 字段
+
+| 字段路径 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `evidenceRefs[].evidenceId` | string | 是 | 本次提交内唯一的证据引用 ID。 |
+| `evidenceRefs[].kind` | enum | 是 | `metric`、`log`、`trace`、`business_check`、`run_event` 或 `resource_check`。 |
+| `evidenceRefs[].source` | enum | 是 | `prometheus`、`loki`、`tempo`、`business_api`、`control_plane` 或 `resource_api`。 |
+| `evidenceRefs[].service` | string | 视 kind | 观测服务或业务服务；控制面字段不能替代业务服务事实。 |
+| `evidenceRefs[].window.from/to` | RFC 3339 string | 是 | Agent 查询证据的时间窗口，必须落在 alertRef 关联的允许窗口内。 |
+| `evidenceRefs[].agentQuery` | string | 是 | Agent 实际使用的查询文本，仅作审计和对照；Evaluator 不直接执行。 |
+| `evidenceRefs[].observation` | string | 是 | Agent 从查询结果看到的现象摘要，不是原始日志/Trace 的替代存储。 |
+| `evidenceRefs[].supports` | array[enum] | 是 | `symptom`、`root_cause`、`impact`、`remediation` 之一或多个。 |
+
+Agent 的 `agentQuery` 不能包含凭据、任意外部 URL、可执行 SQL 或绕过 allowlist 的内部地址。Evaluator 根据 Scenario Contract 和 Evidence Query Manifest 生成受控查询进行复查。
+
+#### `remediationRecommendation` 字段
+
+| 字段路径 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `remediationRecommendation.summary` | string | 是 | 实际业务/基础设施修复建议摘要。 |
+| `remediationRecommendation.actions` | array | 是 | 按顺序排列的声明性建议，不是可直接执行脚本。 |
+| `actions[].order` | integer | 是 | 建议顺序，从 1 开始。 |
+| `actions[].action` | string | 是 | 修复实际问题的操作描述，例如修改业务配置、修复 Service、回滚应用版本或调整索引。 |
+| `actions[].target` | string | 是 | 目标业务服务、资源、依赖或配置对象。禁止填写 Fault Run 控制面。 |
+| `actions[].preconditions` | array[string] | 是 | 执行前需要确认的业务、资源和变更条件。 |
+| `actions[].risks` | array[string] | 是 | 修复可能造成的副作用和风险。 |
+| `actions[].verification` | array[string] | 是 | 验证实际业务/基础设施修复是否生效的检查。 |
+| `actions[].rollback` | array[string] | 是 | 回退实际修复动作的方法。 |
+
+`remediationRecommendation` 不允许建议停止/延长 Fault Run、调用 `release`/`cleanup`、操作 Alertmanager/Evaluator/Worker 或修改控制面状态。Operator 是否执行建议由控制面单独记录，不能由 Agent 在 JSON 中声明。
+
+#### 由服务端/Evaluator 管理的字段
+
+以下信息不进入 `AgentSubmission.json`：
+
+| 信息 | 维护者 | 说明 |
+| --- | --- | --- |
+| `evaluationStatus` | Evaluator | `OPEN`、`RUNNING`、`COMPLETED`、`CLOSED`、`EVIDENCE_UNAVAILABLE`、`FAILED`。 |
+| `evaluationClosedAt` | 服务端/Operator | 关闭评估的时间。 |
+| Prometheus/Loki/Tempo retention | 部署配置和观测系统 | 判断能否复查证据。 |
+| `evidenceAvailability` | Evaluator | 每个查询窗口的可用性。 |
+| `remediationExecutionStatus` | Operator/控制面 | `NOT_REVIEWED`、`REJECTED`、`ACCEPTED_NOT_EXECUTED`、`EXECUTED`、`VERIFIED`、`FAILED`。 |
+| `faultRunControlStatus` | Fault Run 控制面 | stop/release/cleanup 等内部状态，与实际 remediation 分开。 |
+| `score` | Evaluator | Agent 不能自报或修改。 |
 
 必填字段：
 
@@ -430,7 +519,7 @@ FAILED
 - Agent 只能只读查询并提交 RCA/建议。
 - AgentSubmission 必须通过版本化 JSON Schema。
 - 同一 `submissionId` 重试幂等；评估已关闭的告警提交不进入自动评估，观测过期则进入 `EVIDENCE_UNAVAILABLE`。
-- Operator 不执行实际场景 remediation 是合法结果，报告使用 `remediationExecutionStatus = NOT_EXECUTED`。
+- Operator 不执行实际场景 remediation 是合法结果，报告使用 `remediationExecutionStatus = ACCEPTED_NOT_EXECUTED`；尚未审核时使用 `NOT_REVIEWED`。
 - Evaluator 状态区分 `PENDING`、`RUNNING`、`COMPLETED`、`EVIDENCE_UNAVAILABLE`、`FAILED`。
 - 不发布跨 Agent 排行榜。
 - 试点场景的 alert receipt、AgentSubmission、Evaluator report 和 `remediationExecutionStatus` 可以通过同一 `alertRef` 关联；Fault Run 的内部 stop/release/cleanup 状态仍只由控制面记录。
