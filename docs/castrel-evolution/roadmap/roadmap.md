@@ -54,7 +54,7 @@
    - 校验 Catalog 与 Gateway target map。
    - 校验 Worker dispatch、recovery strategy、参数、时长、runbook、Evidence Query 和 i18n。
 
-完成这三个增量后，先完成阶段 4，再进入阶段 5。不要同时启动未纳入当前路线的并行调度、消息驱动或 Agent 自动恢复能力。
+完成这三个增量后，先完成阶段 4，再进入阶段 5。不要同时启动 Agent 自动恢复能力。
 
 ## 5. 阶段依赖与验收总表
 

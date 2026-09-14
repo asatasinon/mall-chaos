@@ -20,7 +20,6 @@ scenario
   - alert receipt retention and evaluation closure policy
   - recovery checks
   - side-effect checks
-  - isolation requirements
 ```
 
 Contract 属于控制面和测试生成层，不原样暴露给业务服务。
