@@ -1,5 +1,7 @@
 # 阶段 1：安全停止和失败传播
 
+> 状态：当前优先级；依赖阶段 0
+
 ## 目标
 
 让单 Worker、单环境下的 Fault Run 在停止、超时、重启和失败时可预测。
@@ -22,10 +24,10 @@ start
 - `ReportScenarioWorker`
 - `TrafficSurgeExecutor`
 - `ScenarioWorkers`
-- 客户生命周期 Runner
-- 数据预热和补给任务
 
 `ScenarioWorkers` 已有 run-specific drain；报表和流量 Worker 需要补齐与 Coordinator 的注册和停止顺序。
+
+客户生命周期 Runner、数据预热和补给任务属于独立的后台生命周期，不应因为停止单个 Fault Run 被连带停止。它们只有在自身进程关闭、专属任务停止或明确共享同一运行 owner 时，才进入相同的 drain 协议；阶段 1 先完成 Fault Run 级 Worker 的停止边界，再分别补充后台任务的关闭语义。
 
 ## 统一结果
 
@@ -47,6 +49,7 @@ start
 - 报表、流量和专用 Worker 的 drain 结果可见。
 - Worker 重启不会把已停止运行重新启动为 ACTIVE。
 - 注入、release、cleanup 任一步失败都向上游传播。
+- 停止单个 Fault Run 不会意外停止正常客户流量、数据预热或补给任务。
 
 ## 发布
 

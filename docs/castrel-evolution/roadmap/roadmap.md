@@ -1,6 +1,6 @@
 # Castrel Chaos 渐进式演化路线图
 
-> 状态：规划中  
+> 状态：阶段 0～5 当前优先；阶段 6～7 远期冻结
 > 更新时间：2026-09-11 CST  
 > 阶段细节见 `phases/`；所有阶段共用规则见 [operating-model.md](./operating-model.md)。
 
@@ -27,9 +27,9 @@
 | 2 | [phase-2-reconciliation.md](./phases/phase-2-reconciliation.md) | owner lease、heartbeat、fencing 和 Reconciler | 单副本默认，测试 opt-in |
 | 3 | [phase-3-scenario-contract.md](./phases/phase-3-scenario-contract.md) | Catalog、Gateway、Worker 和测试合同 | CI blocking，运行时先不改变 |
 | 4 | [phase-4-evidence-query.md](./phases/phase-4-evidence-query.md) | 实时 Evidence Query Manifest 和确定性基线 | Operator 旁路查询报告 |
-| 5 | [phase-5-agent-rca.md](./phases/phase-5-agent-rca.md) | 告警驱动、只读观测、RCA 和恢复建议 | 专用单环境、单场景、单运行 |
-| 6 | [phase-6-isolation-trials.md](./phases/phase-6-isolation-trials.md) | Profile、Environment、资源/数据隔离和 Trial | opt-in |
-| 7 | [phase-7-scale-domain.md](./phases/phase-7-scale-domain.md) | Worker Pool、Outbox、FinOps 和 CISO | 按环境和能力逐项启用 |
+| 5 | [phase-5-agent-rca.md](./phases/phase-5-agent-rca.md) | 告警驱动、只读观测、RCA 和实际场景 remediation 建议 | 专用单环境、单场景、单运行 |
+| 6 | [phase-6-isolation-trials.md](./phases/phase-6-isolation-trials.md) | Profile、Environment、资源/数据隔离和 Trial | 远期冻结，当前不投入人力 |
+| 7 | [phase-7-scale-domain.md](./phases/phase-7-scale-domain.md) | Worker Pool、Outbox、FinOps 和 CISO | 远期冻结，当前不投入人力 |
 
 ## 3. 必须遵守的顺序
 
@@ -41,6 +41,7 @@
 - Agent 只读查询观测数据，提交标准化 `AgentSubmission.json`，不执行恢复。
 - Evaluator 在合法提交后自动排队，重新查询当前观测数据并生成报告。
 - 阶段 6 完成资源和数据隔离后，才开放可比较的多 Trial。
+- 阶段 6 和阶段 7 当前只保留设计边界、依赖和未来验收条件，不进入当前迭代、不承诺排期。
 
 ## 4. 当前建议起点
 
@@ -70,8 +71,8 @@
 | 3 | 阶段 2 状态事实稳定 | 12 个场景 Contract validation 通过 |
 | 4 | 阶段 3 有稳定场景定义 | retention 内可重复查询关键证据 |
 | 5 | 阶段 4 有 Query Manifest 和告警合同 | AgentSubmission、RCA 和 Evaluator 闭环完成 |
-| 6 | 阶段 5 单运行试点稳定 | 两个环境互不污染 |
-| 7 | 阶段 0～6 全部稳定 | Worker Pool、异步或领域扩展逐项通过门禁 |
+| 6 | 阶段 5 单运行试点稳定，且重新获得资源 | 两个环境互不污染 |
+| 7 | 阶段 0～6 全部稳定，且重新获得资源 | Worker Pool、异步或领域扩展逐项通过门禁 |
 
 ## 6. 共用规则
 

@@ -20,12 +20,12 @@
 - 外部 Agent 不获取 `taskId`、`evaluationId`、`faultRunId`、Operator session 或内部 service key。
 - Agent 由 Alertmanager firing alert 被动触发。
 - Agent 只接收告警 envelope 和 opaque `alertRef`。
-- Agent 只读查询观测数据、提交 RCA 和恢复建议。
+- Agent 只读查询观测数据、提交 RCA 和实际场景 remediation 建议。
 - Agent 不执行恢复、release、cleanup 或业务写操作。
 
 ### 1.4 Evidence Query v0 边界
 
-- 只保存控制面时间线、查询窗口、查询配方、RCA/建议和评估状态。
+- 只保存控制面时间线、查询窗口、查询配方和评估状态；阶段 5 之后才接入 Agent RCA/建议提交。
 - 不保存 Prometheus 指标结果、Loki 日志、Tempo Trace、MySQL/Redis volume、JVM heap 或文件现场快照。
 - 观测数据过期或查询失败时输出 `evidence_unavailable`。
 - 如果未来需要离线 replay，另立 `offline-evidence` 阶段。

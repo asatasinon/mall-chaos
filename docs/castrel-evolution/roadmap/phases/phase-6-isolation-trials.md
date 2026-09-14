@@ -1,8 +1,10 @@
 # 阶段 6：Environment Profile、资源/数据隔离和 Trial
 
+> 状态：远期冻结；当前无实现人力
+
 ## 目标
 
-把阶段 5 的专用单环境 RCA 试点扩展成可重复、可验证、可并行的 Trial 基础设施。
+在阶段 5 稳定且重新获得实现资源后，把专用单环境 RCA 试点扩展成可重复、可验证、可并行的 Trial 基础设施。
 
 ## 对象模型
 
@@ -22,7 +24,7 @@ Environment
 | `Trial` | 一个 Agent 在一个环境和配置下的一次可比较执行 |
 | `Fault Run` | Trial 内具体的在线受控故障运行 |
 
-阶段 5 的专用手工环境需要迁移为受 `Environment` 管理的实例；Agent Access 继续只读 RCA，直到另行完成恢复执行的安全评审。
+阶段 5 的专用手工环境需要迁移为受 `Environment` 管理的实例；Agent Access 继续只读 RCA，直到另行完成实际场景 remediation 执行的安全评审。
 
 ## Profile
 
@@ -70,7 +72,7 @@ Environment create
 
 - 两个相同场景的 Redis、MySQL、文件和事件互不污染。
 - 一个环境销毁不影响另一个。
-- Trial 证据可以绑定环境和镜像/配置版本。
+- Trial Query Manifest 和报告可以绑定环境和镜像/配置版本。
 - Agent Access 权限和审计边界迁移后不变。
 - 跨 Agent/版本比较只在隔离验证通过后开放。
 - 同一 profile、配置和 seed 的重复 Trial 能区分环境差异、Agent 差异和目标效果差异。

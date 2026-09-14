@@ -1,8 +1,10 @@
 # 阶段 4：Evidence Query Manifest 和确定性基线
 
+> 状态：当前优先级；依赖阶段 0～3
+
 ## 目标
 
-让 Operator 和 Agent 能按统一时间窗口直接查询现有 Prometheus、Loki、Tempo、业务只读接口和 Run Event。本阶段不保存现场指标、日志、Trace 或完整资源快照。
+让 Operator（以及阶段 5 之后的 Agent）能按统一时间窗口直接查询现有 Prometheus、Loki、Tempo、业务只读接口和 Run Event。本阶段不保存现场指标、日志、Trace 或完整资源快照。
 
 ## Evidence Query Manifest
 
@@ -11,7 +13,7 @@ Manifest 保存：
 - Fault Run 元数据和控制面时间线。
 - `baseline`、`active`、`recovery`、`cleanup` 时间窗口。
 - PromQL、LogQL、TraceQL 和业务检查配方。
-- Agent RCA、证据引用、置信度和恢复建议。
+- 可选的 Operator 分析笔记；阶段 5 之后才接入 Agent RCA、证据引用、置信度和实际场景 remediation 建议。
 - `evidence_unavailable`、查询失败和数据过期状态。
 
 不保存：
@@ -63,13 +65,15 @@ t_cleanup_finished       可选
 
 ## Evaluator v0
 
+Evaluator v0 可以在没有外部 Agent 的情况下运行，先生成 Operator 现场验证报告；阶段 5 之后再把 `AgentSubmission` 作为可选输入。
+
 Evaluator 读取：
 
-- AgentSubmission。
+- 可选的 AgentSubmission。
 - 告警接收记录。
 - 当前 Prometheus/Loki/Tempo 和业务只读查询结果。
 - Fault Run、Run Event 和审计事实。
-- 可选的 Operator outcome。
+- 可选的实际场景 remediation outcome；Fault Run 的 stop/release/cleanup 状态仍单独来自控制面。
 
 Evaluator 不执行恢复、不调用 release/cleanup。告警从 `firing` 变为 `resolved` 是正常现象；评估不要求当前仍 firing。
 
@@ -91,5 +95,5 @@ FAILED
 - 在 retention 内可以重复查询同一时间窗口。
 - 查询失败或数据过期标记 `evidence_unavailable`。
 - `prepare succeeded` 不等于 `target_effect_observed`。
-- RCA、证据、建议、Operator 执行和业务恢复能分别表示。
-- AgentSubmission 使用版本化 JSON Schema；Markdown 只用于展示。
+- 目标效果、证据、Operator 执行和业务恢复能分别表示。
+- 阶段 5 接入 Agent 后，AgentSubmission 使用版本化 JSON Schema；Markdown 只用于展示。
