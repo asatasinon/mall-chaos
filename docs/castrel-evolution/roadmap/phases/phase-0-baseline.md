@@ -38,6 +38,7 @@ knownLimitations / residualResources / rollbackProcedure
 ```
 - 阶段 5 候选告警基线：每个候选场景的 alert name、service、severity、阈值、startsAt/receivedAt/resolvedAt、观测 retention、评估关闭条件和是否能关联 Fault Run。
 - 告警接入基线：确认 Alertmanager 当前 webhook 路由、`send_resolved`、认证和控制面接收端点真实存在；配置文件中的 webhook URL 不能视为接收能力已经实现。
+- 记录阶段 5 专用 Alertmanager child route 是否存在、是否只匹配 pilot alert、是否配置外部 receiver，以及是否避免把默认告警全量发送给 Agent。
 
 ## 验收
 
