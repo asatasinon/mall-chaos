@@ -91,7 +91,7 @@
 
 1. 当前 Alertmanager webhook 配置对应的控制面接收 route、认证和 payload 处理必须先通过代码/集成测试确认。
 2. 必须选出至少一个真实告警可稳定触发的场景；不能假设 Fault Run 开启就一定有 firing alert。
-3. 外部 Agent 只能通过告警 envelope 获得只读观测入口和短时访问凭据，不能直接调用控制面。
+3. 外部入口统一由 Nginx Basic Auth 保护；Agent 使用部署侧 Basic Auth 访问现有观测入口，不能直接调用控制面写接口。
 4. `remediationRecommendation` 只能描述实际业务/基础设施修复，不能描述 Fault Run stop/release/cleanup。
 5. 阶段 4 的 Evaluator 可以先作为 Operator 现场验证逻辑运行，不应把 AgentSubmission 作为阶段 4 的前置依赖。
 

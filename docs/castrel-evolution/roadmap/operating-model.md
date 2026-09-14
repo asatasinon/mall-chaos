@@ -20,7 +20,9 @@
 - 外部 Agent 不获取 `taskId`、`evaluationId`、`faultRunId`、Operator session 或内部 service key。
 - Agent 由 Alertmanager firing alert 被动触发。
 - Agent 只接收告警 envelope 和 opaque `alertRef`。
-- Agent 通过告警 envelope 获得 allowlisted、短时、只读的观测入口，提交 RCA 和实际场景 remediation 建议。
+- 外部入口统一由 Nginx Basic Auth 拦截未认证请求；Agent 使用部署侧提供的 Basic Auth 访问现有观测入口。部署只发布 RCA 试点所需的告警、观测和提交入口，不把控制面写 API 作为 Agent 接入地址。
+- 阶段 5 不新增应用层 Agent 角色、租户授权或细粒度授权逻辑。
+- Agent 提交 RCA 和实际场景 remediation 建议。
 - Agent 不执行恢复、release、cleanup 或业务写操作。
 
 ### 1.4 Evidence Query v0 边界

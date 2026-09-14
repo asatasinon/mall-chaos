@@ -29,12 +29,12 @@ Pilot candidate 至少满足：
 ```text
 控制面开启 Fault Run
   -> 真实业务行为产生影响
-  -> Alertmanager 产生 allowlisted firing alert
+  -> Alertmanager 产生配置规则选中的 firing alert
   -> traffic-control-plane 接收并关联告警
-  -> Alert Delivery Gateway 发送受控告警 envelope
-  -> Agent 通过只读观测入口查询允许的 Prometheus/Loki/Tempo/业务检查
+  -> 通过 Nginx Basic Auth 保护的 Agent 告警入口发送告警 envelope
+  -> Agent 使用现有 Nginx Basic Auth 访问 Prometheus/Loki/Tempo/业务只读入口
   -> Agent 提交 AgentSubmission.json
-  -> Result Gateway 校验并自动排队 Evaluator
+  -> Nginx Basic Auth 保护的提交入口校验并自动排队 Evaluator
 ```
 
 ## 进入本阶段前必须核对的告警接入
@@ -43,14 +43,13 @@ Pilot candidate 至少满足：
 
 - 控制面 webhook route 是否真实存在并受保护。
 - Alertmanager payload 的 `firing`/`resolved`、grouped alerts 和 `send_resolved` 是否正确处理。
-- webhook 来源认证是否使用 mTLS、受限网络或签名校验。
-- alert allowlist、目标服务、严重级别和 active Fault Run 关联是否正确。
+- 外部告警/提交入口是否由统一 Nginx Basic Auth 拦截未认证请求。
+- 选定告警规则、目标服务、严重级别和 active Fault Run 关联是否正确。
 - fingerprint 去重、重复投递、告警接收记录、`startsAt`、`resolvedAt`、评估关闭和 retention 处理是否正确。
 - Alertmanager grouped notification 的每个 alert 如何拆成独立 `alertRef`；默认一个 alert fingerprint 对应一个 `alertRef`，groupKey 只做内部关联。
-- Alert Delivery Gateway 和 Result Gateway 是否真实可用。
-- Alert Delivery Gateway 向外部 Agent 发送受控 envelope。
-- Result Gateway 接收 `AgentSubmission.json` 并自动排队 Evaluator。
-- 试点 Agent endpoint 是否为部署侧 allowlist 配置，不接受 Alertmanager 或 Agent 自带的任意 callback URL。
+- Nginx Basic Auth 保护的告警投递和提交入口是否真实可用。
+- Agent 是否能够使用部署侧提供的 Basic Auth 访问现有观测入口。
+- 提交入口是否接收 `AgentSubmission.json` 并自动排队 Evaluator。
 
 阶段 5 不应把配置文件中的 webhook URL 当作现成实现；缺失部分属于本阶段的实现范围。
 
@@ -68,8 +67,8 @@ Pilot candidate 至少满足：
 
 控制面在告警到达时做一次 admission：
 
-- 校验 Alertmanager/Alert Delivery 来源、签名或 mTLS。
-- 校验告警 allowlist、目标服务、时间和 active Fault Run。
+- 校验 Alertmanager 来源和部署侧 Basic Auth/内部网络边界。
+- 校验选定告警规则、目标服务、时间和 active Fault Run。
 - 生成并保存最小告警接收记录。
 - 记录告警到达时间、startsAt、resolvedAt（如有）、receivedAt、关联状态、去重结果和评估关闭状态。
 
@@ -107,27 +106,17 @@ observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 | `evaluationClosedAt` | 服务端/Operator 关闭该告警评估的时间，可为空 |
 | Observability retention end | Prometheus/Loki/Tempo 仍可查询该窗口的最晚时间 |
 
-`alertRef` 只是关联键，不是观测权限。Agent 需要通过 Alert Delivery Gateway 获得独立的短时、只读观测访问凭据或 mTLS 身份，凭据至少限定：
+`alertRef` 只是关联键，不是观测凭据。Agent 使用部署侧提供的统一 Nginx Basic Auth 访问现有观测入口：
 
-- 允许的观测入口：Prometheus、Loki、Tempo 和指定业务只读检查。
-- 允许的服务、租户/环境和时间范围。
-- 过期时间、限流、审计和撤销方式。
-- 禁止访问控制面写 API、业务写 API、内部 operation 和其他运行数据。
+- 观测入口：Prometheus、Loki、Tempo 和指定业务只读入口。
+- Basic Auth 用户名/密码由部署环境注入，不写入 `AgentSubmission.json`。
+- Nginx 拒绝未认证请求；阶段 5 不新增应用层的 Agent 角色、租户或细粒度授权逻辑。
 
-告警 envelope 应同时提供受控的观测访问信息（例如服务端 allowlisted endpoint reference 和短时只读凭据）；这些信息不进入 AgentSubmission。不能要求外部 Agent 猜测 Prometheus/Loki/Tempo 地址，也不能把控制面内部 URL、数据库连接或 service key 直接暴露给 Agent。
+告警 envelope 或外部 Agent 的部署配置提供现有观测入口地址；不能把控制面内部 URL、数据库连接或 service key 直接暴露给 Agent。
 
-这些访问凭据不得写入 `AgentSubmission.json`，也不得出现在 RCA、日志或 Markdown 展示文件中。
+Basic Auth 凭据不得写入 `AgentSubmission.json`，也不得出现在 RCA、日志或 Markdown 展示文件中。
 
-推荐阶段 5 使用只读 Observation Gateway 作为统一入口：
-
-```text
-External Agent
-  -> read-only Observation Gateway
-      -> allowlisted Prometheus/Loki/Tempo queries
-      -> allowlisted business read-only checks
-```
-
-Pilot 也可以临时使用已经认证的观测端点，但必须满足同样的服务、环境、时间窗口、限流、审计和撤销边界；不得让 Agent 直接进入控制面、业务写 API 或内部网络。
+不新增 Observation Gateway。阶段 5 直接复用现有 Nginx Basic Auth 保护的 Prometheus、Loki、Tempo 和业务只读入口。
 
 ### 服务端评估状态和 retention 边界
 
@@ -291,7 +280,7 @@ Markdown 只能用于人工查看或由 JSON 派生生成；只提交 Markdown �
 
 ## Evaluator 触发和职责
 
-Result Gateway 校验 JSON Schema 后自动排队 Evaluator。Operator 可以通过受保护 API 查看、重试或放弃一次评估。
+Nginx Basic Auth 保护的提交入口校验 JSON Schema 后自动排队 Evaluator。Operator 可以通过现有控制面查看、重试或放弃一次评估。
 
 Evaluator：
 
@@ -302,7 +291,7 @@ Evaluator：
 - 不执行实际场景 remediation，不替 Operator 调用 release/cleanup。
 - 告警从 `firing` 变为 `resolved` 仍然可以评估；Evaluator 校验告警接收记录和 `alertRef`，不要求当前仍为 firing。
 - 查询失败或观测 retention 过期时返回 `evidence_unavailable`，不直接判定 RCA 错误。
-- Evaluator 只能使用服务端 allowlisted 查询配方，不执行 Agent 提交的任意查询、URL、shell 或 SQL。
+- Evaluator 使用服务端定义的查询配方，不执行 Agent 提交的任意 URL、shell 或 SQL。
 
 Evaluator 报告必须把控制面状态和实际场景 remediation 状态分开：
 
@@ -337,7 +326,7 @@ FAILED
 
 - 没有 firing alert，不向 Agent 发送 RCA 任务。
 - 告警接收记录缺失或无法关联时返回 `UNMATCHED_ALERT` / `ALERT_RECEIPT_UNAVAILABLE`，不直接判 RCA 错误。
-- Agent 不能访问 Operator 权限、Ground Truth 或其他运行数据。
+- Agent 不能通过试点接入地址访问控制面写 API、Ground Truth 或其他运行数据；阶段 5 不新增应用层授权模型。
 - Agent 只能只读查询并提交 RCA/建议。
 - AgentSubmission 必须通过版本化 JSON Schema。
 - 同一 `submissionId` 重试幂等；评估已关闭的告警提交不进入自动评估，观测过期则进入 `EVIDENCE_UNAVAILABLE`。
