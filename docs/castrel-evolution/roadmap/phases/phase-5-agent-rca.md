@@ -1,6 +1,6 @@
 # 阶段 5：告警驱动的 Agent RCA 试点
 
-> 状态：当前优先级；依赖阶段 0～4；本阶段完成后再评估是否启动阶段 6
+> 状态：当前路线最后阶段；依赖阶段 0～4
 
 ## 目标
 
@@ -75,7 +75,7 @@ Pilot candidate 至少满足：
 - 不实现 Agent 细粒度授权。
 - 不实现 Observation Gateway。
 - 不实现 Agent 自动 remediation。
-- 不实现多 Trial 或环境隔离。
+- 不实现并行调度、环境自动创建或规模化调度。
 - 不把 Alertmanager 当前 API/UI 的 Nginx 认证误当作内部 webhook 认证。
 
 ## 触发链路

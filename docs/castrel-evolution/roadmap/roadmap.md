@@ -1,6 +1,6 @@
 # Castrel Chaos 渐进式演化路线图
 
-> 状态：阶段 0～5 当前优先；阶段 6～7 远期冻结
+> 状态：阶段 0～5 当前路线
 > 更新时间：2026-09-11 CST  
 > 阶段细节见 `phases/`；所有阶段共用规则见 [operating-model.md](./operating-model.md)。
 
@@ -14,8 +14,6 @@
   -> 可验证地描述场景
   -> 可按时间窗口查询证据
   -> 可接收告警并进行 Agent RCA
-  -> 可隔离地运行 Trial
-  -> 可逐步扩展到规模化和新领域
 ```
 
 ## 2. 阶段地图
@@ -28,20 +26,17 @@
 | 3 | [phase-3-scenario-contract.md](./phases/phase-3-scenario-contract.md) | Catalog、Gateway、Worker 和测试合同 | CI blocking，运行时先不改变 |
 | 4 | [phase-4-evidence-query.md](./phases/phase-4-evidence-query.md) | 实时 Evidence Query Manifest 和确定性基线 | Operator 旁路查询报告 |
 | 5 | [phase-5-agent-rca.md](./phases/phase-5-agent-rca.md) | 告警驱动、只读观测、RCA 和实际场景 remediation 建议 | 专用单环境、单场景、单运行 |
-| 6 | [phase-6-isolation-trials.md](./phases/phase-6-isolation-trials.md) | Profile、Environment、资源/数据隔离和 Trial | 远期冻结，当前不投入人力 |
-| 7 | [phase-7-scale-domain.md](./phases/phase-7-scale-domain.md) | Worker Pool、Outbox、FinOps 和 CISO | 远期冻结，当前不投入人力 |
 
 ## 3. 必须遵守的顺序
 
-阶段 5 有意先于阶段 6，但边界必须严格：
+阶段 5 是当前路线的最后阶段，边界必须严格：
 
 - 阶段 5 是单场景、单环境、单运行的 RCA 试点，不是多 Agent benchmark。
 - 外部 Agent 不获取 `taskId`、`evaluationId`、`faultRunId` 或内部数据库 ID。
 - Agent 由 Alertmanager firing alert 触发，只接收告警 envelope 和 opaque `alertRef`。
 - Agent 只读查询观测数据，提交标准化 `AgentSubmission.json`，不执行恢复。
 - Evaluator 在合法提交后自动排队，重新查询当前观测数据并生成报告。
-- 阶段 6 完成资源和数据隔离后，才开放可比较的多 Trial。
-- 阶段 6 和阶段 7 当前只保留设计边界、依赖和未来验收条件，不进入当前迭代、不承诺排期。
+- 当前路线只覆盖单环境、单运行的 Operator 演练和 Agent RCA 试点。
 
 ## 4. 当前建议起点
 
@@ -59,7 +54,7 @@
    - 校验 Catalog 与 Gateway target map。
    - 校验 Worker dispatch、recovery strategy、参数、时长、runbook、Evidence Query 和 i18n。
 
-完成这三个增量后，先完成阶段 4，再进入阶段 5。不要同时启动 Worker Pool、消息队列或 Agent 自动恢复。
+完成这三个增量后，先完成阶段 4，再进入阶段 5。不要同时启动未纳入当前路线的并行调度、消息驱动或 Agent 自动恢复能力。
 
 ## 5. 阶段依赖与验收总表
 
@@ -71,8 +66,6 @@
 | 3 | 阶段 2 状态事实稳定 | 12 个场景 Contract validation 通过 |
 | 4 | 阶段 3 有稳定场景定义 | retention 内可重复查询关键证据 |
 | 5 | 阶段 4 有 Query Manifest 和告警合同 | AgentSubmission、RCA 和 Evaluator 闭环完成 |
-| 6 | 阶段 5 单运行试点稳定，且重新获得资源 | 两个环境互不污染 |
-| 7 | 阶段 0～6 全部稳定，且重新获得资源 | Worker Pool、异步或领域扩展逐项通过门禁 |
 
 ## 6. 共用规则
 
@@ -95,8 +88,6 @@
 4. `remediationRecommendation` 只能描述实际业务/基础设施修复，不能描述 Fault Run stop/release/cleanup。
 5. 阶段 4 的 Evaluator 可以先作为 Operator 现场验证逻辑运行，不应把 AgentSubmission 作为阶段 4 的前置依赖。
 
-阶段 6～7 当前没有实现人力，保留设计文档但不进入当前排期、不创建实现任务、不把它们作为阶段 0～5 的上线前置条件。
-
 ## 8. 文档导航与职责
 
 | 文档 | 内容 |
@@ -109,8 +100,6 @@
 | `phases/phase-3-scenario-contract.md` | Catalog、Gateway、Worker 和测试合同 |
 | `phases/phase-4-evidence-query.md` | 实时 Evidence Query Manifest 和确定性基线 |
 | `phases/phase-5-agent-rca.md` | Alertmanager 驱动的只读 Agent RCA 试点 |
-| `phases/phase-6-isolation-trials.md` | Profile、Environment、资源/数据隔离和 Trial |
-| `phases/phase-7-scale-domain.md` | Worker Pool、Outbox、FinOps 和 CISO 扩展 |
 
 产品规格和技术设计如果存在，作为阶段文档的配套输入：
 
