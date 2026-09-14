@@ -17,7 +17,7 @@ scenario
   - prepare / active / stop / release / cleanup
   - expected evidence
   - alert contract
-  - submission window policy
+  - alert receipt retention and evaluation closure policy
   - recovery checks
   - side-effect checks
   - isolation requirements
@@ -35,8 +35,8 @@ Contract 属于控制面和测试生成层，不原样暴露给业务服务。
 - recovery strategy 与 release/cleanup 实现存在。
 - 参数、时长、runbook、Evidence Query 和 i18n 完整。
 - 需要告警驱动的场景必须声明允许的 alert name、service、severity、关联窗口和告警缺失处理方式。
-- 告警合同必须声明 RCA submission window：默认 15 分钟，允许按场景在 5～30 分钟内配置。
-- 告警合同必须声明 fingerprint 去重、重复通知、resolved 通知和过期提交处理。
+- 告警合同必须声明告警接收记录保留、评估关闭条件、fingerprint 去重、重复通知和 resolved 通知处理。
+- v0 不设置固定的 Agent RCA 提交窗口；只有显式关闭评估或告警接收记录无法关联时才拒绝提交，观测 retention 只决定能否完成证据复查。
 
 ### 辅助生成
 

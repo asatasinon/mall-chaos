@@ -35,7 +35,7 @@
 - Alertmanager payload 的 `firing`/`resolved`、grouped alerts 和 `send_resolved` 是否正确处理。
 - webhook 来源认证是否使用 mTLS、受限网络或签名校验。
 - alert allowlist、目标服务、严重级别和 active Fault Run 关联是否正确。
-- fingerprint 去重、重复投递、告警接收记录、`startsAt`、`resolvedAt`、`expiresAt` 和过期提交是否正确。
+- fingerprint 去重、重复投递、告警接收记录、`startsAt`、`resolvedAt`、评估关闭和 retention 处理是否正确。
 - Alert Delivery Gateway 和 Result Gateway 是否真实可用。
 - Alert Delivery Gateway 向外部 Agent 发送受控 envelope。
 - Result Gateway 接收 `AgentSubmission.json` 并自动排队 Evaluator。
@@ -50,8 +50,7 @@
 {
   "fingerprint": "alert-fp-01J8EXAMPLE",
   "startsAt": "2026-09-11T08:20:00Z",
-  "receivedAt": "2026-09-11T08:20:30Z",
-  "expiresAt": "2026-09-11T08:35:30Z"
+  "receivedAt": "2026-09-11T08:20:30Z"
 }
 ```
 
@@ -60,30 +59,28 @@
 - 校验 Alertmanager/Alert Delivery 来源、签名或 mTLS。
 - 校验告警 allowlist、目标服务、时间和 active Fault Run。
 - 生成并保存最小告警接收记录。
-- 记录告警到达时间、startsAt、resolvedAt（如有）、receivedAt、expiresAt、关联状态和去重结果。
+- 记录告警到达时间、startsAt、resolvedAt（如有）、receivedAt、关联状态、去重结果和评估关闭状态。
 
 Evaluator 后续只校验 `alertRef` 是否来自受信任接入、是否属于该运行；不要求告警当前仍为 firing。`firing -> resolved` 是正常恢复过程。
 
-### Submission window
+### Evaluation eligibility
 
-`expiresAt` 是**Agent RCA 提交窗口**的结束时间，不是 Fault Run 的 `expiresAt`，也不是 Alertmanager 当前 firing 状态的截止时间：
+RCA 评估不设置一个固定的 Agent 提交过期时间。只要告警接收记录存在且评估没有被服务端关闭，Agent 都可以提交报告；Prometheus/Loki/Tempo retention 只决定 Evaluator 能否复查证据，不决定提交本身是否有效：
 
 ```text
 receivedAt = 服务端第一次接受该告警实例的时间
-submissionWindowSec = 告警合同配置，默认 900 秒（15 分钟）
-expiresAt = receivedAt + submissionWindowSec
+evaluationClosedAt = 服务端或 Operator 显式关闭评估的时间，可为空
+observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 ```
 
 规则：
 
-- 默认窗口为 15 分钟；告警合同允许在 5～30 分钟内按场景配置。
 - `startsAt` 是 Prometheus/Alertmanager 观察到告警开始的时间，不用它单独计算 Agent 窗口；Agent 可能在 Alertmanager group wait 后才收到告警。
-- `receivedAt` 和 `expiresAt` 由服务端生成并签名/绑定到 `alertRef`，Agent 不能修改；Agent 的 `submittedAt` 只用于记录，不用于判断是否过期。
-- Alertmanager 的重复通知不会延长窗口；同一 fingerprint 和 startsAt 仍使用原始 `expiresAt`。
-- 告警恢复为 `resolved` 不会提前使提交失效；只要服务端在 `expiresAt` 前收到提交，仍可进入评估。
-- 服务端在 Result Gateway 收到请求时判断 `serverReceivedAt <= expiresAt`。已经在窗口内接收的提交，即使队列稍后执行，也可以继续评估。
-- 超过窗口的新提交返回 `SUBMISSION_WINDOW_EXPIRED`，不进入自动评估。
-- 新一轮重新 firing 且 `startsAt` 改变时，生成新的 alertRef 和新的 submission window。
+- `receivedAt` 由服务端记录并绑定到 `alertRef`；Agent 的 `submittedAt` 只用于审计。
+- Alertmanager 的重复通知不会创建新的评估对象；同一 fingerprint 和 startsAt 仍归属于同一告警接收记录。
+- 告警恢复为 `resolved` 不会使提交失效；恢复只影响观测时间线和后续 remediation 状态。
+- 服务端只拒绝无法关联或明确关闭的提交；如果观测 retention 已无法复查，提交仍可接收，但评估结果为 `EVIDENCE_UNAVAILABLE` 或部分证据不可用。
+- 新一轮重新 firing 且 `startsAt` 改变时，生成新的 alertRef 和新的告警接收记录。
 
 这几个时间必须分开：
 
@@ -93,7 +90,8 @@ expiresAt = receivedAt + submissionWindowSec
 | Alert `startsAt` | 观测系统认为告警开始的时间 |
 | Alert `receivedAt` | 控制面第一次接受告警的服务端时间 |
 | Agent submission `submittedAt` | Agent 报告中的自报时间，仅作审计信息 |
-| Alert `expiresAt` | Result Gateway 接受该告警 RCA 提交的截止时间 |
+| `evaluationClosedAt` | 服务端/Operator 关闭该告警评估的时间，可为空 |
+| Observability retention end | Prometheus/Loki/Tempo 仍可查询该窗口的最晚时间 |
 
 `alertRef` 只是关联键，不是观测权限。Agent 需要通过 Alert Delivery Gateway 获得独立的短时、只读观测访问凭据或 mTLS 身份，凭据至少限定：
 
@@ -117,8 +115,7 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
   "alertRef": {
     "fingerprint": "alert-fp-01J8EXAMPLE",
     "startsAt": "2026-09-11T08:20:00Z",
-    "receivedAt": "2026-09-11T08:20:30Z",
-    "expiresAt": "2026-09-11T08:35:30Z"
+    "receivedAt": "2026-09-11T08:20:30Z"
   },
   "submittedAt": "2026-09-11T08:30:00Z",
   "agent": {
@@ -189,7 +186,7 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
 
 - 相同 `submissionId` 重复提交返回同一接收结果，不重复排队评估。
 - 新 `submissionId` 在同一 `alertRef` 下提交时，只有在前一次评估尚未开始时才允许替换；评估已开始后必须由 Operator 显式重试或选择新提交。
-- 超过 `expiresAt` 的提交返回 `SUBMISSION_WINDOW_EXPIRED`，不进入自动评估。
+- 评估已关闭的新提交返回 `EVALUATION_CLOSED`；如果观测 retention 已无法覆盖查询窗口，返回 `EVIDENCE_UNAVAILABLE`，不直接判定 RCA 错误。
 - Agent 不获得 `taskId`、`evaluationId`、`faultRunId` 或内部数据库 ID。
 
 RCA 至少包含：
@@ -265,7 +262,7 @@ Evaluator：
 - Agent 不能访问 Operator 权限、Ground Truth 或其他运行数据。
 - Agent 只能只读查询并提交 RCA/建议。
 - AgentSubmission 必须通过版本化 JSON Schema。
-- 同一 `submissionId` 重试幂等；过期告警提交不进入自动评估。
+- 同一 `submissionId` 重试幂等；评估已关闭的告警提交不进入自动评估，观测过期则进入 `EVIDENCE_UNAVAILABLE`。
 - Operator 不执行实际场景 remediation 是合法结果，报告使用 `remediationExecutionStatus = NOT_EXECUTED`。
 - Evaluator 状态区分 `PENDING`、`RUNNING`、`COMPLETED`、`EVIDENCE_UNAVAILABLE`、`FAILED`。
 - 不发布跨 Agent 排行榜。
