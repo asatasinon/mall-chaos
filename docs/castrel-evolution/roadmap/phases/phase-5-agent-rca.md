@@ -30,24 +30,72 @@ Pilot candidate 至少满足：
 控制面开启 Fault Run
   -> 真实业务行为产生影响
   -> Alertmanager 产生配置规则选中的 firing alert
+  -> Alertmanager 通过内部 webhook 投递到 traffic-control-plane
   -> traffic-control-plane 接收并关联告警
-  -> 通过 Nginx Basic Auth 保护的 Agent 告警入口发送告警 envelope
+  -> Alertmanager 通过 HTTP webhook + Basic Auth 投递给外部 Agent endpoint
   -> Agent 使用现有 Nginx Basic Auth 访问 Prometheus/Loki/Tempo/业务只读入口
   -> Agent 提交 AgentSubmission.json
-  -> Nginx Basic Auth 保护的提交入口校验并自动排队 Evaluator
+  -> AgentSubmission endpoint 由 Nginx Basic Auth 拦截未认证请求并自动排队 Evaluator
 ```
+
+这里有三个不同入口：
+
+| 入口 | 作用 | 认证边界 |
+| --- | --- | --- |
+| Alertmanager HTTP API/UI | 人员或系统查看、管理 Alertmanager | 当前由 Compose `obs-auth-proxy` 的 Nginx Basic Auth 保护，例如宿主机 `19093` |
+| Alertmanager → 控制面 webhook | Alertmanager 向控制面发送 `firing/resolved` | 容器/集群内部服务调用，不是宿主机 `19093` 这个 Alertmanager API/UI 入口 |
+| Alertmanager → 外部 Agent webhook | Alertmanager 将选定告警直接投递给外部 Agent | Alertmanager receiver 使用 Basic Auth 调用 Agent webhook endpoint；不增加 Alert Delivery Gateway |
+| AgentSubmission endpoint | 外部 Agent 回传 `AgentSubmission.json` | 对外暴露时由统一 Nginx Basic Auth 拦截未认证请求；阶段 5 不增加应用层细粒度授权 |
+
+Nginx Basic Auth 不是 Alertmanager 的替代品：Alertmanager 负责产生、聚合和转发告警；Nginx 只负责对外 HTTP 入口的未认证拦截。外部 Agent webhook 的 Basic Auth 凭据由 Alertmanager receiver 使用，AgentSubmission endpoint 的 Basic Auth 由部署入口使用。
+
+### Alertmanager → 控制面 webhook 的作用
+
+Alertmanager 直接向外部 Agent webhook 投递告警；控制面内部 webhook 是并行的**告警接收与关联通道**，主要用于：
+
+1. **保存最小告警接收记录**
+   - alert fingerprint；
+   - alert name、severity、service；
+   - `startsAt`、`resolvedAt`、控制面 `receivedAt`；
+   - groupKey、当前状态和去重结果；
+   - 关联结果与失败原因。
+2. **关联当前 Fault Run**
+   - 根据告警服务、规则、时间和活动运行判断是否属于某个 active Fault Run；
+   - 无法关联时记录 `UNMATCHED_ALERT`；
+   - 多个运行匹配时记录 `AMBIGUOUS_ALERT`，不向 Agent 投递。
+3. **生成/确认 `alertRef`**
+   - 外部 Agent 只看到 opaque `alertRef`；
+   - Evaluator 通过 `alertRef` 找到告警接收记录、Fault Run 和查询时间窗口。
+4. **处理告警生命周期**
+   - 接收 `firing` 和 `resolved`；
+   - 处理重复通知和 grouped alerts；
+   - 支持评估报告区分告警已恢复与业务 remediation 是否执行。
+5. **审计和可观测性**
+   - 记录告警是否已经投递给 Agent；
+   - 记录 AgentSubmission 是否关联成功；
+   - 为 Evaluator 提供告警来源事实。
+
+该 webhook **不负责**：
+
+- 保存 Prometheus 指标、Loki 日志或 Tempo Trace；
+- 代理 Alertmanager API/UI；
+- 执行 Fault Run stop/release/cleanup；
+- 执行 Agent 的 remediation；
+- 把控制面内部字段暴露给 Agent。
+
+当前 checkout 的 Alertmanager 配置已有类似 `/internal/alertmanager/webhook` 的目标，但控制面对应接收 route 尚未被确认实现。因此它是阶段 5 的实现阻塞项，而不是已经存在的功能。
 
 ## 进入本阶段前必须核对的告警接入
 
 当前部署配置已经使用类似 `/internal/alertmanager/webhook` 的内部 webhook 配置；但在当前 checkout 的控制面 `src/app` 路由中没有找到对应的已实现接收 route。配置存在不等于控制面已有完整告警接收能力，因此阶段 5 目前被该能力阻塞。阶段 0/5 必须通过代码和集成测试确认：
 
-- 控制面 webhook route 是否真实存在并受保护。
+- 控制面 webhook route 是否真实存在；Alertmanager 到该 route 使用内部服务网络。
 - Alertmanager payload 的 `firing`/`resolved`、grouped alerts 和 `send_resolved` 是否正确处理。
-- 外部告警/提交入口是否由统一 Nginx Basic Auth 拦截未认证请求。
+- 对外告警/提交入口是否由统一 Nginx Basic Auth 拦截未认证请求。
 - 选定告警规则、目标服务、严重级别和 active Fault Run 关联是否正确。
 - fingerprint 去重、重复投递、告警接收记录、`startsAt`、`resolvedAt`、评估关闭和 retention 处理是否正确。
 - Alertmanager grouped notification 的每个 alert 如何拆成独立 `alertRef`；默认一个 alert fingerprint 对应一个 `alertRef`，groupKey 只做内部关联。
-- Nginx Basic Auth 保护的告警投递和提交入口是否真实可用。
+- 外部 Agent webhook endpoint 是否真实可用，且 Alertmanager receiver 使用部署侧 Basic Auth 调用。
 - Agent 是否能够使用部署侧提供的 Basic Auth 访问现有观测入口。
 - 提交入口是否接收 `AgentSubmission.json` 并自动排队 Evaluator。
 
