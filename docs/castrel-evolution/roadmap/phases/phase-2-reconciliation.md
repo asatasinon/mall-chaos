@@ -28,6 +28,8 @@ Worker owner lease 与目标侧 `OperationRunGuard`、数据预热 lease 分开�
 - 预热 lease 只负责预热写入所有权。
 - 正常客户 Runner、补给和留存任务的 singleton ownership 不能直接伪装成 Fault Run owner；它们需要独立的任务类型、lease 和关闭语义。
 
+Owner fencing 只能约束带内部运行上下文的控制操作；对于经公开消费者 API 发出的报表/流量请求，旧 Worker 不能依赖目标侧 fencing 自动拒绝，必须靠 owner 失效后的停止接收、请求取消和 drain 收敛。
+
 ## Reconciler
 
 Worker 启动和周期扫描以数据库状态为事实来源：

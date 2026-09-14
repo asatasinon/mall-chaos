@@ -21,6 +21,7 @@
 - 发布检查清单和回退手册。
 - 关键事件与低基数指标命名约定。
 - 场景运行前后 smoke 检查。
+- 阶段 5 Agent RCA 试点选择记录：候选场景、告警规则、只读观测入口、时间窗口、实际业务 remediation 边界和不选择其他场景的原因。
 
 基线表至少包含：
 
@@ -46,6 +47,8 @@ knownLimitations / residualResources / rollbackProcedure
 - 基线能力不改变场景行为。
 - 至少选出一个告警可稳定触发、证据窗口清晰、恢复边界明确的阶段 5 候选场景；不要求所有 12 个场景都具备 Agent RCA 告警。
 - 明确当前 Alertmanager webhook 的可用性、缺失实现、认证方式和需要在阶段 5 补齐的组件。
+- 形成一个明确的阶段 5 pilot candidate，不以“所有场景都支持”作为进入阶段 5 的条件。
+- 记录当前观测 retention 配置和实际查询验证结果；当前配置基线预计为 Prometheus 7d、Loki 168h、Tempo 168h，但必须以实际 Compose/Kubernetes 部署读取结果为准。
 
 ## 上线与回退
 

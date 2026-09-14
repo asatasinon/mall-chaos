@@ -20,7 +20,7 @@
 - 外部 Agent 不获取 `taskId`、`evaluationId`、`faultRunId`、Operator session 或内部 service key。
 - Agent 由 Alertmanager firing alert 被动触发。
 - Agent 只接收告警 envelope 和 opaque `alertRef`。
-- Agent 只读查询观测数据、提交 RCA 和实际场景 remediation 建议。
+- Agent 通过告警 envelope 获得 allowlisted、短时、只读的观测入口，提交 RCA 和实际场景 remediation 建议。
 - Agent 不执行恢复、release、cleanup 或业务写操作。
 
 ### 1.4 Evidence Query v0 边界

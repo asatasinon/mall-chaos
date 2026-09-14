@@ -29,6 +29,8 @@ start
 
 客户生命周期 Runner、数据预热和补给任务属于独立的后台生命周期，不应因为停止单个 Fault Run 被连带停止。它们只有在自身进程关闭、专属任务停止或明确共享同一运行 owner 时，才进入相同的 drain 协议；阶段 1 先完成 Fault Run 级 Worker 的停止边界，再分别补充后台任务的关闭语义。
 
+报表和流量 Worker 的部分请求经 Gateway 走正常客户 API，不一定携带目标侧 `OperationRunContext`。因此停止主要依赖 Worker 停止接收、AbortSignal 和 in-flight drain；不能假设目标服务会用 fencing 自动拒绝所有已经发出的公开业务请求。
+
 ## 统一结果
 
 | 结果 | 含义 |

@@ -14,6 +14,16 @@
 
 本阶段必须先选择一个通过阶段 0 告警基线的场景。不要为了触发 Agent 而新增伪造告警或把所有通用告警强行映射到场景。
 
+Pilot candidate 至少满足：
+
+- 现有 alert rule 在专用环境中可稳定触发，并能通过 alert receipt 关联到唯一运行。
+- 只读观测入口已经可用，Agent 不需要访问控制面或业务写 API。
+- 目标业务/基础设施问题的 remediation 可以用声明性建议描述，不依赖 Agent 执行 Fault Run stop/release/cleanup。
+- baseline、active、recovery 查询窗口清晰，观测 retention 足以完成一次 RCA。
+- 不会因为 Operator 不采纳建议而留下不可控的破坏性资源。
+
+推荐先从 `BROWSE_SURGE`、`PSP_PROVIDER_OUTCOME` 等有明确告警和业务路径的候选中选择一个，最终以阶段 0 的实际阈值和环境验证结果为准；不默认把推荐名称当作已选场景。
+
 ## 触发链路
 
 ```text
@@ -29,16 +39,18 @@
 
 ## 进入本阶段前必须核对的告警接入
 
-当前部署配置已经使用类似 `/internal/alertmanager/webhook` 的内部 webhook 配置；这不等于控制面已有完整告警接收能力。阶段 0/5 必须通过代码和集成测试确认：
+当前部署配置已经使用类似 `/internal/alertmanager/webhook` 的内部 webhook 配置；但在当前 checkout 的控制面 `src/app` 路由中没有找到对应的已实现接收 route。配置存在不等于控制面已有完整告警接收能力，因此阶段 5 目前被该能力阻塞。阶段 0/5 必须通过代码和集成测试确认：
 
 - 控制面 webhook route 是否真实存在并受保护。
 - Alertmanager payload 的 `firing`/`resolved`、grouped alerts 和 `send_resolved` 是否正确处理。
 - webhook 来源认证是否使用 mTLS、受限网络或签名校验。
 - alert allowlist、目标服务、严重级别和 active Fault Run 关联是否正确。
 - fingerprint 去重、重复投递、告警接收记录、`startsAt`、`resolvedAt`、评估关闭和 retention 处理是否正确。
+- Alertmanager grouped notification 的每个 alert 如何拆成独立 `alertRef`；默认一个 alert fingerprint 对应一个 `alertRef`，groupKey 只做内部关联。
 - Alert Delivery Gateway 和 Result Gateway 是否真实可用。
 - Alert Delivery Gateway 向外部 Agent 发送受控 envelope。
 - Result Gateway 接收 `AgentSubmission.json` 并自动排队 Evaluator。
+- 试点 Agent endpoint 是否为部署侧 allowlist 配置，不接受 Alertmanager 或 Agent 自带的任意 callback URL。
 
 阶段 5 不应把配置文件中的 webhook URL 当作现成实现；缺失部分属于本阶段的实现范围。
 
@@ -62,6 +74,8 @@
 - 记录告警到达时间、startsAt、resolvedAt（如有）、receivedAt、关联状态、去重结果和评估关闭状态。
 
 Evaluator 后续只校验 `alertRef` 是否来自受信任接入、是否属于该运行；不要求告警当前仍为 firing。`firing -> resolved` 是正常恢复过程。
+
+如果告警无法唯一关联到一个 active Fault Run，或者匹配到多个运行，控制面不向 Agent 投递，分别记录 `UNMATCHED_ALERT` 或 `AMBIGUOUS_ALERT`。
 
 ### Evaluation eligibility
 
@@ -100,7 +114,42 @@ observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 - 过期时间、限流、审计和撤销方式。
 - 禁止访问控制面写 API、业务写 API、内部 operation 和其他运行数据。
 
+告警 envelope 应同时提供受控的观测访问信息（例如服务端 allowlisted endpoint reference 和短时只读凭据）；这些信息不进入 AgentSubmission。不能要求外部 Agent 猜测 Prometheus/Loki/Tempo 地址，也不能把控制面内部 URL、数据库连接或 service key 直接暴露给 Agent。
+
 这些访问凭据不得写入 `AgentSubmission.json`，也不得出现在 RCA、日志或 Markdown 展示文件中。
+
+推荐阶段 5 使用只读 Observation Gateway 作为统一入口：
+
+```text
+External Agent
+  -> read-only Observation Gateway
+      -> allowlisted Prometheus/Loki/Tempo queries
+      -> allowlisted business read-only checks
+```
+
+Pilot 也可以临时使用已经认证的观测端点，但必须满足同样的服务、环境、时间窗口、限流、审计和撤销边界；不得让 Agent 直接进入控制面、业务写 API 或内部网络。
+
+### 服务端评估状态和 retention 边界
+
+以下信息由控制面/Evaluator 服务端维护或读取，不由 Agent 提供：
+
+| 信息 | 来源 | 是否进入 `AgentSubmission.json` |
+| --- | --- | --- |
+| `evaluationStatus` | Evaluator 评估记录，例如 `OPEN`、`RUNNING`、`COMPLETED`、`CLOSED`、`EVIDENCE_UNAVAILABLE`、`FAILED` | 否 |
+| `evaluationClosedAt` | 服务端或 Operator 显式关闭评估 | 否 |
+| Prometheus retention | Prometheus 部署配置、运行时 API 或查询结果 | 否 |
+| Loki retention | Loki 部署配置、运行时 API 或查询结果 | 否 |
+| Tempo retention | Tempo 部署配置、运行时 API 或查询结果 | 否 |
+| `evidenceAvailability` | Evaluator 对每个查询窗口的实际查询结果 | 否；属于 Evaluation Report |
+| Agent 的 `submittedAt` | Agent 提交字段，同时由服务端记录接收时间 | 是，但只作为审计时间，不决定 retention |
+
+因此：
+
+- `AgentSubmission.json` 只描述 Agent 的 RCA、证据引用和实际场景 remediation 建议。
+- Agent 不填写 `evaluationStatus`、`evaluationClosedAt`、retention、`evidence_unavailable` 或评分结果。
+- Evaluator 根据服务端评估状态判断是否接受新提交；评估已关闭返回 `EVALUATION_CLOSED`。
+- Evaluator 根据观测系统实际可查询范围判断证据是否可用；数据不可查返回 `EVIDENCE_UNAVAILABLE`，不把它归因于 Agent RCA 错误。
+- 不同 Prometheus/Loki/Tempo 可能有不同 retention，Evaluator 应按查询窗口逐个判断，而不是只依赖一个全局 retention 数值。
 
 ## AgentSubmission v1
 
@@ -254,6 +303,35 @@ Evaluator：
 - 告警从 `firing` 变为 `resolved` 仍然可以评估；Evaluator 校验告警接收记录和 `alertRef`，不要求当前仍为 firing。
 - 查询失败或观测 retention 过期时返回 `evidence_unavailable`，不直接判定 RCA 错误。
 - Evaluator 只能使用服务端 allowlisted 查询配方，不执行 Agent 提交的任意查询、URL、shell 或 SQL。
+
+Evaluator 报告必须把控制面状态和实际场景 remediation 状态分开：
+
+```text
+EvaluationReport
+  - evaluationStatus
+  - alertReceiptStatus
+  - rcaCorrectness
+  - evidenceSufficiency
+  - recommendationSafety
+  - remediationReviewStatus
+  - remediationExecutionStatus
+  - businessRecoveryStatus
+  - faultRunControlStatus
+  - limitations / evidence_unavailable
+```
+
+实际场景 remediation 的状态至少区分：
+
+```text
+NOT_REVIEWED
+REJECTED
+ACCEPTED_NOT_EXECUTED
+EXECUTED
+VERIFIED
+FAILED
+```
+
+`faultRunControlStatus` 只表示内部 Fault Run 的 stop/release/cleanup 状态，不代表 Agent 是否修复了实际业务问题；`remediationExecutionStatus` 只表示 Operator 是否执行了 Agent 建议或其他批准的实际修复。
 
 ## 验收
 

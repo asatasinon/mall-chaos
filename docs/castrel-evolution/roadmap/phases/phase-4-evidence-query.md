@@ -65,12 +65,12 @@ t_cleanup_finished       可选
 
 ## Evaluator v0
 
-Evaluator v0 可以在没有外部 Agent 的情况下运行，先生成 Operator 现场验证报告；阶段 5 之后再把 `AgentSubmission` 作为可选输入。
+Evaluator v0 可以在没有外部 Agent 的情况下运行，先生成 Operator 现场验证报告。Operator 选择 Fault Run 或 alert receipt 后显式触发验证；阶段 5 之后再把 `AgentSubmission` 作为可选输入，并可由合法提交自动排队。
 
 Evaluator 读取：
 
 - 可选的 AgentSubmission。
-- 告警接收记录。
+- 阶段 5 告警驱动模式下的告警接收记录；阶段 4 Operator 模式可只使用 Fault Run 和 Run Event。
 - 当前 Prometheus/Loki/Tempo 和业务只读查询结果。
 - Fault Run、Run Event 和审计事实。
 - 可选的实际场景 remediation outcome；Fault Run 的 stop/release/cleanup 状态仍单独来自控制面。
