@@ -19,7 +19,7 @@ Pilot candidate 至少满足：
 - 现有 alert rule 在专用环境中可稳定触发，并能通过 alert receipt 关联到唯一运行。
 - 只读观测入口已经可用，Agent 不需要访问控制面或业务写 API。
 - 目标业务/基础设施问题的 remediation 可以用声明性建议描述，不依赖 Agent 执行 Fault Run stop/release/cleanup。
-- baseline、active、recovery 查询窗口清晰，观测 retention 足以完成一次 RCA。
+- baseline、active、recovery 查询窗口清晰；由于本阶段不保存现场数据，必须确认观测 retention 足以完成一次 RCA。
 - 不会因为 Operator 不采纳建议而留下不可控的破坏性资源。
 
 推荐先从 `BROWSE_SURGE`、`PSP_PROVIDER_OUTCOME` 等有明确告警和业务路径的候选中选择一个，最终以阶段 0 的实际阈值和环境验证结果为准；不默认把推荐名称当作已选场景。
