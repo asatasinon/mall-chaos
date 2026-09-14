@@ -46,7 +46,7 @@
   -> 全量默认开启
 ```
 
-建议为 drain、自动接管、Evidence Query、Agent Alert Delivery、benchmark profile 和 broker 分别设置开关。
+建议为 drain、自动接管、Evidence Query 和 Agent Alert Delivery 分别设置开关。
 
 ## 3. 数据库迁移
 

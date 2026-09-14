@@ -31,7 +31,7 @@ Contract 属于控制面和测试生成层，不原样暴露给业务服务。
 - Catalog 与 Gateway target map 一致。
 - Catalog 与 `fault-run-targets.ts` 等控制面 target/dispatch 辅助映射一致。
 - Worker dispatch 覆盖需要 Worker 的场景。
-- recovery strategy 与 release/cleanup 实现存在。
+- `recoveryStrategy` 与对应生命周期 hook 存在；`TARGET`/`WORKER` 需要 release，`MANUAL_CLEANUP` 需要清晰的人工清理合同，`NON_RELEASING` 不得伪造 release。
 - 参数、时长、runbook、Evidence Query 和 i18n 完整。
 - 需要告警驱动的场景必须声明允许的 alert name、service、severity、关联窗口和告警缺失处理方式。
 - 告警合同必须声明告警接收记录保留、评估关闭条件、fingerprint 去重、重复通知和 resolved 通知处理。
@@ -52,7 +52,7 @@ Contract 属于控制面和测试生成层，不原样暴露给业务服务。
 ## 验收
 
 - 12 个场景全部通过 contract validation。
-- 新场景缺少 Gateway、Worker、release、cleanup 或证据定义时 CI 失败。
+- 新场景缺少适用于自身 `recoveryStrategy` 的生命周期 hook、清理边界或证据定义时 CI 失败。
 - Contract revision 可在 Run Event 中追踪。
 - 业务服务仍只接收通用内部协议。
 - 告警合同不能把“场景已开启”写成“告警一定 firing”；必须区分 alert receipt、effect observed 和 evidence unavailable。

@@ -14,8 +14,8 @@ start
   -> stop accepting new work
   -> abort or finish in-flight requests
   -> await drain deadline
-  -> release target
-  -> cleanup
+  -> apply strategy-specific release or manual-cleanup boundary
+  -> cleanup when allowed by the catalog
   -> verify
 ```
 
@@ -41,6 +41,8 @@ start
 | `DRAIN_TIMEOUT` | 停止时任务未收敛 |
 | `RELEASE_FAILED` | 目标服务未成功释放 |
 | `CLEANUP_FAILED` | 运行级资源未清理 |
+| `MANUAL_CLEANUP_REQUIRED` | 场景按恢复策略需要 Operator 确认或执行人工清理 |
+| `NON_RELEASING_ACTIVE` | 场景按设计不释放已产生的运行时效果，只记录停止边界和残留状态 |
 | `SERVICE_UNAVAILABLE` | 目标服务或依赖不可用 |
 | `PARTIAL_RECOVERY` | 部分恢复完成，仍需人工处理 |
 

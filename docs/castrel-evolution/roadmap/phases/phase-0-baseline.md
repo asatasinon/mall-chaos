@@ -12,7 +12,7 @@
 - 记录请求数、成功数、失败数、超时数、恢复时长和残留资源。
 - 统一 Worker、Coordinator、Gateway 和目标服务关键事件。
 - 建立失败分类：目标效果失败、控制面失败、Worker 失败、恢复失败、清理失败。
-- 建立开发、full 演练和 benchmark 环境资源预算。
+- 建立开发、full 演练和专用 Agent RCA 试点环境资源预算。
 - 明确数据预热、SkyWalking、重观测组件和危险场景为显式能力。
 
 ## 交付物
@@ -29,13 +29,16 @@
 scenario
 targetService / targetOperation
 catalogRevision / imageRevision / schemaVersion
-environmentProfile / dataProfile
+deploymentMode / dataWarmupEnabled / warmupConfig
 prepareStartedAt / activeAt / stopRequestedAt / recoveredAt / cleanupFinishedAt
 requests / successes / failures / timeouts
 workerDrain / release / cleanup / healthCheck
 alertName / alertSeverity / alertStartsAt / alertResolvedAt / alertReceiptStatus
 knownLimitations / residualResources / rollbackProcedure
 ```
+
+`release`、`cleanup` 和 `recovery` 必须按 Catalog 的 `recoveryStrategy` 记录：`MANUAL_CLEANUP` 不得被记录成自动清理成功，`NON_RELEASING` 必须明确保留效果和残留资源的边界。
+
 - 阶段 5 候选告警基线：每个候选场景的 alert name、service、severity、阈值、startsAt/receivedAt/resolvedAt、观测 retention、评估关闭条件和是否能关联 Fault Run。
 - 告警接入基线：确认 Alertmanager 当前 webhook 路由、`send_resolved`、认证和控制面接收端点真实存在；配置文件中的 webhook URL 不能视为接收能力已经实现。
 - 记录阶段 5 专用 Alertmanager child route 是否存在、是否只匹配 pilot alert、是否配置外部 receiver，以及是否避免把默认告警全量发送给 Agent。
