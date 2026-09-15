@@ -40,9 +40,9 @@ Pilot candidate 至少满足：
    - 保存最小字段，不保存指标、日志、Trace 或完整 Alertmanager payload 中的秘密/无关内容。
    - 对同一 fingerprint 和 startsAt 做幂等去重，重复 webhook 不重复创建告警实例。
 3. **告警与 Fault Run 关联**
-   - 根据 Scenario Contract 的 alert contract、服务、规则、时间窗口和 active Fault Run 进行关联。
-   - 零匹配写入 `UNMATCHED_ALERT`；这不阻断 Alertmanager 已配置的外部投递，但不能自动进入唯一 Fault Run 作用域的 Evaluator。
-   - 多匹配写入 `AMBIGUOUS_ALERT`；这不阻断 Alertmanager 已配置的外部投递，但不能自动进入唯一 Fault Run 作用域的 Evaluator。
+   - 告警接收和 Agent 投递不以 Fault Run 关联成功为前置条件；Fault Run 关联只是控制面内部的可选审计上下文。
+   - 根据 Scenario Contract 的 alert contract、服务、规则、时间窗口和 active Fault Run 候选做关联，并记录 `faultRunCorrelationStatus`。
+   - 零匹配记录 `faultRunCorrelationStatus=UNMATCHED`；多匹配记录 `faultRunCorrelationStatus=AMBIGUOUS`，两者都不阻断外部 Agent 投递或一般 RCA Evaluator。
    - 为每个告警实例生成/确认 `alertRef`；外部 Agent 可以收到一个或多个告警引用。
 4. **Alertmanager 外部 receiver**
    - Alertmanager 直接向外部 Agent webhook 投递，不新增 Alert Delivery Gateway。
@@ -53,7 +53,7 @@ Pilot candidate 至少满足：
 5. **AgentSubmission 接收入口**
    - 对外提交入口由统一 Nginx Basic Auth 拦截未认证请求。
    - 通过 `agent-submission.v1` JSON Schema 校验。
-   - 校验 `alertRefs[]` 中每个引用是否存在以及评估是否关闭；关联为 `UNMATCHED_ALERT` 或 `AMBIGUOUS_ALERT` 时保存提交，但不自动进入唯一 Fault Run 作用域的 Evaluator。
+   - 校验 `alertRefs[]` 中每个引用是否存在以及评估是否关闭；`faultRunCorrelationStatus` 为 `UNMATCHED` 或 `AMBIGUOUS` 时仍保存提交，并在评估报告中记录限制。
    - 保存幂等的 submission metadata，然后自动排队 Evaluator。
 
 ### 必须测试
@@ -68,7 +68,7 @@ Pilot candidate 至少满足：
 - Alertmanager 到外部 Agent webhook 的 Basic Auth。
 - 未认证访问 Agent webhook/提交入口被 Nginx 拒绝。
 - 相同 `submissionId` 重试不重复排队。
-- 无效 `alertRefs[]`、未知 fingerprint 和已关闭评估被拒绝；有效但未唯一关联的引用进入 `CORRELATION_PENDING`，不因关联不完整阻断 Alertmanager 投递。
+- 无效 `alertRefs[]`、未知 fingerprint 和已关闭评估被拒绝；有效但没有唯一 Fault Run 上下文的引用仍可评估，不因关联不完整阻断 Alertmanager 投递。
 
 ### 该子阶段不实现
 
@@ -115,9 +115,9 @@ Alertmanager 直接向外部 Agent webhook 投递告警；控制面内部 webhoo
    - 关联结果与失败原因。
 2. **关联当前 Fault Run**
    - 根据告警服务、规则、时间和活动运行判断是否属于某个 active Fault Run；
-   - 无法关联时记录 `UNMATCHED_ALERT`；
-   - 多个运行匹配时记录 `AMBIGUOUS_ALERT`；
-   - `UNMATCHED_ALERT`/`AMBIGUOUS_ALERT` 不阻断 Alertmanager 已配置的 Agent receiver，只阻止自动进入唯一 Fault Run 作用域的 Evaluator。
+   - 无法关联时记录 `faultRunCorrelationStatus=UNMATCHED`；
+   - 多个运行匹配时记录 `faultRunCorrelationStatus=AMBIGUOUS`；
+   - `faultRunCorrelationStatus=UNMATCHED/AMBIGUOUS` 不阻断 Alertmanager 已配置的 Agent receiver，也不阻止基于告警和观测证据的 RCA Evaluator。
 3. **生成/确认 `alertRef`**
    - 每个 `fingerprint + startsAt` 告警实例都有一个 `alertRef`；
    - 同一实际问题的多个 `alertRef` 可以由控制面聚合为内部 `incidentRef`；
@@ -138,6 +138,42 @@ Alertmanager 直接向外部 Agent webhook 投递告警；控制面内部 webhoo
 - 执行 Fault Run stop/release/cleanup；
 - 执行 Agent 的 remediation；
 - 把控制面内部字段暴露给 Agent。
+
+### Fault Run 关联是可选内部上下文
+
+Agent RCA 的前提是告警和可查询的实际观测，不是必须存在或唯一匹配的 Fault Run。Fault Run 关联保留的价值是：
+
+- 在受控演练中为 Operator 提供运行审计上下文；
+- 让 Evaluator 在**唯一匹配成功时**参考该运行的时间线、目标 operation 和 recovery facts；
+- 识别一个告警是否可能来自某个演练运行，而不是把它误当成确定事实。
+
+它不用于：
+
+- 决定 Alertmanager 是否向 Agent 投递；
+- 要求 Agent 认识 Fault Run；
+- 把 `remediationRecommendation` 转换成 Fault Run 控制动作；
+- 在没有唯一匹配时阻止一般 RCA 评估。
+
+判断发生在控制面内部 webhook 保存 alert receipt 之后，由 `FaultRunCorrelationResolver` 异步或事务后执行；不发生在 Alertmanager，也不发生在 Agent。告警接收记录至少保存：
+
+```text
+faultRunCorrelationStatus: NOT_REQUIRED | MATCHED | UNMATCHED | AMBIGUOUS
+matchedFaultRunRef: internal nullable reference
+candidateCount
+correlationCheckedAt
+correlationReason
+```
+
+候选匹配规则必须来自控制面内部的 Scenario Contract 和 Fault Run 事实：
+
+1. 只读取 active 或最近结束的 Fault Run 候选，不把历史任意运行作为候选。
+2. 比较 alert contract 声明的 alert name、service、severity、资源/operation 标签。
+3. 比较 `startsAt`/`receivedAt` 与 Fault Run 的 active、expires、stop 时间窗口；允许的前后 grace 必须由 Contract 声明。
+4. 如果部署环境或观测标签能够提供环境身份，则要求环境身份一致。
+5. 一个候选命中则为 `MATCHED`；零个候选为 `UNMATCHED`；多个候选为 `AMBIGUOUS`；未启用 run correlation 的告警为 `NOT_REQUIRED`。
+6. 不按“最近时间”或告警文本强行选择一个运行，不把多个候选压缩为一个确定关联。
+
+`UNMATCHED` 和 `AMBIGUOUS` 都是内部限制，不是 Alertmanager 投递失败。Evaluator 只有在 `MATCHED` 时才能把 Fault Run Event 当作该告警的受控运行上下文；其他状态下仍可根据 alert receipt、Prometheus、Loki、Tempo 和业务检查执行 RCA，但必须在报告中记录 Fault Run 上下文不可确定。
 
 当前 checkout 的 Alertmanager 配置已有类似 `/internal/alertmanager/webhook` 的目标，但控制面对应接收 route 尚未被确认实现。因此它是阶段 5 的实现阻塞项，而不是已经存在的功能。
 
@@ -190,7 +226,7 @@ Alertmanager 直接向外部 Agent webhook 投递告警；控制面内部 webhoo
 
 Evaluator 通过 `alertRefs[]` 和内部 `incidentRef` 查找告警接收事实；不要求告警当前仍为 firing。`firing -> resolved` 是正常恢复过程。
 
-如果告警无法唯一关联到一个 active Fault Run，或者匹配到多个运行，控制面分别记录 `UNMATCHED_ALERT` 或 `AMBIGUOUS_ALERT`。在 Alertmanager 直接投递模式下，告警仍可能已经发送给 Agent；此时提交可以保存为 `CORRELATION_PENDING`，但不自动进入唯一 Fault Run 作用域的 Evaluator。只有多个 alert 能够确认属于同一问题时，才合并到同一个 `incidentRef`。
+如果告警无法唯一关联到一个 active Fault Run，或者匹配到多个运行，控制面分别记录 `faultRunCorrelationStatus=UNMATCHED` 或 `AMBIGUOUS`。在 Alertmanager 直接投递模式下，告警仍可能已经发送给 Agent；提交仍可进入 RCA Evaluator，但报告必须带上该限制，不得把任意一个候选 Fault Run 当作确定事实。只有多个 alert 能够确认属于同一问题时，才合并到同一个 `incidentRef`。
 
 `incidentRef` 的关联窗口由 Scenario Contract、active Fault Run 时间线和选定告警规则共同决定；它是告警关联窗口，不是 AgentSubmission 的固定过期时间。第一个告警到达后，后续相关告警可以加入同一个 incident；Agent 先提交一个告警的报告不会阻止控制面继续补充告警事实。
 
@@ -211,7 +247,7 @@ observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 - Alertmanager 的重复通知不会创建新的评估对象；同一 fingerprint 和 startsAt 仍归属于同一告警接收记录。
 - 告警恢复为 `resolved` 不会使提交失效；恢复只影响观测时间线和后续 remediation 状态。
 - `alertRefs[]` 是 Agent 实际使用的告警子集，不要求列出该 `incidentRef` 下的全部 alert receipts；只要每个已提交引用有效且可关联，提交仍可接收。
-- 服务端只拒绝告警引用无效、告警集合内部互相冲突或明确关闭的提交；暂时无法唯一关联的提交进入 `CORRELATION_PENDING`。如果观测 retention 已无法复查，提交仍可接收，但评估结果为 `EVIDENCE_UNAVAILABLE` 或部分证据不可用。
+- 服务端只拒绝告警引用无效、告警集合内部互相冲突或明确关闭的提交；暂时无法唯一关联 Fault Run 的提交仍可接收和评估。如果观测 retention 已无法复查，提交仍可接收，但评估结果为 `EVIDENCE_UNAVAILABLE` 或部分证据不可用。
 - 新一轮重新 firing 且 `startsAt` 改变时，为该告警实例生成新的 `alertRef`；如果与其他告警属于同一问题，则关联到已有或新的 `incidentRef`。
 - v0 不因为经过固定分钟数、告警变为 resolved 或 Fault Run 到期而自动关闭评估；`evaluationClosedAt` 只在 Operator/服务端显式关闭或本次评估完成明确终态流程后写入。
 - 评估为 `COMPLETED` 后，新的 AgentSubmission 默认不再替换原报告；如需重新评估，Operator 必须显式重试或重新打开评估并记录原因。
@@ -256,6 +292,7 @@ Basic Auth 凭据不得写入 `AgentSubmission.json`，也不得出现在 RCA、
 | Tempo retention | Tempo 部署配置、运行时 API 或查询结果 | 否 |
 | `evidenceAvailability` | Evaluator 对每个查询窗口的实际查询结果 | 否；属于 Evaluation Report |
 | `alertCoverageStatus` | Evaluator 对 `alertRefs[]` 与 incident 已知告警集合的覆盖判断 | 否；属于 Evaluation Report |
+| `faultRunCorrelationStatus` | 控制面内部 Fault Run 关联器的结果 | 否；属于告警接收记录和 Evaluation Report |
 | Agent 的 `submittedAt` | Agent 提交字段，同时由服务端记录接收时间 | 是，但只作为审计时间，不决定 retention |
 
 因此：
@@ -542,7 +579,7 @@ FAILED
 ## 验收
 
 - 没有 firing alert，不向 Agent 发送 RCA 任务。
-- 告警接收记录缺失或无法关联时返回 `UNMATCHED_ALERT` / `ALERT_RECEIPT_UNAVAILABLE`，不直接判 RCA 错误。
+- 告警接收记录缺失时返回 `ALERT_RECEIPT_UNAVAILABLE`；Fault Run 上下文无法唯一关联时记录 `faultRunCorrelationStatus=UNMATCHED/AMBIGUOUS`，两者都不直接判定 RCA 错误。
 - Agent 不能通过试点接入地址访问控制面写 API、Ground Truth 或其他运行数据；阶段 5 不新增应用层授权模型。
 - Agent 只能只读查询并提交 RCA/建议。
 - AgentSubmission 必须通过版本化 JSON Schema。

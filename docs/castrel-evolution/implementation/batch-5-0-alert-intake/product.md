@@ -29,7 +29,7 @@
 - 用 fingerprint 和稳定字段去重。
 - 为每个告警实例形成/确认 opaque `alertRef`，并为可确认属于同一问题的多个告警维护 `incidentRef`。
 - 明确区分 Alertmanager `groupKey`、单告警 `alertRef` 和问题聚合 `incidentRef`；`groupKey` 只是通知分组，不等于根因事件。
-- 支持 `UNMATCHED_ALERT` 和 `AMBIGUOUS_ALERT`。
+- 支持 `faultRunCorrelationStatus` 的 `UNMATCHED` 和 `AMBIGUOUS`。
 - 让后续 Evaluator 可以读取告警接收记录。
 
 ### 3.2 不包含
@@ -49,7 +49,7 @@ Alertmanager 发送 firing/resolved webhook
   -> 拆分 grouped alerts
   -> 每个告警实例生成 alertRef
   -> 按关联规则把多个 alertRef 聚合为 incidentRef
-  -> 关联 active Fault Run，或记录 UNMATCHED/AMBIGUOUS
+  -> 可选关联 active Fault Run，记录 faultRunCorrelationStatus
   -> 后续 Operator/Evaluator 查询接收事实
 ```
 
@@ -73,6 +73,8 @@ resolvedAt
 matchedFaultRunRef
 correlationStatus
 deduplicationStatus
+faultRunCorrelationStatus
+matchedFaultRunRef
 ```
 
 语义约束：
@@ -81,7 +83,8 @@ deduplicationStatus
 - 一个 `incidentRef` 可以包含多个 `alertRef`，但只有满足明确关联条件时才聚合。
 - Alertmanager `groupKey` 只记录原始通知分组，不能直接当作 `incidentRef`。
 - 第一个告警可以创建 `incidentRef`，后续在关联窗口内到达的相关告警可以加入该 incident；不能因为 Agent 先收到一个告警就认定问题只有一个告警。
-- 在 Alertmanager 直接投递模式下，是否发送由 Alertmanager 的 pilot child route 决定；控制面产生的 `UNMATCHED_ALERT`/`AMBIGUOUS_ALERT` 不会追回或阻断已经配置的外部投递，只影响后续关联和自动评估资格。
+- 在 Alertmanager 直接投递模式下，是否发送由 Alertmanager 的 pilot child route 决定；控制面产生的 `UNMATCHED_ALERT`/`AMBIGUOUS_ALERT` 不会追回或阻断已经配置的外部投递，只影响评估报告是否具备确定的 Fault Run 上下文。
+- `faultRunCorrelationStatus` 只是控制面内部上下文，允许为 `NOT_REQUIRED`、`MATCHED`、`UNMATCHED` 或 `AMBIGUOUS`；它不决定告警是否发送给 Agent。
 - 控制面内部可以保存 Fault Run 和 incident 关联；向外部 Agent 暴露的只能是告警引用集合，不暴露 `faultRunId`、数据库 ID、Operator session 或控制语义。
 
 ## 6. 产品验收
@@ -91,7 +94,7 @@ deduplicationStatus
 - grouped alert 可以逐条处理并保留原始分组关联。
 - 一个问题产生多个告警时，多个 `alertRef` 可以关联到同一个 `incidentRef`。
 - firing、resolved、未匹配和多重匹配均有可查询状态。
-- 未匹配或多重匹配的告警仍能保留接收事实，并明确进入 `CORRELATION_PENDING`，而不是伪装成投递失败。
+- 未匹配或多重匹配的告警仍能保留接收事实，并记录 `faultRunCorrelationStatus=UNMATCHED` 或 `AMBIGUOUS`，而不是伪装成投递失败。
 - 控制面 webhook 不承担观测数据存储和 Fault Run 控制职责。
 - 告警接收记录可以被后续 Evidence Query 和 Evaluator 读取。
 
