@@ -35,7 +35,7 @@
 
 - 阶段 5 是单场景、单环境、单运行的 RCA 试点，不是多 Agent benchmark。
 - 外部 Agent 不获取 `taskId`、`evaluationId`、`faultRunId` 或内部数据库 ID。
-- Agent 由 Alertmanager firing alert 触发，只接收告警 envelope 和 opaque `alertRef`。
+- Agent 由 Alertmanager firing alert 触发，只接收告警 envelope 和一个或多个 opaque `alertRef`；同一问题的告警集合由控制面内部以 `incidentRef` 关联。
 - Agent 只读查询观测数据，提交标准化 `AgentSubmission.json`，不执行恢复。
 - Evaluator 在合法提交后自动排队，重新查询当前观测数据并生成报告。
 - 当前路线只覆盖单环境、单运行的 Operator 演练和 Agent RCA 试点。

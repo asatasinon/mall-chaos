@@ -87,7 +87,7 @@ EVIDENCE_UNAVAILABLE
 FAILED
 ```
 
-如果告警接收记录缺失或 `alertRef` 无法关联，返回 `UNMATCHED_ALERT` 或 `ALERT_RECEIPT_UNAVAILABLE`，不直接判定 RCA 错误。
+如果告警接收记录缺失或 `alertRefs[]` 无法关联，返回 `UNMATCHED_ALERT` 或 `ALERT_RECEIPT_UNAVAILABLE`，不直接判定 RCA 错误。
 
 ## 验收
 

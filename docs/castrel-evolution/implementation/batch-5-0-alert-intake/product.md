@@ -7,7 +7,7 @@
 
 ## 1. 产品目标
 
-把 Alertmanager 的 firing/resolved 通知变成控制面可审计、可去重、可关联的告警接收事实，为后续 Agent RCA 提供可靠的 `alertRef`。
+把 Alertmanager 的 firing/resolved 通知变成控制面可审计、可去重、可关联的告警接收事实。单个告警实例生成一个 `alertRef`；同一实际问题产生的多个告警通过控制面内部的 `incidentRef` 聚合，为后续 Agent RCA 提供完整告警集合。
 
 本批次只处理告警接收和关联，不向 Agent 投递，不执行 Fault Run 控制动作，也不保存指标、日志或 Trace。
 
@@ -27,7 +27,8 @@
 - 记录最小告警 envelope、fingerprint、接收时间、状态和来源。
 - 处理 firing、resolved、grouped alerts 和 Alertmanager 重试。
 - 用 fingerprint 和稳定字段去重。
-- 为关联到 active Fault Run 的告警生成 opaque `alertRef`。
+- 为每个告警实例形成/确认 opaque `alertRef`，并为可确认属于同一问题的多个告警维护 `incidentRef`。
+- 明确区分 Alertmanager `groupKey`、单告警 `alertRef` 和问题聚合 `incidentRef`；`groupKey` 只是通知分组，不等于根因事件。
 - 支持 `UNMATCHED_ALERT` 和 `AMBIGUOUS_ALERT`。
 - 让后续 Evaluator 可以读取告警接收记录。
 
@@ -46,8 +47,9 @@ Alertmanager 发送 firing/resolved webhook
   -> 控制面校验并保存最小接收记录
   -> 按 fingerprint 幂等处理
   -> 拆分 grouped alerts
-  -> 关联 active Fault Run
-  -> 生成 alertRef 或记录 UNMATCHED/AMBIGUOUS
+  -> 每个告警实例生成 alertRef
+  -> 按关联规则把多个 alertRef 聚合为 incidentRef
+  -> 关联 active Fault Run，或记录 UNMATCHED/AMBIGUOUS
   -> 后续 Operator/Evaluator 查询接收事实
 ```
 
@@ -59,6 +61,7 @@ Alertmanager 发送 firing/resolved webhook
 
 ```text
 alertRef
+incidentRef
 fingerprint
 status
 alertName
@@ -72,13 +75,20 @@ correlationStatus
 deduplicationStatus
 ```
 
-控制面内部可以保存 Fault Run 关联，但向外部 Agent 暴露的只有 opaque `alertRef`，不暴露 `faultRunId`、数据库 ID、Operator session 或控制语义。
+语义约束：
+
+- 一个 `alertRef` 只对应一个 `fingerprint + startsAt` 告警实例。
+- 一个 `incidentRef` 可以包含多个 `alertRef`，但只有满足明确关联条件时才聚合。
+- Alertmanager `groupKey` 只记录原始通知分组，不能直接当作 `incidentRef`。
+- 第一个告警可以创建 `incidentRef`，后续在关联窗口内到达的相关告警可以加入该 incident；不能因为 Agent 先收到一个告警就认定问题只有一个告警。
+- 控制面内部可以保存 Fault Run 和 incident 关联；向外部 Agent 暴露的只能是告警引用集合，不暴露 `faultRunId`、数据库 ID、Operator session 或控制语义。
 
 ## 6. 产品验收
 
 - 当前配置指向的 webhook 接收端点真实存在，并能通过代码或集成测试确认。
-- Alertmanager 重试不会产生重复告警接收记录或重复 `alertRef`。
+- Alertmanager 重试不会产生重复告警接收记录、重复 `alertRef` 或重复 `incidentRef`。
 - grouped alert 可以逐条处理并保留原始分组关联。
+- 一个问题产生多个告警时，多个 `alertRef` 可以关联到同一个 `incidentRef`。
 - firing、resolved、未匹配和多重匹配均有可查询状态。
 - 控制面 webhook 不承担观测数据存储和 Fault Run 控制职责。
 - 告警接收记录可以被后续 Evidence Query 和 Evaluator 读取。
@@ -87,7 +97,7 @@ deduplicationStatus
 
 - pilot alert 的 firing、retry、resolved 和 grouped 路径均有测试。
 - 告警关联失败不会静默丢弃，也不会错误绑定到任意运行。
-- `alertRef` 可作为后续 Agent 投递和 AgentSubmission 的唯一外部关联键。
+- `alertRef` 可作为单个告警实例的外部关联键，`alertRefs[]` 和内部 `incidentRef` 可共同关联一次 RCA。
 - 内部告警接收链路与外部 Agent 投递链路职责清晰分离。
 
 满足退出条件后，进入批次 5.1。

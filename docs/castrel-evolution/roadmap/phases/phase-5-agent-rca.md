@@ -43,7 +43,7 @@ Pilot candidate 至少满足：
    - 根据 Scenario Contract 的 alert contract、服务、规则、时间窗口和 active Fault Run 进行关联。
    - 零匹配写入 `UNMATCHED_ALERT`。
    - 多匹配写入 `AMBIGUOUS_ALERT`，不得向 Agent 投递。
-   - 生成服务端 opaque `alertRef`，外部 Agent 只看到该引用。
+   - 为每个告警实例生成/确认 `alertRef`；外部 Agent 可以收到一个或多个告警引用。
 4. **Alertmanager 外部 receiver**
    - Alertmanager 直接向外部 Agent webhook 投递，不新增 Alert Delivery Gateway。
    - receiver 使用部署侧 Nginx Basic Auth 保护的 Agent webhook 地址和 Basic Auth 配置。
@@ -53,7 +53,7 @@ Pilot candidate 至少满足：
 5. **AgentSubmission 接收入口**
    - 对外提交入口由统一 Nginx Basic Auth 拦截未认证请求。
    - 通过 `agent-submission.v1` JSON Schema 校验。
-   - 校验 `alertRef` 是否存在、是否关联唯一运行、评估是否关闭。
+   - 校验 `alertRefs[]` 中每个引用是否存在、是否关联唯一运行以及评估是否关闭。
    - 保存幂等的 submission metadata，然后自动排队 Evaluator。
 
 ### 必须测试
@@ -68,7 +68,7 @@ Pilot candidate 至少满足：
 - Alertmanager 到外部 Agent webhook 的 Basic Auth。
 - 未认证访问 Agent webhook/提交入口被 Nginx 拒绝。
 - 相同 `submissionId` 重试不重复排队。
-- 无效 `alertRef`、未知 fingerprint 和已关闭评估被拒绝。
+- 无效 `alertRefs[]`、未知 fingerprint 和已关闭评估被拒绝。
 
 ### 该子阶段不实现
 
@@ -118,8 +118,9 @@ Alertmanager 直接向外部 Agent webhook 投递告警；控制面内部 webhoo
    - 无法关联时记录 `UNMATCHED_ALERT`；
    - 多个运行匹配时记录 `AMBIGUOUS_ALERT`，不向 Agent 投递。
 3. **生成/确认 `alertRef`**
-   - 外部 Agent 只看到 opaque `alertRef`；
-   - Evaluator 通过 `alertRef` 找到告警接收记录、Fault Run 和查询时间窗口。
+   - 每个 `fingerprint + startsAt` 告警实例都有一个 `alertRef`；
+   - 同一实际问题的多个 `alertRef` 可以由控制面聚合为内部 `incidentRef`；
+   - Evaluator 通过 `alertRefs[]` 和 `incidentRef` 找到告警接收记录、Fault Run 和查询时间窗口。
 4. **处理告警生命周期**
    - 接收 `firing` 和 `resolved`；
    - 处理重复通知和 grouped alerts；
@@ -127,7 +128,7 @@ Alertmanager 直接向外部 Agent webhook 投递告警；控制面内部 webhoo
 5. **审计和可观测性**
    - 记录告警是否已经投递给 Agent；
    - 记录 AgentSubmission 是否关联成功；
-   - 为 Evaluator 提供告警来源事实。
+   - 为 Evaluator 提供告警来源事实和聚合后的 `incidentRef`。
 
 该 webhook **不负责**：
 
@@ -148,35 +149,49 @@ Alertmanager 直接向外部 Agent webhook 投递告警；控制面内部 webhoo
 - 对外告警/提交入口是否由统一 Nginx Basic Auth 拦截未认证请求。
 - 选定告警规则、目标服务、严重级别和 active Fault Run 关联是否正确。
 - fingerprint 去重、重复投递、告警接收记录、`startsAt`、`resolvedAt`、评估关闭和 retention 处理是否正确。
-- Alertmanager grouped notification 的每个 alert 如何拆成独立 `alertRef`；默认一个 alert fingerprint 对应一个 `alertRef`，groupKey 只做内部关联。
+- Alertmanager grouped notification 的每个 alert 如何拆成独立 `alertRef`；一个问题产生的多个 `alertRef` 如何聚合为 `incidentRef`；`groupKey` 只表示通知分组，不直接表示根因事件。
 - 外部 Agent webhook endpoint 是否真实可用，且 Alertmanager receiver 使用部署侧 Basic Auth 调用。
 - Agent 是否能够使用部署侧提供的 Basic Auth 访问现有观测入口。
 - 提交入口是否接收 `AgentSubmission.json` 并自动排队 Evaluator。
 
 阶段 5 不应把配置文件中的 webhook URL 当作现成实现；缺失部分属于本阶段的实现范围。
 
-### AlertRef
+### AlertRef 与 IncidentRef
 
-外部 Agent 不获取 `taskId`、`evaluationId`、`faultRunId` 或内部数据库 ID，只接收 opaque `alertRef`：
+需要区分三个不同对象：
+
+| 对象 | 含义 | 是否等于根因事件 |
+| --- | --- | --- |
+| `alertRef` | 一个 `fingerprint + startsAt` 告警实例的关联引用 | 否 |
+| `groupKey` | Alertmanager 将多个 alert 放进同一通知的分组键 | 否，只是通知分组 |
+| `incidentRef` | 控制面根据明确关联规则聚合的一组相关 `alertRef` | 表示“当前认为属于同一问题的告警集合”，不是自动证明根因 |
+
+一个真实问题可能产生多个告警，例如延迟、错误率、连接池和节点资源告警。此时每个告警仍有独立 `alertRef`，多个 `alertRef` 可以属于同一个 `incidentRef`。不能把多个告警压缩成一个 fingerprint，也不能把 Alertmanager `groupKey` 直接当成 `incidentRef`。
+
+单个告警引用只包含 Alertmanager 和控制面能够共同确认的实例字段：
 
 ```json
 {
   "fingerprint": "alert-fp-01J8EXAMPLE",
-  "startsAt": "2026-09-11T08:20:00Z",
-  "receivedAt": "2026-09-11T08:20:30Z"
+  "startsAt": "2026-09-11T08:20:00Z"
 }
 ```
+
+`receivedAt` 是控制面内部接收事实，不放入由 Alertmanager 直接投递给 Agent 的 `alertRef`；AgentSubmission 由服务端根据 `fingerprint + startsAt` 查找接收记录。
 
 控制面在告警到达时做一次 admission：
 
 - 校验 Alertmanager 来源和部署侧 Basic Auth/内部网络边界。
 - 校验选定告警规则、目标服务、时间和 active Fault Run。
-- 生成并保存最小告警接收记录。
+- 为每个 alert 保存最小接收记录并做 fingerprint 幂等。
+- 根据 Scenario Contract、服务/资源关联、时间窗口、active Fault Run 和可选 correlation label 聚合 `incidentRef`。
 - 记录告警到达时间、startsAt、resolvedAt（如有）、receivedAt、关联状态、去重结果和评估关闭状态。
 
-Evaluator 后续只校验 `alertRef` 是否来自受信任接入、是否属于该运行；不要求告警当前仍为 firing。`firing -> resolved` 是正常恢复过程。
+Evaluator 通过 `alertRefs[]` 和内部 `incidentRef` 查找告警接收事实；不要求告警当前仍为 firing。`firing -> resolved` 是正常恢复过程。
 
-如果告警无法唯一关联到一个 active Fault Run，或者匹配到多个运行，控制面不向 Agent 投递，分别记录 `UNMATCHED_ALERT` 或 `AMBIGUOUS_ALERT`。
+如果告警无法唯一关联到一个 active Fault Run，或者匹配到多个运行，控制面不向 Agent 投递，分别记录 `UNMATCHED_ALERT` 或 `AMBIGUOUS_ALERT`。如果多个 alert 只能证明时间或服务相关、不能确认属于同一问题，则保留多个 `alertRef`，不强行合并 `incidentRef`。
+
+`incidentRef` 的关联窗口由 Scenario Contract、active Fault Run 时间线和选定告警规则共同决定；它是告警关联窗口，不是 AgentSubmission 的固定过期时间。第一个告警到达后，后续相关告警可以加入同一个 incident；Agent 先提交一个告警的报告不会阻止控制面继续补充告警事实。
 
 ### Evaluation eligibility
 
@@ -191,11 +206,11 @@ observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 规则：
 
 - `startsAt` 是 Prometheus/Alertmanager 观察到告警开始的时间，不用它单独计算 Agent 窗口；Agent 可能在 Alertmanager group wait 后才收到告警。
-- `receivedAt` 由服务端记录并绑定到 `alertRef`；Agent 的 `submittedAt` 只用于审计。
+- `receivedAt` 由服务端记录并绑定到每个 `alertRef`；Agent 的 `submittedAt` 只用于审计。
 - Alertmanager 的重复通知不会创建新的评估对象；同一 fingerprint 和 startsAt 仍归属于同一告警接收记录。
 - 告警恢复为 `resolved` 不会使提交失效；恢复只影响观测时间线和后续 remediation 状态。
 - 服务端只拒绝无法关联或明确关闭的提交；如果观测 retention 已无法复查，提交仍可接收，但评估结果为 `EVIDENCE_UNAVAILABLE` 或部分证据不可用。
-- 新一轮重新 firing 且 `startsAt` 改变时，生成新的 alertRef 和新的告警接收记录。
+- 新一轮重新 firing 且 `startsAt` 改变时，为该告警实例生成新的 `alertRef`；如果与其他告警属于同一问题，则关联到已有或新的 `incidentRef`。
 - v0 不因为经过固定分钟数、告警变为 resolved 或 Fault Run 到期而自动关闭评估；`evaluationClosedAt` 只在 Operator/服务端显式关闭或本次评估完成明确终态流程后写入。
 - 评估为 `COMPLETED` 后，新的 AgentSubmission 默认不再替换原报告；如需重新评估，Operator 必须显式重试或重新打开评估并记录原因。
 
@@ -212,7 +227,7 @@ observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 
 告警接收记录的保留时间与观测 retention 分开：观测数据可以过期并导致 `EVIDENCE_UNAVAILABLE`，但告警接收记录、AgentSubmission 和评估状态仍应按 Fault Run/控制面 retention 保留，便于审计。
 
-`alertRef` 只是关联键，不是观测凭据。Agent 使用部署侧提供的统一 Nginx Basic Auth 访问现有观测入口：
+`alertRefs[]` 和 `incidentRef` 只是关联键，不是观测凭据。Agent 使用部署侧提供的统一 Nginx Basic Auth 访问现有观测入口：
 
 - 观测入口：Prometheus、Loki、Tempo 和指定业务只读入口。
 - Basic Auth 用户名/密码由部署环境注入，不写入 `AgentSubmission.json`。
@@ -256,11 +271,18 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
 {
   "schemaVersion": "agent-submission.v1",
   "submissionId": "sub-01J8EXAMPLE",
-  "alertRef": {
-    "fingerprint": "alert-fp-01J8EXAMPLE",
-    "startsAt": "2026-09-11T08:20:00Z",
-    "receivedAt": "2026-09-11T08:20:30Z"
-  },
+  "alertRefs": [
+    {
+      "fingerprint": "alert-fp-01J8EXAMPLE",
+      "startsAt": "2026-09-11T08:20:00Z",
+      "role": "primary"
+    },
+    {
+      "fingerprint": "alert-fp-01J8SUPPORTING",
+      "startsAt": "2026-09-11T08:21:00Z",
+      "role": "supporting"
+    }
+  ],
   "submittedAt": "2026-09-11T08:30:00Z",
   "agent": {
     "name": "example-rca-agent",
@@ -322,10 +344,10 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
 | --- | --- | --- | --- | --- |
 | `schemaVersion` | string | 是 | Agent，受 Schema 限制 | 固定为 `agent-submission.v1`，用于选择解析和校验规则。 |
 | `submissionId` | string | 是 | Agent 提供，服务端校验唯一性 | 本次提交的幂等键和审计键；同值重试不得重复排队。 |
-| `alertRef` | object | 是 | Agent 原样回传告警 envelope 中的值 | 关联告警接收记录和服务端运行上下文；Agent 不能自行创建或修改。 |
-| `alertRef.fingerprint` | string | 是 | 告警接收系统生成 | Alertmanager 告警实例指纹。 |
-| `alertRef.startsAt` | RFC 3339 string | 是 | 告警接收系统生成 | 告警开始时间；用于复查窗口，不代表当前仍 firing。 |
-| `alertRef.receivedAt` | RFC 3339 string | 是 | 控制面生成 | 控制面首次接收告警时间；Agent 只能回传，不能修改。 |
+| `alertRefs` | array<object> | 是 | Agent 从一个或多个告警 envelope 原样回传 | 关联一个问题涉及的一个或多个告警实例；至少一个元素，不能自行创建或修改。 |
+| `alertRefs[].fingerprint` | string | 是 | 告警接收系统生成 | 一个 Alertmanager 告警实例的指纹。 |
+| `alertRefs[].startsAt` | RFC 3339 string | 是 | 告警接收系统生成 | 该告警实例的开始时间；用于复查窗口，不代表当前仍 firing。 |
+| `alertRefs[].role` | enum | 是 | Agent 根据告警集合声明 | `primary` 或 `supporting`；只表达 Agent 的组织方式，不等于 Evaluator 已确认根因。 |
 | `submittedAt` | RFC 3339 string | 是 | Agent 提供，服务端另记接收时间 | Agent 自报生成时间，只用于审计，不决定评估资格或 retention。 |
 | `agent` | object | 是 | Agent | 标识 Agent 实现，不包含凭据或内部连接信息。 |
 | `agent.name` | string | 是 | Agent | Agent 名称。 |
@@ -360,7 +382,7 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
 | `evidenceRefs[].kind` | enum | 是 | `metric`、`log`、`trace`、`business_check`、`run_event` 或 `resource_check`。 |
 | `evidenceRefs[].source` | enum | 是 | `prometheus`、`loki`、`tempo`、`business_api`、`control_plane` 或 `resource_api`。 |
 | `evidenceRefs[].service` | string | 视 kind | 观测服务或业务服务；控制面字段不能替代业务服务事实。 |
-| `evidenceRefs[].window.from/to` | RFC 3339 string | 是 | Agent 查询证据的时间窗口，必须落在 alertRef 关联的允许窗口内。 |
+| `evidenceRefs[].window.from/to` | RFC 3339 string | 是 | Agent 查询证据的时间窗口，必须落在 `alertRefs[]` 关联的允许窗口内。 |
 | `evidenceRefs[].agentQuery` | string | 是 | Agent 实际使用的查询文本，仅作审计和对照；Evaluator 不直接执行。 |
 | `evidenceRefs[].observation` | string | 是 | Agent 从查询结果看到的现象摘要，不是原始日志/Trace 的替代存储。 |
 | `evidenceRefs[].supports` | array[enum] | 是 | `symptom`、`root_cause`、`impact`、`remediation` 之一或多个。 |
@@ -401,7 +423,7 @@ Agent 的 `agentQuery` 不能包含凭据、任意外部 URL、可执行 SQL 或
 
 - `schemaVersion = "agent-submission.v1"`
 - `submissionId`
-- `alertRef`
+- `alertRefs`
 - `submittedAt`
 - `agent.name/version`
 - `diagnosis`
@@ -409,10 +431,10 @@ Agent 的 `agentQuery` 不能包含凭据、任意外部 URL、可执行 SQL 或
 - `remediationRecommendation`
 - `limitations`
 
-`submissionId` 用于幂等、重试和审计；同一个 `alertRef` 可以有多次提交。Result Gateway 需要定义：
+`submissionId` 用于幂等、重试和审计；同一个 `alertRefs[]`/`incidentRef` 可以有多次提交。Result Gateway 需要定义：
 
 - 相同 `submissionId` 重复提交返回同一接收结果，不重复排队评估。
-- 新 `submissionId` 在同一 `alertRef` 下提交时，只有在前一次评估尚未开始时才允许替换；评估已开始后必须由 Operator 显式重试或选择新提交。
+- 新 `submissionId` 在同一 `alertRefs[]` 或 `incidentRef` 下提交时，只有在前一次评估尚未开始时才允许替换；评估已开始后必须由 Operator 显式重试或选择新提交。
 - 评估已关闭的新提交返回 `EVALUATION_CLOSED`；如果观测 retention 已无法覆盖查询窗口，返回 `EVIDENCE_UNAVAILABLE`，不直接判定 RCA 错误。
 - Agent 不获得 `taskId`、`evaluationId`、`faultRunId` 或内部数据库 ID。
 
@@ -460,7 +482,7 @@ Result Gateway 在保存提交前必须执行：
 ```text
 AgentSubmission.json
   -> JSON Schema validation
-  -> alertRef / permission / size / secret checks
+  -> alertRefs[] / incident correlation / permission / size / secret checks
   -> immutable submission record
   -> automatically queued Evaluator
 ```
@@ -478,7 +500,7 @@ Evaluator：
 - 判断 RCA 正确性、证据充分性和建议安全性。
 - 判断告警接收、Fault Run 控制面状态和目标效果。
 - 不执行实际场景 remediation，不替 Operator 调用 release/cleanup。
-- 告警从 `firing` 变为 `resolved` 仍然可以评估；Evaluator 校验告警接收记录和 `alertRef`，不要求当前仍为 firing。
+- 告警从 `firing` 变为 `resolved` 仍然可以评估；Evaluator 校验告警接收记录、`alertRefs[]` 和内部 `incidentRef`，不要求当前仍为 firing。
 - 查询失败或观测 retention 过期时返回 `evidence_unavailable`，不直接判定 RCA 错误。
 - Evaluator 使用服务端定义的查询配方，不执行 Agent 提交的任意 URL、shell 或 SQL。
 
@@ -522,7 +544,7 @@ FAILED
 - Operator 不执行实际场景 remediation 是合法结果，报告使用 `remediationExecutionStatus = ACCEPTED_NOT_EXECUTED`；尚未审核时使用 `NOT_REVIEWED`。
 - Evaluator 状态区分 `PENDING`、`RUNNING`、`COMPLETED`、`EVIDENCE_UNAVAILABLE`、`FAILED`。
 - 不发布跨 Agent 排行榜。
-- 试点场景的 alert receipt、AgentSubmission、Evaluator report 和 `remediationExecutionStatus` 可以通过同一 `alertRef` 关联；Fault Run 的内部 stop/release/cleanup 状态仍只由控制面记录。
+- 试点场景的 alert receipts、`alertRefs[]`、内部 `incidentRef`、AgentSubmission、Evaluator report 和 `remediationExecutionStatus` 可以关联；Fault Run 的内部 stop/release/cleanup 状态仍只由控制面记录。
 
 ## 回退
 

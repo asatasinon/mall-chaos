@@ -20,8 +20,8 @@
 - 外部 Agent 不获取 `taskId`、`evaluationId`、`faultRunId`、Operator session 或内部 service key。
 - Agent 由 Alertmanager firing alert 被动触发。
 - Alertmanager 负责向外部 Agent webhook 投递告警；Nginx Basic Auth 只保护对外暴露的 Alertmanager API/UI、Agent webhook 或提交入口，不替代 Alertmanager。
-- Alertmanager 到控制面的内部 webhook 只负责告警接收记录、Fault Run 关联和 `alertRef`，不负责保存指标/日志/Trace。
-- Agent 只接收告警 envelope 和 opaque `alertRef`。
+- Alertmanager 到控制面的内部 webhook 只负责告警接收记录、Fault Run 关联、单告警 `alertRef` 和内部 `incidentRef`，不负责保存指标/日志/Trace。
+- Agent 只接收告警 envelope 和一个或多个 opaque `alertRef`；`incidentRef` 由控制面内部维护。
 - 外部入口统一由 Nginx Basic Auth 拦截未认证请求；Agent 使用部署侧提供的 Basic Auth 访问现有观测入口。部署只发布 RCA 试点所需的告警、观测和提交入口，不把控制面写 API 作为 Agent 接入地址。
 - 阶段 5 不新增应用层 Agent 角色、租户授权或细粒度授权逻辑。
 - Agent 提交 RCA 和实际场景 remediation 建议。

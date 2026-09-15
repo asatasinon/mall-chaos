@@ -15,7 +15,7 @@ Agent 不需要知道 Castrel 的 Fault Run 控制模型，也不能控制 Fault
 
 | 服务对象 | 当前问题 | 本批次价值 |
 | --- | --- | --- |
-| 外部 Agent | 只能收到非结构化告警，无法稳定关联证据 | 获得告警 envelope、查询入口和 opaque `alertRef` |
+| 外部 Agent | 一个问题可能对应多个告警，单一告警无法覆盖完整证据范围 | 获得包含一个或多个告警实例引用的告警 envelope 和只读查询入口 |
 | Operator | Agent 输出格式不一致，无法进入统一评估 | 获得标准化 AgentSubmission v1 |
 | 业务/平台负责人 | Agent 可能误把演练控制动作当作业务修复 | 明确 remediation 只描述真实场景的修复动作 |
 
@@ -29,7 +29,7 @@ Agent 不需要知道 Castrel 的 Fault Run 控制模型，也不能控制 Fault
 - Agent 使用部署侧 Basic Auth 访问现有 Prometheus、Loki、Tempo 或业务只读入口。
 - 接收 `schemaVersion = agent-submission.v1` 的结构化提交。
 - 使用 `submissionId` 做幂等和审计。
-- 使用 `alertRef` 关联批次 5.0 的告警接收事实。
+- 使用 `alertRefs[]` 关联批次 5.0 的一个或多个告警接收事实；如控制面已完成聚合，同时关联内部 `incidentRef`。
 - 校验 diagnosis、evidenceRefs、`remediationRecommendation`、limitations 和 extensions。
 - 自动排队后续 Evaluator。
 
@@ -46,7 +46,7 @@ Agent 不需要知道 Castrel 的 Fault Run 控制模型，也不能控制 Fault
 
 ```text
 Alertmanager 发送 pilot firing alert
-  -> Agent 收到 alert envelope 和 alertRef
+  -> Agent 收到包含一个或多个告警实例的 alert envelope
   -> Agent 只读查询指标、日志、Trace 和业务状态
   -> Agent 生成 AgentSubmission v1
   -> 控制面校验并按 submissionId 幂等接收
@@ -65,7 +65,7 @@ Alertmanager 发送 pilot firing alert
 ```text
 schemaVersion
 submissionId
-alertRef
+alertRefs
 agent
 diagnosis
 evidenceRefs
@@ -85,12 +85,17 @@ extensions
 
 观测 retention 不足时，提交仍可接收；后续评估应记录 `EVIDENCE_UNAVAILABLE`，不能直接判定 RCA 错误。
 
+一个 `alertRef` 只代表一个告警实例；同一问题产生多个告警时，AgentSubmission 使用 `alertRefs[]` 一次引用多个实例。Alertmanager 的 `groupKey` 只是通知分组，不能直接证明这些告警属于同一根因；是否形成 `incidentRef` 由控制面根据告警合同、时间窗口、服务/资源关联和 active Fault Run 事实判断。
+
+`incidentRef` 是控制面内部的聚合引用，不要求 Agent 生成，也不作为 `AgentSubmission.json` 的必填字段；服务端根据 `alertRefs[]` 在接收和评估时解析或确认它。
+
 ## 6. 产品验收
 
 - 只有 pilot alert 会进入外部 Agent receiver，默认告警不会全量投递。
 - Agent 可以完成只读观测查询并提交合法 `AgentSubmission v1`。
 - 非法、重复和评估关闭后的提交均有明确结果。
 - Agent 无法通过提交内容获得 Fault Run 控制字段或内部权限。
+- AgentSubmission 可以覆盖一个问题对应的多个告警实例，并能区分主要告警和补充告警。
 - 控制面只接收建议，不执行实际 remediation。
 - Agent 的建议能够被后续 Evaluator 独立读取和复查。
 
@@ -112,13 +117,13 @@ extensions
 | Scenario / Fault / Waiter | Fault Run Catalog、目标 operation、生命周期和恢复检查 | 否，沿用 Castrel 现有控制面模型 |
 | Ground Truth | Catalog 内部的预期信号、恢复条件、业务检查和安全边界 | 否，不向 Agent 暴露 |
 | Recorder | Prometheus、Loki、Tempo、业务检查和 Evidence Query Manifest | 否，Castrel v0 只保存查询协议和摘要，不保存现场快照 |
-| 状态、Bundle、评估输入 | `alertRef`、告警接收记录、AgentSubmission、Evaluator Report | 否，按告警驱动重新设计 |
+| 状态、Bundle、评估输入 | `alertRefs[]`、内部 `incidentRef`、告警接收记录、AgentSubmission、Evaluator Report | 否，按告警驱动重新设计 |
 | 外部 Agent 接入 | Alertmanager 外部 receiver + Nginx Basic Auth + Submission endpoint | 否，不引入 AWX 或额外 Agent Gateway |
 | Agent remediation | `remediationRecommendation` | 仅借鉴“诊断后给出修复方向”，不允许 Agent 自动执行 |
 
 Castrel 有意保留以下差异：
 
-- 不向 Agent 提供 `taskId`、`evaluationId`、`faultRunId`、Ground Truth 或内部数据库 ID；Agent 只使用 opaque `alertRef`。
+- 不向 Agent 提供 `taskId`、`evaluationId`、`faultRunId`、Ground Truth 或内部数据库 ID；Agent 只使用一个或多个 opaque `alertRef`，内部 `incidentRef` 不暴露为控制面 ID。
 - 不把 Fault Run 控制动作当成业务 remediation；建议必须针对真实业务或基础设施问题。
 - 不设置固定的 Agent RCA 提交过期时间；评估关闭由服务端或 Operator 显式决定，观测 retention 只影响证据复查。
 - 当前只支持单环境、单场景、单运行的 pilot，不实现 ITBench 风格的多 Trial、跨 Agent benchmark、Leaderboard 或自动修复。
