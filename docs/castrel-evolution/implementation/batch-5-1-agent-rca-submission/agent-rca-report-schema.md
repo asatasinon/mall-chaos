@@ -7,7 +7,7 @@
 
 ## 1. 目的与边界
 
-`AgentRcaReport` 是外部 Agent 向 Castrel 返回 RCA、证据引用和**实际业务/基础设施** remediation 建议的唯一机器输入。它不是 Fault Run 控制协议、不是通用 webhook 注册格式，也不是自动修复脚本。
+`AgentRcaReport` 是外部 Agent 向 Castrel-Chaos 返回 RCA、证据引用和**实际业务/基础设施** remediation 建议的唯一机器输入。它不是 Fault Run 控制协议、不是通用 webhook 注册格式，也不是自动修复脚本。
 
 机器可读的唯一规范是同目录的 [`agent-rca-report.v1.schema.json`](./agent-rca-report.v1.schema.json)，采用 JSON Schema Draft 2020-12。本文定义该 Schema 的使用方式、字段语义和 JSON Schema 无法安全表达的跨字段规则。实现时将其原样复制到 `traffic-control-plane/src/lib/agent-rca-report.v1.schema.json`，并以 hash/fixture 测试确保源代码与本设计合同一致；运行时不从 `docs/` 读取文件。
 
