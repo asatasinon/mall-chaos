@@ -340,13 +340,19 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
       "category": "DATABASE_QUERY",
       "service": "catalog-service",
       "resource": "product browse report",
+      "instances": ["catalog-service-1"],
       "explanation": "The report query is consuming increased database capacity."
     },
-    "affectedServices": ["catalog-service"],
-    "affectedResources": ["product browse report"],
     "confidence": 0.82,
     "uncertainties": ["The exact query plan was not available."]
   },
+  "affectedServices": [
+    {
+      "service": "catalog-service",
+      "resources": ["product browse report"],
+      "instances": ["catalog-service-1"]
+    }
+  ],
   "evidenceRefs": [
     {
       "evidenceId": "e-1",
@@ -412,9 +418,12 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
 | `diagnosis.rootCause.category` | enum | 是 | `DATABASE_QUERY`、`CACHE`、`DEPENDENCY`、`LOCK`、`JVM`、`STORAGE`、`EXTERNAL_PROVIDER`、`TRAFFIC`、`CONFIGURATION` 或 `UNKNOWN`。 |
 | `diagnosis.rootCause.service` | string | 是 | Agent 判断的主要业务/基础设施服务。 |
 | `diagnosis.rootCause.resource` | string | 是 | 受影响的资源、操作、依赖或配置对象。 |
+| `diagnosis.rootCause.instances` | array[string] | 否 | 可确认时的主要因果实例，无法可靠定位时省略。 |
 | `diagnosis.rootCause.explanation` | string | 是 | 用证据支持的根因解释；不能包含内部密钥或控制面秘密。 |
-| `diagnosis.affectedServices` | array[string] | 是 | 受影响或需要关注的服务。 |
-| `diagnosis.affectedResources` | array[string] | 是 | 受影响的表、缓存、锁、文件、依赖或业务路径。 |
+| `affectedServices` | array<object> | 是 | 报告级的受影响范围，按服务归属表达。 |
+| `affectedServices[].service` | string | 是 | 受影响或需要关注的服务。 |
+| `affectedServices[].resources` | array[string] | 是 | 该服务受影响的表、缓存、锁、文件、依赖或业务路径。 |
+| `affectedServices[].instances` | array[string] | 否 | 该服务中实际观察到受影响的实例。 |
 | `diagnosis.confidence` | number `0..1` | 是 | Agent 自评置信度，不等于 Evaluator 确认结果。 |
 | `diagnosis.uncertainties` | array[string] | 是 | 未确认的查询、数据缺口和替代解释。允许为空数组。 |
 

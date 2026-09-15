@@ -41,9 +41,14 @@ AgentRcaReport
   ├── reportId
   ├── alertRefs[]
   ├── agent
+  ├── affectedServices[]
+  │     ├── service
+  │     ├── resources[]
+  │     └── instances[] (optional)
   ├── diagnosis
   │     ├── symptoms[]
-  │     └── rootCause
+  │     ├── rootCause
+  │     │     └── instances[] (optional)
   ├── evidenceRefs[]
   ├── remediationRecommendation
   │     └── actions[]
@@ -58,6 +63,11 @@ AgentRcaReport
 | `alertRefs` | 1-20 项，恰好一项 `primary` | Alertmanager 原生告警实例的 `(fingerprint, startsAt)` 引用；不是 capability 或内部 ID。 |
 | `reportReceivedAt` | 不属于报告 JSON | 服务端在成功持久化报告时生成的接收时间；重复提交返回原值。 |
 | `agent.name` / `agent.version` | 1-128 位受限标识符 | 追踪产生该结果的 Agent 实现；不得包含连接地址或凭据。 |
+| `affectedServices` | 1-20 个 `AffectedService` 对象 | 报告级影响范围，供 Evidence、remediation 和 Evaluator 共同使用。 |
+| `affectedServices[].service` | 小写 service 标识符 | 被影响或需要关注的服务；在同一报告内必须唯一。 |
+| `affectedServices[].resources` | 1-20 个唯一资源 | 属于该服务的表、缓存、锁、文件、依赖或业务路径，不等于 remediation 已执行。 |
+| `affectedServices[].instances` | 可选的 1-20 个 string | 该服务中实际观察到受影响的实例；不是服务所有实例的完整清单。 |
+| `affectedServices[].instances[]` | 1-128 位受限标识符 | 来自已授权观测 source 的非地址实例标签；不接受 IP、端口、URL、内部数据库 ID 或凭据。 |
 | `diagnosis` | 结构化 RCA | Agent 的断言，Evaluator 会独立复查。 |
 | `evidenceRefs` | 1-40 项受限证据引用 | Agent 使用过的查询与观察摘要；其中 query 仅作审计，绝不执行。 |
 | `remediationRecommendation` | 至少一条声明性 action | 对真实问题的建议，而非控制面或演练操作。 |
@@ -100,21 +110,37 @@ Agent 不提交 `submittedAt`。服务端在 AgentRcaReport 通过 Schema、安�
       "category": "TRAFFIC",
       "service": "gateway-service",
       "resource": "product-listing request capacity",
+      "instances": [
+        "gateway-service-1"
+      ],
       "explanation": "Sustained product-listing traffic exceeded the currently observed request-handling capacity, which propagated elevated latency to the catalog read path."
     },
-    "affectedServices": [
-      "gateway-service",
-      "catalog-service"
-    ],
-    "affectedResources": [
-      "product-listing request path",
-      "catalog read capacity"
-    ],
     "confidence": 0.78,
     "uncertainties": [
       "The available evidence does not isolate a single capacity limit."
     ]
   },
+  "affectedServices": [
+    {
+      "service": "gateway-service",
+      "resources": [
+        "product-listing request capacity",
+        "product-listing request path"
+      ],
+      "instances": [
+        "gateway-service-1"
+      ]
+    },
+    {
+      "service": "catalog-service",
+      "resources": [
+        "catalog read capacity"
+      ],
+      "instances": [
+        "catalog-service-1"
+      ]
+    }
+  ],
   "evidenceRefs": [
     {
       "evidenceId": "metric-traffic-rate",
@@ -235,9 +261,8 @@ Agent 不提交 `submittedAt`。服务端在 AgentRcaReport 通过 Schema、安�
 | `rootCause.category` | 固定十类枚举 | Evaluator 对照服务端 Ground Truth predicate 输出 assessment，不回传隐藏答案。 |
 | `rootCause.service` | 小写 service 标识符 | 主要归因服务，必须可映射到受控业务/基础设施名称。 |
 | `rootCause.resource` | 1-1024 字符 | 资源、业务操作或依赖对象，不得是内部控制操作。 |
+| `rootCause.instances` | 可选的 1-20 个 string | 可确认时标识主要因果实例；无法可靠定位时省略。 |
 | `rootCause.explanation` | 1-4096 字符 | 解释性断言，需由 `evidenceRefs` 支持。 |
-| `affectedServices` | 1-20 个唯一 service | 影响范围，不等于根因服务集合。 |
-| `affectedResources` | 1-20 个唯一资源 | 影响范围，不等于 remediation 已执行。 |
 | `confidence` | 数值 `0..1` | Agent 自评，不是 Evaluator 分数。 |
 | `uncertainties` | 最多 20 项 | 已知替代解释、缺失数据或查询限制。 |
 
@@ -246,6 +271,14 @@ Agent 不提交 `submittedAt`。服务端在 AgentRcaReport 通过 Schema、安�
 `rootCause.resource` 是稳定、可定位的**名词对象**，用于回答“哪个业务资源、操作或依赖受影响”，例如 `product-listing request capacity`、`payment PSP authorization dependency` 或 `catalog report query plan`。它应足够具体，供 Evaluator 将诊断与受控 evidence contract 对齐，但不能写入 Fault Run、worker、release 或 cleanup 等控制面对象。
 
 `rootCause.explanation` 是可证伪的**因果断言**，用于回答“为什么这个对象被判断为根因”。例如，上例将持续流量、观察到的处理能力和下游延迟之间的关系写成一句完整解释。它不是日志摘录、建议动作或单纯症状；至少一个 `evidenceRefs[].supports` 必须包含 `root_cause`，且 Evaluator 会用服务端受控 recipe 独立复查。
+
+`rootCause.resource` 有意保持单值：它标识本次报告的**主要因果对象**，使 Evaluator 能对一个明确断言进行验证。若问题同时影响多个资源，它们都应归入顶层 `affectedServices[].resources[]`；若无法辨别唯一主要对象，应使用 `rootCause.category = "UNKNOWN"` 并在 `uncertainties` 中说明，而不是将多个候选根因塞入数组。
+
+`instances` 有意保持可选。全局流量、配置、共享依赖或证据不完整时，Agent 不应猜测一个 pod、节点或副本；此时省略 `instances` 并在 `uncertainties` 说明。若提供实例，它只能是观测系统已公开的非地址标签，而不是 IP、端口、URL、内部数据库 ID 或控制面 ID。
+
+`evidenceRefs[]` 是实例、资源和根因判断的唯一证据模型：`evidenceRefs[].service`、`window` 和 `supports` 描述证据的适用范围，Evaluator 再用受控 recipe 独立复查。因此不在 `instances[]` 或其他嵌套对象中重复维护 `evidenceIds`，避免同一关系出现两个可分歧的来源。
+
+顶层 `affectedServices` 将原先平行的 `affectedServices: string[]` 和 `affectedResources: string[]` 合并为服务对象，避免“第 N 个资源属于第 N 个服务”的脆弱隐含约定。它描述的是报告的影响范围，而不只是 diagnosis 的内部字段，因此 Evidence、remediation 和 Evaluator 都以它作为共同上下文。每个 `AffectedService` 必须至少有一个 `resources` 元素；服务名在同一报告内唯一，资源只在所属服务内去重。服务端的跨字段 validator 还必须确认 `diagnosis.rootCause.service` 位于顶层 `affectedServices[].service` 中，且 `diagnosis.rootCause.resource` 位于该服务的 `resources[]` 中。存在 `diagnosis.rootCause.instances` 时，其中每个实例字符串还必须属于该服务 `affectedServices[].instances`；同一 service 下实例按字符串去重。
 
 ## 6. `evidenceRefs[]` 合同
 

@@ -285,6 +285,8 @@ export interface FaultRunScenarioDefinition {
 
 每一个 `recoveryPolicy` 与场景、固定 target 和参数一起维护在 `fault-run-catalog.ts`；resolver 不维护平行 `Record<FaultRunScenario, ...>`。它只读取该 policy、`allowManualCleanup`、固定 target operation 和 Run 的已验证参数：
 
+批次 3 引入 Scenario Contract 时，`recoveryPolicy` 必须成为同一 Catalog `contract.lifecycle` supplement 的来源或被其吸收，不能在 Contract validator、Gateway、Worker 或文档中复制一份可独立编辑的策略表。
+
 | Catalog 策略 | drain | target release | cleanup | 最低完成条件 |
 | --- | --- | --- | --- | --- |
 | `WORKER` | 必需；没有工作时明确 `NOT_STARTED`，不是未注册成功 | 由 Catalog 显式决定：`BROWSE_REPORT_SQL`/`ORDER_REPORT_SQL` 为 `REQUIRED`，两个 surge 场景为 `NOT_APPLICABLE` | `NOT_APPLICABLE` | 所有已接受工作结束或已记录超时；必要的 report target release 和 worker 汇总均持久化。 |
@@ -448,7 +450,7 @@ X-Idempotency-Key: <valid key>
 
 ### 7.5 Operator API 与 UI
 
-不新增消费者接口。现有 `GET /internal/fault-runs/{faultRunId}` 继续返回 `{ run, events, audit }`，其中 `run.recoveryResult` 现在具有可校验的安全投影。详情视图新增：
+不新增消费者接口。现有 `GET /internal/fault-runs/{faultRunId}` 向后兼容地从 `{ run, events, audit }` 扩展为 `{ run, events, audit, audits }`：`audit` 保留旧标量关联，`audits` 按事件顺序返回关联的操作审计；其中 `run.recoveryResult` 现在具有可校验的安全投影。详情视图新增：
 
 - 顶层状态下方的恢复子状态和停止原因；
 - drain deadline、参与者、已取消数、in-flight 起止/截止统计；
@@ -496,6 +498,12 @@ recovery_error
 - `fault_run_events` 仍随 Fault Run 删除；本批次不把恢复摘要变为长期 Evidence archive，也不改变批次 0 的 baseline retention。
 - 因为没有 DDL，本批次没有 SQL migration。实现仍需对 fresh schema、已有 JSON 为 `null` 的 Run、旧格式 JSON 和 retention 查询覆盖集成测试。
 
+### 8.4 审计关联
+
+`fault_runs.operator_audit_id` 当前只能保存一个 audit pointer，stop 会覆盖创建 audit，cleanup 也没有稳定关联。Phase 1 不将该标量作为完整操作时间线：停止命令事务必须写入 `STOP_REQUESTED` 事件的 `operatorAuditId`、action 和 result 摘要，per-run cleanup 也使用同样的事件关联；创建 audit pointer 保持向后兼容。
+
+为使 stop command 与 audit 结论不分离，repository 的命令事务应复用 `operator_audit_logs` 插入逻辑，在同一连接中先写入 hash-only audit，再写 Run 状态/投影和事件。详情 API 可以按 event 顺序批量加载关联 audit，保留既有 `audit` 字段并增量增加 `audits`，无需在本批次新增 audit link table。若任何 audit、命令或事件写入失败，整个事务回滚，路由不能返回 `202`。
+
 ## 9. 错误、重试与失败传播
 
 ### 9.1 稳定错误分类
@@ -517,7 +525,7 @@ recovery_error
 ### 9.2 重试规则
 
 1. 同一进程内由 executor 的 `running` map 合并同 Run 的恢复调用。
-2. 进程重启时，`STOP_REQUESTED`、`DRAINING`、`RELEASING`、`VERIFYING` 等未完成步骤可按持久化 phase 恢复；外部 release 只能使用已存在的 run ID、expiry、idempotency 和 fencing context。
+2. 进程重启时，`STOP_REQUESTED`、`DRAINING`、`RELEASING`、`VERIFYING` 等未完成步骤可按持久化 phase 恢复，并保留最初的 `MANUAL`/`EXPIRED`/Worker 失败原因；不得将手工停止重写为到期停止。外部 release 只能使用已存在的 run ID、expiry、idempotency 和 fencing context。
 3. 单次步骤失败后写入 `PARTIAL_RECOVERY`/`RECOVERY_BLOCKED`，不会由每秒扫描器无限调用 Gateway。Operator 在修复依赖后用新的确认 key 触发下一 attempt。
 4. 任何 attempt 都使用固定绝对 deadline；重试不复写旧步骤结果、旧错误或原始响应。
 5. Phase 1 不把“重启后能够续做”描述为 owner takeover。若同时运行两个 Worker，该保证不成立，因此部署副本数必须保持为一。
@@ -599,7 +607,7 @@ typed projection + unit fixtures
 4. `listRunnableFaultRuns()`/`loadRunnableFaultRun()` 不返回 `CREATING` 或 `RECOVERING`；Report、Surge、Scenario 和 Runner 的 scanner fixture 均不得在这两个状态创建效果请求。
 5. `ScenarioWorkers` 的现有 drain 与新的 registry 兼容；Traffic Surge 注册并等待 `ControlledScenarioWorker`；Runner 停止受控 lifecycle 后下一次正常 lifecycle 仍可执行。
 6. Worker setup/dispatch 失败写 `WORKER_FAILED` 并启动恢复，而不是每秒重新启动同一错误 worker。
-7. Worker 进程重启对 `RECOVERING` Run 只恢复 stop/release，不重新执行 prepare、业务流量或创建 target；同 Run target release 的幂等 context 保持不变。
+7. Worker 进程重启对 `RECOVERING` Run 只恢复 stop/release，不重新执行 prepare、业务流量或创建 target；同 Run target release 的幂等 context 和原始停止原因保持不变。
 8. `MANUAL_CLEANUP_REQUIRED` 时 cleanup route 必须要求 CSRF、confirmation 和 idempotency；成功后才允许终态。cache per-run cleanup 与 storage scenario-wide cleanup 的 operation 不能串线。
 9. `NON_RELEASING` route/executor 不调用 target release，safe-runtime.v1 的服务不可用结果仍保留 `RECOVERING`/active-run guard，只有现有服务恢复信号才可使其终态。
 10. `SIGINT`/`SIGTERM` 同时到达时只执行一次有界 shutdown；无法写入关键恢复事实时进程以非零状态退出，Compose/Kubernetes grace period 足以覆盖默认预算。

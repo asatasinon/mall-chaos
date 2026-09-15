@@ -179,6 +179,7 @@ Agent query 仍不构成控制面 Evaluator 的执行输入。Evaluator 只运�
 | JSON 深度 | 最大 12 |
 | `alertRefs` | 1-20 个，且恰好一个 `primary` |
 | `evidenceRefs` | 1-40 个 |
+| 可选 `instances` | 每个 root cause 或受影响服务至多 20 个；每项是一个非地址实例标识字符串 |
 | remediation actions | 1-10 个，`order` 从 1 连续递增 |
 | 单一字符串 | 最大 4 KiB；`agentQuery` 最大 2 KiB |
 | `reportId` | 1-128 个 URL-safe 字符 |
@@ -205,6 +206,7 @@ Content-Type / body limit
 - URL、callback、凭据 URI、shell command/substitution、代码块、SQL statement 和自动修复脚本；
 - `remediationExecuted`、`cleanupExecuted`、`score`、`passed` 等 Agent 无权声明的结果；
 - 将 Fault Run stop/release/cleanup、Worker、Alertmanager 或 Evaluator 操作表述为 remediation target 的内容。
+- `instances[]` 中的 IP、端口、URL、内部数据库 ID 或控制面 ID。
 
 安全检查失败时不保存 report JSON，只写不含 body 的 intake audit reason。通过检查的 `agentQuery` 仍只是审计文本；不得被 `fetch`、数据库或 shell 执行。
 

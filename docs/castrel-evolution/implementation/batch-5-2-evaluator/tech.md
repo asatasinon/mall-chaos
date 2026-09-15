@@ -300,7 +300,7 @@ Evaluator 只允许执行 manifest 里的 `recipeId`。每个 recipe 必须有 s
 | --- | --- |
 | `alertCoverageStatus` | report 引用数量、incident 已知 receipt 集合和其可用性。 |
 | `faultRunCorrelationStatus` | 批次 5.0 的最新 receipt correlation；多 receipt 不一致时保留限制。 |
-| `diagnosisAssessment` | Agent category/service/resource 与后端 Ground Truth predicate 和受控 query 摘要的匹配程度。 |
+| `diagnosisAssessment` | Agent category/service/resource/instances 与后端 Ground Truth predicate 和受控 query 摘要的匹配程度。 |
 | `evidenceAssessment` | required recipe 可用性、Agent evidence 的 source/window/support 覆盖与独立重查结果。 |
 | `remediationReviewStatus` | 声明性建议的目标、前置条件、风险、验证、回退及禁止控制面主题检查。 |
 | `remediationExecutionStatus` | 最新 Operator outcome；初始为 `NOT_REVIEWED`。 |
@@ -378,6 +378,7 @@ JSON 内的 `recipeSummaries` 只能包含安全的 recipe ID、source、窗口�
 - Agent query 永不进入 executor；executor 只接受 manifest recipe ID。
 - `MATCHED`/`UNMATCHED`/`AMBIGUOUS` 对可读上下文与 diagnosis assessment 的影响。
 - coverage 的 `COMPLETE`、`PARTIAL`、`UNKNOWN`，包括 Agent 只提交部分有效 receipt。
+- 可选 `instances: string[]` 的服务归属、root cause subset、格式限制和缺失实例；无法可靠定位实例时省略必须得到允许。
 - evidence unavailable、query failure、empty result 和 invalid recipe 的分离。
 - Ground Truth 规则只输出 assessment，测试输出中不包含期望类别、内部 run ID 或 predicate 文本。
 - 建议安全性、业务恢复、Fault Run control 和 remediation execution 的状态永不混用。
