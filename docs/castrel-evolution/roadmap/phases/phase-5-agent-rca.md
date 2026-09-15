@@ -41,8 +41,8 @@ Pilot candidate 至少满足：
    - 对同一 fingerprint 和 startsAt 做幂等去重，重复 webhook 不重复创建告警实例。
 3. **告警与 Fault Run 关联**
    - 根据 Scenario Contract 的 alert contract、服务、规则、时间窗口和 active Fault Run 进行关联。
-   - 零匹配写入 `UNMATCHED_ALERT`。
-   - 多匹配写入 `AMBIGUOUS_ALERT`，不得向 Agent 投递。
+   - 零匹配写入 `UNMATCHED_ALERT`；这不阻断 Alertmanager 已配置的外部投递，但不能自动进入唯一 Fault Run 作用域的 Evaluator。
+   - 多匹配写入 `AMBIGUOUS_ALERT`；这不阻断 Alertmanager 已配置的外部投递，但不能自动进入唯一 Fault Run 作用域的 Evaluator。
    - 为每个告警实例生成/确认 `alertRef`；外部 Agent 可以收到一个或多个告警引用。
 4. **Alertmanager 外部 receiver**
    - Alertmanager 直接向外部 Agent webhook 投递，不新增 Alert Delivery Gateway。
@@ -53,7 +53,7 @@ Pilot candidate 至少满足：
 5. **AgentSubmission 接收入口**
    - 对外提交入口由统一 Nginx Basic Auth 拦截未认证请求。
    - 通过 `agent-submission.v1` JSON Schema 校验。
-   - 校验 `alertRefs[]` 中每个引用是否存在、是否关联唯一运行以及评估是否关闭。
+   - 校验 `alertRefs[]` 中每个引用是否存在以及评估是否关闭；关联为 `UNMATCHED_ALERT` 或 `AMBIGUOUS_ALERT` 时保存提交，但不自动进入唯一 Fault Run 作用域的 Evaluator。
    - 保存幂等的 submission metadata，然后自动排队 Evaluator。
 
 ### 必须测试
@@ -68,7 +68,7 @@ Pilot candidate 至少满足：
 - Alertmanager 到外部 Agent webhook 的 Basic Auth。
 - 未认证访问 Agent webhook/提交入口被 Nginx 拒绝。
 - 相同 `submissionId` 重试不重复排队。
-- 无效 `alertRefs[]`、未知 fingerprint 和已关闭评估被拒绝。
+- 无效 `alertRefs[]`、未知 fingerprint 和已关闭评估被拒绝；有效但未唯一关联的引用进入 `CORRELATION_PENDING`，不因关联不完整阻断 Alertmanager 投递。
 
 ### 该子阶段不实现
 
@@ -116,7 +116,8 @@ Alertmanager 直接向外部 Agent webhook 投递告警；控制面内部 webhoo
 2. **关联当前 Fault Run**
    - 根据告警服务、规则、时间和活动运行判断是否属于某个 active Fault Run；
    - 无法关联时记录 `UNMATCHED_ALERT`；
-   - 多个运行匹配时记录 `AMBIGUOUS_ALERT`，不向 Agent 投递。
+   - 多个运行匹配时记录 `AMBIGUOUS_ALERT`；
+   - `UNMATCHED_ALERT`/`AMBIGUOUS_ALERT` 不阻断 Alertmanager 已配置的 Agent receiver，只阻止自动进入唯一 Fault Run 作用域的 Evaluator。
 3. **生成/确认 `alertRef`**
    - 每个 `fingerprint + startsAt` 告警实例都有一个 `alertRef`；
    - 同一实际问题的多个 `alertRef` 可以由控制面聚合为内部 `incidentRef`；
@@ -189,7 +190,7 @@ Alertmanager 直接向外部 Agent webhook 投递告警；控制面内部 webhoo
 
 Evaluator 通过 `alertRefs[]` 和内部 `incidentRef` 查找告警接收事实；不要求告警当前仍为 firing。`firing -> resolved` 是正常恢复过程。
 
-如果告警无法唯一关联到一个 active Fault Run，或者匹配到多个运行，控制面不向 Agent 投递，分别记录 `UNMATCHED_ALERT` 或 `AMBIGUOUS_ALERT`。如果多个 alert 只能证明时间或服务相关、不能确认属于同一问题，则保留多个 `alertRef`，不强行合并 `incidentRef`。
+如果告警无法唯一关联到一个 active Fault Run，或者匹配到多个运行，控制面分别记录 `UNMATCHED_ALERT` 或 `AMBIGUOUS_ALERT`。在 Alertmanager 直接投递模式下，告警仍可能已经发送给 Agent；此时提交可以保存为 `CORRELATION_PENDING`，但不自动进入唯一 Fault Run 作用域的 Evaluator。只有多个 alert 能够确认属于同一问题时，才合并到同一个 `incidentRef`。
 
 `incidentRef` 的关联窗口由 Scenario Contract、active Fault Run 时间线和选定告警规则共同决定；它是告警关联窗口，不是 AgentSubmission 的固定过期时间。第一个告警到达后，后续相关告警可以加入同一个 incident；Agent 先提交一个告警的报告不会阻止控制面继续补充告警事实。
 
@@ -210,7 +211,7 @@ observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 - Alertmanager 的重复通知不会创建新的评估对象；同一 fingerprint 和 startsAt 仍归属于同一告警接收记录。
 - 告警恢复为 `resolved` 不会使提交失效；恢复只影响观测时间线和后续 remediation 状态。
 - `alertRefs[]` 是 Agent 实际使用的告警子集，不要求列出该 `incidentRef` 下的全部 alert receipts；只要每个已提交引用有效且可关联，提交仍可接收。
-- 服务端只拒绝无法关联、告警集合内部互相冲突或明确关闭的提交；如果观测 retention 已无法复查，提交仍可接收，但评估结果为 `EVIDENCE_UNAVAILABLE` 或部分证据不可用。
+- 服务端只拒绝告警引用无效、告警集合内部互相冲突或明确关闭的提交；暂时无法唯一关联的提交进入 `CORRELATION_PENDING`。如果观测 retention 已无法复查，提交仍可接收，但评估结果为 `EVIDENCE_UNAVAILABLE` 或部分证据不可用。
 - 新一轮重新 firing 且 `startsAt` 改变时，为该告警实例生成新的 `alertRef`；如果与其他告警属于同一问题，则关联到已有或新的 `incidentRef`。
 - v0 不因为经过固定分钟数、告警变为 resolved 或 Fault Run 到期而自动关闭评估；`evaluationClosedAt` 只在 Operator/服务端显式关闭或本次评估完成明确终态流程后写入。
 - 评估为 `COMPLETED` 后，新的 AgentSubmission 默认不再替换原报告；如需重新评估，Operator 必须显式重试或重新打开评估并记录原因。

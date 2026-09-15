@@ -23,7 +23,8 @@ Evaluator 不是 Agent 的 RCA，也不执行恢复或 remediation。
 
 ### 3.1 包含
 
-- 合法 AgentSubmission 自动进入评估队列。
+- 合法且已唯一关联到评估范围的 AgentSubmission 自动进入评估队列。
+- `CORRELATION_PENDING` 提交保留审计和 Operator 查看能力，待关联明确后再进入唯一 Fault Run 作用域的评估。
 - 重新读取 AgentSubmission、alert receipt、Run Event、实时观测和 Contract revision。
 - 对比 Agent 提交的 `alertRefs[]` 与该 `incidentRef` 下控制面已知的告警集合，计算告警覆盖度。
 - 使用确定性规则检查 RCA 分类、证据引用和 remediation 建议。
@@ -73,7 +74,8 @@ AgentSubmission 被接受
 
 ## 6. 产品验收
 
-- 合法提交可以自动进入队列并产生可查询评估状态。
+- 合法且已唯一关联的提交可以自动进入队列并产生可查询评估状态。
+- Alertmanager 已投递但关联状态为 `UNMATCHED_ALERT` 或 `AMBIGUOUS_ALERT` 的提交不会被误判为非法；它保持 `CORRELATION_PENDING`。
 - Agent 只提交 5 个已知告警中的 2 个时，提交仍可进入 Evaluator，并输出 `alertCoverageStatus=PARTIAL`。
 - Evaluator 重新查询证据，不只相信 Agent 自己的结论。
 - 评估结果能区分 RCA 错误、证据不可用、建议不安全和业务恢复未知。

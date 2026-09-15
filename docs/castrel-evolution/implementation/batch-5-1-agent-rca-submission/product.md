@@ -79,7 +79,8 @@ extensions
 | 结果 | 含义 |
 | --- | --- |
 | `ACCEPTED` | 格式、关联和幂等校验通过，等待 Evaluator |
-| `REJECTED` | 缺少必需字段、关联无效或包含禁止内容 |
+| `CORRELATION_PENDING` | 告警引用有效，但 `UNMATCHED_ALERT` 或 `AMBIGUOUS_ALERT`，暂不进入唯一 Fault Run 作用域的自动评估 |
+| `REJECTED` | 缺少必需字段、告警引用不存在或包含禁止内容 |
 | `DUPLICATE` | 相同 submissionId 已处理，返回原处理事实 |
 | `EVALUATION_CLOSED` | 服务端或 Operator 已显式关闭该告警评估 |
 
@@ -96,6 +97,7 @@ extensions
 - 只有 pilot alert 会进入外部 Agent receiver，默认告警不会全量投递。
 - Agent 可以完成只读观测查询并提交合法 `AgentSubmission v1`。
 - 非法、重复和评估关闭后的提交均有明确结果。
+- Alertmanager 已投递但尚未唯一关联 Fault Run 的提交进入 `CORRELATION_PENDING`，不被伪装成 `REJECTED`。
 - Agent 无法通过提交内容获得 Fault Run 控制字段或内部权限。
 - AgentSubmission 可以覆盖一个问题对应的多个告警实例，并能区分主要告警和补充告警。
 - AgentSubmission 只引用部分有效告警时仍可进入 Evaluator，不因为未列出全部告警而自动拒绝。

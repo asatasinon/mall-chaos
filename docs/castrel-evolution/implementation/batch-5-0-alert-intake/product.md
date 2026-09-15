@@ -9,7 +9,7 @@
 
 把 Alertmanager 的 firing/resolved 通知变成控制面可审计、可去重、可关联的告警接收事实。单个告警实例生成一个 `alertRef`；同一实际问题产生的多个告警通过控制面内部的 `incidentRef` 聚合，为后续 Agent RCA 提供完整告警集合。
 
-本批次只处理告警接收和关联，不向 Agent 投递，不执行 Fault Run 控制动作，也不保存指标、日志或 Trace。
+本批次只处理告警接收和关联，不实现外部 Agent 投递，不执行 Fault Run 控制动作，也不保存指标、日志或 Trace。
 
 ## 2. 服务对象与问题
 
@@ -81,6 +81,7 @@ deduplicationStatus
 - 一个 `incidentRef` 可以包含多个 `alertRef`，但只有满足明确关联条件时才聚合。
 - Alertmanager `groupKey` 只记录原始通知分组，不能直接当作 `incidentRef`。
 - 第一个告警可以创建 `incidentRef`，后续在关联窗口内到达的相关告警可以加入该 incident；不能因为 Agent 先收到一个告警就认定问题只有一个告警。
+- 在 Alertmanager 直接投递模式下，是否发送由 Alertmanager 的 pilot child route 决定；控制面产生的 `UNMATCHED_ALERT`/`AMBIGUOUS_ALERT` 不会追回或阻断已经配置的外部投递，只影响后续关联和自动评估资格。
 - 控制面内部可以保存 Fault Run 和 incident 关联；向外部 Agent 暴露的只能是告警引用集合，不暴露 `faultRunId`、数据库 ID、Operator session 或控制语义。
 
 ## 6. 产品验收
@@ -90,6 +91,7 @@ deduplicationStatus
 - grouped alert 可以逐条处理并保留原始分组关联。
 - 一个问题产生多个告警时，多个 `alertRef` 可以关联到同一个 `incidentRef`。
 - firing、resolved、未匹配和多重匹配均有可查询状态。
+- 未匹配或多重匹配的告警仍能保留接收事实，并明确进入 `CORRELATION_PENDING`，而不是伪装成投递失败。
 - 控制面 webhook 不承担观测数据存储和 Fault Run 控制职责。
 - 告警接收记录可以被后续 Evidence Query 和 Evaluator 读取。
 

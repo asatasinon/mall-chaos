@@ -36,7 +36,7 @@ Contract 属于控制面和测试生成层，不原样暴露给业务服务。
 - 需要告警驱动的场景必须声明允许的 alert name、service、severity、关联窗口和告警缺失处理方式。
 - 告警合同必须声明告警接收记录保留、评估关闭条件、fingerprint 去重、重复通知和 resolved 通知处理。
 - v0 不设置时间驱动的评估过期；告警接收记录至少保留到关联 Fault Run 的 retention 结束，评估只有在显式关闭或完成明确的终态流程后才关闭。
-- v0 不设置固定的 Agent RCA 提交窗口；只有显式关闭评估或告警接收记录无法关联时才拒绝提交，观测 retention 只决定能否完成证据复查。
+- v0 不设置固定的 Agent RCA 提交窗口；只有显式关闭、告警引用无效或告警集合互相冲突时才拒绝提交；告警接收记录暂时无法唯一关联时进入 `CORRELATION_PENDING`，观测 retention 只决定能否完成证据复查。
 - 告警合同必须声明阶段 5 的专用 Alertmanager child route、外部 receiver、Basic Auth 凭据来源和 `send_resolved` 规则；不得复用默认全量 receiver。
 
 ### 辅助生成
