@@ -195,7 +195,7 @@ Content-Type / body limit
   -> JSON parse
   -> agent-rca-report.v1 JSON Schema
   -> recursive secret and executable-content policy
-  -> canonical payload hash
+  -> canonical report hash
   -> alert reference / incident / closure validation
   -> immutable persistence and evaluation enqueue
 ```
@@ -203,7 +203,7 @@ Content-Type / body limit
 `AgentRcaReportSafetyValidator` 不把用户字符串当作可执行内容。它必须递归拒绝：
 
 - secret-bearing object keys 或值：`password`、`token`、`secret`、`authorization`、`cookie`、`kubeconfig`、`serviceKey` 等；
-- control-plane identity/authority：`faultRunId`、`taskId`、`evaluationId`、内部 database ID、fencing token、`/internal/` operation payload；
+- control-plane identity/authority：`faultRunId`、`taskId`、`evaluationId`、内部 database ID、fencing token、`/internal/` operation request；
 - URL、callback、凭据 URI、shell command/substitution、代码块、SQL statement 和自动修复脚本；
 - `remediationExecuted`、`cleanupExecuted`、`score`、`passed` 等 Agent 无权声明的结果；
 - 将 Fault Run stop/release/cleanup、Worker、Alertmanager 或 Evaluator 操作表述为 remediation target 的内容。
@@ -230,18 +230,18 @@ Content-Type / body limit
 ```sql
 CREATE TABLE agent_rca_reports (
   report_id VARCHAR(128) NOT NULL PRIMARY KEY,
-  payload_hash CHAR(64) NOT NULL,
+  report_hash CHAR(64) NOT NULL,
   schema_version VARCHAR(64) NOT NULL,
   incident_id BIGINT NOT NULL,
   agent_name VARCHAR(128) NOT NULL,
   agent_version VARCHAR(128) NOT NULL,
-  payload_json JSON NOT NULL,
-  received_at DATETIME(3) NOT NULL,
-  received_principal_hash CHAR(64) NOT NULL,
+  report_json JSON NOT NULL,
+  report_received_at DATETIME(3) NOT NULL,
+  report_principal_hash CHAR(64) NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_agent_rca_report_incident FOREIGN KEY (incident_id)
     REFERENCES alert_incidents(incident_id) ON DELETE RESTRICT,
-  INDEX idx_agent_rca_reports_incident_received (incident_id, received_at),
+  INDEX idx_agent_rca_reports_incident_received (incident_id, report_received_at),
   CHECK (schema_version = 'agent-rca-report.v1')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -258,7 +258,7 @@ CREATE TABLE agent_rca_report_alert_refs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-`payload_json` 只保存通过 Schema 和安全策略的 bounded report JSON。`received_principal_hash` 是 ingress 用户名的不可逆标识，用于低敏审计；密码、Authorization header 和 client IP 不进入这个表。
+`report_json` 只保存通过 Schema 和安全策略的 bounded report JSON。`report_principal_hash` 是 ingress 用户名的不可逆标识，用于低敏审计；密码、Authorization header 和 client IP 不进入这个表。
 
 需要额外记录被拒绝、重复或冲突的请求时，使用不保存请求体的 `agent_rca_report_intake_audits`，字段限定为随机 request ID、report ID（若可解析）、report hash（若可安全计算）、结果码、principal hash 和接收时间。
 

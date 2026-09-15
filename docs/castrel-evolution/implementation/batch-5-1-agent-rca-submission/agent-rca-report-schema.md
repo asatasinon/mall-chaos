@@ -91,7 +91,7 @@ AgentRcaReport
 | 字段 | Schema 约束 | 服务端语义 |
 | --- | --- | --- |
 | `schemaVersion` | 常量 `agent-rca-report.v1` | 唯一版本选择器。未知版本不会降级解析。 |
-| `reportId` | 1-128 位 URL-safe 标识符 | Agent 生成的幂等键。与 canonical payload hash 共同决定重试处理。 |
+| `reportId` | 1-128 位 URL-safe 标识符 | Agent 生成的幂等键。与 canonical report hash 共同决定重试处理。 |
 | `alertRefs` | 1-20 项，恰好一项 `primary` | Alertmanager 原生告警实例的 `(fingerprint, startsAt)` 引用；不是 capability 或内部 ID。 |
 | `reportReceivedAt` | 不属于报告 JSON | 服务端在成功持久化报告时生成的接收时间；重复提交返回原值。 |
 | `agent.name` / `agent.version` | 1-128 位受限标识符 | 追踪产生该结果的 Agent 实现；不得包含连接地址或凭据。 |
@@ -106,7 +106,7 @@ AgentRcaReport
 | `limitations` | 最多 20 条 | Agent 自己已知的证据缺口与不确定性；允许空数组。 |
 | `extensions` | 最多 20 个键的受限 JSON | 只供非评分辅助信息，不能覆盖核心字段或改变 Evaluator 行为。 |
 
-服务端在 AgentRcaReport 通过 Schema、安全、告警引用和事务性持久化后，以数据库 `CURRENT_TIMESTAMP(3)` 写入 `reportReceivedAt`；它是报告的可信审计时间，不是 payload hash 的输入，也不能由 Agent 覆盖。该时间与批次 5.0 每个 alert receipt 的 `receivedAt` 不同，后者表示控制面收到 Alertmanager 通知的时间。
+服务端在 AgentRcaReport 通过 Schema、安全、告警引用和事务性持久化后，以数据库 `CURRENT_TIMESTAMP(3)` 写入 `reportReceivedAt`；它是报告的可信审计时间，不是 `reportHash` 的输入，也不能由 Agent 覆盖。该时间与批次 5.0 每个 alert receipt 的 `receivedAt` 不同，后者表示控制面收到 Alertmanager 通知的时间。
 
 ## 4. `alertRefs[]` 合同
 
@@ -156,7 +156,7 @@ AgentRcaReport
 
 `rootCause.explanation` 是可证伪的**因果断言**，用于回答“为什么这个对象被判断为根因”。例如，上例将持续流量、观察到的处理能力和下游延迟之间的关系写成一句完整解释。它不是日志摘录、建议动作或单纯症状；至少一个 `evidenceRefs[].supports` 必须包含 `root_cause`，且 Evaluator 会用服务端受控 recipe 独立复查。
 
-`rootCause.component` 有意保持单值：它标识本次报告的**主要因果对象**，使 Evaluator 能对一个明确断言进行验证。若问题同时影响多个组件，它们都应归入顶层 `affectedServices[].components[]`；若无法辨别唯一主要对象，应使用 `rootCause.category = "UNKNOWN"` 并在 `uncertainties` 中说明，而不是将多个候选根因塞入数组。
+`rootCause.component` 有意保持单值：它标识本次报告的**主要因果对象**，使 Evaluator 能对一个明确断言进行验证。若问题同时影响多个组件，它们都应归入顶层 `affectedServices[].components[]`。`rootCause.category = "UNKNOWN"` 只表示因果类别尚未确认，不允许省略必填的 `service` 或 `component`；Agent 必须填写最具体的已观察影响对象，并在 `uncertainties` 中说明无法辨别的原因。
 
 `instances` 有意保持可选。全局流量、配置、共享依赖或证据不完整时，Agent 不应猜测一个 pod、节点或副本；此时省略 `instances` 并在 `uncertainties` 说明。若提供实例，它只能是观测系统已公开的非地址标签，而不是 IP、端口、URL、内部数据库 ID 或控制面 ID。
 
@@ -177,7 +177,7 @@ AgentRcaReport
 2. `diagnosis.rootCause.component` 必须位于该服务的 `components[]` 中。
 3. `diagnosis.rootCause.instances` 存在时，每个实例必须位于该服务的 `instances[]` 中；没有可靠的根因实例时省略前者，没有可靠的受影响实例时省略后者。
 4. `components[]` 和 `instances[]` 分别在所属服务对象内去重；同一组件可以出现在多个服务对象中，但必须代表可解释的共享依赖或业务路径。
-5. `evidenceRefs[]` 是实例、组件和根因判断的唯一证据模型：`evidenceRefs[].service`、`window` 和 `supports` 描述证据的适用范围，Evaluator 再用受控 recipe 独立复查。因此不在 `instances[]` 或其他嵌套对象中重复维护 `evidenceIds`，避免同一关系出现两个可分歧的来源。
+5. `evidenceRefs[]` 是实例、组件和根因判断的唯一证据模型：`evidenceRefs[].service`、`window` 和 `supports` 描述证据的适用范围，Evaluator 再用受控 recipe 独立复查。因此不在 `instances[]` 或其他嵌套对象中重复维护证据关联，避免同一关系出现两个可分歧的来源。
 
 ## 7. `evidenceRefs[]` 合同
 
@@ -240,7 +240,7 @@ JSON Schema 不能可靠判断自然语言是否包含可执行危险内容，�
 - `fault run`、`release`、`cleanup`、control-plane、Worker、Alertmanager、Evaluator 等作为 remediation 的操作目标；
 - 密钥名、Bearer/Basic 凭据、私钥、Cookie、内网服务地址和内部 operation payload。
 
-安全 validator 报错时不回显命中的敏感文字，也不持久化原 payload。
+安全 validator 报错时不回显命中的敏感文字，也不持久化原始报告内容。
 
 ## 9. `extensions` 合同
 
@@ -421,14 +421,14 @@ Evaluator v1 不读取 `extensions` 进行 RCA、evidence、remediation 或 scor
 | 代码 | HTTP | 是否可重试 | 说明 |
 | --- | ---: | --- | --- |
 | `ACCEPTED` | 202 | 否 | 已持久化并仅入队一次；不表示已评估。 |
-| `DUPLICATE` | 200 | 否 | `reportId` 与 canonical payload hash 均相同，返回原接受事实。 |
-| `UNSUPPORTED_SCHEMA_VERSION` | 400 | 修改 payload 后 | 不尝试猜测或降级解析。 |
+| `DUPLICATE` | 200 | 否 | `reportId` 与 canonical report hash 均相同，返回原接受事实。 |
+| `UNSUPPORTED_SCHEMA_VERSION` | 400 | 修改报告后 | 不尝试猜测或降级解析。 |
 | `INVALID_AGENT_RCA_REPORT` | 400 | 修改报告后 | Schema 失败；可返回安全的 JSON Pointer，不回显内容。 |
 | `REPORT_TOO_LARGE` / `REPORT_TOO_DEEP` | 413 / 400 | 修改报告后 | 在 Schema 前拒绝。 |
 | `DANGEROUS_AGENT_RCA_REPORT_CONTENT` | 400 | 修改报告后 | 安全策略失败，不保存 body。 |
-| `INVALID_ALERT_REFERENCE_TIMESTAMP` | 400 | 修改 payload 后 | `startsAt` 无法与 receipt 的毫秒身份无损匹配。 |
+| `INVALID_ALERT_REFERENCE_TIMESTAMP` | 400 | 修改报告后 | `startsAt` 无法与 receipt 的毫秒身份无损匹配。 |
 | `ALERT_RECEIPT_UNAVAILABLE` | 409 | 是 | Alertmanager parallel intake 尚未持久化 receipt，或 receipt 不存在。 |
-| `ALERT_SET_CONFLICT` | 409 | 修改 payload 后 | 多个 alert reference 不属于同一个 incident。 |
+| `ALERT_SET_CONFLICT` | 409 | 修改报告后 | 多个 alert reference 不属于同一个 incident。 |
 | `EVALUATION_CLOSED` | 409 | 否 | Operator/服务端已显式关闭该 incident 的 case。 |
 | `REPORT_ID_REUSED` | 409 | 使用新 ID 并审查报告 | 同 ID 不同 canonical hash，已有不可变记录不会覆盖。 |
 
@@ -441,7 +441,7 @@ Evaluator v1 不读取 `extensions` 进行 RCA、evidence、remediation 或 scor
 1. 按稳定 key 顺序序列化 JSON；
 2. 保留数组顺序，特别是 `alertRefs` 和 remediation action 顺序；
 3. 将 RFC 3339 时间替换为 canonical UTC 毫秒形式；
-4. 计算 SHA-256 `payloadHash`；
+4. 计算 SHA-256 `reportHash`；
 5. 在同一个 MySQL transaction 中比较/插入 `reportId`、写 report、reference membership、case 和 queue job。
 
 相同 ID 加相同 hash 是网络重试；相同 ID 加不同 hash 是冲突。不同 `reportId` 的相同内容是新的 Agent 报告，是否能取代尚未开始的 case selection 由批次 5.1/5.2 的状态机决定，不由 JSON Schema 决定。

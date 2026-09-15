@@ -307,7 +307,7 @@ Basic Auth 凭据不得写入 `AgentRcaReport.json`，也不得出现在 RCA、�
 
 ## AgentRcaReport v1
 
-完整的机器可读合同和跨字段安全语义见 [AgentRcaReport v1 Schema 详细设计](../../implementation/batch-5-1-agent-rca-submission/agent-rca-report-schema.md) 与 [agent-rca-report.v1.schema.json](../../implementation/batch-5-1-agent-rca-submission/agent-rca-report.v1.schema.json)。Schema 是 AgentRcaReport 字段约束的唯一来源；本阶段文档保留其产品和评估语义。
+完整的机器可读合同和跨字段安全语义见 [AgentRcaReport v1 Schema 详细设计](../../implementation/batch-5-1-agent-rca-submission/agent-rca-report-schema.md) 与 [agent-rca-report.v1.schema.json](../../implementation/batch-5-1-agent-rca-submission/agent-rca-report.v1.schema.json)。Schema 是 AgentRcaReport 机器校验的规范来源；本阶段文档的字段概览只服务于阶段级产品、接入和评估语义，不能独立扩展或覆盖 Schema。
 
 JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看。
 
@@ -402,6 +402,7 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
 | `agent` | object | 是 | Agent | 标识 Agent 实现，不包含凭据或内部连接信息。 |
 | `agent.name` | string | 是 | Agent | Agent 名称。 |
 | `agent.version` | string | 是 | Agent | Agent 版本，用于结果分组和复现。 |
+| `affectedServices` | array<object> | 是 | Agent | 报告级的受影响范围，按服务归属表达。 |
 | `diagnosis` | object | 是 | Agent | RCA 分析主体。 |
 | `evidenceRefs` | array | 是 | Agent | Agent 使用过的证据引用；Evaluator 会重新查询验证。 |
 | `remediationRecommendation` | object | 是 | Agent | 针对实际业务/基础设施问题的修复建议，不是 Fault Run 控制动作。 |
@@ -420,10 +421,6 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
 | `diagnosis.rootCause.component` | string | 是 | 主要业务或基础设施组件。 |
 | `diagnosis.rootCause.instances` | array[string] | 否 | 可确认时的主要因果实例，无法可靠定位时省略。 |
 | `diagnosis.rootCause.explanation` | string | 是 | 用证据支持的根因解释；不能包含内部密钥或控制面秘密。 |
-| `affectedServices` | array<object> | 是 | 报告级的受影响范围，按服务归属表达。 |
-| `affectedServices[].service` | string | 是 | 受影响或需要关注的服务。 |
-| `affectedServices[].components` | array[string] | 是 | 该服务受影响的表、缓存、锁、文件、依赖或业务路径。 |
-| `affectedServices[].instances` | array[string] | 否 | 该服务中实际观察到受影响的实例。 |
 | `diagnosis.confidence` | number `0..1` | 是 | Agent 自评置信度，不等于 Evaluator 确认结果。 |
 | `diagnosis.uncertainties` | array[string] | 是 | 未确认的查询、数据缺口和替代解释。允许为空数组。 |
 
@@ -434,9 +431,9 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
 | `evidenceRefs[].evidenceId` | string | 是 | 本次提交内唯一的证据引用 ID。 |
 | `evidenceRefs[].kind` | enum | 是 | `metric`、`log`、`trace`、`business_check` 或 `resource_check`。 |
 | `evidenceRefs[].source` | enum | 是 | `prometheus`、`loki`、`tempo`、`business_api` 或 `resource_api`。 |
-| `evidenceRefs[].service` | string | 视 kind | 观测服务或业务服务；控制面字段不能替代业务服务事实。 |
+| `evidenceRefs[].service` | string | 是 | 观测或业务服务；控制面字段不能替代业务服务事实。 |
 | `evidenceRefs[].window.from/to` | RFC 3339 string | 是 | Agent 查询证据的时间窗口，必须落在 `alertRefs[]` 关联的允许窗口内。 |
-| `evidenceRefs[].agentQuery` | string | 是 | Agent 实际使用的查询文本，仅作审计和对照；Evaluator 不直接执行。 |
+| `evidenceRefs[].agentQuery` | string | 是 | metrics/logs/traces 的查询文本，或 business/resource check 的预声明检查键；仅作审计和对照，Evaluator 不直接执行。 |
 | `evidenceRefs[].observation` | string | 是 | Agent 从查询结果看到的现象摘要，不是原始日志/Trace 的替代存储。 |
 | `evidenceRefs[].supports` | array[enum] | 是 | `symptom`、`root_cause`、`impact`、`remediation` 之一或多个。 |
 
@@ -480,6 +477,7 @@ Agent 的 `agentQuery` 不能包含凭据、任意外部 URL、可执行 SQL 或
 - `reportId`
 - `alertRefs`
 - `agent.name/version`
+- `affectedServices`
 - `diagnosis`
 - `evidenceRefs`
 - `remediationRecommendation`
@@ -489,14 +487,14 @@ Agent 的 `agentQuery` 不能包含凭据、任意外部 URL、可执行 SQL 或
 
 - 相同 `reportId` 重复提交返回同一接收结果，不重复排队评估。
 - 新 `reportId` 在同一 `alertRefs[]` 或 `incidentRef` 下提交时，只有在前一次评估尚未开始时才允许替换；评估已开始后必须由 Operator 显式重试或选择新报告。
-- 评估已关闭的新提交返回 `EVALUATION_CLOSED`；如果观测 retention 已无法覆盖查询窗口，返回 `EVIDENCE_UNAVAILABLE`，不直接判定 RCA 错误。
+- 评估已关闭的新报告返回 `EVALUATION_CLOSED`；观测 retention 已无法覆盖查询窗口时，报告仍可接收，后续 Evaluator 返回 `EVIDENCE_UNAVAILABLE`，不直接判定 RCA 错误。
 - Agent 不获得 `taskId`、`evaluationId`、`faultRunId` 或内部数据库 ID。
 
 RCA 至少包含：
 
 - 症状。
 - `rootCause.category`：`DATABASE_QUERY`、`CACHE`、`DEPENDENCY`、`LOCK`、`JVM`、`STORAGE`、`EXTERNAL_PROVIDER`、`TRAFFIC`、`CONFIGURATION`、`UNKNOWN`。
-- 受影响服务和资源。
+- 受影响服务和组件。
 - `confidence` 与不确定性。
 
 Evidence 引用至少包含：
@@ -531,7 +529,7 @@ Evidence 引用至少包含：
 - 可直接执行的 shell、SQL、任意 URL 或内部 operation payload。
 - Ground Truth、`taskId`、`evaluationId` 或控制面内部 ID。
 
-Result Gateway 在保存提交前必须执行：
+AgentRcaReport intake service 在保存报告前必须执行：
 
 ```text
 AgentRcaReport.json

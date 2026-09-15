@@ -329,7 +329,7 @@
           "$ref": "#/$defs/evidenceWindow"
         },
         "agentQuery": {
-          "description": "Agent audit text. For business_check and resource_check this is the fixed check key, not an arbitrary URL, command, SQL statement, or operation payload.",
+          "description": "Agent audit text. For business_check and resource_check this is the fixed check key, not an arbitrary URL, command, SQL statement, or operation request.",
           "type": "string",
           "minLength": 1,
           "maxLength": 2048
