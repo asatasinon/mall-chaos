@@ -1,8 +1,8 @@
 # Castrel Chaos 渐进式演化路线图
 
 > 状态：阶段 0～5 当前路线
-> 更新时间：2026-09-11 CST  
-> 阶段细节见 `phases/`；所有阶段共用规则见 [operating-model.md](./operating-model.md)。
+> 更新时间：2026-09-14 CST
+> 阶段边界见 `phases/`；可实施批次及产品规格见 [implementation/README.md](../implementation/README.md)；所有阶段共用规则见 [operating-model.md](./operating-model.md)。
 
 ## 1. 总体目标
 
@@ -26,6 +26,8 @@
 | 3 | [phase-3-scenario-contract.md](./phases/phase-3-scenario-contract.md) | Catalog、Gateway、Worker 和测试合同 | CI blocking，运行时先不改变 |
 | 4 | [phase-4-evidence-query.md](./phases/phase-4-evidence-query.md) | 实时 Evidence Query Manifest 和确定性基线 | Operator 旁路查询报告 |
 | 5 | [phase-5-agent-rca.md](./phases/phase-5-agent-rca.md) | 告警驱动、只读观测、RCA 和实际场景 remediation 建议 | 专用单环境、单场景、单运行 |
+
+阶段是能力边界，批次是实施单元；阶段 5 拆为 5.0 告警接收、5.1 Agent RCA 提交和 5.2 Evaluator。完整批次目录见 [implementation/README.md](../implementation/README.md)。
 
 ## 3. 必须遵守的顺序
 
@@ -101,7 +103,15 @@
 | `phases/phase-4-evidence-query.md` | 实时 Evidence Query Manifest 和确定性基线 |
 | `phases/phase-5-agent-rca.md` | Alertmanager 驱动的只读 Agent RCA 试点 |
 
-产品规格和技术设计如果存在，作为阶段文档的配套输入：
+实现批次和产品规格：
+
+| 文档 | 内容 |
+| --- | --- |
+| `implementation/README.md` | 批次拆分、依赖关系、文档规则和当前非目标 |
+| `implementation/batch-*/product.md` | 每个批次的用户、范围、行为、验收和成功指标 |
+| `implementation/batch-0-baseline/tech.md` | 批次 0 的数据模型、采集流程、迁移、回退和测试设计 |
+
+产品规格和技术设计作为阶段文档的配套输入：
 
 | 文档 | 负责回答的问题 |
 | --- | --- |
@@ -112,7 +122,7 @@
 
 每个阶段开始前：
 
-1. 在产品规格中确认用户目标和验收标准。
-2. 在技术设计中确认模块边界、数据模型、接口、迁移和测试。
+1. 在对应批次 `product.md` 中确认用户目标、范围和验收标准。
+2. 在产品规格通过评审后，补充同一目录下的 `tech.md`，确认模块边界、数据模型、接口、迁移和测试。
 3. 在对应阶段文档记录状态、发布版本、灰度范围和回退点。
-4. 只有当前阶段门禁通过，才进入下一阶段。
+4. 只有当前批次和阶段门禁都通过，才进入下一批次。
