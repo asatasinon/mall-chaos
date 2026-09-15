@@ -25,6 +25,7 @@ Evaluator 不是 Agent 的 RCA，也不执行恢复或 remediation。
 
 - 合法 AgentSubmission 自动进入评估队列。
 - 重新读取 AgentSubmission、alert receipt、Run Event、实时观测和 Contract revision。
+- 对比 Agent 提交的 `alertRefs[]` 与该 `incidentRef` 下控制面已知的告警集合，计算告警覆盖度。
 - 使用确定性规则检查 RCA 分类、证据引用和 remediation 建议。
 - 输出 RCA 正确性、证据充分性、建议安全性和限制。
 - 支持 Operator 查看、重试、放弃或显式关闭评估。
@@ -60,6 +61,8 @@ AgentSubmission 被接受
 | --- | --- |
 | `diagnosisAssessment` | RCA 正确、部分正确、错误或无法确定 |
 | `evidenceAssessment` | 证据充分、不足或 `EVIDENCE_UNAVAILABLE` |
+| `alertCoverageStatus` | Agent 引用的告警覆盖度：`COMPLETE`、`PARTIAL` 或 `UNKNOWN` |
+| `alertCoverage` | 已引用告警数、控制面已知告警数以及未引用告警的限制说明 |
 | `remediationReviewStatus` | 建议安全、可执行、不完整或不安全 |
 | `remediationExecutionStatus` | 是否观察到实际建议执行；默认不是 Agent 已执行 |
 | `businessRecoveryStatus` | 业务是否恢复、部分恢复或未知 |
@@ -71,6 +74,7 @@ AgentSubmission 被接受
 ## 6. 产品验收
 
 - 合法提交可以自动进入队列并产生可查询评估状态。
+- Agent 只提交 5 个已知告警中的 2 个时，提交仍可进入 Evaluator，并输出 `alertCoverageStatus=PARTIAL`。
 - Evaluator 重新查询证据，不只相信 Agent 自己的结论。
 - 评估结果能区分 RCA 错误、证据不可用、建议不安全和业务恢复未知。
 - Alertmanager 的 resolved 通知不会使评估自动失效。
@@ -81,7 +85,7 @@ AgentSubmission 被接受
 ## 7. 成功指标与退出条件
 
 - pilot 场景完成一次 AgentSubmission 到 Evaluator 报告的闭环。
-- 至少覆盖合法提交、重复提交、证据不足、证据过期、告警 resolved 和评估关闭。
+- 至少覆盖合法提交、部分告警引用、重复提交、证据不足、证据过期、告警 resolved 和评估关闭。
 - 评估报告可以解释每个结论依赖的证据和限制。
 - 控制面状态、业务恢复状态和 remediation 执行状态没有混用。
 

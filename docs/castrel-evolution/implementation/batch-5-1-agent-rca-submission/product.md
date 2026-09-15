@@ -89,6 +89,8 @@ extensions
 
 `incidentRef` 是控制面内部的聚合引用，不要求 Agent 生成，也不作为 `AgentSubmission.json` 的必填字段；服务端根据 `alertRefs[]` 在接收和评估时解析或确认它。
 
+`alertRefs[]` 表示 Agent 实际收到并用于分析的告警，不要求覆盖该 `incidentRef` 下控制面已知的全部告警。比如控制面已知 5 个告警而 Agent 只提交其中 2 个，只要这 2 个引用有效且可关联，提交仍然可以进入 Evaluator；覆盖不足由 Evaluator 记录为 `PARTIAL`，再影响证据充分性或诊断完整性判断。
+
 ## 6. 产品验收
 
 - 只有 pilot alert 会进入外部 Agent receiver，默认告警不会全量投递。
@@ -96,6 +98,7 @@ extensions
 - 非法、重复和评估关闭后的提交均有明确结果。
 - Agent 无法通过提交内容获得 Fault Run 控制字段或内部权限。
 - AgentSubmission 可以覆盖一个问题对应的多个告警实例，并能区分主要告警和补充告警。
+- AgentSubmission 只引用部分有效告警时仍可进入 Evaluator，不因为未列出全部告警而自动拒绝。
 - 控制面只接收建议，不执行实际 remediation。
 - Agent 的建议能够被后续 Evaluator 独立读取和复查。
 

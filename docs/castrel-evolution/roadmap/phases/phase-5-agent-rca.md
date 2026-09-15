@@ -209,10 +209,13 @@ observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 - `receivedAt` 由服务端记录并绑定到每个 `alertRef`；Agent 的 `submittedAt` 只用于审计。
 - Alertmanager 的重复通知不会创建新的评估对象；同一 fingerprint 和 startsAt 仍归属于同一告警接收记录。
 - 告警恢复为 `resolved` 不会使提交失效；恢复只影响观测时间线和后续 remediation 状态。
-- 服务端只拒绝无法关联或明确关闭的提交；如果观测 retention 已无法复查，提交仍可接收，但评估结果为 `EVIDENCE_UNAVAILABLE` 或部分证据不可用。
+- `alertRefs[]` 是 Agent 实际使用的告警子集，不要求列出该 `incidentRef` 下的全部 alert receipts；只要每个已提交引用有效且可关联，提交仍可接收。
+- 服务端只拒绝无法关联、告警集合内部互相冲突或明确关闭的提交；如果观测 retention 已无法复查，提交仍可接收，但评估结果为 `EVIDENCE_UNAVAILABLE` 或部分证据不可用。
 - 新一轮重新 firing 且 `startsAt` 改变时，为该告警实例生成新的 `alertRef`；如果与其他告警属于同一问题，则关联到已有或新的 `incidentRef`。
 - v0 不因为经过固定分钟数、告警变为 resolved 或 Fault Run 到期而自动关闭评估；`evaluationClosedAt` 只在 Operator/服务端显式关闭或本次评估完成明确终态流程后写入。
 - 评估为 `COMPLETED` 后，新的 AgentSubmission 默认不再替换原报告；如需重新评估，Operator 必须显式重试或重新打开评估并记录原因。
+
+例如控制面在一个 `incidentRef` 下已知 5 个告警，而 Agent 只提交其中 2 个有效 `alertRef`：提交允许进入 Evaluator，评估报告记录 `alertCoverageStatus=PARTIAL`。如果这 2 个告警已经足以支持 RCA，RCA 仍可以判定为正确；遗漏的 3 个告警只会作为覆盖度、证据充分性或诊断完整性的限制。
 
 这几个时间必须分开：
 
@@ -251,6 +254,7 @@ Basic Auth 凭据不得写入 `AgentSubmission.json`，也不得出现在 RCA、
 | Loki retention | Loki 部署配置、运行时 API 或查询结果 | 否 |
 | Tempo retention | Tempo 部署配置、运行时 API 或查询结果 | 否 |
 | `evidenceAvailability` | Evaluator 对每个查询窗口的实际查询结果 | 否；属于 Evaluation Report |
+| `alertCoverageStatus` | Evaluator 对 `alertRefs[]` 与 incident 已知告警集合的覆盖判断 | 否；属于 Evaluation Report |
 | Agent 的 `submittedAt` | Agent 提交字段，同时由服务端记录接收时间 | 是，但只作为审计时间，不决定 retention |
 
 因此：
@@ -259,6 +263,7 @@ Basic Auth 凭据不得写入 `AgentSubmission.json`，也不得出现在 RCA、
 - Agent 不填写 `evaluationStatus`、`evaluationClosedAt`、retention、`evidence_unavailable` 或评分结果。
 - Evaluator 根据服务端评估状态判断是否接受新提交；评估已关闭返回 `EVALUATION_CLOSED`。
 - Evaluator 根据观测系统实际可查询范围判断证据是否可用；数据不可查返回 `EVIDENCE_UNAVAILABLE`，不把它归因于 Agent RCA 错误。
+- Evaluator 同时对比 `alertRefs[]` 与 incident 已知告警集合，生成 `alertCoverageStatus`；`PARTIAL` 表示 Agent 没有覆盖全部已知告警，但不是自动失败。
 - 不同 Prometheus/Loki/Tempo 可能有不同 retention，Evaluator 应按查询窗口逐个判断，而不是只依赖一个全局 retention 数值。
 
 ## AgentSubmission v1
