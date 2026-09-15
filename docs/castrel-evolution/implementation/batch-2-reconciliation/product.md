@@ -3,7 +3,8 @@
 > 状态：产品规格 v1
 > 对应路线阶段：阶段 2
 > 依赖：批次 1
-> 下一步：技术设计和 owner lease/reconciler 测试
+> 配套技术设计：[tech.md](./tech.md)
+> 下一步：owner lease/reconciler 实现与测试
 
 ## 1. 产品目标
 

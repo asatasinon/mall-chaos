@@ -3,7 +3,8 @@
 > 状态：产品规格 v1
 > 对应路线阶段：阶段 1
 > 依赖：批次 0
-> 下一步：技术设计和 Worker drain/超时测试
+> 配套技术设计：[tech.md](./tech.md)
+> 下一步：技术设计评审和 Worker drain/超时测试
 
 ## 1. 产品目标
 
@@ -23,14 +24,14 @@
 
 - 对单个 Fault Run 停止接收新任务。
 - 等待或取消 in-flight 请求，并设置总 drain 超时。
-- 覆盖报表、流量突增和专用场景 Worker。
+- 覆盖报表、流量突增、专用场景 Worker，以及 `RunnerEngine` 中仅关联 Fault Run 的受控 lifecycle 分支。
 - 区分人工停止、到期停止、Worker 失败、目标服务不可用和恢复失败。
 - 按 Catalog 的 `recoveryStrategy` 执行 release、人工清理边界或非释放记录。
 - 将停止、drain、release、cleanup 和 verification 结果写入运行时间线。
 
 ### 3.2 不包含
 
-- 不停止正常客户 Runner、数据预热或补给任务。
+- 不停止正常客户 Runner、数据预热或补给任务；`RunnerEngine` 的接入只关闭被停止 Run 的受控分支。
 - 不把 `OperationRunGuard` 当作 Worker owner lease。
 - 不保证所有已经发出的公开业务请求瞬时中断。
 - 不实现多副本自动接管；该能力属于批次 2。
@@ -78,7 +79,7 @@ Operator 点击停止或运行到期
 
 ## 7. 成功指标与退出条件
 
-- 报表、流量突增和专用场景 Worker 都有 run-specific drain。
+- 报表、流量突增、专用场景 Worker 和 Runner 的受控分支都有 run-specific drain。
 - 具备停止、到期、取消、超时、重启和目标不可用测试。
 - 现有正常客户流量、数据预热和补给路径不受单个 Fault Run 停止影响。
 - 所有恢复策略都有与产品语义一致的最终状态。

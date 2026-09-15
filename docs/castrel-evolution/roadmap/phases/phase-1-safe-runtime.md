@@ -1,6 +1,8 @@
 # 阶段 1：安全停止和失败传播
 
-> 状态：当前优先级；依赖阶段 0
+> 状态：当前优先级；技术设计 v1，待实施评审；依赖阶段 0
+> 配套产品规格：[../../implementation/batch-1-safe-runtime/product.md](../../implementation/batch-1-safe-runtime/product.md)
+> 配套技术设计：[../../implementation/batch-1-safe-runtime/tech.md](../../implementation/batch-1-safe-runtime/tech.md)
 
 ## 目标
 
@@ -24,10 +26,11 @@ start
 - `ReportScenarioWorker`
 - `TrafficSurgeExecutor`
 - `ScenarioWorkers`
+- `RunnerEngine` 中仅关联 Fault Run 的 notification/PSP 受控 lifecycle 分支
 
-`ScenarioWorkers` 已有 run-specific drain；报表和流量 Worker 需要补齐与 Coordinator 的注册和停止顺序。
+`ScenarioWorkers` 已有 run-specific drain；报表、流量和 Runner 的受控分支需要补齐与 Coordinator 的注册和停止顺序。该接入不调用或替代 `RunnerEngine.stop()`。
 
-客户生命周期 Runner、数据预热和补给任务属于独立的后台生命周期，不应因为停止单个 Fault Run 被连带停止。它们只有在自身进程关闭、专属任务停止或明确共享同一运行 owner 时，才进入相同的 drain 协议；阶段 1 先完成 Fault Run 级 Worker 的停止边界，再分别补充后台任务的关闭语义。
+客户生命周期 Runner、数据预热和补给任务属于独立的后台生命周期，不应因为停止单个 Fault Run 被连带停止。`RunnerEngine` 只将当前 Fault Run 关联的单次受控 lifecycle 注册为 drain participant，正常客户生命周期仍独立运行。它们只有在自身进程关闭、专属任务停止或明确共享同一运行 owner 时，才进入相同的 drain 协议；阶段 1 先完成 Fault Run 级 Worker 的停止边界，再分别补充后台任务的关闭语义。
 
 报表和流量 Worker 的部分请求经 Gateway 走正常客户 API，不一定携带目标侧 `OperationRunContext`。因此停止主要依赖 Worker 停止接收、AbortSignal 和 in-flight drain；不能假设目标服务会用 fencing 自动拒绝所有已经发出的公开业务请求。
 

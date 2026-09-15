@@ -21,8 +21,8 @@ batch-0-baseline
 | 批次 | 产品文档 | 交付重点 | 依赖 |
 | --- | --- | --- | --- |
 | 0 | [product.md](./batch-0-baseline/product.md) / [tech.md](./batch-0-baseline/tech.md) | 12 个场景的运行基线、失败分类、回退和告警前置核验 | 当前系统 |
-| 1 | [product.md](./batch-1-safe-runtime/product.md) | 单个 Fault Run 的安全停止、drain、超时和恢复边界 | 批次 0 |
-| 2 | [product.md](./batch-2-reconciliation/product.md) | Worker owner lease、heartbeat、接管和重协调 | 批次 1 |
+| 1 | [product.md](./batch-1-safe-runtime/product.md) / [tech.md](./batch-1-safe-runtime/tech.md) | 单个 Fault Run 的安全停止、drain、超时和恢复边界 | 批次 0 |
+| 2 | [product.md](./batch-2-reconciliation/product.md) / [tech.md](./batch-2-reconciliation/tech.md) | Worker owner lease、heartbeat、接管和重协调 | 批次 1 |
 | 3 | [product.md](./batch-3-scenario-contract/product.md) / [tech.md](./batch-3-scenario-contract/tech.md) | Catalog、Gateway、Worker、证据和告警合同的一致性校验 | 批次 2 |
 | 4 | [product.md](./batch-4-evidence-query/product.md) / [tech.md](./batch-4-evidence-query/tech.md) | 可重复的实时 Evidence Query Manifest 和 Operator 报告 | 批次 3 |
 | 5.0 | [product.md](./batch-5-0-alert-intake/product.md) / [tech.md](./batch-5-0-alert-intake/tech.md) | Alertmanager 告警接收、去重、关联和生命周期记录 | 批次 4 |
