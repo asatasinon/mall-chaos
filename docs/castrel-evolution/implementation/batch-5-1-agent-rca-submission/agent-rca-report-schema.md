@@ -40,20 +40,52 @@ AgentRcaReport
   ├── schemaVersion
   ├── reportId
   ├── alertRefs[]
+  │     ├── fingerprint
+  │     ├── startsAt
+  │     └── role
   ├── agent
+  │     ├── name
+  │     └── version
   ├── affectedServices[]
   │     ├── service
-  │     ├── resources[]
+  │     ├── components[]
   │     └── instances[] (optional)
   ├── diagnosis
-  │     ├── symptoms[]
+  │     ├── summary
+  │     ├── symptoms[] (optional)
   │     ├── rootCause
-  │     │     └── instances[] (optional)
+  │     │     ├── category
+  │     │     ├── service
+  │     │     ├── component
+  │     │     ├── instances[] (optional)
+  │     │     └── explanation
+  │     ├── confidence
+  │     └── uncertainties[]
   ├── evidenceRefs[]
+  │     ├── evidenceId
+  │     ├── kind
+  │     ├── source
+  │     ├── service
+  │     ├── window
+  │     │     ├── from
+  │     │     └── to
+  │     ├── agentQuery
+  │     ├── observation
+  │     └── supports[]
   ├── remediationRecommendation
+  │     ├── summary
   │     └── actions[]
+  │           ├── order
+  │           ├── action
+  │           ├── target
+  │           ├── preconditions[]
+  │           ├── risks[]
+  │           ├── verification[]
+  │           └── rollback[]
   ├── limitations[]
-  └── extensions (optional)
+  ├── extensions (optional, bounded map)
+  └── server-generated metadata (not in report JSON)
+        └── reportReceivedAt
 ```
 
 | 字段 | Schema 约束 | 服务端语义 |
@@ -74,7 +106,7 @@ AgentRcaReport
 | `limitations` | 最多 20 条 | Agent 自己已知的证据缺口与不确定性；允许空数组。 |
 | `extensions` | 最多 20 个键的受限 JSON | 只供非评分辅助信息，不能覆盖核心字段或改变 Evaluator 行为。 |
 
-Agent 不提交 `submittedAt`。服务端在 AgentRcaReport 通过 Schema、安全、告警引用和事务性持久化后，以数据库 `CURRENT_TIMESTAMP(3)` 写入 `reportReceivedAt`；它是报告的可信审计时间，不是 payload hash 的输入，也不能由 Agent 覆盖。该时间与批次 5.0 每个 alert receipt 的 `receivedAt` 不同，后者表示控制面收到 Alertmanager 通知的时间。
+服务端在 AgentRcaReport 通过 Schema、安全、告警引用和事务性持久化后，以数据库 `CURRENT_TIMESTAMP(3)` 写入 `reportReceivedAt`；它是报告的可信审计时间，不是 payload hash 的输入，也不能由 Agent 覆盖。该时间与批次 5.0 每个 alert receipt 的 `receivedAt` 不同，后者表示控制面收到 Alertmanager 通知的时间。
 
 ## 4. `alertRefs[]` 合同
 
