@@ -1,6 +1,7 @@
 # 阶段 3：Scenario Contract
 
-> 状态：当前优先级；依赖阶段 0～2
+> 状态：技术设计 v1 已完成，待实施评审；依赖阶段 0～2<br>
+> 技术设计：[implementation/batch-3-scenario-contract/tech.md](../../implementation/batch-3-scenario-contract/tech.md)
 
 ## 目标
 

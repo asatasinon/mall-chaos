@@ -3,13 +3,14 @@
 > 状态：产品规格 v1
 > 对应路线阶段：阶段 4
 > 依赖：批次 3
-> 下一步：技术设计和 Operator 查询报告任务
+> 配套技术设计：[tech.md](./tech.md)
+> 下一步：完成批次 0～3 门禁后实施 Manifest 与 Operator 查询报告
 
 ## 1. 产品目标
 
 让 Operator 能够基于一次运行的时间线和查询协议，重复检查指标、日志、Trace 和业务结果，而不是依赖手工截图或保存一份可能过期的现场快照。
 
-本批次先提供 Operator 现场验证报告，不能把 AgentSubmission 作为前置依赖。
+本批次先提供 Operator 现场验证报告，不能把 AgentRcaReport 作为前置依赖。
 
 ## 2. 服务对象与问题
 
@@ -28,7 +29,7 @@
 - 支持 baseline、active、recovery、cleanup 四类窗口。
 - 展示查询结果摘要、判断规则、查询时间和证据状态。
 - 查询失败、超时或 retention 不足时返回 `evidence_unavailable`。
-- 支持没有 AgentSubmission 的 Operator-only 验证。
+- 支持没有 AgentRcaReport 的 Operator-only 验证。
 
 ### 3.2 不包含
 
@@ -61,7 +62,7 @@ Evidence 状态至少区分：
 | `EVIDENCE_UNAVAILABLE` | 查询超时、数据 retention 已过或观测入口不可用 |
 | `INVALID_QUERY` | 查询配方或窗口不符合 Contract |
 
-观测数据 retention 只决定能否复查证据，不决定 AgentSubmission 是否还能提交，也不因为数据过期自动关闭评估。
+观测数据 retention 只决定能否复查证据，不决定 AgentRcaReport 是否还能提交，也不因为数据过期自动关闭评估。
 
 ## 6. 产品验收
 
@@ -75,7 +76,7 @@ Evidence 状态至少区分：
 
 - 选定 pilot 场景能够在 retention 内重复得到关键指标、日志、Trace 和业务检查结果。
 - 至少覆盖查询成功、部分失败、超时和 retention 不足。
-- Operator 不依赖 AgentSubmission 就能完成一次现场验证。
+- Operator 不依赖 AgentRcaReport 就能完成一次现场验证。
 - Evidence Query Manifest 的 revision 可随运行和 Contract revision 追踪。
 
 满足退出条件后，进入批次 5.0。

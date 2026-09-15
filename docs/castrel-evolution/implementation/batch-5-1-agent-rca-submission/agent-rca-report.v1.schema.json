@@ -1,0 +1,583 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:castrel:agent-rca-report:v1",
+  "title": "Castrel AgentRcaReport v1",
+  "description": "Machine-readable contract for a read-only Agent RCA report.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reportId",
+    "alertRefs",
+    "agent",
+    "diagnosis",
+    "evidenceRefs",
+    "remediationRecommendation",
+    "limitations"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "agent-rca-report.v1"
+    },
+    "reportId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "alertRefs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {
+        "$ref": "#/$defs/alertRef"
+      },
+      "contains": {
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "const": "primary"
+          }
+        }
+      },
+      "minContains": 1,
+      "maxContains": 1
+    },
+    "agent": {
+      "$ref": "#/$defs/agent"
+    },
+    "diagnosis": {
+      "$ref": "#/$defs/diagnosis"
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 40,
+      "items": {
+        "$ref": "#/$defs/evidenceRef"
+      }
+    },
+    "remediationRecommendation": {
+      "$ref": "#/$defs/remediationRecommendation"
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "$ref": "#/$defs/shortText"
+      },
+      "uniqueItems": true
+    },
+    "extensions": {
+      "$ref": "#/$defs/extensions"
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "minLength": 20,
+      "maxLength": 64
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "serviceName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9-]{0,127}$"
+    },
+    "shortText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "longText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "alertRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fingerprint",
+        "startsAt",
+        "role"
+      ],
+      "properties": {
+        "fingerprint": {
+          "$ref": "#/$defs/identifier"
+        },
+        "startsAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "role": {
+          "enum": [
+            "primary",
+            "supporting"
+          ]
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "version": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "rootCause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "service",
+        "resource",
+        "explanation"
+      ],
+      "properties": {
+        "category": {
+          "enum": [
+            "DATABASE_QUERY",
+            "CACHE",
+            "DEPENDENCY",
+            "LOCK",
+            "JVM",
+            "STORAGE",
+            "EXTERNAL_PROVIDER",
+            "TRAFFIC",
+            "CONFIGURATION",
+            "UNKNOWN"
+          ]
+        },
+        "service": {
+          "$ref": "#/$defs/serviceName"
+        },
+        "resource": {
+          "$ref": "#/$defs/shortText"
+        },
+        "explanation": {
+          "$ref": "#/$defs/longText"
+        }
+      }
+    },
+    "diagnosis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "rootCause",
+        "affectedServices",
+        "affectedResources",
+        "confidence",
+        "uncertainties"
+      ],
+      "properties": {
+        "summary": {
+          "$ref": "#/$defs/longText"
+        },
+        "symptoms": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "uniqueItems": true
+        },
+        "rootCause": {
+          "$ref": "#/$defs/rootCause"
+        },
+        "affectedServices": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/serviceName"
+          },
+          "uniqueItems": true
+        },
+        "affectedResources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "uniqueItems": true
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "uncertainties": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "evidenceWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "to": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceId",
+        "kind",
+        "source",
+        "window",
+        "agentQuery",
+        "observation",
+        "supports"
+      ],
+      "properties": {
+        "evidenceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "kind": {
+          "enum": [
+            "metric",
+            "log",
+            "trace",
+            "business_check",
+            "run_event",
+            "resource_check"
+          ]
+        },
+        "source": {
+          "enum": [
+            "prometheus",
+            "loki",
+            "tempo",
+            "business_api",
+            "control_plane",
+            "resource_api"
+          ]
+        },
+        "service": {
+          "$ref": "#/$defs/serviceName"
+        },
+        "window": {
+          "$ref": "#/$defs/evidenceWindow"
+        },
+        "agentQuery": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "observation": {
+          "$ref": "#/$defs/longText"
+        },
+        "supports": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "symptom",
+              "root_cause",
+              "impact",
+              "remediation"
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "metric"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "prometheus"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "log"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "loki"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "trace"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "tempo"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "business_check"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "business_api"
+              }
+            },
+            "required": [
+              "service"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "run_event"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "control_plane"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "resource_check"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "resource_api"
+              }
+            },
+            "required": [
+              "service"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "metric",
+                  "log",
+                  "trace",
+                  "business_check",
+                  "resource_check"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "service"
+            ]
+          }
+        }
+      ]
+    },
+    "remediationAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "order",
+        "action",
+        "target",
+        "preconditions",
+        "risks",
+        "verification",
+        "rollback"
+      ],
+      "properties": {
+        "order": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "action": {
+          "$ref": "#/$defs/longText"
+        },
+        "target": {
+          "$ref": "#/$defs/shortText"
+        },
+        "preconditions": {
+          "$ref": "#/$defs/remediationTextList"
+        },
+        "risks": {
+          "$ref": "#/$defs/remediationTextList"
+        },
+        "verification": {
+          "$ref": "#/$defs/remediationTextList"
+        },
+        "rollback": {
+          "$ref": "#/$defs/remediationTextList"
+        }
+      }
+    },
+    "remediationTextList": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+        "$ref": "#/$defs/shortText"
+      },
+      "uniqueItems": true
+    },
+    "remediationRecommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "actions"
+      ],
+      "properties": {
+        "summary": {
+          "$ref": "#/$defs/longText"
+        },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "$ref": "#/$defs/remediationAction"
+          }
+        }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "maxProperties": 20,
+      "propertyNames": {
+        "pattern": "^[a-z][A-Za-z0-9._-]{0,63}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/extensionValue"
+      }
+    },
+    "extensionValue": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string",
+          "maxLength": 1024
+        },
+        {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "$ref": "#/$defs/extensionValue"
+          }
+        },
+        {
+          "type": "object",
+          "maxProperties": 10,
+          "propertyNames": {
+            "pattern": "^[a-z][A-Za-z0-9._-]{0,63}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/extensionValue"
+          }
+        }
+      ]
+    }
+  }
+}

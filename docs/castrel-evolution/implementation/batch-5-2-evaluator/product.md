@@ -3,7 +3,8 @@
 > 状态：产品规格 v1
 > 对应路线阶段：阶段 5 Evaluator
 > 依赖：批次 5.1
-> 下一步：技术设计、规则定义和评估队列任务
+> 配套技术设计：[tech.md](./tech.md)
+> 下一步：规则定义和评估队列任务
 
 ## 1. 产品目标
 
@@ -23,9 +24,9 @@ Evaluator 不是 Agent 的 RCA，也不执行恢复或 remediation。
 
 ### 3.1 包含
 
-- 合法且已唯一关联到评估范围的 AgentSubmission 自动进入评估队列。
+- 合法且已唯一关联到评估范围的 AgentRcaReport 自动进入评估队列。
 - `UNMATCHED` 或 `AMBIGUOUS` 的 Fault Run 关联保留为评估限制，不阻止基于告警和观测证据的 RCA 评估。
-- 重新读取 AgentSubmission、alert receipt、Run Event、实时观测和 Contract revision。
+- 重新读取 AgentRcaReport、alert receipt、Run Event、实时观测和 Contract revision。
 - 对比 Agent 提交的 `alertRefs[]` 与该 `incidentRef` 下控制面已知的告警集合，计算告警覆盖度。
 - 使用确定性规则检查 RCA 分类、证据引用和 remediation 建议。
 - 输出 RCA 正确性、证据充分性、建议安全性和限制。
@@ -43,7 +44,7 @@ Evaluator 不是 Agent 的 RCA，也不执行恢复或 remediation。
 ## 4. 关键用户流程
 
 ```text
-AgentSubmission 被接受
+AgentRcaReport 被接受
   -> Evaluator 自动排队
   -> 读取告警接收事实、运行时间线和实时证据
   -> 应用 RCA/证据/remediation 规则
@@ -87,7 +88,7 @@ AgentSubmission 被接受
 
 ## 7. 成功指标与退出条件
 
-- pilot 场景完成一次 AgentSubmission 到 Evaluator 报告的闭环。
+- pilot 场景完成一次 AgentRcaReport 到 Evaluator 报告的闭环。
 - 至少覆盖合法提交、部分告警引用、重复提交、证据不足、证据过期、告警 resolved 和评估关闭。
 - 评估报告可以解释每个结论依赖的证据和限制。
 - 控制面状态、业务恢复状态和 remediation 执行状态没有混用。

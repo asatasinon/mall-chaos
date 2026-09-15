@@ -36,7 +36,7 @@
 - 阶段 5 是单场景、单环境、单运行的 RCA 试点，不是多 Agent benchmark。
 - 外部 Agent 不获取 `taskId`、`evaluationId`、`faultRunId` 或内部数据库 ID。
 - Agent 由 Alertmanager firing alert 触发，只接收告警 envelope 和一个或多个 opaque `alertRef`；同一问题的告警集合由控制面内部以 `incidentRef` 关联。
-- Agent 只读查询观测数据，提交标准化 `AgentSubmission.json`，不执行恢复。
+- Agent 只读查询观测数据，提交标准化 `AgentRcaReport.json`，不执行恢复。
 - Evaluator 在合法提交后自动排队，重新查询当前观测数据并生成报告。
 - 当前路线只覆盖单环境、单运行的 Operator 演练和 Agent RCA 试点。
 
@@ -67,7 +67,7 @@
 | 2 | 阶段 1 drain 稳定 | 双 Worker 竞争、接管和旧 owner fencing 通过 |
 | 3 | 阶段 2 状态事实稳定 | 12 个场景 Contract validation 通过 |
 | 4 | 阶段 3 有稳定场景定义 | retention 内可重复查询关键证据 |
-| 5 | 阶段 4 有 Query Manifest 和告警合同 | AgentSubmission、RCA 和 Evaluator 闭环完成 |
+| 5 | 阶段 4 有 Query Manifest 和告警合同 | AgentRcaReport、RCA 和 Evaluator 闭环完成 |
 
 ## 6. 共用规则
 
@@ -88,7 +88,7 @@
 2. 必须选出至少一个真实告警可稳定触发的场景；不能假设 Fault Run 开启就一定有 firing alert。
 3. 外部入口统一由 Nginx Basic Auth 保护；Agent 使用部署侧 Basic Auth 访问现有观测入口，不能直接调用控制面写接口。
 4. `remediationRecommendation` 只能描述实际业务/基础设施修复，不能描述 Fault Run stop/release/cleanup。
-5. 阶段 4 的 Evaluator 可以先作为 Operator 现场验证逻辑运行，不应把 AgentSubmission 作为阶段 4 的前置依赖。
+5. 阶段 4 的 Evaluator 可以先作为 Operator 现场验证逻辑运行，不应把 AgentRcaReport 作为阶段 4 的前置依赖。
 
 ## 8. 文档导航与职责
 
@@ -109,7 +109,7 @@
 | --- | --- |
 | `implementation/README.md` | 批次拆分、依赖关系、文档规则和当前非目标 |
 | `implementation/batch-*/product.md` | 每个批次的用户、范围、行为、验收和成功指标 |
-| `implementation/batch-0-baseline/tech.md` | 批次 0 的数据模型、采集流程、迁移、回退和测试设计 |
+| `implementation/batch-*/tech.md` | 已完成技术设计批次的数据模型、模块边界、接口、迁移、部署和测试设计 |
 
 产品规格和技术设计作为阶段文档的配套输入：
 

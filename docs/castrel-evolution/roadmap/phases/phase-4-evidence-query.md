@@ -1,6 +1,10 @@
 # 阶段 4：Evidence Query Manifest 和确定性基线
 
 > 状态：当前优先级；依赖阶段 0～3
+> 配套技术设计：[批次 4 技术设计](../../implementation/batch-4-evidence-query/tech.md)
+> 设计版本：技术设计 v1（未实施）
+> 首次灰度：可丢弃 Compose 环境中的单场景、单 Operator；Kubernetes 观测 parity 完成前保持执行关闭
+> 回退点：先设 `EVIDENCE_QUERY_EXECUTION_ENABLED=false`，再按需关闭 `EVIDENCE_QUERY_ENABLED`；不改变 Fault Run 生命周期
 
 ## 目标
 
@@ -65,11 +69,11 @@ t_cleanup_finished       可选
 
 ## Evaluator v0
 
-Evaluator v0 可以在没有外部 Agent 的情况下运行，先生成 Operator 现场验证报告。Operator 选择 Fault Run 或 alert receipt 后显式触发验证；阶段 5 之后再把 `AgentSubmission` 作为可选输入，并可由合法提交自动排队。
+Evaluator v0 可以在没有外部 Agent 的情况下运行，先生成 Operator 现场验证报告。Operator 选择 Fault Run 或 alert receipt 后显式触发验证；阶段 5 之后再把 `AgentRcaReport` 作为可选输入，并可由合法报告自动排队。
 
 Evaluator 读取：
 
-- 可选的 AgentSubmission。
+- 可选的 AgentRcaReport。
 - 阶段 5 告警驱动模式下的告警接收记录；阶段 4 Operator 模式可只使用 Fault Run 和 Run Event。
 - 当前 Prometheus/Loki/Tempo 和业务只读查询结果。
 - Fault Run、Run Event 和审计事实。
@@ -96,4 +100,4 @@ FAILED
 - 查询失败或数据过期标记 `evidence_unavailable`。
 - `prepare succeeded` 不等于 `target_effect_observed`。
 - 目标效果、证据、Operator 执行和业务恢复能分别表示。
-- 阶段 5 接入 Agent 后，AgentSubmission 使用版本化 JSON Schema；Markdown 只用于展示。
+- 阶段 5 接入 Agent 后，AgentRcaReport 使用版本化 JSON Schema；Markdown 只用于展示。

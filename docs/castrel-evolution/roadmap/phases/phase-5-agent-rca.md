@@ -1,6 +1,7 @@
 # 阶段 5：告警驱动的 Agent RCA 试点
 
 > 状态：当前路线最后阶段；依赖阶段 0～4
+> 配套技术设计：[批次 5.0](../../implementation/batch-5-0-alert-intake/tech.md)、[批次 5.1](../../implementation/batch-5-1-agent-rca-submission/tech.md)、[批次 5.2](../../implementation/batch-5-2-evaluator/tech.md)
 
 ## 目标
 
@@ -50,11 +51,11 @@ Pilot candidate 至少满足：
    - Alertmanager 的内部控制面 webhook 与外部 Agent webhook 是两个独立 receiver。
    - 只为阶段 5 选定的 alert name/service 配置专用 child route，不把默认、warning 或 critical 全量告警发送给 Agent。
    - Agent webhook URL、Basic Auth 用户名/密码由部署配置提供，不接受 Agent 在运行时注册任意 callback URL。
-5. **AgentSubmission 接收入口**
+5. **AgentRcaReport 接收入口**
    - 对外提交入口由统一 Nginx Basic Auth 拦截未认证请求。
-   - 通过 `agent-submission.v1` JSON Schema 校验。
+   - 通过 `agent-rca-report.v1` JSON Schema 校验。
    - 校验 `alertRefs[]` 中每个引用是否存在以及评估是否关闭；`faultRunCorrelationStatus` 为 `UNMATCHED` 或 `AMBIGUOUS` 时仍保存提交，并在评估报告中记录限制。
-   - 保存幂等的 submission metadata，然后自动排队 Evaluator。
+   - 保存幂等的 report metadata，然后自动排队 Evaluator。
 
 ### 必须测试
 
@@ -67,7 +68,7 @@ Pilot candidate 至少满足：
 - Alertmanager 到控制面 webhook 的内部网络访问。
 - Alertmanager 到外部 Agent webhook 的 Basic Auth。
 - 未认证访问 Agent webhook/提交入口被 Nginx 拒绝。
-- 相同 `submissionId` 重试不重复排队。
+- 相同 `reportId` 重试不重复排队。
 - 无效 `alertRefs[]`、未知 fingerprint 和已关闭评估被拒绝；有效但没有唯一 Fault Run 上下文的引用仍可评估，不因关联不完整阻断 Alertmanager 投递。
 
 ### 该子阶段不实现
@@ -88,8 +89,8 @@ Pilot candidate 至少满足：
   -> traffic-control-plane 接收并关联告警
   -> Alertmanager 通过 HTTP webhook + Basic Auth 投递给外部 Agent endpoint
   -> Agent 使用现有 Nginx Basic Auth 访问 Prometheus/Loki/Tempo/业务只读入口
-  -> Agent 提交 AgentSubmission.json
-  -> AgentSubmission endpoint 由 Nginx Basic Auth 拦截未认证请求并自动排队 Evaluator
+  -> Agent 提交 AgentRcaReport.json
+  -> AgentRcaReport endpoint 由 Nginx Basic Auth 拦截未认证请求并自动排队 Evaluator
 ```
 
 这里有三个不同入口：
@@ -99,9 +100,9 @@ Pilot candidate 至少满足：
 | Alertmanager HTTP API/UI | 人员或系统查看、管理 Alertmanager | 当前由 Compose `obs-auth-proxy` 的 Nginx Basic Auth 保护，例如宿主机 `19093` |
 | Alertmanager → 控制面 webhook | Alertmanager 向控制面发送 `firing/resolved` | 容器/集群内部服务调用，不是宿主机 `19093` 这个 Alertmanager API/UI 入口 |
 | Alertmanager → 外部 Agent webhook | Alertmanager 将选定告警直接投递给外部 Agent | Alertmanager receiver 使用 Basic Auth 调用 Agent webhook endpoint；不增加 Alert Delivery Gateway |
-| AgentSubmission endpoint | 外部 Agent 回传 `AgentSubmission.json` | 对外暴露时由统一 Nginx Basic Auth 拦截未认证请求；阶段 5 不增加应用层细粒度授权 |
+| AgentRcaReport endpoint | 外部 Agent 回传 `AgentRcaReport.json` | 对外暴露时由统一 Nginx Basic Auth 拦截未认证请求；阶段 5 不增加应用层细粒度授权 |
 
-Nginx Basic Auth 不是 Alertmanager 的替代品：Alertmanager 负责产生、聚合和转发告警；Nginx 只负责对外 HTTP 入口的未认证拦截。外部 Agent webhook 的 Basic Auth 凭据由 Alertmanager receiver 使用，AgentSubmission endpoint 的 Basic Auth 由部署入口使用。
+Nginx Basic Auth 不是 Alertmanager 的替代品：Alertmanager 负责产生、聚合和转发告警；Nginx 只负责对外 HTTP 入口的未认证拦截。外部 Agent webhook 的 Basic Auth 凭据由 Alertmanager receiver 使用，AgentRcaReport endpoint 的 Basic Auth 由部署入口使用。
 
 ### Alertmanager → 控制面 webhook 的作用
 
@@ -127,8 +128,8 @@ Alertmanager 直接向外部 Agent webhook 投递告警；控制面内部 webhoo
    - 处理重复通知和 grouped alerts；
    - 支持评估报告区分告警已恢复与业务 remediation 是否执行。
 5. **审计和可观测性**
-   - 记录告警是否已经投递给 Agent；
-   - 记录 AgentSubmission 是否关联成功；
+   - 记录 pilot route 是否已配置、控制面是否收到告警，以及后续是否收到 AgentRcaReport；不把并行控制面 receipt 误写为 Agent webhook 已成功处理；
+   - 记录 AgentRcaReport 是否关联成功；
    - 为 Evaluator 提供告警来源事实和聚合后的 `incidentRef`。
 
 该 webhook **不负责**：
@@ -189,7 +190,7 @@ correlationReason
 - Alertmanager grouped notification 的每个 alert 如何拆成独立 `alertRef`；一个问题产生的多个 `alertRef` 如何聚合为 `incidentRef`；`groupKey` 只表示通知分组，不直接表示根因事件。
 - 外部 Agent webhook endpoint 是否真实可用，且 Alertmanager receiver 使用部署侧 Basic Auth 调用。
 - Agent 是否能够使用部署侧提供的 Basic Auth 访问现有观测入口。
-- 提交入口是否接收 `AgentSubmission.json` 并自动排队 Evaluator。
+- 报告入口是否接收 `AgentRcaReport.json` 并自动排队 Evaluator。
 
 阶段 5 不应把配置文件中的 webhook URL 当作现成实现；缺失部分属于本阶段的实现范围。
 
@@ -214,7 +215,7 @@ correlationReason
 }
 ```
 
-`receivedAt` 是控制面内部接收事实，不放入由 Alertmanager 直接投递给 Agent 的 `alertRef`；AgentSubmission 由服务端根据 `fingerprint + startsAt` 查找接收记录。
+`receivedAt` 是控制面内部接收事实，不放入由 Alertmanager 直接投递给 Agent 的 `alertRef`；AgentRcaReport 由服务端根据 `fingerprint + startsAt` 查找接收记录。
 
 控制面在告警到达时做一次 admission：
 
@@ -228,7 +229,7 @@ Evaluator 通过 `alertRefs[]` 和内部 `incidentRef` 查找告警接收事实�
 
 如果告警无法唯一关联到一个 active Fault Run，或者匹配到多个运行，控制面分别记录 `faultRunCorrelationStatus=UNMATCHED` 或 `AMBIGUOUS`。在 Alertmanager 直接投递模式下，告警仍可能已经发送给 Agent；提交仍可进入 RCA Evaluator，但报告必须带上该限制，不得把任意一个候选 Fault Run 当作确定事实。只有多个 alert 能够确认属于同一问题时，才合并到同一个 `incidentRef`。
 
-`incidentRef` 的关联窗口由 Scenario Contract、active Fault Run 时间线和选定告警规则共同决定；它是告警关联窗口，不是 AgentSubmission 的固定过期时间。第一个告警到达后，后续相关告警可以加入同一个 incident；Agent 先提交一个告警的报告不会阻止控制面继续补充告警事实。
+`incidentRef` 的关联窗口由 Scenario Contract、active Fault Run 时间线和选定告警规则共同决定；它是告警关联窗口，不是 AgentRcaReport 的固定过期时间。第一个告警到达后，后续相关告警可以加入同一个 incident；Agent 先提交一个告警的报告不会阻止控制面继续补充告警事实。
 
 ### Evaluation eligibility
 
@@ -243,14 +244,14 @@ observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 规则：
 
 - `startsAt` 是 Prometheus/Alertmanager 观察到告警开始的时间，不用它单独计算 Agent 窗口；Agent 可能在 Alertmanager group wait 后才收到告警。
-- `receivedAt` 由服务端记录并绑定到每个 `alertRef`；Agent 的 `submittedAt` 只用于审计。
+- `receivedAt` 由服务端记录并绑定到每个 `alertRef`；AgentRcaReport 不提供自报时间，服务端另为每个已接受报告生成 `reportReceivedAt` 审计事实。
 - Alertmanager 的重复通知不会创建新的评估对象；同一 fingerprint 和 startsAt 仍归属于同一告警接收记录。
 - 告警恢复为 `resolved` 不会使提交失效；恢复只影响观测时间线和后续 remediation 状态。
 - `alertRefs[]` 是 Agent 实际使用的告警子集，不要求列出该 `incidentRef` 下的全部 alert receipts；只要每个已提交引用有效且可关联，提交仍可接收。
 - 服务端只拒绝告警引用无效、告警集合内部互相冲突或明确关闭的提交；暂时无法唯一关联 Fault Run 的提交仍可接收和评估。如果观测 retention 已无法复查，提交仍可接收，但评估结果为 `EVIDENCE_UNAVAILABLE` 或部分证据不可用。
 - 新一轮重新 firing 且 `startsAt` 改变时，为该告警实例生成新的 `alertRef`；如果与其他告警属于同一问题，则关联到已有或新的 `incidentRef`。
 - v0 不因为经过固定分钟数、告警变为 resolved 或 Fault Run 到期而自动关闭评估；`evaluationClosedAt` 只在 Operator/服务端显式关闭或本次评估完成明确终态流程后写入。
-- 评估为 `COMPLETED` 后，新的 AgentSubmission 默认不再替换原报告；如需重新评估，Operator 必须显式重试或重新打开评估并记录原因。
+- 评估为 `COMPLETED` 后，新的 AgentRcaReport 默认不再替换原报告；如需重新评估，Operator 必须显式重试或重新打开评估并记录原因。
 
 例如控制面在一个 `incidentRef` 下已知 5 个告警，而 Agent 只提交其中 2 个有效 `alertRef`：提交允许进入 Evaluator，评估报告记录 `alertCoverageStatus=PARTIAL`。如果这 2 个告警已经足以支持 RCA，RCA 仍可以判定为正确；遗漏的 3 个告警只会作为覆盖度、证据充分性或诊断完整性的限制。
 
@@ -261,21 +262,21 @@ observabilityRetention = Prometheus/Loki/Tempo 当前保留窗口
 | Fault Run `expiresAt` | 控制故障活动或租约何时到期 |
 | Alert `startsAt` | 观测系统认为告警开始的时间 |
 | Alert `receivedAt` | 控制面第一次接受告警的服务端时间 |
-| Agent submission `submittedAt` | Agent 报告中的自报时间，仅作审计信息 |
+| Agent RCA report `reportReceivedAt` | 服务端接受并持久化 AgentRcaReport 的时间，仅作审计信息 |
 | `evaluationClosedAt` | 服务端/Operator 关闭该告警评估的时间，可为空 |
 | Observability retention end | Prometheus/Loki/Tempo 仍可查询该窗口的最晚时间 |
 
-告警接收记录的保留时间与观测 retention 分开：观测数据可以过期并导致 `EVIDENCE_UNAVAILABLE`，但告警接收记录、AgentSubmission 和评估状态仍应按 Fault Run/控制面 retention 保留，便于审计。
+告警接收记录的保留时间与观测 retention 分开：观测数据可以过期并导致 `EVIDENCE_UNAVAILABLE`，但告警接收记录、AgentRcaReport 和评估状态仍应按 Fault Run/控制面 retention 保留，便于审计。
 
 `alertRefs[]` 和 `incidentRef` 只是关联键，不是观测凭据。Agent 使用部署侧提供的统一 Nginx Basic Auth 访问现有观测入口：
 
 - 观测入口：Prometheus、Loki、Tempo 和指定业务只读入口。
-- Basic Auth 用户名/密码由部署环境注入，不写入 `AgentSubmission.json`。
+- Basic Auth 用户名/密码由部署环境注入，不写入 `AgentRcaReport.json`。
 - Nginx 拒绝未认证请求；阶段 5 不新增应用层的 Agent 角色、租户或细粒度授权逻辑。
 
 告警 envelope 或外部 Agent 的部署配置提供现有观测入口地址；不能把控制面内部 URL、数据库连接或 service key 直接暴露给 Agent。
 
-Basic Auth 凭据不得写入 `AgentSubmission.json`，也不得出现在 RCA、日志或 Markdown 展示文件中。
+Basic Auth 凭据不得写入 `AgentRcaReport.json`，也不得出现在 RCA、日志或 Markdown 展示文件中。
 
 不新增 Observation Gateway。阶段 5 直接复用现有 Nginx Basic Auth 保护的 Prometheus、Loki、Tempo 和业务只读入口。
 
@@ -283,7 +284,7 @@ Basic Auth 凭据不得写入 `AgentSubmission.json`，也不得出现在 RCA、
 
 以下信息由控制面/Evaluator 服务端维护或读取，不由 Agent 提供：
 
-| 信息 | 来源 | 是否进入 `AgentSubmission.json` |
+| 信息 | 来源 | 是否进入 `AgentRcaReport.json` |
 | --- | --- | --- |
 | `evaluationStatus` | Evaluator 评估记录，例如 `OPEN`、`RUNNING`、`COMPLETED`、`CLOSED`、`EVIDENCE_UNAVAILABLE`、`FAILED` | 否 |
 | `evaluationClosedAt` | 服务端或 Operator 显式关闭评估 | 否 |
@@ -293,18 +294,20 @@ Basic Auth 凭据不得写入 `AgentSubmission.json`，也不得出现在 RCA、
 | `evidenceAvailability` | Evaluator 对每个查询窗口的实际查询结果 | 否；属于 Evaluation Report |
 | `alertCoverageStatus` | Evaluator 对 `alertRefs[]` 与 incident 已知告警集合的覆盖判断 | 否；属于 Evaluation Report |
 | `faultRunCorrelationStatus` | 控制面内部 Fault Run 关联器的结果 | 否；属于告警接收记录和 Evaluation Report |
-| Agent 的 `submittedAt` | Agent 提交字段，同时由服务端记录接收时间 | 是，但只作为审计时间，不决定 retention |
+| Agent RCA report `reportReceivedAt` | 服务端持久化报告时生成 | 否；只作为审计时间，不决定 retention |
 
 因此：
 
-- `AgentSubmission.json` 只描述 Agent 的 RCA、证据引用和实际场景 remediation 建议。
+- `AgentRcaReport.json` 只描述 Agent 的 RCA、证据引用和实际场景 remediation 建议。
 - Agent 不填写 `evaluationStatus`、`evaluationClosedAt`、retention、`evidence_unavailable` 或评分结果。
 - Evaluator 根据服务端评估状态判断是否接受新提交；评估已关闭返回 `EVALUATION_CLOSED`。
 - Evaluator 根据观测系统实际可查询范围判断证据是否可用；数据不可查返回 `EVIDENCE_UNAVAILABLE`，不把它归因于 Agent RCA 错误。
 - Evaluator 同时对比 `alertRefs[]` 与 incident 已知告警集合，生成 `alertCoverageStatus`；`PARTIAL` 表示 Agent 没有覆盖全部已知告警，但不是自动失败。
 - 不同 Prometheus/Loki/Tempo 可能有不同 retention，Evaluator 应按查询窗口逐个判断，而不是只依赖一个全局 retention 数值。
 
-## AgentSubmission v1
+## AgentRcaReport v1
+
+完整的机器可读合同和跨字段安全语义见 [AgentRcaReport v1 Schema 详细设计](../../implementation/batch-5-1-agent-rca-submission/agent-rca-report-schema.md) 与 [agent-rca-report.v1.schema.json](../../implementation/batch-5-1-agent-rca-submission/agent-rca-report.v1.schema.json)。Schema 是 AgentRcaReport 字段约束的唯一来源；本阶段文档保留其产品和评估语义。
 
 JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看。
 
@@ -312,8 +315,8 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
 
 ```json
 {
-  "schemaVersion": "agent-submission.v1",
-  "submissionId": "sub-01J8EXAMPLE",
+  "schemaVersion": "agent-rca-report.v1",
+  "reportId": "rpt-01J8EXAMPLE",
   "alertRefs": [
     {
       "fingerprint": "alert-fp-01J8EXAMPLE",
@@ -326,7 +329,6 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
       "role": "supporting"
     }
   ],
-  "submittedAt": "2026-09-11T08:30:00Z",
   "agent": {
     "name": "example-rca-agent",
     "version": "0.1.0"
@@ -385,13 +387,12 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
 
 | 字段路径 | 类型 | 必填 | 来源/写入者 | 说明与 Evaluator 用途 |
 | --- | --- | --- | --- | --- |
-| `schemaVersion` | string | 是 | Agent，受 Schema 限制 | 固定为 `agent-submission.v1`，用于选择解析和校验规则。 |
-| `submissionId` | string | 是 | Agent 提供，服务端校验唯一性 | 本次提交的幂等键和审计键；同值重试不得重复排队。 |
+| `schemaVersion` | string | 是 | Agent，受 Schema 限制 | 固定为 `agent-rca-report.v1`，用于选择解析和校验规则。 |
+| `reportId` | string | 是 | Agent 提供，服务端校验唯一性 | 本次报告的幂等键和审计键；同值重试不得重复排队。 |
 | `alertRefs` | array<object> | 是 | Agent 从一个或多个告警 envelope 原样回传 | 关联一个问题涉及的一个或多个告警实例；至少一个元素，不能自行创建或修改。 |
 | `alertRefs[].fingerprint` | string | 是 | 告警接收系统生成 | 一个 Alertmanager 告警实例的指纹。 |
 | `alertRefs[].startsAt` | RFC 3339 string | 是 | 告警接收系统生成 | 该告警实例的开始时间；用于复查窗口，不代表当前仍 firing。 |
 | `alertRefs[].role` | enum | 是 | Agent 根据告警集合声明 | `primary` 或 `supporting`；只表达 Agent 的组织方式，不等于 Evaluator 已确认根因。 |
-| `submittedAt` | RFC 3339 string | 是 | Agent 提供，服务端另记接收时间 | Agent 自报生成时间，只用于审计，不决定评估资格或 retention。 |
 | `agent` | object | 是 | Agent | 标识 Agent 实现，不包含凭据或内部连接信息。 |
 | `agent.name` | string | 是 | Agent | Agent 名称。 |
 | `agent.version` | string | 是 | Agent | Agent 版本，用于结果分组和复现。 |
@@ -450,7 +451,7 @@ Agent 的 `agentQuery` 不能包含凭据、任意外部 URL、可执行 SQL 或
 
 #### 由服务端/Evaluator 管理的字段
 
-以下信息不进入 `AgentSubmission.json`：
+以下信息不进入 `AgentRcaReport.json`：
 
 | 信息 | 维护者 | 说明 |
 | --- | --- | --- |
@@ -464,20 +465,19 @@ Agent 的 `agentQuery` 不能包含凭据、任意外部 URL、可执行 SQL 或
 
 必填字段：
 
-- `schemaVersion = "agent-submission.v1"`
-- `submissionId`
+- `schemaVersion = "agent-rca-report.v1"`
+- `reportId`
 - `alertRefs`
-- `submittedAt`
 - `agent.name/version`
 - `diagnosis`
 - `evidenceRefs`
 - `remediationRecommendation`
 - `limitations`
 
-`submissionId` 用于幂等、重试和审计；同一个 `alertRefs[]`/`incidentRef` 可以有多次提交。Result Gateway 需要定义：
+`reportId` 用于幂等、重试和审计；同一个 `alertRefs[]`/`incidentRef` 可以有多次报告。Agent RCA report intake service 需要定义：
 
-- 相同 `submissionId` 重复提交返回同一接收结果，不重复排队评估。
-- 新 `submissionId` 在同一 `alertRefs[]` 或 `incidentRef` 下提交时，只有在前一次评估尚未开始时才允许替换；评估已开始后必须由 Operator 显式重试或选择新提交。
+- 相同 `reportId` 重复提交返回同一接收结果，不重复排队评估。
+- 新 `reportId` 在同一 `alertRefs[]` 或 `incidentRef` 下提交时，只有在前一次评估尚未开始时才允许替换；评估已开始后必须由 Operator 显式重试或选择新报告。
 - 评估已关闭的新提交返回 `EVALUATION_CLOSED`；如果观测 retention 已无法覆盖查询窗口，返回 `EVIDENCE_UNAVAILABLE`，不直接判定 RCA 错误。
 - Agent 不获得 `taskId`、`evaluationId`、`faultRunId` 或内部数据库 ID。
 
@@ -523,10 +523,10 @@ Evidence 引用至少包含：
 Result Gateway 在保存提交前必须执行：
 
 ```text
-AgentSubmission.json
+AgentRcaReport.json
   -> JSON Schema validation
   -> alertRefs[] / incident correlation / permission / size / secret checks
-  -> immutable submission record
+  -> immutable report record
   -> automatically queued Evaluator
 ```
 
@@ -582,12 +582,12 @@ FAILED
 - 告警接收记录缺失时返回 `ALERT_RECEIPT_UNAVAILABLE`；Fault Run 上下文无法唯一关联时记录 `faultRunCorrelationStatus=UNMATCHED/AMBIGUOUS`，两者都不直接判定 RCA 错误。
 - Agent 不能通过试点接入地址访问控制面写 API、Ground Truth 或其他运行数据；阶段 5 不新增应用层授权模型。
 - Agent 只能只读查询并提交 RCA/建议。
-- AgentSubmission 必须通过版本化 JSON Schema。
-- 同一 `submissionId` 重试幂等；评估已关闭的告警提交不进入自动评估，观测过期则进入 `EVIDENCE_UNAVAILABLE`。
+- AgentRcaReport 必须通过版本化 JSON Schema。
+- 同一 `reportId` 重试幂等；评估已关闭的告警报告不进入自动评估，观测过期则进入 `EVIDENCE_UNAVAILABLE`。
 - Operator 不执行实际场景 remediation 是合法结果，报告使用 `remediationExecutionStatus = ACCEPTED_NOT_EXECUTED`；尚未审核时使用 `NOT_REVIEWED`。
 - Evaluator 状态区分 `PENDING`、`RUNNING`、`COMPLETED`、`EVIDENCE_UNAVAILABLE`、`FAILED`。
 - 不发布跨 Agent 排行榜。
-- 试点场景的 alert receipts、`alertRefs[]`、内部 `incidentRef`、AgentSubmission、Evaluator report 和 `remediationExecutionStatus` 可以关联；Fault Run 的内部 stop/release/cleanup 状态仍只由控制面记录。
+- 试点场景的 alert receipts、`alertRefs[]`、内部 `incidentRef`、AgentRcaReport、Evaluator report 和 `remediationExecutionStatus` 可以关联；Fault Run 的内部 stop/release/cleanup 状态仍只由控制面记录。
 
 ## 回退
 
