@@ -65,7 +65,7 @@ AgentRcaReport
 | `agent.name` / `agent.version` | 1-128 位受限标识符 | 追踪产生该结果的 Agent 实现；不得包含连接地址或凭据。 |
 | `affectedServices` | 1-20 个 `AffectedService` 对象 | 报告级影响范围，供 Evidence、remediation 和 Evaluator 共同使用。 |
 | `affectedServices[].service` | 小写 service 标识符 | 被影响或需要关注的服务；在同一报告内必须唯一。 |
-| `affectedServices[].resources` | 1-20 个唯一资源 | 属于该服务的表、缓存、锁、文件、依赖或业务路径，不等于 remediation 已执行。 |
+| `affectedServices[].components` | 1-20 个唯一组件 | 属于该服务的表、缓存、锁、文件、依赖或业务路径，不等于 remediation 已执行。 |
 | `affectedServices[].instances` | 可选的 1-20 个 string | 该服务中实际观察到受影响的实例；不是服务所有实例的完整清单。 |
 | `affectedServices[].instances[]` | 1-128 位受限标识符 | 来自已授权观测 source 的非地址实例标签；不接受 IP、端口、URL、内部数据库 ID 或凭据。 |
 | `diagnosis` | 结构化 RCA | Agent 的断言，Evaluator 会独立复查。 |
@@ -112,7 +112,7 @@ Agent 不提交 `submittedAt`。服务端在 AgentRcaReport 通过 Schema、安�
 | `symptoms` | 可选，最多 20 项 | Agent 观察到的症状；与独立 evidence 交叉验证。 |
 | `rootCause.category` | 固定十类枚举 | Evaluator 对照服务端 Ground Truth predicate 输出 assessment，不回传隐藏答案。 |
 | `rootCause.service` | 小写 service 标识符 | 主要归因服务，必须可映射到受控业务/基础设施名称。 |
-| `rootCause.resource` | 1-1024 字符 | 资源、业务操作或依赖对象，不得是内部控制操作。 |
+| `rootCause.component` | 1-1024 字符 | 主要业务或基础设施组件，不得是内部控制操作。 |
 | `rootCause.instances` | 可选的 1-20 个 string | 可确认时标识主要因果实例；无法可靠定位时省略。 |
 | `rootCause.explanation` | 1-4096 字符 | 解释性断言，需由 `evidenceRefs` 支持。 |
 | `confidence` | 数值 `0..1` | Agent 自评，不是 Evaluator 分数。 |
@@ -120,32 +120,32 @@ Agent 不提交 `submittedAt`。服务端在 AgentRcaReport 通过 Schema、安�
 
 `UNKNOWN` 是有效根因类别。它要求 Agent 保留不确定性，并允许 Evaluator 给出 `UNDETERMINABLE`；不得为了通过 Schema 或评估而编造精确根因。
 
-`rootCause.resource` 是稳定、可定位的**名词对象**，用于回答“哪个业务资源、操作或依赖受影响”，例如 `product-listing request capacity`、`payment PSP authorization dependency` 或 `catalog report query plan`。它应足够具体，供 Evaluator 将诊断与受控 evidence contract 对齐，但不能写入 Fault Run、worker、release 或 cleanup 等控制面对象。
+`rootCause.component` 是稳定、可定位的**名词对象**，用于回答“哪个业务或基础设施组件是主要根因”，例如 `product-listing request capacity`、`payment PSP authorization dependency` 或 `catalog report query plan`。它应足够具体，供 Evaluator 将诊断与受控 evidence contract 对齐，但不能写入 Fault Run、worker、release 或 cleanup 等控制面对象。
 
 `rootCause.explanation` 是可证伪的**因果断言**，用于回答“为什么这个对象被判断为根因”。例如，上例将持续流量、观察到的处理能力和下游延迟之间的关系写成一句完整解释。它不是日志摘录、建议动作或单纯症状；至少一个 `evidenceRefs[].supports` 必须包含 `root_cause`，且 Evaluator 会用服务端受控 recipe 独立复查。
 
-`rootCause.resource` 有意保持单值：它标识本次报告的**主要因果对象**，使 Evaluator 能对一个明确断言进行验证。若问题同时影响多个资源，它们都应归入顶层 `affectedServices[].resources[]`；若无法辨别唯一主要对象，应使用 `rootCause.category = "UNKNOWN"` 并在 `uncertainties` 中说明，而不是将多个候选根因塞入数组。
+`rootCause.component` 有意保持单值：它标识本次报告的**主要因果对象**，使 Evaluator 能对一个明确断言进行验证。若问题同时影响多个组件，它们都应归入顶层 `affectedServices[].components[]`；若无法辨别唯一主要对象，应使用 `rootCause.category = "UNKNOWN"` 并在 `uncertainties` 中说明，而不是将多个候选根因塞入数组。
 
 `instances` 有意保持可选。全局流量、配置、共享依赖或证据不完整时，Agent 不应猜测一个 pod、节点或副本；此时省略 `instances` 并在 `uncertainties` 说明。若提供实例，它只能是观测系统已公开的非地址标签，而不是 IP、端口、URL、内部数据库 ID 或控制面 ID。
 
 ## 6. `affectedServices[]` 合同
 
-`affectedServices` 是报告级的必填影响范围，不属于 `diagnosis`。它将原先平行的 `affectedServices: string[]` 和 `affectedResources: string[]` 合并为服务对象，避免“第 N 个资源属于第 N 个服务”的脆弱隐含约定；Evidence、remediation 和 Evaluator 都以它作为共同上下文。
+`affectedServices` 是报告级的必填影响范围，不属于 `diagnosis`。它将原先分散的服务与影响组件信息合并为服务对象，避免“第 N 个组件属于第 N 个服务”的脆弱隐含约定；Evidence、remediation 和 Evaluator 都以它作为共同上下文。
 
 | 字段 | Schema 约束 | 服务端规则 |
 | --- | --- | --- |
 | `affectedServices` | 1-20 个 `AffectedService` 对象 | 每项表达一个受影响服务及其资源范围。 |
 | `affectedServices[].service` | 小写 service 标识符 | 同一报告内必须唯一；不能用控制面、内部 operation 或任意外部 URL 伪装服务。 |
-| `affectedServices[].resources` | 1-20 个唯一 string | 该服务受影响的表、缓存、锁、文件、依赖或业务路径；至少一个元素。 |
+| `affectedServices[].components` | 1-20 个唯一 string | 该服务受影响的表、缓存、锁、文件、依赖或业务路径；至少一个元素。 |
 | `affectedServices[].instances` | 可选 1-20 个唯一 string | 已观察到受影响的非地址实例标签；不是服务全部实例清单。 |
 
 跨字段规则：
 
 1. `diagnosis.rootCause.service` 必须位于顶层 `affectedServices[].service` 中。
-2. `diagnosis.rootCause.resource` 必须位于该服务的 `resources[]` 中。
+2. `diagnosis.rootCause.component` 必须位于该服务的 `components[]` 中。
 3. `diagnosis.rootCause.instances` 存在时，每个实例必须位于该服务的 `instances[]` 中；没有可靠的根因实例时省略前者，没有可靠的受影响实例时省略后者。
-4. `resources[]` 和 `instances[]` 分别在所属服务对象内去重；同一资源可以出现在多个服务对象中，但必须代表可解释的共享依赖或业务路径。
-5. `evidenceRefs[]` 是实例、资源和根因判断的唯一证据模型：`evidenceRefs[].service`、`window` 和 `supports` 描述证据的适用范围，Evaluator 再用受控 recipe 独立复查。因此不在 `instances[]` 或其他嵌套对象中重复维护 `evidenceIds`，避免同一关系出现两个可分歧的来源。
+4. `components[]` 和 `instances[]` 分别在所属服务对象内去重；同一组件可以出现在多个服务对象中，但必须代表可解释的共享依赖或业务路径。
+5. `evidenceRefs[]` 是实例、组件和根因判断的唯一证据模型：`evidenceRefs[].service`、`window` 和 `supports` 描述证据的适用范围，Evaluator 再用受控 recipe 独立复查。因此不在 `instances[]` 或其他嵌套对象中重复维护 `evidenceIds`，避免同一关系出现两个可分歧的来源。
 
 ## 7. `evidenceRefs[]` 合同
 
@@ -255,7 +255,7 @@ Evaluator v1 不读取 `extensions` 进行 RCA、evidence、remediation 或 scor
     "rootCause": {
       "category": "TRAFFIC",
       "service": "gateway-service",
-      "resource": "product-listing request capacity",
+      "component": "product-listing request capacity",
       "instances": [
         "gateway-service-1"
       ],
@@ -269,7 +269,7 @@ Evaluator v1 不读取 `extensions` 进行 RCA、evidence、remediation 或 scor
   "affectedServices": [
     {
       "service": "gateway-service",
-      "resources": [
+      "components": [
         "product-listing request capacity",
         "product-listing request path"
       ],
@@ -279,7 +279,7 @@ Evaluator v1 不读取 `extensions` 进行 RCA、evidence、remediation 或 scor
     },
     {
       "service": "catalog-service",
-      "resources": [
+      "components": [
         "catalog read capacity"
       ],
       "instances": [

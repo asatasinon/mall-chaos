@@ -300,7 +300,7 @@ Evaluator 只允许执行 manifest 里的 `recipeId`。每个 recipe 必须有 s
 | --- | --- |
 | `alertCoverageStatus` | report 引用数量、incident 已知 receipt 集合和其可用性。 |
 | `faultRunCorrelationStatus` | 批次 5.0 的最新 receipt correlation；多 receipt 不一致时保留限制。 |
-| `diagnosisAssessment` | Agent category/service/resource/instances 与后端 Ground Truth predicate 和受控 query 摘要的匹配程度。 |
+| `diagnosisAssessment` | Agent category/service/component/instances 与后端 Ground Truth predicate 和受控 query 摘要的匹配程度。 |
 | `evidenceAssessment` | required recipe 可用性、Agent evidence 的 source/window/support 覆盖与独立重查结果。 |
 | `remediationReviewStatus` | 声明性建议的目标、前置条件、风险、验证、回退及禁止控制面主题检查。 |
 | `remediationExecutionStatus` | 最新 Operator outcome；初始为 `NOT_REVIEWED`。 |
