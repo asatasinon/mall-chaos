@@ -303,22 +303,22 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
         },
         "kind": {
+          "description": "Evidence category. business_check verifies a read-only business outcome; resource_check verifies a declared read-only technical resource state.",
           "enum": [
             "metric",
             "log",
             "trace",
             "business_check",
-            "run_event",
             "resource_check"
           ]
         },
         "source": {
+          "description": "The only source allowed for the selected evidence kind. business_api and resource_api are fixed, deployment-authorized read-only check surfaces.",
           "enum": [
             "prometheus",
             "loki",
             "tempo",
             "business_api",
-            "control_plane",
             "resource_api"
           ]
         },
@@ -329,6 +329,7 @@
           "$ref": "#/$defs/evidenceWindow"
         },
         "agentQuery": {
+          "description": "Agent audit text. For business_check and resource_check this is the fixed check key, not an arbitrary URL, command, SQL statement, or operation payload.",
           "type": "string",
           "minLength": 1,
           "maxLength": 2048
@@ -429,25 +430,6 @@
             "required": [
               "service"
             ]
-          }
-        },
-        {
-          "if": {
-            "required": [
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "const": "run_event"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "source": {
-                "const": "control_plane"
-              }
-            }
           }
         },
         {

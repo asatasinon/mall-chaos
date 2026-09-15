@@ -432,13 +432,15 @@ JSON 是唯一机器输入，Markdown 只能由 JSON 派生或用于人工查看
 | 字段路径 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `evidenceRefs[].evidenceId` | string | 是 | 本次提交内唯一的证据引用 ID。 |
-| `evidenceRefs[].kind` | enum | 是 | `metric`、`log`、`trace`、`business_check`、`run_event` 或 `resource_check`。 |
-| `evidenceRefs[].source` | enum | 是 | `prometheus`、`loki`、`tempo`、`business_api`、`control_plane` 或 `resource_api`。 |
+| `evidenceRefs[].kind` | enum | 是 | `metric`、`log`、`trace`、`business_check` 或 `resource_check`。 |
+| `evidenceRefs[].source` | enum | 是 | `prometheus`、`loki`、`tempo`、`business_api` 或 `resource_api`。 |
 | `evidenceRefs[].service` | string | 视 kind | 观测服务或业务服务；控制面字段不能替代业务服务事实。 |
 | `evidenceRefs[].window.from/to` | RFC 3339 string | 是 | Agent 查询证据的时间窗口，必须落在 `alertRefs[]` 关联的允许窗口内。 |
 | `evidenceRefs[].agentQuery` | string | 是 | Agent 实际使用的查询文本，仅作审计和对照；Evaluator 不直接执行。 |
 | `evidenceRefs[].observation` | string | 是 | Agent 从查询结果看到的现象摘要，不是原始日志/Trace 的替代存储。 |
 | `evidenceRefs[].supports` | array[enum] | 是 | `symptom`、`root_cause`、`impact`、`remediation` 之一或多个。 |
+
+`business_check` 通过 Catalog/Manifest 声明的 Gateway 只读检查键验证实际业务结果；`resource_check` 通过同样预声明的资源只读检查键验证受控缓存、锁、存储或依赖等资源事实。两者的 `agentQuery` 都是检查键，不是可执行 URL、SQL、shell 或任意 operation；直接访问 Redis、MySQL、JMX、文件系统、Kubernetes 或 `/internal/**` 不属于 Agent 能力。
 
 Agent 的 `agentQuery` 不能包含凭据、任意外部 URL、可执行 SQL 或绕过 allowlist 的内部地址。Evaluator 根据 Scenario Contract 和 Evidence Query Manifest 生成受控查询进行复查。
 

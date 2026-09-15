@@ -162,6 +162,7 @@ Nginx/Ingress 必须拒绝 `GET`、`PUT`、`PATCH`、`DELETE`、未知 path、�
 | Loki | 固定的 query、query_range、标签 GET 路径 | push、delete、admin、任意 POST。 |
 | Tempo | 固定的 search/trace GET 路径 | OTLP ingestion、配置/管理接口、任意写入。 |
 | 业务检查 | Catalog/阶段 4 明确列出的 Gateway read-only operation | 消费者写 API、`/internal/**`、任意服务直连。 |
+| 资源检查 | Catalog/阶段 4 明确列出的 resource read-only check | 直接 Redis/MySQL/JMX/文件系统/Kubernetes 访问、shell、任意资源连接。 |
 
 Agent query 仍不构成控制面 Evaluator 的执行输入。Evaluator 只运行阶段 4 Manifest 中的受控 recipes。
 

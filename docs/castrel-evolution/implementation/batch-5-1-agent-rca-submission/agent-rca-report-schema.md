@@ -76,7 +76,153 @@ AgentRcaReport
 
 Agent 不提交 `submittedAt`。服务端在 AgentRcaReport 通过 Schema、安全、告警引用和事务性持久化后，以数据库 `CURRENT_TIMESTAMP(3)` 写入 `reportReceivedAt`；它是报告的可信审计时间，不是 payload hash 的输入，也不能由 Agent 覆盖。该时间与批次 5.0 每个 alert receipt 的 `receivedAt` 不同，后者表示控制面收到 Alertmanager 通知的时间。
 
-### 3.1 完整合法示例
+## 4. `alertRefs[]` 合同
+
+每个 `alertRef` 都严格由以下三项构成：
+
+```json
+{
+  "fingerprint": "alert-fp-01J8EXAMPLE",
+  "startsAt": "2026-09-11T08:20:00Z",
+  "role": "primary"
+}
+```
+
+| 字段 | Schema 约束 | 服务端额外规则 |
+| --- | --- | --- |
+| `fingerprint` | 1-128 位字母、数字、点、下划线或连字符 | 必须与批次 5.0 receipt 的 Alertmanager fingerprint 精确匹配。 |
+| `startsAt` | RFC 3339 date-time | 解析为 UTC 毫秒 canonical form 后，与 receipt identity 匹配。 |
+| `role` | `primary` 或 `supporting` | 全文恰好一项为 `primary`；相同 tuple 不能以不同 role 重复出现。 |
+
+跨字段规则：
+
+1. Schema 的 `contains` 约束保证恰好一个 `primary`；服务端还必须确认 tuple 去重。
+2. 每个 tuple 必须存在于 `alert_receipts`。与 Alertmanager parallel delivery 竞争时，返回可重试 `ALERT_RECEIPT_UNAVAILABLE`，不写入部分 report。
+3. 多个 receipt 必须属于同一个内部 incident。`groupKey` 相同不能替代 incident membership；跨 incident 时返回 `ALERT_SET_CONFLICT`。
+4. `MATCHED`、`UNMATCHED`、`AMBIGUOUS` 和 `NOT_REQUIRED` 是 receipt 的内部关联事实，均不改变 Schema 合法性。Evaluator 在报告中表达限制。
+5. `startsAt` 不承担提交窗口。Alert resolved、Fault Run 到期和 telemetry retention 过期都不能单独使合法 tuple 失效。
+
+时间 canonicalization 统一为：解析带时区的 RFC 3339 值，转换 UTC，固定为毫秒精度，再序列化为 `YYYY-MM-DDTHH:mm:ss.SSSZ`。若输入包含无法无损表示到毫秒的非零更高精度，ingress 返回 `INVALID_ALERT_REFERENCE_TIMESTAMP`，而不是静默截断为另一个告警实例。
+
+## 5. `diagnosis` 合同
+
+| 字段 | Schema 约束 | 评估语义 |
+| --- | --- | --- |
+| `summary` | 1-4096 字符 | 面向人的 RCA 摘要，不能替代结构化根因。 |
+| `symptoms` | 可选，最多 20 项 | Agent 观察到的症状；与独立 evidence 交叉验证。 |
+| `rootCause.category` | 固定十类枚举 | Evaluator 对照服务端 Ground Truth predicate 输出 assessment，不回传隐藏答案。 |
+| `rootCause.service` | 小写 service 标识符 | 主要归因服务，必须可映射到受控业务/基础设施名称。 |
+| `rootCause.resource` | 1-1024 字符 | 资源、业务操作或依赖对象，不得是内部控制操作。 |
+| `rootCause.instances` | 可选的 1-20 个 string | 可确认时标识主要因果实例；无法可靠定位时省略。 |
+| `rootCause.explanation` | 1-4096 字符 | 解释性断言，需由 `evidenceRefs` 支持。 |
+| `confidence` | 数值 `0..1` | Agent 自评，不是 Evaluator 分数。 |
+| `uncertainties` | 最多 20 项 | 已知替代解释、缺失数据或查询限制。 |
+
+`UNKNOWN` 是有效根因类别。它要求 Agent 保留不确定性，并允许 Evaluator 给出 `UNDETERMINABLE`；不得为了通过 Schema 或评估而编造精确根因。
+
+`rootCause.resource` 是稳定、可定位的**名词对象**，用于回答“哪个业务资源、操作或依赖受影响”，例如 `product-listing request capacity`、`payment PSP authorization dependency` 或 `catalog report query plan`。它应足够具体，供 Evaluator 将诊断与受控 evidence contract 对齐，但不能写入 Fault Run、worker、release 或 cleanup 等控制面对象。
+
+`rootCause.explanation` 是可证伪的**因果断言**，用于回答“为什么这个对象被判断为根因”。例如，上例将持续流量、观察到的处理能力和下游延迟之间的关系写成一句完整解释。它不是日志摘录、建议动作或单纯症状；至少一个 `evidenceRefs[].supports` 必须包含 `root_cause`，且 Evaluator 会用服务端受控 recipe 独立复查。
+
+`rootCause.resource` 有意保持单值：它标识本次报告的**主要因果对象**，使 Evaluator 能对一个明确断言进行验证。若问题同时影响多个资源，它们都应归入顶层 `affectedServices[].resources[]`；若无法辨别唯一主要对象，应使用 `rootCause.category = "UNKNOWN"` 并在 `uncertainties` 中说明，而不是将多个候选根因塞入数组。
+
+`instances` 有意保持可选。全局流量、配置、共享依赖或证据不完整时，Agent 不应猜测一个 pod、节点或副本；此时省略 `instances` 并在 `uncertainties` 说明。若提供实例，它只能是观测系统已公开的非地址标签，而不是 IP、端口、URL、内部数据库 ID 或控制面 ID。
+
+## 6. `affectedServices[]` 合同
+
+`affectedServices` 是报告级的必填影响范围，不属于 `diagnosis`。它将原先平行的 `affectedServices: string[]` 和 `affectedResources: string[]` 合并为服务对象，避免“第 N 个资源属于第 N 个服务”的脆弱隐含约定；Evidence、remediation 和 Evaluator 都以它作为共同上下文。
+
+| 字段 | Schema 约束 | 服务端规则 |
+| --- | --- | --- |
+| `affectedServices` | 1-20 个 `AffectedService` 对象 | 每项表达一个受影响服务及其资源范围。 |
+| `affectedServices[].service` | 小写 service 标识符 | 同一报告内必须唯一；不能用控制面、内部 operation 或任意外部 URL 伪装服务。 |
+| `affectedServices[].resources` | 1-20 个唯一 string | 该服务受影响的表、缓存、锁、文件、依赖或业务路径；至少一个元素。 |
+| `affectedServices[].instances` | 可选 1-20 个唯一 string | 已观察到受影响的非地址实例标签；不是服务全部实例清单。 |
+
+跨字段规则：
+
+1. `diagnosis.rootCause.service` 必须位于顶层 `affectedServices[].service` 中。
+2. `diagnosis.rootCause.resource` 必须位于该服务的 `resources[]` 中。
+3. `diagnosis.rootCause.instances` 存在时，每个实例必须位于该服务的 `instances[]` 中；没有可靠的根因实例时省略前者，没有可靠的受影响实例时省略后者。
+4. `resources[]` 和 `instances[]` 分别在所属服务对象内去重；同一资源可以出现在多个服务对象中，但必须代表可解释的共享依赖或业务路径。
+5. `evidenceRefs[]` 是实例、资源和根因判断的唯一证据模型：`evidenceRefs[].service`、`window` 和 `supports` 描述证据的适用范围，Evaluator 再用受控 recipe 独立复查。因此不在 `instances[]` 或其他嵌套对象中重复维护 `evidenceIds`，避免同一关系出现两个可分歧的来源。
+
+## 7. `evidenceRefs[]` 合同
+
+每一项定义“Agent 看到了什么”，而不是“Evaluator 应执行什么”：
+
+| 字段 | Schema 约束 | 服务端规则 |
+| --- | --- | --- |
+| `evidenceId` | 1-64 位受限标识符 | 必须在同一 report 内唯一。 |
+| `kind` | metric、log、trace、business_check、resource_check | 决定允许的 source 组合。 |
+| `source` | prometheus、loki、tempo、business_api、resource_api | Schema 用 `if/then` 固定 kind/source 映射。 |
+| `service` | 必填 | 必须是受控服务标识，不能为控制面伪造业务事实。 |
+| `window.from/to` | 两个 RFC 3339 时间 | `from < to`，且必须落在关联 receipt/manifest 的允许时间范围。 |
+| `agentQuery` | 1-2048 字符 | 仅存审计文字；永不传给 query executor。 |
+| `observation` | 1-4096 字符 | Agent 对结果的摘要，不是原始数据副本。 |
+| `supports` | 1-4 个枚举 | 明确该证据支持 symptom、root cause、impact 或 remediation 的哪一部分。 |
+
+Schema 固定的 kind/source 组合如下：
+
+| `kind` | 唯一 `source` |
+| --- | --- |
+| `metric` | `prometheus` |
+| `log` | `loki` |
+| `trace` | `tempo` |
+| `business_check` | `business_api` |
+| `resource_check` | `resource_api` |
+
+### 7.1 `business_check` 与 `resource_check`
+
+两者都不是让 Agent 自由调用的通用 API。每个检查必须先由 Scenario Evidence Contract 和 Evidence Query Manifest 声明为一个固定、只读的检查键；Agent 只能通过部署允许的入口调用该键，Evaluator 再用服务端受控的相同检查独立复查。
+
+| 类型 | 回答的问题 | 唯一 source | `agentQuery` 的含义 | 示例检查键 | 明确不允许 |
+| --- | --- | --- | --- | --- | --- |
+| `business_check` | 真实业务路径是否可用、失败或恢复，例如商品列表、订单查询、库存可用性或支付结果。 | `business_api` | 固定业务只读检查键，不是 URL。 | `product-listing-read-check` | 消费者写 API、订单/支付/库存写入、`/internal/**`、任意 Gateway operation。 |
+| `resource_check` | 支撑业务路径的特定资源状态是否异常，例如受控缓存状态、锁诊断、存储增长摘要或依赖可用性。 | `resource_api` | 固定资源只读检查键，不是命令、SQL 或资源连接串。 | `catalog-cache-state-check` | 直接 Redis/MySQL/JMX/文件系统/Kubernetes 访问、shell、任意主机或数据库查询。 |
+
+`business_check` 关注的是**业务结果**，例如“商品列表是否仍能被正常读取”；`resource_check` 关注的是**资源事实**，例如“与该业务路径相关的受控缓存状态是否符合预期”。同一个问题可以同时使用两类证据，但它们不能相互替代：资源正常不证明业务恢复，业务可读也不证明资源状态完全正常。
+
+对这两类检查，`evidenceRefs[].service` 必须是对应受影响服务，`window` 必须在 manifest 允许范围内，`observation` 只记录有界摘要。`agentQuery` 只保存 Agent 使用的检查键作为审计文本，Evaluator 绝不从该字符串构造 URL、执行命令或选择任意 operation。
+
+## 8. `remediationRecommendation` 合同
+
+每条 action 必须是非可执行的声明性建议，且完整描述变更风险：
+
+| 字段 | Schema 约束 | 语义 |
+| --- | --- | --- |
+| `summary` | 1-4096 字符 | 建议针对的真实业务/基础设施问题摘要。 |
+| `actions` | 1-10 项 | 执行顺序由 `order` 表达。 |
+| `order` | 整数 `1..10` | 服务端确认从 1 开始连续且不重复。 |
+| `action` | 1-4096 字符 | 人工审批后可执行的描述，不是命令或脚本。 |
+| `target` | 1-1024 字符 | 业务服务、依赖、资源或配置；不能是 Fault Run 或控制面。 |
+| `preconditions` | 1-10 项 | 执行前必须确认的安全/业务条件。 |
+| `risks` | 1-10 项 | 变更副作用或不确定性；不能省略。 |
+| `verification` | 1-10 项 | 通过真实业务或基础设施检查验证效果。 |
+| `rollback` | 1-10 项 | 通过正常变更流程回退实际修复。 |
+
+JSON Schema 不能可靠判断自然语言是否包含可执行危险内容，因此 `AgentRcaReportSafetyValidator` 还会在所有字符串字段中拒绝：
+
+- 代码块、shell substitution、重定向、管道、`curl`、`wget`、`kubectl`、`sudo` 和明显的命令语法；
+- SQL statement、DDL/DML、连接字符串、任意 URL 或 callback；
+- `fault run`、`release`、`cleanup`、control-plane、Worker、Alertmanager、Evaluator 等作为 remediation 的操作目标；
+- 密钥名、Bearer/Basic 凭据、私钥、Cookie、内网服务地址和内部 operation payload。
+
+安全 validator 报错时不回显命中的敏感文字，也不持久化原 payload。
+
+## 9. `extensions` 合同
+
+`extensions` 用于不影响 v1 判定的低风险辅助字段。它最多有 20 个以小写字母开头的键，每个递归对象最多 10 个键、数组最多 10 项、字符串最多 1024 字符。入口还对整个 JSON 施加最大 12 层深度。
+
+`extensions` 禁止：
+
+- 复制、重命名或覆盖任一顶层业务字段；
+- 放入 credentials、URL、脚本、SQL、控制面身份或分数；
+- 充当自定义 query、callback、自动 remediation 或 schema 版本逃逸通道。
+
+Evaluator v1 不读取 `extensions` 进行 RCA、evidence、remediation 或 score 判定。未来若某项扩展需要改变机器语义，必须发布新 `schemaVersion`，不能偷偷扩大 v1。
+
+## 10. 完整合法示例
 
 以下 JSON 可直接通过 `agent-rca-report.v1.schema.json` 的结构校验；其中的时间、fingerprint 和观察内容仅用于说明，不代表一个已选择或已触发的 pilot。
 
@@ -224,128 +370,7 @@ Agent 不提交 `submittedAt`。服务端在 AgentRcaReport 通过 Schema、安�
 }
 ```
 
-## 4. `alertRefs[]` 合同
-
-每个 `alertRef` 都严格由以下三项构成：
-
-```json
-{
-  "fingerprint": "alert-fp-01J8EXAMPLE",
-  "startsAt": "2026-09-11T08:20:00Z",
-  "role": "primary"
-}
-```
-
-| 字段 | Schema 约束 | 服务端额外规则 |
-| --- | --- | --- |
-| `fingerprint` | 1-128 位字母、数字、点、下划线或连字符 | 必须与批次 5.0 receipt 的 Alertmanager fingerprint 精确匹配。 |
-| `startsAt` | RFC 3339 date-time | 解析为 UTC 毫秒 canonical form 后，与 receipt identity 匹配。 |
-| `role` | `primary` 或 `supporting` | 全文恰好一项为 `primary`；相同 tuple 不能以不同 role 重复出现。 |
-
-跨字段规则：
-
-1. Schema 的 `contains` 约束保证恰好一个 `primary`；服务端还必须确认 tuple 去重。
-2. 每个 tuple 必须存在于 `alert_receipts`。与 Alertmanager parallel delivery 竞争时，返回可重试 `ALERT_RECEIPT_UNAVAILABLE`，不写入部分 report。
-3. 多个 receipt 必须属于同一个内部 incident。`groupKey` 相同不能替代 incident membership；跨 incident 时返回 `ALERT_SET_CONFLICT`。
-4. `MATCHED`、`UNMATCHED`、`AMBIGUOUS` 和 `NOT_REQUIRED` 是 receipt 的内部关联事实，均不改变 Schema 合法性。Evaluator 在报告中表达限制。
-5. `startsAt` 不承担提交窗口。Alert resolved、Fault Run 到期和 telemetry retention 过期都不能单独使合法 tuple 失效。
-
-时间 canonicalization 统一为：解析带时区的 RFC 3339 值，转换 UTC，固定为毫秒精度，再序列化为 `YYYY-MM-DDTHH:mm:ss.SSSZ`。若输入包含无法无损表示到毫秒的非零更高精度，ingress 返回 `INVALID_ALERT_REFERENCE_TIMESTAMP`，而不是静默截断为另一个告警实例。
-
-## 5. `diagnosis` 合同
-
-| 字段 | Schema 约束 | 评估语义 |
-| --- | --- | --- |
-| `summary` | 1-4096 字符 | 面向人的 RCA 摘要，不能替代结构化根因。 |
-| `symptoms` | 可选，最多 20 项 | Agent 观察到的症状；与独立 evidence 交叉验证。 |
-| `rootCause.category` | 固定十类枚举 | Evaluator 对照服务端 Ground Truth predicate 输出 assessment，不回传隐藏答案。 |
-| `rootCause.service` | 小写 service 标识符 | 主要归因服务，必须可映射到受控业务/基础设施名称。 |
-| `rootCause.resource` | 1-1024 字符 | 资源、业务操作或依赖对象，不得是内部控制操作。 |
-| `rootCause.instances` | 可选的 1-20 个 string | 可确认时标识主要因果实例；无法可靠定位时省略。 |
-| `rootCause.explanation` | 1-4096 字符 | 解释性断言，需由 `evidenceRefs` 支持。 |
-| `confidence` | 数值 `0..1` | Agent 自评，不是 Evaluator 分数。 |
-| `uncertainties` | 最多 20 项 | 已知替代解释、缺失数据或查询限制。 |
-
-`UNKNOWN` 是有效根因类别。它要求 Agent 保留不确定性，并允许 Evaluator 给出 `UNDETERMINABLE`；不得为了通过 Schema 或评估而编造精确根因。
-
-`rootCause.resource` 是稳定、可定位的**名词对象**，用于回答“哪个业务资源、操作或依赖受影响”，例如 `product-listing request capacity`、`payment PSP authorization dependency` 或 `catalog report query plan`。它应足够具体，供 Evaluator 将诊断与受控 evidence contract 对齐，但不能写入 Fault Run、worker、release 或 cleanup 等控制面对象。
-
-`rootCause.explanation` 是可证伪的**因果断言**，用于回答“为什么这个对象被判断为根因”。例如，上例将持续流量、观察到的处理能力和下游延迟之间的关系写成一句完整解释。它不是日志摘录、建议动作或单纯症状；至少一个 `evidenceRefs[].supports` 必须包含 `root_cause`，且 Evaluator 会用服务端受控 recipe 独立复查。
-
-`rootCause.resource` 有意保持单值：它标识本次报告的**主要因果对象**，使 Evaluator 能对一个明确断言进行验证。若问题同时影响多个资源，它们都应归入顶层 `affectedServices[].resources[]`；若无法辨别唯一主要对象，应使用 `rootCause.category = "UNKNOWN"` 并在 `uncertainties` 中说明，而不是将多个候选根因塞入数组。
-
-`instances` 有意保持可选。全局流量、配置、共享依赖或证据不完整时，Agent 不应猜测一个 pod、节点或副本；此时省略 `instances` 并在 `uncertainties` 说明。若提供实例，它只能是观测系统已公开的非地址标签，而不是 IP、端口、URL、内部数据库 ID 或控制面 ID。
-
-`evidenceRefs[]` 是实例、资源和根因判断的唯一证据模型：`evidenceRefs[].service`、`window` 和 `supports` 描述证据的适用范围，Evaluator 再用受控 recipe 独立复查。因此不在 `instances[]` 或其他嵌套对象中重复维护 `evidenceIds`，避免同一关系出现两个可分歧的来源。
-
-顶层 `affectedServices` 将原先平行的 `affectedServices: string[]` 和 `affectedResources: string[]` 合并为服务对象，避免“第 N 个资源属于第 N 个服务”的脆弱隐含约定。它描述的是报告的影响范围，而不只是 diagnosis 的内部字段，因此 Evidence、remediation 和 Evaluator 都以它作为共同上下文。每个 `AffectedService` 必须至少有一个 `resources` 元素；服务名在同一报告内唯一，资源只在所属服务内去重。服务端的跨字段 validator 还必须确认 `diagnosis.rootCause.service` 位于顶层 `affectedServices[].service` 中，且 `diagnosis.rootCause.resource` 位于该服务的 `resources[]` 中。存在 `diagnosis.rootCause.instances` 时，其中每个实例字符串还必须属于该服务 `affectedServices[].instances`；同一 service 下实例按字符串去重。
-
-## 6. `evidenceRefs[]` 合同
-
-每一项定义“Agent 看到了什么”，而不是“Evaluator 应执行什么”：
-
-| 字段 | Schema 约束 | 服务端规则 |
-| --- | --- | --- |
-| `evidenceId` | 1-64 位受限标识符 | 必须在同一 report 内唯一。 |
-| `kind` | metric、log、trace、business_check、run_event、resource_check | 决定允许的 source 组合。 |
-| `source` | prometheus、loki、tempo、business_api、control_plane、resource_api | Schema 用 `if/then` 固定 kind/source 映射。 |
-| `service` | 非 `run_event` 必填 | 必须是受控服务标识，不能为控制面伪造业务事实。 |
-| `window.from/to` | 两个 RFC 3339 时间 | `from < to`，且必须落在关联 receipt/manifest 的允许时间范围。 |
-| `agentQuery` | 1-2048 字符 | 仅存审计文字；永不传给 query executor。 |
-| `observation` | 1-4096 字符 | Agent 对结果的摘要，不是原始数据副本。 |
-| `supports` | 1-4 个枚举 | 明确该证据支持 symptom、root cause、impact 或 remediation 的哪一部分。 |
-
-Schema 固定的 kind/source 组合如下：
-
-| `kind` | 唯一 `source` |
-| --- | --- |
-| `metric` | `prometheus` |
-| `log` | `loki` |
-| `trace` | `tempo` |
-| `business_check` | `business_api` |
-| `run_event` | `control_plane` |
-| `resource_check` | `resource_api` |
-
-`run_event` 只允许描述 Alertmanager delivery 中已公开的最小事实，不能携带或索取 Fault Run 事件、ID、状态或控制数据。由于 Agent 没有控制面访问权限，Evaluator 不会把 `run_event` 当作证明 Agent 了解内部 Fault Run 的依据。
-
-## 7. `remediationRecommendation` 合同
-
-每条 action 必须是非可执行的声明性建议，且完整描述变更风险：
-
-| 字段 | Schema 约束 | 语义 |
-| --- | --- | --- |
-| `summary` | 1-4096 字符 | 建议针对的真实业务/基础设施问题摘要。 |
-| `actions` | 1-10 项 | 执行顺序由 `order` 表达。 |
-| `order` | 整数 `1..10` | 服务端确认从 1 开始连续且不重复。 |
-| `action` | 1-4096 字符 | 人工审批后可执行的描述，不是命令或脚本。 |
-| `target` | 1-1024 字符 | 业务服务、依赖、资源或配置；不能是 Fault Run 或控制面。 |
-| `preconditions` | 1-10 项 | 执行前必须确认的安全/业务条件。 |
-| `risks` | 1-10 项 | 变更副作用或不确定性；不能省略。 |
-| `verification` | 1-10 项 | 通过真实业务或基础设施检查验证效果。 |
-| `rollback` | 1-10 项 | 通过正常变更流程回退实际修复。 |
-
-JSON Schema 不能可靠判断自然语言是否包含可执行危险内容，因此 `AgentRcaReportSafetyValidator` 还会在所有字符串字段中拒绝：
-
-- 代码块、shell substitution、重定向、管道、`curl`、`wget`、`kubectl`、`sudo` 和明显的命令语法；
-- SQL statement、DDL/DML、连接字符串、任意 URL 或 callback；
-- `fault run`、`release`、`cleanup`、control-plane、Worker、Alertmanager、Evaluator 等作为 remediation 的操作目标；
-- 密钥名、Bearer/Basic 凭据、私钥、Cookie、内网服务地址和内部 operation payload。
-
-安全 validator 报错时不回显命中的敏感文字，也不持久化原 payload。
-
-## 8. `extensions` 合同
-
-`extensions` 用于不影响 v1 判定的低风险辅助字段。它最多有 20 个以小写字母开头的键，每个递归对象最多 10 个键、数组最多 10 项、字符串最多 1024 字符。入口还对整个 JSON 施加最大 12 层深度。
-
-`extensions` 禁止：
-
-- 复制、重命名或覆盖任一顶层业务字段；
-- 放入 credentials、URL、脚本、SQL、控制面身份或分数；
-- 充当自定义 query、callback、自动 remediation 或 schema 版本逃逸通道。
-
-Evaluator v1 不读取 `extensions` 进行 RCA、evidence、remediation 或 score 判定。未来若某项扩展需要改变机器语义，必须发布新 `schemaVersion`，不能偷偷扩大 v1。
-
-## 9. 接收结果和错误合同
+## 11. 接收结果和错误合同
 
 成功响应仍使用控制面统一 envelope：
 
@@ -377,7 +402,7 @@ Evaluator v1 不读取 `extensions` 进行 RCA、evidence、remediation 或 scor
 
 任何 5xx 都不能写成功形状的 response；事务回滚后 Agent 可按通常的有限退避重试。错误日志只记录错误码、body 大小和安全 request ID。
 
-## 10. Canonical report hash 与幂等
+## 12. Canonical report hash 与幂等
 
 服务端在 Schema 与安全验证成功后：
 
@@ -389,14 +414,14 @@ Evaluator v1 不读取 `extensions` 进行 RCA、evidence、remediation 或 scor
 
 相同 ID 加相同 hash 是网络重试；相同 ID 加不同 hash 是冲突。不同 `reportId` 的相同内容是新的 Agent 报告，是否能取代尚未开始的 case selection 由批次 5.1/5.2 的状态机决定，不由 JSON Schema 决定。
 
-## 11. 版本演进
+## 13. 版本演进
 
 - v1 是 append-only contract：已接受的 v1 JSON 永远用 v1 validator 读取。
 - 新必填字段、语义变化、新的 evidence source/kind、改变 remediation 安全模型或让 `extensions` 影响评分，都必须创建 `agent-rca-report.v2`。
 - v2 与 v1 可并行接受，但各自使用独立 `$id`、validator、hash 算法版本和 EvaluationReport 可追溯关联。
 - 只有在所有未关闭的 v1 case 都完成审计保留后，才可停止接受 v1；停止接受不删除历史 report。
 
-## 12. 实施验收
+## 14. 实施验收
 
 - 使用 Ajv Draft 2020-12 加 `ajv-formats` 对 Schema 正反 fixture 执行验证。
 - 覆盖唯一 primary、kind/source 错配、未知字段、超长值、重复 `evidenceId`/alert tuple、`window.from >= window.to` 和 action `order` 非连续等 Schema 外规则。
