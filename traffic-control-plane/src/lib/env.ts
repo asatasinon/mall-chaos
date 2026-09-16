@@ -25,6 +25,9 @@ export const env = {
   // Grafana deep links
   GRAFANA_BASE_URL: process.env.GRAFANA_BASE_URL || '',
   TEMPO_BASE_URL: process.env.TEMPO_BASE_URL || '',
+  CASTREL_RELEASE_REVISION: process.env.CASTREL_RELEASE_REVISION?.trim() || null,
+  CASTREL_DEPLOYMENT_MODE: process.env.CASTREL_DEPLOYMENT_MODE?.trim() || 'unknown',
+  BASELINE_CAPTURE_ENABLED: process.env.BASELINE_CAPTURE_ENABLED === 'true',
 
   ALERT_CONFIG_DIR: process.env.ALERT_CONFIG_DIR || '../data',
   ALERT_SOURCE_RULES_PATH: process.env.ALERT_SOURCE_RULES_PATH || '../infra/prometheus/rules/alert-rules.yml',
@@ -34,14 +37,6 @@ export const env = {
 
   // Worker settings
   WORKER_ENABLED: process.env.WORKER_ENABLED !== 'false',
-  DATA_WARMUP_ENABLED: process.env.DATA_WARMUP_ENABLED !== 'false',
-  DATA_WARMUP_WINDOW_DAYS: parseInt(process.env.DATA_WARMUP_WINDOW_DAYS || '180', 10),
-  DATA_WARMUP_ROWS_PER_DAY: parseInt(process.env.DATA_WARMUP_ROWS_PER_DAY || '300000', 10),
-  DATA_WARMUP_TARGET_ROWS: parseInt(process.env.DATA_WARMUP_TARGET_ROWS || '54000000', 10),
-  DATA_WARMUP_BATCH_SIZE: parseInt(process.env.DATA_WARMUP_BATCH_SIZE || '1000', 10),
-  DATA_WARMUP_BATCH_INTERVAL_MS: parseInt(process.env.DATA_WARMUP_BATCH_INTERVAL_MS || '1000', 10),
-  DATA_WARMUP_MAX_CONCURRENCY: boundedInteger(process.env.DATA_WARMUP_MAX_CONCURRENCY, 2, 1, 4),
-  DATA_WARMUP_DB_CONCURRENCY: boundedInteger(process.env.DATA_WARMUP_DB_CONCURRENCY, 2, 1, 4),
   APP_TIME_ZONE: process.env.APP_TIME_ZONE || 'Asia/Shanghai',
   PRODUCT_DETAIL_REQUEST_TIMEOUT_MS: boundedInteger(
     process.env.PRODUCT_DETAIL_REQUEST_TIMEOUT_MS, 5000, 100, 30_000),

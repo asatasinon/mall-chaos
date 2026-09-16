@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import DatePicker from '@/components/runner/DatePicker';
 import { ModeButton, RunnerMetric, TableSelect } from '@/components/runner/RunnerControls';
-import type { WarmupJob, WarmupProgressResponse } from '@/components/runner/types';
+import type { DataWarmupConfigDraft, WarmupJob, WarmupProgressResponse } from '@/components/runner/types';
 import { formatBytes, formatNumber } from '@/components/runner/utils';
 
 interface DataControlPanelProps {
@@ -33,11 +33,18 @@ interface DataControlPanelProps {
   onSubmit: () => void;
   onRefresh: () => void;
   onRefreshJobs: () => void;
+  configDraft: DataWarmupConfigDraft | null;
+  configDirty: boolean;
+  configSaving: boolean;
+  configMessage: string | null;
+  onConfigChange: <K extends keyof DataWarmupConfigDraft>(field: K, value: DataWarmupConfigDraft[K]) => void;
+  onConfigSave: () => void;
 }
 
 export default function DataControlPanel({
   warmup, jobs, loading, jobsLoading, error, jobsError, operation, tableName, rowsPerDay, dateInput, dates, busy, message,
   onOperationChange, onTableChange, onRowsChange, onDateInputChange, onAddDates, onRemoveDate, onSubmit, onRefresh, onRefreshJobs,
+  configDraft, configDirty, configSaving, configMessage, onConfigChange, onConfigSave,
 }: DataControlPanelProps) {
   const t = useTranslations('Operations');
   const commonT = useTranslations('Common');
@@ -51,6 +58,7 @@ export default function DataControlPanel({
       FAILED: t('statusFailed'),
       APPENDING: t('statusAppending'),
       ERROR: t('statusError'),
+      DISABLED: t('statusDisabled'),
     };
     return value ? labels[value] || value : t('statusPending');
   };
@@ -107,7 +115,7 @@ export default function DataControlPanel({
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-3 gap-2"><RunnerMetric title={t('window')} value={warmup ? commonT('days', { count: warmup.windowDays }) : '—'} /><RunnerMetric title={t('defaultPerDay')} value={warmup ? formatNumber(warmup.rowsPerDay, locale) : '—'} /><RunnerMetric title={t('target')} value={warmup ? formatNumber(warmup.targetRows, locale) : '—'} /></div>
+          <div className="grid grid-cols-3 gap-2"><RunnerMetric title={t('window')} value={warmup ? commonT('days', { count: warmup.config.windowDays }) : '—'} /><RunnerMetric title={t('defaultPerDay')} value={warmup ? formatNumber(warmup.config.rowsPerDay, locale) : '—'} /><RunnerMetric title={t('target')} value={warmup ? formatNumber(warmup.config.targetRows, locale) : '—'} /></div>
           <div className="space-y-2">
             {warmup?.tables.map((table) => <div key={table.tableName} className="border-t border-border pt-2"><div className="flex items-center justify-between gap-2 text-xs"><span className="flex min-w-0 items-center gap-2 font-mono"><span className={`status-dot ${table.status === 'ERROR' ? 'status-dot-red' : table.status === 'APPENDING' ? 'status-dot-green' : 'status-dot-yellow'}`} />{table.tableName}</span><Badge variant="outline">{statusLabel(table.status)}</Badge></div><div className="mt-1 grid grid-cols-3 gap-2 text-xs text-muted-foreground"><span>{t('actualRows', { count: formatNumber(table.actualRows, locale) })}</span><span>{t('dayRows', { completed: formatNumber(table.dayCompletedRows, locale), target: formatNumber(table.dayTargetRows, locale), date: table.currentDate })}</span><span className="text-right">{table.guardReason ?? formatBytes(table.tableBytes, locale, t('sizePending'))}</span></div></div>)}
             {!warmup && loading && <p className="text-sm text-muted-foreground">{t('warmupStatusLoading')}</p>}
@@ -117,6 +125,36 @@ export default function DataControlPanel({
         </CardContent>
       </Card>
     </div>
+    <Card>
+      <CardHeader className="!flex flex-row items-center justify-between space-y-0 pb-3">
+        <div>
+          <CardTitle className="text-sm font-medium">{t('warmupConfiguration')}</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">{t('warmupConfigurationDescription')}</p>
+        </div>
+        <Badge variant={configDraft?.enabled ? 'default' : 'outline'}>{configDraft?.enabled ? t('warmupEnabled') : t('warmupDisabled')}</Badge>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!configDraft && <p className="text-sm text-muted-foreground">{t('warmupConfigurationLoading')}</p>}
+        {configDraft && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+            <input type="checkbox" checked={configDraft.enabled} onChange={(event) => onConfigChange('enabled', event.target.checked)} />
+            <span>{t('warmupEnabled')}</span>
+          </label>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">{t('windowDays')}</span><input type="number" min="1" max="365" value={configDraft.windowDays} onChange={(event) => onConfigChange('windowDays', Number(event.target.value))} className="h-8 w-full rounded-md border border-border bg-input px-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></label>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">{t('rowsPerDay')}</span><input type="number" min="1" max="1000000" value={configDraft.rowsPerDay} onChange={(event) => onConfigChange('rowsPerDay', Number(event.target.value))} className="h-8 w-full rounded-md border border-border bg-input px-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></label>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">{t('targetRows')}</span><input type="number" min="1" max="365000000" value={configDraft.targetRows} onChange={(event) => onConfigChange('targetRows', Number(event.target.value))} className="h-8 w-full rounded-md border border-border bg-input px-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></label>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">{t('batchSize')}</span><input type="number" min="1" max="5000" value={configDraft.batchSize} onChange={(event) => onConfigChange('batchSize', Number(event.target.value))} className="h-8 w-full rounded-md border border-border bg-input px-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></label>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">{t('batchIntervalMs')}</span><input type="number" min="0" max="60000" value={configDraft.batchIntervalMs} onChange={(event) => onConfigChange('batchIntervalMs', Number(event.target.value))} className="h-8 w-full rounded-md border border-border bg-input px-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></label>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">{t('maxConcurrency')}</span><input type="number" min="1" max="4" value={configDraft.maxConcurrency} onChange={(event) => onConfigChange('maxConcurrency', Number(event.target.value))} className="h-8 w-full rounded-md border border-border bg-input px-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></label>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">{t('dbConcurrency')}</span><input type="number" min="1" max="4" value={configDraft.dbConcurrency} onChange={(event) => onConfigChange('dbConcurrency', Number(event.target.value))} className="h-8 w-full rounded-md border border-border bg-input px-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></label>
+        </div>}
+        {configDraft && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+          <p className="max-w-2xl text-xs text-muted-foreground">{t('warmupConfigurationInvariant')}</p>
+          <Button onClick={onConfigSave} disabled={configSaving || !configDirty}>{configSaving ? <><RefreshCw className="animate-spin" />{t('savingWarmupConfiguration')}</> : t('saveWarmupConfiguration')}</Button>
+        </div>}
+        {configMessage && <p className="text-xs text-muted-foreground">{configMessage}</p>}
+      </CardContent>
+    </Card>
     <Card>
       <CardHeader className="!flex flex-row items-center justify-between space-y-0 pb-3">
         <CardTitle className="text-sm font-medium">{t('manualOperationQueue')}</CardTitle>

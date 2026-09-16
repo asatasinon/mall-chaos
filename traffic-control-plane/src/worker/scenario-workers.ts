@@ -10,6 +10,7 @@ import {
   type FaultRunTargetSummary,
 } from '../lib/fault-run-repository';
 import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
+import { normalizeFaultRunSummaryEventPayload } from '../lib/fault-run-event-contract';
 import {
   ControlledScenarioWorker,
   ScenarioRequestCacheError,
@@ -170,7 +171,11 @@ export class ScenarioWorkers {
         await appendWorkerFailure(this.appendEvent, run, error);
       } finally {
         unregisterDrain();
-        await this.appendEvent(run.faultRunId, 'SCENARIO_WORKER_DRAINED', worker.snapshot()).catch(() => undefined);
+        await this.appendEvent(
+          run.faultRunId,
+          'SCENARIO_WORKER_DRAINED',
+          normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_DRAINED', worker.snapshot()),
+        ).catch(() => undefined);
         this.workers.delete(run.faultRunId);
       }
     })();
@@ -184,9 +189,14 @@ async function appendWorkerFailure(
   run: FaultRunRecord,
   error: unknown,
 ): Promise<void> {
-  await appendEvent(run.faultRunId, 'SCENARIO_WORKER_SETUP_FAILED', {
-    error: error instanceof Error ? error.message : String(error),
-  }).catch(() => undefined);
+  await appendEvent(
+    run.faultRunId,
+    'SCENARIO_WORKER_SETUP_FAILED',
+    normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_SETUP_FAILED', {
+      failureCode: 'WORKER_SETUP_FAILED',
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  ).catch(() => undefined);
 }
 
 export async function readCatalogProductDetail(

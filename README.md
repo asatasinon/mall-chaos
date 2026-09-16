@@ -99,7 +99,7 @@ Compose 和 Kubernetes 都将控制面拆成 `traffic-control-plane` 与 `traffi
 - JDK 21、Maven 3.8+；Java 服务和镜像构建都以 JDK 21 为基线。
 - Node.js 22 与 Corepack/pnpm 10.27.0；这与两个 Next.js 镜像的运行时保持一致。
 - 运行 [scripts/catalog-product-detail-smoke.sh](scripts/catalog-product-detail-smoke.sh) 还需要 `curl`、`jq` 和 Docker CLI。
-- Compose 会把运行数据保存在 `data/`。数据预热默认开启，首次完整环境会持续写入较大的历史数据集；只做界面或接口联调时可显式设置 `DATA_WARMUP_ENABLED=false`。
+- Compose 会把运行数据保存在 `data/`。数据预热默认开启，首次完整环境会持续写入较大的历史数据集；只做界面或接口联调时可在首次初始化前显式设置 `DATA_WARMUP_ENABLED=false`。首次初始化后，所有 `DATA_WARMUP_*` 只作为严格校验的数据库默认值，运行时以 Operations 页面保存的数据库配置为准。
 
 ### 1. 配置并启动 Compose
 
@@ -113,7 +113,9 @@ Compose 和 Kubernetes 都将控制面拆成 `traffic-control-plane` 与 `traffi
 | `CONTROL_PLANE_SESSION_SECRET` | 强烈建议 | 运营会话签名密钥。共享环境必须独立于 `CASTREL_JWT_SECRET`。 |
 | `NOTIFICATION_RESTART_BROKER_KEY` | 建议 | broker 专用密钥；省略时回退为 `CASTREL_INTERNAL_SERVICE_KEY`。 |
 | `TRAFFIC_SCENARIO_ACCOUNTS` | 建议 | 场景账号 JSON，必须包含 `sam@example.com`、`expectedCustomerId: 19` 的有效账号。 |
-| `DATA_WARMUP_ENABLED` | 可选 | 设为 `false` 时仅关闭数据预热，不会关闭 Runner、恢复、留存或其他 worker。 |
+| `DATA_WARMUP_ENABLED` | 可选 | 仅在 `data_warmup_config` 尚不存在时初始化启用状态；后续运行时启停由 Operations 页面和数据库配置控制。 |
+| `DATA_WARMUP_WINDOW_DAYS` / `DATA_WARMUP_ROWS_PER_DAY` / `DATA_WARMUP_TARGET_ROWS` | 可选 | 仅在首次创建 `data_warmup_config` 时初始化窗口和目标，且必须满足乘积不变量；后续由 Operations 页面编辑。 |
+| `DATA_WARMUP_BATCH_SIZE` / `DATA_WARMUP_BATCH_INTERVAL_MS` / `DATA_WARMUP_MAX_CONCURRENCY` / `DATA_WARMUP_DB_CONCURRENCY` | 可选 | 仅在首次创建 `data_warmup_config` 时初始化批量和并发边界；后续由 Operations 页面编辑。 |
 
 下面的值只用于本地示例，真实密码和随机密钥应经环境管理或 Secret 注入：
 
@@ -127,7 +129,7 @@ export NOTIFICATION_RESTART_BROKER_KEY='replace-with-a-fourth-random-secret'
 export TRAFFIC_LIFECYCLE_ACCOUNTS='[{"label":"alice","email":"alice@example.com","password":"<seeded-password>","expectedCustomerId":1}]'
 export TRAFFIC_SCENARIO_ACCOUNTS='[{"label":"sam","email":"sam@example.com","password":"<sam-password>","expectedCustomerId":19}]'
 
-# 仅进行轻量本地联调时可关闭预热；完整演练验证不要设置此项。
+# 仅在首次创建数据库配置前进行轻量本地联调时可关闭预热；已有配置不会被该变量覆盖。
 export DATA_WARMUP_ENABLED=false
 
 # 默认使用内部镜像源。若没有内部 registry 访问权限，使用 -s hub。
@@ -215,8 +217,8 @@ Kubernetes 维持独立的 Web/API 与 worker Deployment，并仅部署 Promethe
 
 - 全部 Java、Node.js、worker、MySQL 会话和日切逻辑使用 `Asia/Shanghai`（`+08:00`）。
 - `product_price_history` 和 `user_behavior_log` 使用东八区 `RANGE COLUMNS` 日分区。
-- 预热窗口由 `DATA_WARMUP_WINDOW_DAYS`、`DATA_WARMUP_ROWS_PER_DAY` 和 `DATA_WARMUP_TARGET_ROWS` 共同决定，三个值必须保持一致：`180 × 300,000 = 54,000,000`。
-- 预热只由 standalone worker 在持有 Redis lease 后写入；它通过心跳续租，失去 lease 后停止写入。空间或表大小保护触发时暂停。设置 `DATA_WARMUP_ENABLED=false` 只禁用预热，不会停止 Runner、场景 worker、恢复、补给或留存任务。
+- 预热运行时配置保存在 `data_warmup_config` 单行表中，由 Operations 页面编辑并通过版本 CAS、CSRF、审计和影响确认保护；`windowDays × rowsPerDay` 必须等于 `targetRows`。`DATA_WARMUP_*` 仅用于首次初始化，数据库已有配置时不会覆盖。
+- 预热只由 standalone worker 在持有 Redis lease 后写入；它通过心跳续租，失去 lease 后停止写入。空间或表大小保护触发时暂停。禁用预热只停止后续自动写入，不会停止 Runner、场景 worker、恢复、补给或留存任务；已有数据不会因禁用自动删除。
 - `durationSec` 结束的是受控活动或租约，不等同于所有资源数据都会自动删除。通知存储追加保留运行级文件，必须在 catalog 允许且运行终止后进行确认式清理；通知堆保留属于明确的非释放型行为。
 - Fault Run、事件和运行专属审计明细保留 7 天；活动、恢复中、服务不可用或清理未完成记录不会被留存任务删除。预热与手动清理只由受保护的控制面操作触发，并保留相应审计记录。
 

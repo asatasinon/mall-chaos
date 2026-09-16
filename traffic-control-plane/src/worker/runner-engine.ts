@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { loadRunnerConfigFromDb, RunnerConfig } from '../lib/runner-config';
 import { completeTrafficRun, ensureTrafficRun } from '../lib/runner-persistence';
 import { appendFaultRunEvent, loadActiveFaultRun } from '../lib/fault-run-repository';
+import { normalizeFaultRunSummaryEventPayload } from '../lib/fault-run-event-contract';
 import { createFaultRunContext } from '../lib/fault-run-context';
 import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
 import { getRunnerControlState, pushActivity, setRunnerStatus } from '../lib/runtime-state';
@@ -235,14 +236,16 @@ export class RunnerEngine {
       }).catch((error) => log.warn({ error, faultRunId: runnerFaultRun.faultRunId }, 'Failed to mark notification service unavailable'));
     }
     if (runnerFaultRun) {
-      await appendFaultRunEvent(runnerFaultRun.faultRunId, 'RUNNER_LIFECYCLE_SUMMARY', {
-        trafficRunId,
-        lifecycleId: result.lifecycleId,
-        status: result.status,
-        success: result.success,
-        latencyMs: Date.now() - t0,
-        errorCode: result.errorCode,
-      }).catch((error) => log.warn({ error }, 'Failed to record Fault Run runner summary'));
+      await appendFaultRunEvent(
+        runnerFaultRun.faultRunId,
+        'RUNNER_LIFECYCLE_SUMMARY',
+        normalizeFaultRunSummaryEventPayload('RUNNER_LIFECYCLE_SUMMARY', {
+          resultStatus: result.status,
+          success: result.success,
+          latencyMs: Date.now() - t0,
+          errorCode: result.errorCode,
+        }),
+      ).catch((error) => log.warn({ error }, 'Failed to record Fault Run runner summary'));
     }
     const latencyMs = Date.now() - t0;
     void pushActivity({

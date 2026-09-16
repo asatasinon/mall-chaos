@@ -3,6 +3,8 @@ import { appendFaultRunEvent, listActiveFaultRuns, type FaultRunRecord } from '.
 import { TRAFFIC_SURGE_MAX_PAGE_SIZE } from '../lib/fault-run-catalog';
 import { getGatewayClient, type CustomerRequestContext } from '../lib/gateway-client';
 import { getTrafficScenarioTarget } from '../lib/fault-run-targets';
+import { normalizeFaultRunSummaryEventPayload } from '../lib/fault-run-event-contract';
+import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
 import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
 import { CustomerSessionManager } from './customer-session-manager';
 import { ControlledScenarioWorker } from './controlled-scenario-worker';
@@ -62,6 +64,10 @@ export class TrafficSurgeExecutor {
       }
     };
     const worker = new ControlledScenarioWorker(run, { concurrency, requestIntervalMs, request });
+    const unregisterDrain = getFaultRunCoordinator().registerRunDrain(
+      run.faultRunId,
+      () => worker.stop('COORDINATOR_RECOVERY'),
+    );
     const promise = setup()
       .then(async () => {
         if (this.stopping) {
@@ -74,6 +80,12 @@ export class TrafficSurgeExecutor {
         await appendWorkerFailure(run, error);
       })
       .finally(async () => {
+        unregisterDrain();
+        await appendFaultRunEvent(
+          run.faultRunId,
+          'SCENARIO_WORKER_DRAINED',
+          normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_DRAINED', worker.snapshot()),
+        ).catch(() => undefined);
         if (session && sessionManager) await sessionManager.closeSession(session.lifecycleId, session.traceId).catch(() => undefined);
         this.workers.delete(run.faultRunId);
       });
@@ -82,9 +94,14 @@ export class TrafficSurgeExecutor {
 }
 
 async function appendWorkerFailure(run: FaultRunRecord, error: unknown): Promise<void> {
-  await appendFaultRunEvent(run.faultRunId, 'SCENARIO_WORKER_SETUP_FAILED', {
-    error: error instanceof Error ? error.message : String(error),
-  }).catch(() => undefined);
+  await appendFaultRunEvent(
+    run.faultRunId,
+    'SCENARIO_WORKER_SETUP_FAILED',
+    normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_SETUP_FAILED', {
+      failureCode: 'WORKER_SETUP_FAILED',
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  ).catch(() => undefined);
 }
 
 function boundedInteger(value: number | string | undefined, min: number, max: number | undefined, fallback: number): number {

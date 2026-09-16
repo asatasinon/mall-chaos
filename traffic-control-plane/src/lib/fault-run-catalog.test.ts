@@ -143,6 +143,8 @@ test('catalog rejects unknown scenarios and duration above scenario limit', () =
     () => getScenarioDefinition('unknown'),
     (error: unknown) => error instanceof FaultRunValidationError && error.message === 'UNKNOWN_SCENARIO',
   );
+  assert.throws(() => getScenarioDefinition('toString'));
+  assert.throws(() => getScenarioDefinition('constructor'));
   assert.throws(
     () => validateScenarioParameters('BROWSE_SURGE', { durationSec: 1801 }),
     (error: unknown) => error instanceof FaultRunValidationError && error.message === 'DURATION_EXCEEDS_SCENARIO_LIMIT',

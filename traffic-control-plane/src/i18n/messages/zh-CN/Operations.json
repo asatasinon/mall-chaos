@@ -19,6 +19,26 @@
   "queueInjection": "排队写入",
   "queueCleanup": "排队清理",
   "warmupWindow": "预热窗口",
+  "warmupConfiguration": "预热配置",
+  "warmupConfigurationDescription": "独立预热工作进程使用的数据库配置。",
+  "warmupConfigurationLoading": "正在加载预热配置...",
+  "warmupConfigurationInvariant": "目标行数必须等于窗口天数乘以每天行数。",
+  "warmupEnabled": "已启用",
+  "warmupDisabled": "已停用",
+  "windowDays": "窗口天数",
+  "rowsPerDay": "每天行数",
+  "targetRows": "目标行数",
+  "batchSize": "批量大小",
+  "batchIntervalMs": "批量间隔（毫秒）",
+  "maxConcurrency": "最大并发数",
+  "dbConcurrency": "数据库并发数",
+  "saveWarmupConfiguration": "保存配置",
+  "savingWarmupConfiguration": "保存中...",
+  "warmupConfigurationSaved": "预热配置已保存。",
+  "invalidWarmupConfiguration": "请为每个预热设置输入有效整数。",
+  "unableToSaveWarmupConfiguration": "无法保存预热配置",
+  "confirmWarmupConfigurationChange": "应用预热配置变更？",
+  "confirmWarmupConfigurationChangeDescription": "更改窗口或目标会改变数据生命周期。工作进程将在持有租约时逐步应用变更。",
   "refreshWarmupStatus": "刷新预热状态",
   "defaultPerDay": "默认/天",
   "target": "目标",
@@ -69,6 +89,7 @@
   ,"statusFailed": "失败"
   ,"statusAppending": "追加中"
   ,"statusError": "错误"
+  ,"statusDisabled": "已停用"
   ,"calendar": "日历"
   ,"dateToAdd": "要添加的日期"
   ,"today": "今天"

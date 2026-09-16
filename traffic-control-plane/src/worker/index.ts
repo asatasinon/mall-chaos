@@ -50,12 +50,8 @@ async function main() {
   }, 24 * 60 * 60 * 1000);
   engine.start();
 
-  if (env.DATA_WARMUP_ENABLED) {
-    dataWarmupService.start();
-    log.info('Data warmup started');
-  } else {
-    log.info('Data warmup is disabled by DATA_WARMUP_ENABLED=false');
-  }
+  dataWarmupService.start();
+  log.info('Data warmup service started; database configuration controls execution');
 
   log.info('Worker is running. Press Ctrl+C to stop.');
 

@@ -1,4 +1,5 @@
 import { appendFaultRunEvent } from '../lib/fault-run-repository';
+import { normalizeFaultRunSummaryEventPayload } from '../lib/fault-run-event-contract';
 import type { FaultRunRecord } from '../lib/fault-run-repository';
 
 export interface ScenarioWorkerStats {
@@ -99,12 +100,12 @@ export class ControlledScenarioWorker {
   }
 
   private async execute(): Promise<void> {
-    await this.eventWriter(this.run.faultRunId, 'SCENARIO_WORKER_STARTED', {
-      scenario: this.run.scenario,
-      concurrency: this.options.concurrency,
-      requestIntervalMs: this.options.requestIntervalMs,
-    });
     try {
+      await this.eventWriter(this.run.faultRunId, 'SCENARIO_WORKER_STARTED', {
+        scenario: this.run.scenario,
+        concurrency: this.options.concurrency,
+        requestIntervalMs: this.options.requestIntervalMs,
+      });
       while (!this.controller.signal.aborted && Date.now() < new Date(this.run.expiresAt).getTime()) {
         const batch = Array.from({ length: this.options.concurrency }, () => this.requestOnce());
         await Promise.all(batch);
@@ -115,7 +116,11 @@ export class ControlledScenarioWorker {
         : 'STOP_REQUESTED';
     } finally {
       this.updateLatencySummary();
-      await this.eventWriter(this.run.faultRunId, 'SCENARIO_WORKER_STOPPED', this.stats).catch(() => undefined);
+      await this.eventWriter(
+        this.run.faultRunId,
+        'SCENARIO_WORKER_STOPPED',
+        normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_STOPPED', this.stats),
+      ).catch(() => undefined);
     }
   }
 

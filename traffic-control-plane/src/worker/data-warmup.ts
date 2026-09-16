@@ -4,6 +4,11 @@ import type { PoolConnection } from 'mysql2/promise';
 import { getPool } from '../lib/db';
 import { getRedis } from '../lib/redis';
 import { env } from '../lib/env';
+import {
+  loadDataWarmupConfig,
+  validateDataWarmupConfig,
+  type DataWarmupConfig,
+} from '../lib/data-warmup-config';
 
 const log = pino({ name: 'data-warmup' });
 const LEASE_KEY = 'traffic-control-plane:data-warmup:lease';
@@ -76,9 +81,9 @@ export class AsyncSemaphore {
   }
 }
 
-const warmupTaskLimiter = new AsyncSemaphore(Math.min(TABLES.length, env.DATA_WARMUP_MAX_CONCURRENCY));
-const warmupDbLimiter = new AsyncSemaphore(
-  Math.min(env.DATA_WARMUP_DB_CONCURRENCY, Math.max(env.MYSQL_POOL_CONNECTION_LIMIT - 1, 1)),
+let warmupTaskLimiter = new AsyncSemaphore(TABLES.length);
+let warmupDbLimiter = new AsyncSemaphore(
+  Math.max(env.MYSQL_POOL_CONNECTION_LIMIT - 1, 1),
 );
 const warmupMutationLocks = new Map<WarmupTableName, AsyncMutex>(
   TABLES.map((table) => [table.name, new AsyncMutex()] as const),
@@ -88,6 +93,13 @@ function runWarmupMutation<T>(table: WarmupTable, operation: () => Promise<T>): 
   const mutationLock = warmupMutationLocks.get(table.name);
   if (!mutationLock) throw new Error('INVALID_WARMUP_TABLE');
   return mutationLock.runExclusive(() => warmupDbLimiter.runExclusive(operation));
+}
+
+function configureWarmupLimiters(config: DataWarmupConfig): void {
+  warmupTaskLimiter = new AsyncSemaphore(Math.min(TABLES.length, config.maxConcurrency));
+  warmupDbLimiter = new AsyncSemaphore(
+    Math.min(config.dbConcurrency, Math.max(env.MYSQL_POOL_CONNECTION_LIMIT - 1, 1)),
+  );
 }
 
 export interface WarmupProgress {
@@ -138,6 +150,7 @@ export class DataWarmupService {
   private leaseHeartbeat: NodeJS.Timeout | null = null;
   private leaseRenewalInFlight = false;
   private leaseHeld = false;
+  private activeConfig: DataWarmupConfig | null = null;
 
   start(): void {
     if (this.started) return;
@@ -159,37 +172,43 @@ export class DataWarmupService {
 
   private async runLoop(): Promise<void> {
     while (!this.stopped) {
-      if (!env.DATA_WARMUP_ENABLED) {
-        await updateWarmupStatuses('DISABLED', 'DATA_WARMUP_ENABLED=false');
-        return;
-      }
       try {
-        validateWarmupConfiguration();
-        await ensureProgressTable();
+        const config = await loadDataWarmupConfig();
+        this.activeConfig = config;
+        configureWarmupLimiters(config);
+        validateDataWarmupConfig(config);
+        await ensureProgressTable(config);
+        if (!config.enabled) {
+          await updateWarmupStatuses('DISABLED', 'DATA_WARMUP_ENABLED=false');
+          await this.sleepOrStop(Math.min(Math.max(config.batchIntervalMs, 1000), 5000));
+          continue;
+        }
         if (!(await acquireLease(this.owner))) {
-          await this.sleepOrStop(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
+          await this.sleepOrStop(Math.max(config.batchIntervalMs, 1000));
           continue;
         }
         this.leaseHeld = true;
         this.startLeaseHeartbeat();
         if (!(await renewLease(this.owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
         await markWarmupLeaseOwner(this.owner);
-        await syncWarmupProgressConfiguration();
+        await syncWarmupProgressConfiguration(config);
         await reclaimStaleManualWarmupJobs();
-        await this.runLeaseSession();
+        await this.runLeaseSession(config);
       } catch (error) {
         const errorOwner = this.leaseHeld ? this.owner : null;
         this.stopLeaseHeartbeat();
         this.leaseHeld = false;
         log.error({ error }, 'Data warmup iteration failed');
         await updateWarmupStatuses('ERROR', error instanceof Error ? error.message : String(error), errorOwner);
-        await this.sleepOrStop(Math.min(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000) * 5, 30_000));
+        await this.sleepOrStop(5_000);
       }
     }
     await this.releaseLease();
   }
 
-  private async runLeaseSession(): Promise<void> {
+  private async runLeaseSession(initialConfig: DataWarmupConfig): Promise<void> {
+    this.activeConfig = initialConfig;
+    configureWarmupLimiters(initialConfig);
     this.leaseSessionActive = true;
     this.manualLoopPromise = this.runManualLoop();
     const tableQueuePromises = TABLES.map((table) => this.runTableQueue(table));
@@ -207,27 +226,39 @@ export class DataWarmupService {
 
   private async runTableQueue(table: WarmupTable): Promise<void> {
     while (this.canProcess()) {
+      const config = await this.refreshActiveConfig();
+      if (!config?.enabled || !this.canProcess()) break;
       await warmupTaskLimiter.runExclusive(async () => {
-        if (this.canProcess()) await this.processTable(table);
+        if (this.canProcess()) await this.processTable(table, config);
       });
       if (!this.canProcess()) break;
-      await this.sleepOrStop(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
+      await this.sleepOrStop(Math.max(config.batchIntervalMs, 1000));
     }
   }
 
   private async runManualLoop(): Promise<void> {
     while (this.canProcess()) {
       try {
+        const config = await this.refreshActiveConfig();
+        if (!config?.enabled || !this.canProcess()) break;
         await resumeLegacyPausedManualWarmupJobs();
-        await processManualWarmupJobs(this.owner, () => this.canProcess());
+        await processManualWarmupJobs(config, this.owner, () => this.canProcess());
       } catch (error) {
         if (error instanceof Error && error.message === 'DATA_WARMUP_LEASE_LOST') this.leaseHeld = false;
         log.error({ error }, 'Manual warmup job failed');
       }
       if (this.canProcess()) {
-        await this.sleepOrStop(Math.max(env.DATA_WARMUP_BATCH_INTERVAL_MS, 1000));
+        await this.sleepOrStop(Math.max(this.activeConfig?.batchIntervalMs ?? 1000, 1000));
       }
     }
+  }
+
+  private async refreshActiveConfig(): Promise<DataWarmupConfig | null> {
+    const config = await loadDataWarmupConfig();
+    this.activeConfig = config;
+    configureWarmupLimiters(config);
+    if (!config.enabled) this.leaseSessionActive = false;
+    return config;
   }
 
   private async sleepOrStop(milliseconds: number): Promise<void> {
@@ -238,25 +269,25 @@ export class DataWarmupService {
     return !this.stopped && this.leaseSessionActive && this.leaseHeld;
   }
 
-  private async processTable(table: typeof TABLES[number]): Promise<void> {
+  private async processTable(table: typeof TABLES[number], config: DataWarmupConfig): Promise<void> {
     if (!this.canProcess()) return;
     const today = todayInShanghai();
     await ensureCurrentPartition(table, today, this.owner);
     if (!this.canProcess()) return;
-    const windowStart = addDays(today, -(env.DATA_WARMUP_WINDOW_DAYS - 1));
-    const missingDays = await findMissingDays(table, windowStart, today);
+    const windowStart = addDays(today, -(config.windowDays - 1));
+    const missingDays = await findMissingDays(table, windowStart, today, config);
     if (!this.canProcess()) return;
     if (missingDays.length > 0) {
       await setWarmupStatus(table.name, 'BACKFILLING', this.owner);
       for (const date of missingDays) {
-        if (await fillDate(table, date, this.owner, () => this.canProcess(), 'BACKFILLING')) return;
+        if (await fillDate(table, date, this.owner, () => this.canProcess(), 'BACKFILLING', config)) return;
         if (!this.canProcess()) return;
       }
     }
     const currentRows = await countDateRows(table, today);
-    if (currentRows < env.DATA_WARMUP_ROWS_PER_DAY && !(await isWarmupDateExcluded(table.name, today))) {
+    if (currentRows < config.rowsPerDay && !(await isWarmupDateExcluded(table.name, today))) {
       await setWarmupStatus(table.name, 'APPENDING', this.owner);
-      if (await fillDate(table, today, this.owner, () => this.canProcess(), 'APPENDING')) return;
+      if (await fillDate(table, today, this.owner, () => this.canProcess(), 'APPENDING', config)) return;
     }
     if (!this.canProcess()) return;
     await setWarmupStatus(table.name, 'ROLLOVER_CLEANUP', this.owner);
@@ -308,7 +339,8 @@ export class DataWarmupService {
 }
 
 export async function loadWarmupProgress(): Promise<WarmupProgress[]> {
-  await ensureProgressTable();
+  const config = await loadDataWarmupConfig();
+  await ensureProgressTable(config);
   const [rows] = await getPool().query(
     `SELECT table_name, status, target_rows, actual_rows, current_date_value,
             day_target_rows, day_completed_rows, rows_per_sec, current_date_rows,
@@ -332,7 +364,8 @@ export async function loadWarmupProgress(): Promise<WarmupProgress[]> {
 }
 
 export async function loadManualWarmupJobs(limit = 10): Promise<ManualWarmupJob[]> {
-  await ensureProgressTable();
+  const config = await loadDataWarmupConfig();
+  await ensureProgressTable(config);
   const [rows] = await getPool().query(
     `SELECT id, operation, table_name, dates, rows_per_day, status, processed_days,
             processed_rows, error_message, created_at, started_at, completed_at
@@ -348,8 +381,9 @@ export async function enqueueManualWarmupJob(input: {
   dates: string[];
   rowsPerDay: number;
 }): Promise<number> {
-  validateManualWarmupRequest(input);
-  await ensureProgressTable();
+  const config = await loadDataWarmupConfig();
+  await validateManualWarmupRequest(input, config);
+  await ensureProgressTable(config);
   const [result] = await getPool().execute(
     `INSERT INTO data_warmup_manual_jobs (operation, table_name, dates, rows_per_day)
      VALUES (?, ?, ?, ?)`,
@@ -358,7 +392,11 @@ export async function enqueueManualWarmupJob(input: {
   return Number((result as { insertId?: number }).insertId ?? 0);
 }
 
-async function processManualWarmupJobs(owner: string, shouldContinue: () => boolean): Promise<void> {
+async function processManualWarmupJobs(
+  config: DataWarmupConfig,
+  owner: string,
+  shouldContinue: () => boolean,
+): Promise<void> {
   if (!shouldContinue()) return;
   const job = await claimManualWarmupJob(owner);
   if (!job) return;
@@ -368,6 +406,7 @@ async function processManualWarmupJobs(owner: string, shouldContinue: () => bool
     return;
   }
   try {
+    let activeConfig = config;
     if (job.operation === 'INJECT') {
       for (let dateIndex = job.processedDays; dateIndex < job.dates.length; dateIndex++) {
         if (!shouldContinue()) {
@@ -385,7 +424,13 @@ async function processManualWarmupJobs(owner: string, shouldContinue: () => bool
             await requeueManualWarmupJob(job.id, owner);
             return;
           }
-          const batchSize = Math.min(env.DATA_WARMUP_BATCH_SIZE, job.rowsPerDay - inserted);
+          activeConfig = await loadDataWarmupConfig();
+          configureWarmupLimiters(activeConfig);
+          if (!activeConfig.enabled) {
+            await requeueManualWarmupJob(job.id, owner);
+            return;
+          }
+          const batchSize = Math.min(activeConfig.batchSize, job.rowsPerDay - inserted);
           await insertManualWarmupBatch(table, date, dateIndex, inserted, batchSize, job.rowsPerDay, job.id, owner);
           inserted += batchSize;
           if (!(await renewLease(owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
@@ -393,7 +438,7 @@ async function processManualWarmupJobs(owner: string, shouldContinue: () => bool
             await requeueManualWarmupJob(job.id, owner);
             return;
           }
-          await sleep(env.DATA_WARMUP_BATCH_INTERVAL_MS);
+          await sleep(activeConfig.batchIntervalMs);
         }
         await updateManualWarmupJobProgress(job.id, dateIndex + 1, (dateIndex + 1) * job.rowsPerDay, owner);
       }
@@ -555,25 +600,25 @@ function validateManualWarmupRequest(input: {
   tableName: string;
   dates: string[];
   rowsPerDay: number;
-}): void {
+}, config: DataWarmupConfig): void {
   if (!WARMUP_TABLE_NAMES.includes(input.tableName as typeof WARMUP_TABLE_NAMES[number])) throw new Error('INVALID_WARMUP_TABLE');
   if (input.operation !== 'INJECT' && input.operation !== 'CLEANUP') throw new Error('INVALID_WARMUP_OPERATION');
   if (!Array.isArray(input.dates) || input.dates.length < 1 || input.dates.length > MAX_MANUAL_DATES) throw new Error('INVALID_WARMUP_DATES');
   const dates = [...new Set(input.dates)];
-  if (dates.length !== input.dates.length || dates.some((date) => !isWarmupDate(date))) throw new Error('INVALID_WARMUP_DATES');
+  if (dates.length !== input.dates.length || dates.some((date) => !isWarmupDate(date, config))) throw new Error('INVALID_WARMUP_DATES');
   if (input.operation === 'INJECT' && (!Number.isInteger(input.rowsPerDay) || input.rowsPerDay < 1 || input.rowsPerDay > MAX_MANUAL_ROWS_PER_DAY)) {
     throw new Error('INVALID_WARMUP_ROWS_PER_DAY');
   }
   if (input.operation === 'CLEANUP' && input.rowsPerDay !== 0) throw new Error('INVALID_WARMUP_ROWS_PER_DAY');
 }
 
-function isWarmupDate(date: string): boolean {
+function isWarmupDate(date: string, config?: DataWarmupConfig): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
   const parsed = new Date(`${date}T00:00:00+08:00`);
   const currentDate = todayInShanghai();
   const normalizedDate = new Intl.DateTimeFormat('en-CA', { timeZone: env.APP_TIME_ZONE }).format(parsed);
   if (Number.isNaN(parsed.getTime()) || normalizedDate !== date || currentDate < date) return false;
-  const windowStart = addDays(currentDate, -(env.DATA_WARMUP_WINDOW_DAYS - 1));
+  const windowStart = addDays(currentDate, -((config?.windowDays ?? 180) - 1));
   return date >= windowStart && date <= currentDate;
 }
 
@@ -609,18 +654,24 @@ function toManualWarmupJob(row: Record<string, unknown>): ManualWarmupJob {
 async function fillDate(
   table: typeof TABLES[number], date: string, owner: string, shouldContinue: () => boolean,
   status: Extract<WarmupStatus, 'BACKFILLING' | 'APPENDING'>,
+  config: DataWarmupConfig,
 ): Promise<boolean> {
   let completed = await countDateRows(table, date);
-  if (completed >= env.DATA_WARMUP_ROWS_PER_DAY) {
+  if (completed >= config.rowsPerDay) {
     await refreshProgress(table, date, null, owner);
     return false;
   }
   await setWarmupStatus(table.name, status, owner, { currentDate: date, dayCompletedRows: completed, rowsPerSec: 0 });
   const startedAt = Date.now();
-  while (completed < env.DATA_WARMUP_ROWS_PER_DAY) {
+  let activeConfig = config;
+  while (true) {
     if (!shouldContinue()) return true;
-    const batchSize = Math.min(env.DATA_WARMUP_BATCH_SIZE, env.DATA_WARMUP_ROWS_PER_DAY - completed);
-    const inserted = await insertDailyWarmupRows(table, date, batchSize, owner);
+    activeConfig = await loadDataWarmupConfig();
+    configureWarmupLimiters(activeConfig);
+    if (!activeConfig.enabled) return true;
+    if (completed >= activeConfig.rowsPerDay) break;
+    const batchSize = Math.min(activeConfig.batchSize, activeConfig.rowsPerDay - completed);
+    const inserted = await insertDailyWarmupRows(table, date, batchSize, owner, activeConfig);
     if (inserted === 0) return false;
     completed += inserted;
     if (!(await renewLease(owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
@@ -631,14 +682,20 @@ async function fillDate(
       dayCompletedRows: completed,
       rowsPerSec: Math.round(completed * 1000 / elapsed),
     });
-    await sleep(env.DATA_WARMUP_BATCH_INTERVAL_MS);
+    await sleep(activeConfig.batchIntervalMs);
   }
   if (!shouldContinue()) return true;
   await refreshProgress(table, date, new Date(), owner);
   return false;
 }
 
-async function insertDailyWarmupRows(table: typeof TABLES[number], date: string, rowCount: number, owner: string): Promise<number> {
+async function insertDailyWarmupRows(
+  table: typeof TABLES[number],
+  date: string,
+  rowCount: number,
+  owner: string,
+  config: DataWarmupConfig,
+): Promise<number> {
   return runWarmupMutation(table, async () => {
     const connection = await getPool().getConnection();
     try {
@@ -649,12 +706,12 @@ async function insertDailyWarmupRows(table: typeof TABLES[number], date: string,
         return 0;
       }
       const completed = await countDateRows(table, date, connection);
-      if (completed >= env.DATA_WARMUP_ROWS_PER_DAY) {
+      if (completed >= config.rowsPerDay) {
         await connection.rollback();
         return 0;
       }
-      const actualBatchSize = Math.min(rowCount, env.DATA_WARMUP_ROWS_PER_DAY - completed);
-      await insertWarmupRowsUnlocked(table, date, completed, actualBatchSize, env.DATA_WARMUP_ROWS_PER_DAY, connection);
+      const actualBatchSize = Math.min(rowCount, config.rowsPerDay - completed);
+      await insertWarmupRowsUnlocked(table, date, completed, actualBatchSize, config.rowsPerDay, connection);
       await connection.commit();
       return actualBatchSize;
     } catch (error) {
@@ -708,7 +765,12 @@ async function dropPartition(table: typeof TABLES[number], date: string, owner: 
   });
 }
 
-async function findMissingDays(table: typeof TABLES[number], start: string, end: string): Promise<string[]> {
+async function findMissingDays(
+  table: typeof TABLES[number],
+  start: string,
+  end: string,
+  config: DataWarmupConfig,
+): Promise<string[]> {
   const [rows] = await getPool().query(
     `SELECT DATE(${table.timeColumn}) AS day_value, COUNT(*) AS row_count
        FROM ${table.name} WHERE ${table.timeColumn} >= ? AND ${table.timeColumn} < DATE_ADD(?, INTERVAL 1 DAY)
@@ -718,9 +780,9 @@ async function findMissingDays(table: typeof TABLES[number], start: string, end:
   );
   const counts = new Map((rows as Record<string, unknown>[]).map((row) => [formatWarmupDate(row.day_value), Number(row.row_count)]));
   const missing: string[] = [];
-  for (let index = 0; index < env.DATA_WARMUP_WINDOW_DAYS; index++) {
+  for (let index = 0; index < config.windowDays; index++) {
     const date = addDays(start, index);
-    if ((counts.get(date) ?? 0) < env.DATA_WARMUP_ROWS_PER_DAY) missing.push(date);
+    if ((counts.get(date) ?? 0) < config.rowsPerDay) missing.push(date);
   }
   return missing;
 }
@@ -781,7 +843,8 @@ async function assertWarmupLeaseOwner(
   }
 }
 
-async function ensureProgressTable(): Promise<void> {
+async function ensureProgressTable(config?: DataWarmupConfig): Promise<void> {
+  const effectiveConfig = config ?? await loadDataWarmupConfig();
   await getPool().query(`CREATE TABLE IF NOT EXISTS data_warmup_progress (
     table_name VARCHAR(64) NOT NULL PRIMARY KEY,
     status VARCHAR(32) NOT NULL,
@@ -829,8 +892,14 @@ async function ensureProgressTable(): Promise<void> {
   const today = todayInShanghai();
   for (const table of TABLES) {
     await getPool().query(
-      `INSERT IGNORE INTO data_warmup_progress (table_name, status, target_rows, current_date_value, day_target_rows) VALUES (?, 'BACKFILLING', ?, ?, ?)`,
-      [table.name, env.DATA_WARMUP_TARGET_ROWS, today, env.DATA_WARMUP_ROWS_PER_DAY],
+      `INSERT IGNORE INTO data_warmup_progress (table_name, status, target_rows, current_date_value, day_target_rows) VALUES (?, ?, ?, ?, ?)`,
+      [
+        table.name,
+        effectiveConfig.enabled ? 'BACKFILLING' : 'DISABLED',
+        effectiveConfig.targetRows,
+        today,
+        effectiveConfig.rowsPerDay,
+      ],
     );
   }
   await getPool().query(
@@ -898,7 +967,7 @@ async function markWarmupLeaseOwner(owner: string): Promise<void> {
   );
 }
 
-async function syncWarmupProgressConfiguration(): Promise<void> {
+async function syncWarmupProgressConfiguration(config: DataWarmupConfig): Promise<void> {
   await getPool().query(
     `UPDATE data_warmup_progress
         SET target_rows = ?, day_target_rows = ?,
@@ -906,7 +975,7 @@ async function syncWarmupProgressConfiguration(): Promise<void> {
             guard_reason = CASE WHEN guard_reason = 'INVALID_DATA_WARMUP_CONFIGURATION' THEN NULL ELSE guard_reason END,
             updated_at = CURRENT_TIMESTAMP(3)
       WHERE table_name IN (?, ?)`,
-    [env.DATA_WARMUP_TARGET_ROWS, env.DATA_WARMUP_ROWS_PER_DAY, TABLES[0].name, TABLES[1].name],
+    [config.targetRows, config.rowsPerDay, TABLES[0].name, TABLES[1].name],
   );
 }
 
@@ -958,15 +1027,6 @@ function toProgress(row: Record<string, unknown>, partitions: string[]): WarmupP
     lastSuccessAt: row.last_success_at ? new Date(String(row.last_success_at)).toISOString() : null,
     updatedAt: new Date(String(row.updated_at)).toISOString(),
   };
-}
-
-function validateWarmupConfiguration(): void {
-  if (env.DATA_WARMUP_WINDOW_DAYS !== 180 || env.DATA_WARMUP_ROWS_PER_DAY !== 300000
-      || env.DATA_WARMUP_TARGET_ROWS !== 54000000
-      || env.DATA_WARMUP_BATCH_SIZE < 1 || env.DATA_WARMUP_BATCH_SIZE > 5000
-      || env.DATA_WARMUP_BATCH_INTERVAL_MS < 0) {
-    throw new Error('INVALID_DATA_WARMUP_CONFIGURATION');
-  }
 }
 
 function todayInShanghai(): string {

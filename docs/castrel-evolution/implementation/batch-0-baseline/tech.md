@@ -31,7 +31,7 @@
 | 正常生命周期/存储增长摘要 | `RUNNER_LIFECYCLE_SUMMARY` | 统计可确认的 lifecycle 结果，不推断缺失的业务请求数 |
 | 目标确认信息 | `TARGET_CONFIRMED` | 只保存已通过目标摘要校验的低基数摘要 |
 | 告警规则和 Alertmanager 配置 | `infra/prometheus/rules/alert-rules.yml`、`infra/alertmanager/alertmanager.yml`、Kubernetes ConfigMap | 读取实际配置内容，检查 webhook 和 `send_resolved` |
-| 数据预热状态 | `data_warmup_progress`、Worker 环境配置 | 记录是否启用、目标规模和采集时的进度摘要 |
+| 数据预热配置与状态 | `data_warmup_config`、`data_warmup_progress`、Worker 环境配置 | 首次启动校验环境默认值并初始化配置；之后 Web/Worker 只读取数据库配置，记录配置版本和采集时的进度摘要 |
 
 ### 2.2 当前缺口
 
@@ -43,6 +43,7 @@
 - 当前 Catalog 中的 `CART_CATALOG_DEPENDENCY` 只有场景定义和 runbook 记录，控制面 Worker/Runner dispatch 是否真正覆盖该场景仍需核验；不能因为 Catalog 存在就把它计为可运行基线。
 - 当前 Alertmanager 配置指向 `/internal/alertmanager/webhook`，但控制面尚未实现对应接收 route；批次 0 只记录这个缺口，不在本批次实现告警接收。
 - 当前 Compose 和 Kubernetes 的观测 retention 主要存在于部署配置中，运行时实际值需要单独核验。
+- 数据预热配置当前只来自 Worker 环境变量，Web/API 展示的配置可能与 Worker 不一致；本批次将配置迁移到数据库并通过 Operator API 管理。
 
 ## 3. 总体架构
 
@@ -242,7 +243,25 @@ Web 和 Worker 必须使用同一值；值为空或格式不合法时只影响�
 
 ### 6.5 Data warmup metadata
 
-优先从 Worker 的 warmup progress 和当前环境配置读取：
+`data_warmup_config` 是运行时唯一配置来源。首次应用启动时先严格校验环境变量；配置行不存在时才使用环境变量写入默认值，已有配置行不再被后续环境变量覆盖。配置至少包含：
+
+```text
+enabled
+windowDays
+rowsPerDay
+targetRows
+batchSize
+batchIntervalMs
+maxConcurrency
+dbConcurrency
+version
+updatedByOperatorId
+updatedAt
+```
+
+`windowDays * rowsPerDay` 必须等于 `targetRows`。为避免无限制写入，应用层和数据库共同限制窗口、每日行数、批大小、批间隔和并发范围；缩小窗口或目标需要 API 请求中的显式确认，Worker 不在配置更新事务中直接删除数据，而是在持有预热租约的 rollover 阶段逐步执行。
+
+基线优先从数据库配置和 Worker warmup progress 读取：
 
 ```text
 dataWarmupEnabled
@@ -253,7 +272,9 @@ batchSize
 observedProgress
 ```
 
-Web 进程无法读取 Worker 专属环境变量时，使用 Redis/数据库中的 progress 作为实际状态，缺失时标记 `UNKNOWN`，不复制一份可能过期的配置。
+Web 不再复制 Worker 环境变量；配置缺失或 progress 无法查询时标记 `UNKNOWN`/`UNAVAILABLE`。环境变量只承担首次初始化，不得覆盖已存在的数据库配置。
+
+配置写入使用 `(version)` 乐观锁；成功后版本递增并写入 Operator audit。Worker 每个批次重新读取配置，因此启停和参数更新无需重启 Worker；禁用只停止后续自动写入，不删除已有数据。
 
 ## 7. 基线采集流程
 

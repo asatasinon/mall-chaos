@@ -113,11 +113,25 @@ export interface WarmupJob {
 }
 
 export interface WarmupProgressResponse {
+  config: DataWarmupConfig;
+  status: string;
+  tables: WarmupTable[];
+}
+
+export interface DataWarmupConfig {
+  enabled: boolean;
   windowDays: number;
   rowsPerDay: number;
   targetRows: number;
-  tables: WarmupTable[];
+  batchSize: number;
+  batchIntervalMs: number;
+  maxConcurrency: number;
+  dbConcurrency: number;
+  version: number;
+  updatedAt: string;
 }
+
+export type DataWarmupConfigDraft = Omit<DataWarmupConfig, 'version' | 'updatedAt'>;
 
 export type WarmupJobRequest = {
   operation: 'INJECT' | 'CLEANUP';

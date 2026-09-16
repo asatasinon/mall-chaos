@@ -248,7 +248,9 @@ export class FaultRunValidationError extends Error {
 }
 
 export function getScenarioDefinition(scenario: string): FaultRunScenarioDefinition {
-  const definition = CATALOG[scenario as FaultRunScenario];
+  const definition = Object.prototype.hasOwnProperty.call(CATALOG, scenario)
+    ? CATALOG[scenario as FaultRunScenario]
+    : undefined;
   if (!definition) throw new FaultRunValidationError('UNKNOWN_SCENARIO');
   return definition;
 }

@@ -14,6 +14,7 @@ import type {
   InventoryReplenishmentStatus,
   RunnerStatus,
   WarmupCleanupConfirmation,
+  DataWarmupConfigDraft,
   WarmupJob,
   WarmupJobRequest,
   WarmupProgressResponse,
@@ -21,6 +22,23 @@ import type {
 import { todayInShanghaiClient } from '@/components/runner/utils';
 
 type OperationsView = 'scheduled' | 'data';
+
+function responseMessage(error: unknown, networkMessage: string, fallback: string): string {
+  return isClientNetworkError(error) ? networkMessage : error instanceof Error ? error.message : fallback;
+}
+
+function toWarmupConfigDraft(config: WarmupProgressResponse['config']): DataWarmupConfigDraft {
+  return {
+    enabled: config.enabled,
+    windowDays: config.windowDays,
+    rowsPerDay: config.rowsPerDay,
+    targetRows: config.targetRows,
+    batchSize: config.batchSize,
+    batchIntervalMs: config.batchIntervalMs,
+    maxConcurrency: config.maxConcurrency,
+    dbConcurrency: config.dbConcurrency,
+  };
+}
 
 export default function OperationsPage() {
   const t = useTranslations('Operations');
@@ -50,6 +68,12 @@ export default function OperationsPage() {
   const [warmupBusy, setWarmupBusy] = useState(false);
   const [warmupMessage, setWarmupMessage] = useState<string | null>(null);
   const [warmupCleanupConfirmation, setWarmupCleanupConfirmation] = useState<WarmupCleanupConfirmation | null>(null);
+  const [warmupConfigDraft, setWarmupConfigDraft] = useState<DataWarmupConfigDraft | null>(null);
+  const [warmupConfigDirty, setWarmupConfigDirty] = useState(false);
+  const warmupConfigDirtyRef = useRef(false);
+  const [warmupConfigSaving, setWarmupConfigSaving] = useState(false);
+  const [warmupConfigMessage, setWarmupConfigMessage] = useState<string | null>(null);
+  const [warmupConfigConfirmation, setWarmupConfigConfirmation] = useState<DataWarmupConfigDraft | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -85,7 +109,11 @@ export default function OperationsPage() {
       const response = await fetchWithAuth('/internal/traffic/runner/data-warmup/progress', { signal: controller.signal });
       const json = await response.json();
       if (json.code !== 0) throw new Error(json.message || t('warmupStatusRequestFailed', { status: response.status }));
-      setWarmup(json.data as WarmupProgressResponse);
+      const responseData = json.data as WarmupProgressResponse;
+      setWarmup(responseData);
+      if (!warmupConfigDirtyRef.current) {
+        setWarmupConfigDraft(toWarmupConfigDraft(responseData.config));
+      }
       setWarmupError(null);
     } catch (error) {
       setWarmupError(error instanceof Error && error.name === 'AbortError'
@@ -98,6 +126,59 @@ export default function OperationsPage() {
       if (showLoading) setWarmupLoading(false);
     }
   }, [commonT, t]);
+
+  const updateWarmupConfigDraft = <K extends keyof DataWarmupConfigDraft>(field: K, value: DataWarmupConfigDraft[K]) => {
+    warmupConfigDirtyRef.current = true;
+    setWarmupConfigDirty(true);
+    setWarmupConfigMessage(null);
+    setWarmupConfigDraft((current) => current ? { ...current, [field]: value } : current);
+  };
+
+  const saveWarmupConfig = async (draft: DataWarmupConfigDraft, confirmed = false) => {
+    if (!warmup || !draft) return;
+    if (![draft.windowDays, draft.rowsPerDay, draft.targetRows, draft.batchSize, draft.batchIntervalMs, draft.maxConcurrency, draft.dbConcurrency]
+      .every((value) => Number.isInteger(value))) {
+      setWarmupConfigMessage(t('invalidWarmupConfiguration'));
+      return;
+    }
+    if (draft.targetRows !== draft.windowDays * draft.rowsPerDay) {
+      setWarmupConfigMessage(t('warmupConfigurationInvariant'));
+      return;
+    }
+    const impactChanged = draft.windowDays !== warmup.config.windowDays
+      || draft.rowsPerDay !== warmup.config.rowsPerDay
+      || draft.targetRows !== warmup.config.targetRows;
+    if (impactChanged && !confirmed) {
+      setWarmupConfigConfirmation(draft);
+      return;
+    }
+    setWarmupConfigSaving(true);
+    setWarmupConfigMessage(null);
+    try {
+      const response = await fetchWithAuth('/internal/traffic/runner/data-warmup/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...draft, version: warmup.config.version, confirmed }),
+      });
+      const json = await response.json();
+      if (json.code !== 0) throw new Error(json.message || t('unableToSaveWarmupConfiguration'));
+      const saved = json.data as WarmupProgressResponse['config'];
+      setWarmupConfigDraft(toWarmupConfigDraft(saved));
+      warmupConfigDirtyRef.current = false;
+      setWarmupConfigDirty(false);
+      setWarmupConfigMessage(t('warmupConfigurationSaved'));
+      await loadWarmupProgress(true);
+    } catch (error) {
+      setWarmupConfigMessage(responseMessage(error, commonT('networkError'), t('unableToSaveWarmupConfiguration')));
+      if (error instanceof Error && error.message.toLowerCase().includes('conflict')) {
+        warmupConfigDirtyRef.current = false;
+        setWarmupConfigDirty(false);
+        await loadWarmupProgress(true);
+      }
+    } finally {
+      setWarmupConfigSaving(false);
+    }
+  };
 
   const loadWarmupJobs = useCallback(async (showLoading = false) => {
     if (warmupJobsRequestInFlight.current) return;
@@ -262,6 +343,14 @@ export default function OperationsPage() {
       onAddDates={addWarmupDates}
       onRemoveDate={(date) => setWarmupDates((current) => current.filter((item) => item !== date))}
       onSubmit={submitWarmupJob}
+      configDraft={warmupConfigDraft}
+      configDirty={warmupConfigDirty}
+      configSaving={warmupConfigSaving}
+      configMessage={warmupConfigMessage}
+      onConfigChange={updateWarmupConfigDraft}
+      onConfigSave={() => {
+        if (warmupConfigDraft) void saveWarmupConfig(warmupConfigDraft);
+      }}
     />}
 
     {activeView === 'scheduled' && <ScheduledTasksPanel inventory={inventory} couponReplenishment={couponReplenishment} workerUnavailable={workerUnavailable} triggeringReplenishment={triggeringReplenishment} inventoryMessage={replenishmentMessages.inventory} couponMessage={replenishmentMessages.coupon} onTrigger={(type) => void triggerReplenishment(type)} />}
@@ -275,6 +364,18 @@ export default function OperationsPage() {
       onConfirm={async () => {
         await queueWarmupJob({ operation: 'CLEANUP', tableName: warmupCleanupConfirmation.tableName, dates: warmupCleanupConfirmation.dates, rowsPerDay: 0 });
         setWarmupCleanupConfirmation(null);
+      }}
+    />}
+    {warmupConfigConfirmation && <ConfirmDialog
+      title={t('confirmWarmupConfigurationChange')}
+      description={t('confirmWarmupConfigurationChangeDescription')}
+      confirmVariant="default"
+      destructive
+      onCancel={() => setWarmupConfigConfirmation(null)}
+      onConfirm={async () => {
+        const draft = warmupConfigConfirmation;
+        setWarmupConfigConfirmation(null);
+        await saveWarmupConfig(draft, true);
       }}
     />}
   </div>;

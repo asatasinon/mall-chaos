@@ -36,6 +36,8 @@
 - 记录请求数、成功数、失败数、超时数、恢复时长和残留资源。
 - 区分目标效果失败、控制面失败、Worker 失败、恢复失败和清理失败。
 - 记录部署模式、镜像版本、Catalog revision、数据预热配置和观测 retention。
+- 提供 Operator 数据预热配置面板：启停、窗口天数、每日行数、目标行数、批大小、批间隔和并发上限均保存到数据库；窗口天数 × 每日行数必须等于目标行数。
+- 配置更新要求版本匹配、Operator session、CSRF 和审计；会改变数据窗口或写入规模的更新必须二次确认，并由 Worker 按租约逐步执行。
 - 核对 Alertmanager 当前 webhook 接收端点、`send_resolved`、pilot alert 和外部 receiver 前置条件。
 - 为阶段 5 选择候选场景，并记录不选择其他场景的原因。
 
@@ -57,6 +59,16 @@ Operator 选择场景
   -> 查看失败分类和残留资源
   -> 按回退手册处理
   -> 记录该场景是否适合作为 Agent RCA pilot
+```
+
+数据预热配置流程：
+
+```text
+首次启动校验环境默认值并写入 data_warmup_config
+  -> Web/Worker 只读取数据库配置
+  -> Operator 修改并确认配置影响
+  -> CAS 版本更新 + Operator audit
+  -> Worker 在下一批次读取新配置并按租约执行
 ```
 
 每次运行都必须能区分：
@@ -84,6 +96,8 @@ knownLimitations / residualResources / rollbackProcedure
 ```
 
 `release`、`cleanup` 和 `recovery` 必须服从 Catalog 的 `recoveryStrategy`。`MANUAL_CLEANUP` 不得被记录成自动清理成功，`NON_RELEASING` 必须明确记录保留效果和残留资源边界。
+
+数据预热配置的默认值只用于首次初始化；数据库记录是运行时唯一来源。停用只停止后续自动写入，不自动删除已有数据；缩短窗口可能在 Worker 的 rollover 阶段删除窗口外分区，扩大窗口或每日目标可能触发长期回填。
 
 ## 6. 产品验收
 

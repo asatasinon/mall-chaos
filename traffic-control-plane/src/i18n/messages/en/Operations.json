@@ -19,6 +19,26 @@
   "queueInjection": "Queue injection",
   "queueCleanup": "Queue cleanup",
   "warmupWindow": "Warmup window",
+  "warmupConfiguration": "Warmup configuration",
+  "warmupConfigurationDescription": "Database-backed settings used by the standalone warmup worker.",
+  "warmupConfigurationLoading": "Loading warmup configuration...",
+  "warmupConfigurationInvariant": "Target rows must equal window days multiplied by rows per day.",
+  "warmupEnabled": "Enabled",
+  "warmupDisabled": "Disabled",
+  "windowDays": "Window days",
+  "rowsPerDay": "Rows per day",
+  "targetRows": "Target rows",
+  "batchSize": "Batch size",
+  "batchIntervalMs": "Batch interval (ms)",
+  "maxConcurrency": "Max concurrency",
+  "dbConcurrency": "Database concurrency",
+  "saveWarmupConfiguration": "Save configuration",
+  "savingWarmupConfiguration": "Saving...",
+  "warmupConfigurationSaved": "Warmup configuration saved.",
+  "invalidWarmupConfiguration": "Enter valid integer values for every warmup setting.",
+  "unableToSaveWarmupConfiguration": "Unable to save warmup configuration",
+  "confirmWarmupConfigurationChange": "Apply warmup configuration change?",
+  "confirmWarmupConfigurationChangeDescription": "Changing the window or target changes the data lifecycle. The worker will apply it gradually while holding its lease.",
   "refreshWarmupStatus": "Refresh warmup status",
   "defaultPerDay": "Default/day",
   "target": "Target",
@@ -69,6 +89,7 @@
   ,"statusFailed": "FAILED"
   ,"statusAppending": "APPENDING"
   ,"statusError": "ERROR"
+  ,"statusDisabled": "DISABLED"
   ,"calendar": "Calendar"
   ,"dateToAdd": "Date to add"
   ,"today": "Today"

@@ -27,3 +27,13 @@ export async function recordOperatorAudit(input: {
   );
   return Number((result as { insertId?: number }).insertId ?? 0);
 }
+
+export async function updateOperatorAuditResult(
+  auditId: number,
+  result: 'SUCCESS' | 'FAILURE',
+): Promise<void> {
+  await getPool().execute(
+    'UPDATE operator_audit_logs SET result = ? WHERE id = ?',
+    [result, auditId],
+  );
+}

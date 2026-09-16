@@ -73,7 +73,7 @@ Operator -> traffic-control-plane :13086 (Next.js Web/API)
 traffic-control-plane-worker -> gateway-service -> fixed business operations
 ```
 
-`traffic-control-plane` alone owns the catalog, run lifecycle, operator audit, and recovery semantics. The Web/API does not run background jobs. The standalone worker starts the lifecycle runner, report and traffic executors, other scenario workers, coupon/inventory replenishment, expired-run recovery, daily retention, and optional data warmup. `DATA_WARMUP_ENABLED=false` disables only warmup. Stop a source worker with `SIGINT` or `SIGTERM` so it can release leases and controlled resources.
+`traffic-control-plane` alone owns the catalog, run lifecycle, operator audit, and recovery semantics. The Web/API does not run background jobs. The standalone worker starts the lifecycle runner, report and traffic executors, other scenario workers, coupon/inventory replenishment, expired-run recovery, daily retention, and the database-configured data warmup service. `DATA_WARMUP_*` variables are strict first-initialization defaults only; existing `data_warmup_config` rows are authoritative, and disabling warmup stops only subsequent automatic writes. Stop a source worker with `SIGINT` or `SIGTERM` so it can release leases and controlled resources.
 
 All control-plane business HTTP calls must go through `gateway-service`, which reaches only the fixed operation selected by the catalog. A target service may accept a protected generic `operation` plus opaque `runId`, expiry, idempotency, and fencing context; it must not receive catalog identity or control-plane lifecycle state. Data warmup is the sole database exception: the worker writes the two warmup tables while holding its Redis lease.
 
@@ -117,7 +117,7 @@ Shared components are auto-configured through `ServiceComponentAutoConfiguration
 
 ## Data Warmup Contract
 
-- The supported tuple is `180` days x `300000` rows/day = `54000000` target rows. The worker validates the tuple; do not change one number in isolation.
+- Data Warmup runtime settings live in the single-row `data_warmup_config` table and are edited through the Operator page with version CAS, CSRF, audit, and impact confirmation. The worker validates `windowDays × rowsPerDay = targetRows` and reads the database configuration at safe batch boundaries; environment variables are strict first-initialization defaults only.
 - Warmup is a standalone leased mutation loop: one worker holds the Redis lease, renews it with a heartbeat, and stops writing after lease loss. Do not repair it by deleting lease/progress ownership fields or running ad hoc SQL.
 - Manual jobs use the protected control-plane API, bounded dates/rows, CSRF, confirmation for cleanup, idempotency, and audit. Cleanup exclusions prevent automatic replenishment from recreating deliberately removed data.
 - [infra/mysql/init/05-warmup-partitions.sql](infra/mysql/init/05-warmup-partitions.sql) owns partition initialization. The worker owns compatibility checks, daily rollover, progress updates, and stale manual-job recovery. Change schema and runtime logic together.
@@ -178,8 +178,8 @@ Business services below are container-network-only unless a host port is shown. 
 
 | Observability endpoint | Host port | Access |
 |---|---:|---|
-| Prometheus / Alertmanager | `19090` / `19093` | `obs-auth-proxy`, Basic Auth `castrel` / `castrel` in the development Compose file. |
-| Loki / Tempo HTTP API | `13100` / `13200` | `obs-auth-proxy`, same development Basic Auth. |
+| Prometheus / Alertmanager | `19090` / `19093` | `obs-auth-proxy`, Basic Auth from `infra/nginx/.htpasswd` in the development Compose file; do not assume a password from documentation. |
+| Loki / Tempo HTTP API | `13100` / `13200` | `obs-auth-proxy`, same development Basic Auth source. |
 | Tempo OTLP gRPC / HTTP ingestion | `14317` / `14318` | No authentication in the current Compose file; restrict outside local use. |
 | node / MySQL / Redis exporter | `19100` / `19104` / `19121` | Metrics endpoints. |
 | SkyWalking UI / OAP | `13091`, `11800`, `12800` | Optional Compose profile only. |
@@ -225,6 +225,4 @@ The terminology script catches explicit injection terms and catalog identifiers 
 - Customer lifecycle: the worker uses configured accounts to maintain normal customer traffic and supports report and traffic execution without exposing control-plane context to consumer requests.
 - Data warmup: one worker owns a Redis lease, maintains the supported historical-data target with bounded writes, and stops writing when it loses ownership.
 - Observability: Java services emit structured logs with `traceId`; Prometheus, Grafana, Loki and Tempo are provided by the deployment configuration.
-
-
 
