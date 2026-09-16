@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | P0-08 已完成（保留运行证据、观测未知和 dispatch limitation）；P0-01 至 P0-07 已完成 |
-| 版本 | 1.0 |
-| 更新时间 | 2026-09-16 18:32 CST |
+| 状态 | P0-10 已完成（保留运行证据、观测未知、dispatch limitation 和零个 selected）；P0-01 至 P0-10 已完成 |
+| 版本 | 1.1 |
+| 更新时间 | 2026-09-16（P0-10 完成） |
 | 路线阶段 | [阶段 0：基线和发布护栏](../../roadmap/phases/phase-0-baseline.md) |
 | 产品规格 | [product.md](./product.md) |
 | 技术设计 | [tech.md](./tech.md) |
@@ -25,11 +25,11 @@
 
 ## 总体进度
 
-- **总体状态：** Phase 0 执行中；P0-01 至 P0-09 已完成，保留环境、运行证据、观测 limitation、清理核验、dispatch limitation 和历史预热 limitation。
-- **总体进度：** 9 / 14 个任务组（44 / 74 个子任务）。
-- **当前任务：** P0-10：阶段 5 pilot review（未开始）。
-- **当前问题：** P0-ISSUE-001 处理中；P0-ISSUE-002 已阻塞（控制面 webhook route 和机器认证缺失）；P0-ISSUE-003 处理中（Compose 已核验，Kubernetes Loki/运行时仍有 limitation）；P0-ISSUE-009、P0-ISSUE-010、P0-ISSUE-011 待核验；P0-ISSUE-004 处理中（capture 已接入但发布 revision 仍可能为 UNKNOWN）；P0-ISSUE-005 本次执行已解决；P0-ISSUE-006、P0-ISSUE-008 待处理；P0-ISSUE-007 处理中；P0-ISSUE-012、P0-ISSUE-013、P0-ISSUE-014、P0-ISSUE-015 已解决（运行时证据仍待后续环境核验）。
-- **下一步：** 保持零个 `SELECTED`，进入 P0-10 逐项整理 Catalog 派生告警和排除理由；真实场景运行仍需遵守 `CART_CATALOG_DEPENDENCY` 未核验、当前运行证据缺失、历史预热进度 stale 和本地资源 limitation。
+- **总体状态：** Phase 0 执行中；P0-01 至 P0-10 已完成，保留环境、运行证据、观测 limitation、清理核验、dispatch limitation、告警 receipt 缺失和历史预热 limitation。
+- **总体进度：** 10 / 14 个任务组（49 / 74 个子任务）。
+- **当前任务：** P0-11：配置、资源预算、运行手册与回退护栏（未开始）。
+- **当前问题：** P0-ISSUE-001 处理中；P0-ISSUE-002 已阻塞（控制面 webhook route 和机器认证缺失）；P0-ISSUE-003 处理中（Compose 已核验，Kubernetes Loki/运行时仍有 limitation）；P0-ISSUE-009、P0-ISSUE-010、P0-ISSUE-011 待核验；P0-ISSUE-004 处理中（capture 已接入但发布 revision 仍可能为 UNKNOWN）；P0-ISSUE-005 本次执行已解决；P0-ISSUE-006 待处理；P0-ISSUE-007、P0-ISSUE-008 处理中；P0-ISSUE-012、P0-ISSUE-013、P0-ISSUE-014、P0-ISSUE-015 已解决（运行时证据仍待后续环境核验）。
+- **下一步：** 进入 P0-11；保持零个 `SELECTED`，真实场景运行仍需遵守 `CART_CATALOG_DEPENDENCY` 未核验、告警 receipt 缺失、retention limitation、历史预热进度 stale 和本地资源 limitation。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
@@ -41,8 +41,8 @@
 | P0-06 | Worker 结束汇总事件补齐 | 已完成（有 limitation） | 4 / 4 | P0-02、P0-05 |
 | P0-07 | Baseline capture 服务与幂等 repository | 已完成（有 limitation） | 5 / 5 | P0-03 至 P0-06 |
 | P0-08 | Operator API、鉴权、CSRF 与审计 | 已完成（有 limitation） | 5 / 5 | P0-07 |
-| P0-09 | 只读观测、retention 与告警接入核验 | 未开始 | 0 / 5 | P0-04、P0-07 |
-| P0-10 | 阶段 5 pilot review | 未开始 | 0 / 5 | P0-09 |
+| P0-09 | 只读观测、retention 与告警接入核验 | 已完成（有 limitation） | 5 / 5 | P0-04、P0-07 |
+| P0-10 | 阶段 5 pilot review | 已完成（无合格候选） | 5 / 5 | P0-09 |
 | P0-11 | 配置、资源预算、运行手册与回退护栏 | 未开始 | 0 / 6 | P0-03、P0-04、P0-08 至 P0-10 |
 | P0-12 | 单元测试与 fixture 覆盖 | 未开始 | 0 / 6 | P0-03 至 P0-10 |
 | P0-13 | 集成、安全边界与回退测试 | 未开始 | 0 / 6 | P0-08 至 P0-12 |
@@ -306,13 +306,15 @@ graph TD
 
 **目标：** 以真实告警、清晰证据窗口和只读 remediation 边界，选择至多一个可进入阶段 5 的候选。
 
-**状态：** 未开始；**进度：** 0 / 5；**关联问题：** P0-ISSUE-001、P0-ISSUE-002、P0-ISSUE-003
+**状态：** 已完成（无合格候选）；**进度：** 5 / 5；**关联问题：** P0-ISSUE-001、P0-ISSUE-002、P0-ISSUE-003、P0-ISSUE-007、P0-ISSUE-009、P0-ISSUE-011
 
-- [ ] 实现 `CANDIDATE`、`SELECTED`、`REJECTED` 的受控 review 模型与 `(scenario, catalogRevision)` 幂等约束；Catalog revision 变化时返回 `PILOT_REVIEW_CONFLICT` 并要求重审。
-- [ ] 逐项记录 Catalog 派生覆盖矩阵中每个条目的告警规则、实际 firing 核验、目标服务/operation 映射、查询窗口、retention、共享资源风险和排除理由。
-- [ ] 仅在真实告警可稳定触发、关键证据可在 retention 内复查且实际 remediation 可描述和验证时，将一个条目标记为 `SELECTED`。
-- [ ] 对未选条目记录明确拒绝或限制原因；若没有合格条目，保留零个 `SELECTED`，登记阻塞问题，不以推荐名称或已创建 Fault Run 代替告警事实。
-- [ ] 限制 `remediation_boundary` 为实际业务或基础设施修复、验证与数据处理边界；禁止记录 Fault Run stop、release、cleanup，禁止任何 Agent 调用或写权限。
+- [x] 复核 `CANDIDATE`、`SELECTED`、`REJECTED` 的受控 review 模型与 `(scenario, catalogRevision)` 幂等约束；`baseline-pilot.ts` 已实现 Catalog revision conflict、全局 selection lock 和 eligibility gate，schema 以唯一键保证同 revision 幂等。
+- [x] 逐项记录 Catalog 派生覆盖矩阵中每个条目的告警规则、实际 firing 核验、目标服务/operation 映射、查询窗口、retention、共享资源风险和排除理由；详见 [`pilot-review-matrix.md`](./pilot-review-matrix.md)。
+- [x] 按真实证据门槛评估 `SELECTED`；由于没有真实 Fault Run baseline、告警 receipt、场景 firing、完整 retention 语义和 Kubernetes runtime 证据，没有条目满足选择条件，未创建或选择 pilot。
+- [x] 对 12 个条目记录当前窗口的不具备选择资格、具体 limitation 和问题关联；MySQL 只读核验显示 `scenario_baselines=0`、`baseline_pilot_reviews=0`，没有用推荐名称或已创建 Fault Run 代替告警事实。
+- [x] 将每个条目的 `remediation` 限制在正常业务/基础设施修复、验证和数据处理边界；矩阵没有授予 Agent 写权限，也没有把控制面生命周期动作写入 remediation。
+
+证据与限制：`pilot-review-matrix.md` 固定当前 Catalog revision 和 12 条 runbook alert mapping；P0-09 的 Compose retention/查询和 Alertmanager active config 只作为配置/入口证据，不能升级为场景 firing 或 receipt。`BASELINE_CAPTURE_ENABLED=false`，未调用 Operator 写接口、未执行 Fault Run、baseline capture、Data Warmup 写入或场景 remediation。Alertmanager route/机器认证缺失继续阻塞 P0-ISSUE-002；Kubernetes retention/runtime 和实际场景终态仍待后续 P0-13/P0-14。
 
 ## P0-11：配置、资源预算、运行手册与回退护栏
 
@@ -438,6 +440,11 @@ graph TD
 | 2026-09-16 18:32 | P0-08-5：默认关闭、回退与实现验证 | 8 / 14（39 / 74 子任务） | P0-08：5 / 5 | `baseline-pilot.test.ts`、`baseline-capture.test.ts`、`fault-run-catalog.test.ts`、`fault-run-event-contract.test.ts` 共 15 passing；`pnpm test:runner` 72 passing；`pnpm typecheck`、`pnpm lint --quiet`、`pnpm build`、`git diff --check` 通过；Next build 明确生成 4 个 baseline/pilot internal routes，Compose/Kubernetes 默认关闭值已接入。 | 未在真实环境调用新增路由；运行时 audit、CSRF、DB schema、advisory lock 和真实 capture 仍待 P0-13/P0-14。 | 进入 P0-09，执行只读观测、retention 和告警接入核验。 |
 | 2026-09-16 18:45 | P0-08 post-review hardening：并发、审计和输入安全修复 | 8 / 14（39 / 74 子任务） | P0-08：5 / 5 | 根据独立代码审查结果补齐来源级 baseline advisory lock、全局 pilot selection lock、capture/pilot audit reservation、malformed JSON 400、invalid run audit、Catalog own-property lookup、review 命令/SQL/secret/token/shell 过滤和 recovery/cleanup safety gate；修复后重新通过 baseline/pilot/catalog/event fixture（15 passing）、runner（72 passing）、typecheck、lint、build、Compose/Kustomize 和 diff check。 | 新增 P0-ISSUE-013、P0-ISSUE-014，均已解决代码缺陷但真实 audit/lock 落库仍待 P0-13/P0-14；没有启动 Fault Run 或 baseline capture。 | 进入 P0-09，只读核验观测、retention 和 Alertmanager 接收边界。 |
 | 2026-09-16 18:58 | P0-09：只读观测、retention 与告警接入核验 | 9 / 14（44 / 74 子任务） | P0-09：5 / 5 | 详见 [`observability-verification.md`](./observability-verification.md)。只启动观测组件；通过 Nginx Basic Auth 以 10 秒超时执行 readiness、Prometheus/Loki/Tempo 时间窗口查询和 Alertmanager API/config 校验。Compose 最终 Prometheus/Loki/Tempo/Alertmanager readiness 为 HTTP 200；Prometheus/Loki 查询成功，Tempo search 返回有效 JSON；Prometheus observed `1w`、Loki limits observed `1w`、Tempo observed root `168h` 但另有 `336h` backend scheduler 字段；3 个 Alertmanager receiver 均 `send_resolved=true`。 | P0-ISSUE-002 更新为已阻塞：控制面 webhook route 不存在且 receiver 无机器认证；P0-ISSUE-003 更新为处理中：Kubernetes runtime 未核验、Kubernetes Loki 未挂载 retention 配置、Tempo retention 语义待拆解；新增并解决 P0-ISSUE-015（文档 Basic Auth 来源不一致）。未保存原始观测结果、凭据或告警 payload，未启动 Fault Run/warmup。 | 保持零个 `SELECTED`，进入 P0-10 逐项记录 Catalog 告警事实和排除理由。 |
+| 2026-09-16 | P0-10-1：Pilot review 模型和 revision 幂等复核 | 9 / 14（45 / 74 子任务） | P0-10：1 / 5 | 复核 `baseline-schema.ts`、`baseline-repository.ts`、`baseline-pilot.ts` 和 pilot route：三态 decision、`(scenario,catalog_revision)` 唯一键、revision conflict、全局 selection advisory lock、审计 reservation 和 recovery/cleanup/observation eligibility gate 已存在；相关 fixture 通过。 | 没有新增问题；代码模型已完成，但实际 review 写入和并发落库仍留给 P0-13/P0-14。 | 固定当前 Catalog revision，逐项整理 runbook 告警映射和共享资源风险。 |
+| 2026-09-16 | P0-10-2：12 场景告警与证据矩阵 | 9 / 14（46 / 74 子任务） | P0-10：2 / 5 | 新增 [`pilot-review-matrix.md`](./pilot-review-matrix.md)，以 Catalog revision `000ccc36e4a77ef27d22636bdbc4643ff79ddb0c205b21830967bc40b7abd7dc` 覆盖 12 个条目的 target service/operation、runbook 候选告警、actual firing、查询窗口、retention、共享资源风险和排除理由。 | 候选规则不等于 firing；没有执行新的 Fault Run，所有 actual firing/query window/receipt 保持 `UNKNOWN`/`UNVERIFIED`。P0-ISSUE-002、003、009、011 保持原状态。 | 逐项套用 `SELECTED` eligibility gate，不把组件 readiness 当场景 baseline。 |
+| 2026-09-16 | P0-10-3：Pilot 选择门槛评估 | 9 / 14（47 / 74 子任务） | P0-10：3 / 5 | 以 P0-09 观测证据和矩阵逐项检查真实 baseline、Alertmanager receipt、Prometheus/Loki/Tempo 窗口、retention、业务恢复、资源边界和 remediation；当前没有条目满足 `SELECTED` 的全部条件。 | Alertmanager route/机器认证缺失；Compose Tempo retention 语义未拆解；Kubernetes runtime 未核验；场景 firing 和 baseline 均缺失。不得把“不满足条件”写成未触发。 | 保持零个 `SELECTED`，记录每个条目的明确限制和关联问题。 |
+| 2026-09-16 | P0-10-4：零个 selected 与持久化状态核验 | 9 / 14（48 / 74 子任务） | P0-10：4 / 5 | 在 disposable MySQL 中执行只读聚合核验：`baseline_pilot_reviews` 无 decision 行，`scenario_baselines` 行数为 `0`；`BASELINE_CAPTURE_ENABLED=false`，未调用写路由。矩阵将 12 条记录为当前窗口“不具备选择资格（相当于本轮 REJECTED，未持久化）”。 | 没有新增独立问题；这不是永久拒绝，也不是证明告警未触发。继续跟踪 P0-ISSUE-001、002、003、009、011。 | 记录实际 remediation/data boundary，并完成 P0-10 关闭条件。 |
+| 2026-09-16 | P0-10-5：Remediation boundary 与任务收尾 | 10 / 14（49 / 74 子任务） | P0-10：5 / 5 | `pilot-review-matrix.md` 为 12 个条目分别记录正常业务/基础设施修复、验证和数据处理边界；明确没有执行 remediation，不记录 Fault Run 生命周期动作、Agent 调用或写权限。P0-10 结论为零个 `SELECTED`、无新增 P0-ISSUE-016。 | P0-ISSUE-002 保持已阻塞，P0-ISSUE-003/009/011 待后续 runtime；没有伪造 baseline、请求、延迟、告警或恢复结果。 | 进入 P0-11：配置、资源预算、运行手册与回退护栏。 |
 
 ## Phase 0 退出标准
 
