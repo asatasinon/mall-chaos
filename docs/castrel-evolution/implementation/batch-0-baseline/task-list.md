@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | P0-10 已完成（保留运行证据、观测未知、dispatch limitation 和零个 selected）；P0-01 至 P0-10 已完成 |
-| 版本 | 1.1 |
-| 更新时间 | 2026-09-16（P0-10 完成） |
+| 状态 | P0-11 已完成（保留资源、发布和 Kubernetes runtime limitation）；P0-01 至 P0-11 已完成 |
+| 版本 | 1.2 |
+| 更新时间 | 2026-09-16 19:20 CST（P0-11 完成） |
 | 路线阶段 | [阶段 0：基线和发布护栏](../../roadmap/phases/phase-0-baseline.md) |
 | 产品规格 | [product.md](./product.md) |
 | 技术设计 | [tech.md](./tech.md) |
@@ -25,11 +25,11 @@
 
 ## 总体进度
 
-- **总体状态：** Phase 0 执行中；P0-01 至 P0-10 已完成，保留环境、运行证据、观测 limitation、清理核验、dispatch limitation、告警 receipt 缺失和历史预热 limitation。
-- **总体进度：** 10 / 14 个任务组（49 / 74 个子任务）。
-- **当前任务：** P0-11：配置、资源预算、运行手册与回退护栏（未开始）。
+- **总体状态：** Phase 0 执行中；P0-01 至 P0-11 已完成，保留环境、运行证据、观测 limitation、资源预算 limitation、dispatch limitation、告警 receipt 缺失和历史预热 limitation。
+- **总体进度：** 11 / 14 个任务组（55 / 74 个子任务）。
+- **当前任务：** P0-12：单元测试与 fixture 覆盖（未开始）。
 - **当前问题：** P0-ISSUE-001 处理中；P0-ISSUE-002 已阻塞（控制面 webhook route 和机器认证缺失）；P0-ISSUE-003 处理中（Compose 已核验，Kubernetes Loki/运行时仍有 limitation）；P0-ISSUE-009、P0-ISSUE-010、P0-ISSUE-011 待核验；P0-ISSUE-004 处理中（capture 已接入但发布 revision 仍可能为 UNKNOWN）；P0-ISSUE-005 本次执行已解决；P0-ISSUE-006 待处理；P0-ISSUE-007、P0-ISSUE-008 处理中；P0-ISSUE-012、P0-ISSUE-013、P0-ISSUE-014、P0-ISSUE-015 已解决（运行时证据仍待后续环境核验）。
-- **下一步：** 进入 P0-11；保持零个 `SELECTED`，真实场景运行仍需遵守 `CART_CATALOG_DEPENDENCY` 未核验、告警 receipt 缺失、retention limitation、历史预热进度 stale 和本地资源 limitation。
+- **下一步：** 进入 P0-12；保持零个 `SELECTED`，真实场景运行仍需遵守 `CART_CATALOG_DEPENDENCY` 未核验、告警 receipt 缺失、retention limitation、历史预热进度 stale、Kubernetes runtime 未核验和本地资源 limitation。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
@@ -43,7 +43,7 @@
 | P0-08 | Operator API、鉴权、CSRF 与审计 | 已完成（有 limitation） | 5 / 5 | P0-07 |
 | P0-09 | 只读观测、retention 与告警接入核验 | 已完成（有 limitation） | 5 / 5 | P0-04、P0-07 |
 | P0-10 | 阶段 5 pilot review | 已完成（无合格候选） | 5 / 5 | P0-09 |
-| P0-11 | 配置、资源预算、运行手册与回退护栏 | 未开始 | 0 / 6 | P0-03、P0-04、P0-08 至 P0-10 |
+| P0-11 | 配置、资源预算、运行手册与回退护栏 | 已完成（有 limitation） | 6 / 6 | P0-03、P0-04、P0-08 至 P0-10 |
 | P0-12 | 单元测试与 fixture 覆盖 | 未开始 | 0 / 6 | P0-03 至 P0-10 |
 | P0-13 | 集成、安全边界与回退测试 | 未开始 | 0 / 6 | P0-08 至 P0-12 |
 | P0-14 | 真实环境基线、验收与阶段退出 | 未开始 | 0 / 7 | P0-11 至 P0-13 |
@@ -320,14 +320,25 @@ graph TD
 
 **目标：** 让旁路采集具备默认关闭、可灰度、可观察和可安全回退的发布条件。
 
-**状态：** 未开始；**进度：** 0 / 6；**关联问题：** P0-ISSUE-003、P0-ISSUE-004
+**状态：** 已完成（有 limitation）；**进度：** 6 / 6；**关联问题：** P0-ISSUE-003、P0-ISSUE-004、P0-ISSUE-007
 
-- [ ] 在环境校验和部署值中接入 `BASELINE_CAPTURE_ENABLED`、`CASTREL_RELEASE_REVISION`、`CASTREL_DEPLOYMENT_MODE`、观测核验超时与窗口配置，保持默认关闭且不新增凭据。
-- [ ] 为开发、full 演练和专用 pilot 环境编制资源预算，分别记录声明预算、实际观察摘要、容量限制、危险场景隔离条件和停止标准，不把预算写成资源耗尽承诺。
-- [ ] 编制场景运行前后 smoke 检查、baseline 生成步骤、时间线阅读、失败分类、残留资源检查和手工清理指引。
-- [ ] 编制发布检查清单与回退手册，覆盖开关关闭、Web/Worker 镜像回退、active Fault Run 处理、schema 初始化失败和已写 baseline 保留规则。
-- [ ] 固化关键事件和低基数指标命名约定，明确禁止记录 Cookie、Authorization、密码、token、原始 SQL/shell、告警 envelope 与完整观测载荷。
-- [ ] 记录 rollout 路径：代码部署但关闭、测试环境旁路启用、单环境核验和关闭回退；任何阶段均不改变目标服务或消费者契约。
+- [x] 在环境校验和部署值中接入 `BASELINE_CAPTURE_ENABLED`、`CASTREL_RELEASE_REVISION`、`CASTREL_DEPLOYMENT_MODE`、观测核验超时与窗口配置，保持默认关闭且不新增凭据。
+- [x] 为开发、full 演练和专用 pilot 环境编制资源预算，分别记录声明预算、实际观察摘要、容量限制、危险场景隔离条件和停止标准，不把预算写成资源耗尽承诺。
+- [x] 编制场景运行前后 smoke 检查、baseline 生成步骤、时间线阅读、失败分类、残留资源检查和手工清理指引。
+- [x] 编制发布检查清单与回退手册，覆盖开关关闭、Web/Worker 镜像回退、active Fault Run 处理、schema 初始化失败和已写 baseline 保留规则。
+- [x] 固化关键事件和低基数指标命名约定，明确禁止记录 Cookie、Authorization、密码、token、原始 SQL/shell、告警 envelope 与完整观测载荷。
+- [x] 记录 rollout 路径：代码部署但关闭、测试环境旁路启用、单环境核验和关闭回退；任何阶段均不改变目标服务或消费者契约。
+
+执行文档：[`release-guardrails.md`](./release-guardrails.md)。配置项已在
+`traffic-control-plane/src/lib/env.ts`、`docker-compose.yml` 和
+`k8s/configmap/app-config.yaml` 接入。`docker compose config --quiet`、
+`kubectl kustomize k8s`、`cd traffic-control-plane && pnpm typecheck` 和
+`pnpm lint --quiet` 均通过。
+
+限制：当前没有 Kubernetes runtime、专用 pilot 资源使用量或 immutable release
+revision 的实际部署证据；Compose 没有统一容器资源上限，Order 的 Apple Silicon
+资源问题仍不能作为性能基线。P0-ISSUE-003、P0-ISSUE-004 和 P0-ISSUE-007 保持
+原状态；这些 limitation 不阻断默认关闭的旁路采集。
 
 ## P0-12：单元测试与 fixture 覆盖
 
@@ -445,6 +456,12 @@ graph TD
 | 2026-09-16 | P0-10-3：Pilot 选择门槛评估 | 9 / 14（47 / 74 子任务） | P0-10：3 / 5 | 以 P0-09 观测证据和矩阵逐项检查真实 baseline、Alertmanager receipt、Prometheus/Loki/Tempo 窗口、retention、业务恢复、资源边界和 remediation；当前没有条目满足 `SELECTED` 的全部条件。 | Alertmanager route/机器认证缺失；Compose Tempo retention 语义未拆解；Kubernetes runtime 未核验；场景 firing 和 baseline 均缺失。不得把“不满足条件”写成未触发。 | 保持零个 `SELECTED`，记录每个条目的明确限制和关联问题。 |
 | 2026-09-16 | P0-10-4：零个 selected 与持久化状态核验 | 9 / 14（48 / 74 子任务） | P0-10：4 / 5 | 在 disposable MySQL 中执行只读聚合核验：`baseline_pilot_reviews` 无 decision 行，`scenario_baselines` 行数为 `0`；`BASELINE_CAPTURE_ENABLED=false`，未调用写路由。矩阵将 12 条记录为当前窗口“不具备选择资格（相当于本轮 REJECTED，未持久化）”。 | 没有新增独立问题；这不是永久拒绝，也不是证明告警未触发。继续跟踪 P0-ISSUE-001、002、003、009、011。 | 记录实际 remediation/data boundary，并完成 P0-10 关闭条件。 |
 | 2026-09-16 | P0-10-5：Remediation boundary 与任务收尾 | 10 / 14（49 / 74 子任务） | P0-10：5 / 5 | `pilot-review-matrix.md` 为 12 个条目分别记录正常业务/基础设施修复、验证和数据处理边界；明确没有执行 remediation，不记录 Fault Run 生命周期动作、Agent 调用或写权限。P0-10 结论为零个 `SELECTED`、无新增 P0-ISSUE-016。 | P0-ISSUE-002 保持已阻塞，P0-ISSUE-003/009/011 待后续 runtime；没有伪造 baseline、请求、延迟、告警或恢复结果。 | 进入 P0-11：配置、资源预算、运行手册与回退护栏。 |
+| 2026-09-16 19:20 | P0-11-1：发布和观测配置接入 | 10 / 14（50 / 74 子任务） | P0-11：1 / 6 | 在 `env.ts` 增加 `BASELINE_OBSERVATION_CHECK_TIMEOUT_MS`（默认 5000，范围 1000–60000）和 `BASELINE_OBSERVATION_WINDOW_SEC`（默认 900，范围 60–86400）；Compose Web/Worker 与 Kubernetes ConfigMap 注入 `BASELINE_CAPTURE_ENABLED`、release/deployment 和观测配置，默认保持关闭；README 补充部署变量说明。`docker compose config --quiet`、`kubectl kustomize k8s`、typecheck 和 lint 通过。 | 没有新增问题；专用环境的实际 revision、runtime resource 使用量和观测能力仍为 limitation。 | 记录开发、full disposable Compose 和专用 Kubernetes pilot 资源边界。 |
+| 2026-09-16 19:20 | P0-11-2：资源预算和危险场景隔离 | 10 / 14（51 / 74 子任务） | P0-11：2 / 6 | `release-guardrails.md` 记录 Compose 无统一容器上限、Kubernetes request/limit、notification `12Gi` emptyDir、Order 本地退出码 137 观察、危险场景共享资源风险和通用停止标准；明确声明预算不等于资源耗尽承诺。 | P0-ISSUE-003、P0-ISSUE-007 保持处理中；Kubernetes runtime 和专用资源使用量未核验。 | 编制运行前后 smoke、baseline、时间线、失败分类和残留资源检查。 |
+| 2026-09-16 19:20 | P0-11-3：运行前后 smoke 与 baseline 操作指引 | 10 / 14（52 / 74 子任务） | P0-11：3 / 6 | `release-guardrails.md` 固化运行前 Catalog/revision、健康、warmup、观测、资源和停止窗口检查；运行后按 Worker/Runner 终态、Catalog recovery strategy、时间线、五类失败、观测/告警 limitation 和残留资源复核；明确 `MANUAL_CLEANUP` 与 `NON_RELEASING` 边界。 | 未执行新的 Fault Run、baseline capture 或手工数据处理；缺失事实继续记为 `UNKNOWN`/`INCOMPLETE`。 | 编制发布检查和 Web/Worker/schema 回退。 |
+| 2026-09-16 19:20 | P0-11-4：发布检查与回退手册 | 10 / 14（53 / 74 子任务） | P0-11：4 / 6 | 文档覆盖默认关闭、关闭旁路、Web/Worker immutable revision 回退、active Fault Run 保留、schema 初始化失败隔离、已写 baseline 保留和回退 smoke；不删除 Fault Run、业务数据或历史摘要。 | 回退步骤仍需 P0-13/P0-14 在 live session、Worker graceful stop 和审计边界中验证；未宣称回退已在生产环境执行。 | 固化事件和低基数指标的脱敏与限长约定。 |
+| 2026-09-16 19:20 | P0-11-5：事件和低基数指标约定 | 10 / 14（54 / 74 子任务） | P0-11：5 / 6 | `release-guardrails.md` 复用现有终态事件白名单、`schemaVersion/source/phase/status` 和 8 KiB UTF-8 限制；定义固定标签边界，禁止 run/lifecycle ID、traceId、Cookie、Authorization、密码、token、原始 SQL/shell、告警 envelope 和完整观测载荷。 | 未新增运行时指标或事件；这是发布/审计约定，真实落库和历史高频事件下线仍由 P0-12/P0-13 验证。 | 记录代码部署但关闭、测试旁路、单环境 pilot 和关闭回退 rollout。 |
+| 2026-09-16 19:20 | P0-11-6：Rollout 路径与任务收尾 | 11 / 14（55 / 74 子任务） | P0-11：6 / 6 | `release-guardrails.md` 定义四阶段 rollout：代码部署但关闭、disposable 联调、测试环境单 Operator 旁路、单环境 pilot 与关闭回退；所有阶段保持消费者契约不变、不向目标服务传递控制面语义、不授予 Agent 写权限。无新增 P0-ISSUE-016。 | P0-ISSUE-003/004/007 的 runtime/resource/revision limitation 保留；P0-ISSUE-002 告警接收阻塞和 P0-ISSUE-001/009/011 runtime limitation 不变。 | 进入 P0-12：单元测试与 fixture 覆盖。 |
 
 ## Phase 0 退出标准
 

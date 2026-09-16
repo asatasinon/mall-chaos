@@ -28,6 +28,10 @@ export const env = {
   CASTREL_RELEASE_REVISION: process.env.CASTREL_RELEASE_REVISION?.trim() || null,
   CASTREL_DEPLOYMENT_MODE: process.env.CASTREL_DEPLOYMENT_MODE?.trim() || 'unknown',
   BASELINE_CAPTURE_ENABLED: process.env.BASELINE_CAPTURE_ENABLED === 'true',
+  BASELINE_OBSERVATION_CHECK_TIMEOUT_MS: boundedInteger(
+    process.env.BASELINE_OBSERVATION_CHECK_TIMEOUT_MS, 5000, 1000, 60_000),
+  BASELINE_OBSERVATION_WINDOW_SEC: boundedInteger(
+    process.env.BASELINE_OBSERVATION_WINDOW_SEC, 900, 60, 86_400),
 
   ALERT_CONFIG_DIR: process.env.ALERT_CONFIG_DIR || '../data',
   ALERT_SOURCE_RULES_PATH: process.env.ALERT_SOURCE_RULES_PATH || '../infra/prometheus/rules/alert-rules.yml',

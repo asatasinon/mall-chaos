@@ -116,6 +116,9 @@ Compose 和 Kubernetes 都将控制面拆成 `traffic-control-plane` 与 `traffi
 | `DATA_WARMUP_ENABLED` | 可选 | 仅在 `data_warmup_config` 尚不存在时初始化启用状态；后续运行时启停由 Operations 页面和数据库配置控制。 |
 | `DATA_WARMUP_WINDOW_DAYS` / `DATA_WARMUP_ROWS_PER_DAY` / `DATA_WARMUP_TARGET_ROWS` | 可选 | 仅在首次创建 `data_warmup_config` 时初始化窗口和目标，且必须满足乘积不变量；后续由 Operations 页面编辑。 |
 | `DATA_WARMUP_BATCH_SIZE` / `DATA_WARMUP_BATCH_INTERVAL_MS` / `DATA_WARMUP_MAX_CONCURRENCY` / `DATA_WARMUP_DB_CONCURRENCY` | 可选 | 仅在首次创建 `data_warmup_config` 时初始化批量和并发边界；后续由 Operations 页面编辑。 |
+| `BASELINE_CAPTURE_ENABLED` | 可选 | 默认 `false`；开启 Operator baseline API 和旁路采集，不能在完成迁移、验证和回退前于共享环境启用。 |
+| `CASTREL_RELEASE_REVISION` / `CASTREL_DEPLOYMENT_MODE` | 可选 | 为 baseline 注入发布 revision 和显式部署模式；缺失 revision 记录为 `UNKNOWN`，不通过运行时特征猜测。 |
+| `BASELINE_OBSERVATION_CHECK_TIMEOUT_MS` / `BASELINE_OBSERVATION_WINDOW_SEC` | 可选 | 只读观测核验的单项超时和默认查询窗口，默认 `5000` / `900`，受边界校验且不包含任何凭据。 |
 
 下面的值只用于本地示例，真实密码和随机密钥应经环境管理或 Secret 注入：
 
