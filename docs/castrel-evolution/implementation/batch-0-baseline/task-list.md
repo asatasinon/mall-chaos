@@ -25,11 +25,11 @@
 
 ## 总体进度
 
-- **总体状态：** Phase 0 执行中；P0-01 至 P0-11 已完成，保留环境、运行证据、观测 limitation、资源预算 limitation、dispatch limitation、告警 receipt 缺失和历史预热 limitation。
-- **总体进度：** 11 / 14 个任务组（55 / 74 个子任务）。
-- **当前任务：** P0-12：单元测试与 fixture 覆盖（未开始）。
+- **总体状态：** Phase 0 执行中；P0-01 至 P0-12 已完成，保留环境、运行证据、观测 limitation、资源预算 limitation、dispatch limitation、告警 receipt 缺失和历史预热 limitation。
+- **总体进度：** 12 / 14 个任务组（61 / 74 个子任务）。
+- **当前任务：** P0-13：集成、安全边界与回退测试（未开始）。
 - **当前问题：** P0-ISSUE-001 处理中；P0-ISSUE-002 已阻塞（控制面 webhook route 和机器认证缺失）；P0-ISSUE-003 处理中（Compose 已核验，Kubernetes Loki/运行时仍有 limitation）；P0-ISSUE-009、P0-ISSUE-010、P0-ISSUE-011 待核验；P0-ISSUE-004 处理中（capture 已接入但发布 revision 仍可能为 UNKNOWN）；P0-ISSUE-005 本次执行已解决；P0-ISSUE-006 待处理；P0-ISSUE-007、P0-ISSUE-008 处理中；P0-ISSUE-012、P0-ISSUE-013、P0-ISSUE-014、P0-ISSUE-015 已解决（运行时证据仍待后续环境核验）。
-- **下一步：** 进入 P0-12；保持零个 `SELECTED`，真实场景运行仍需遵守 `CART_CATALOG_DEPENDENCY` 未核验、告警 receipt 缺失、retention limitation、历史预热进度 stale、Kubernetes runtime 未核验和本地资源 limitation。
+- **下一步：** 进入 P0-13；保持零个 `SELECTED`，真实场景运行仍需遵守 `CART_CATALOG_DEPENDENCY` 未核验、告警 receipt 缺失、retention limitation、历史预热进度 stale、Kubernetes runtime 未核验和本地资源 limitation。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
@@ -44,7 +44,7 @@
 | P0-09 | 只读观测、retention 与告警接入核验 | 已完成（有 limitation） | 5 / 5 | P0-04、P0-07 |
 | P0-10 | 阶段 5 pilot review | 已完成（无合格候选） | 5 / 5 | P0-09 |
 | P0-11 | 配置、资源预算、运行手册与回退护栏 | 已完成（有 limitation） | 6 / 6 | P0-03、P0-04、P0-08 至 P0-10 |
-| P0-12 | 单元测试与 fixture 覆盖 | 未开始 | 0 / 6 | P0-03 至 P0-10 |
+| P0-12 | 单元测试与 fixture 覆盖 | 已完成（有 limitation） | 6 / 6 | P0-03 至 P0-10 |
 | P0-13 | 集成、安全边界与回退测试 | 未开始 | 0 / 6 | P0-08 至 P0-12 |
 | P0-14 | 真实环境基线、验收与阶段退出 | 未开始 | 0 / 7 | P0-11 至 P0-13 |
 
@@ -344,14 +344,24 @@ revision 的实际部署证据；Compose 没有统一容器资源上限，Order 
 
 **目标：** 用可重复的纯测试验证 revision、折叠、状态语义、脱敏和幂等，不依赖现场观测数据。
 
-**状态：** 未开始；**进度：** 0 / 6；**关联问题：** 暂无
+**状态：** 已完成（有 limitation）；**进度：** 6 / 6；**关联问题：** P0-ISSUE-008、P0-ISSUE-010、P0-ISSUE-011
 
-- [ ] 覆盖 Catalog canonicalization：顺序或参数排列变化保持 revision，场景事实变化更新 revision，且测试不维护第二份 Catalog 定义。
-- [ ] 以 Catalog 派生矩阵为基准覆盖每类事件来源的折叠、时间线和请求计数；缺失字段必须保留未知或 limitation。
-- [ ] 覆盖 `TARGET`、`WORKER`、`MANUAL_CLEANUP`、`NON_RELEASING` 的恢复/清理完整性判断，以及终态和非终态运行分支。
-- [ ] 覆盖计数矛盾、缺失事件、未核验 dispatch、观测不可用、Catalog revision 失败和稳定错误 code，确认不会生成伪造成功。
-- [ ] 覆盖 baseline/pilot JSON schema 的敏感字段、原始响应、可执行内容和超长 payload 拒绝路径。
-- [ ] 覆盖 source run 幂等、pilot revision 冲突、摘要 retention 独立性和 Worker 汇总事件的低基数约束。
+- [x] 覆盖 Catalog canonicalization：顺序或参数排列变化保持 revision，场景事实变化更新 revision，且测试不维护第二份 Catalog 定义。
+- [x] 以 Catalog 派生矩阵为基准覆盖每类事件来源的折叠、时间线和请求计数；缺失字段必须保留未知或 limitation。
+- [x] 覆盖 `TARGET`、`WORKER`、`MANUAL_CLEANUP`、`NON_RELEASING` 的恢复/清理完整性判断，以及终态和非终态运行分支。
+- [x] 覆盖计数矛盾、缺失事件、未核验 dispatch、观测不可用、Catalog revision 失败和稳定错误 code，确认不会生成伪造成功。
+- [x] 覆盖 baseline/pilot JSON schema 的敏感字段、原始响应、可执行内容和超长 payload 拒绝路径。
+- [x] 覆盖 source run 幂等、pilot revision 冲突、摘要 retention 独立性和 Worker 汇总事件的低基数约束。
+
+实现与验证：新增 `baseline-schema.test.ts`，确认 baseline/pilot DDL 不依赖
+Fault Run/audit 外键级联、保留 source-run 唯一键和独立 retention snapshot。
+`baseline-capture.test.ts` 已覆盖 source-run 幂等，`baseline-pilot.test.ts` 覆盖
+revision conflict，`fault-run-event-contract.test.ts` 覆盖 Worker/Runner 低基数
+payload。P0-12 相关 fixture 共 24 项通过。
+
+限制：这些是纯函数、内存 repository 和静态 DDL fixture；真实 MySQL 并发锁、
+Operator audit、路由鉴权、Worker 事件落库和 retention runtime 仍留给 P0-13/P0-14，
+不把测试 fixture 当作现场证据。
 
 ## P0-13：集成、安全边界与回退测试
 
@@ -462,6 +472,12 @@ revision 的实际部署证据；Compose 没有统一容器资源上限，Order 
 | 2026-09-16 19:20 | P0-11-4：发布检查与回退手册 | 10 / 14（53 / 74 子任务） | P0-11：4 / 6 | 文档覆盖默认关闭、关闭旁路、Web/Worker immutable revision 回退、active Fault Run 保留、schema 初始化失败隔离、已写 baseline 保留和回退 smoke；不删除 Fault Run、业务数据或历史摘要。 | 回退步骤仍需 P0-13/P0-14 在 live session、Worker graceful stop 和审计边界中验证；未宣称回退已在生产环境执行。 | 固化事件和低基数指标的脱敏与限长约定。 |
 | 2026-09-16 19:20 | P0-11-5：事件和低基数指标约定 | 10 / 14（54 / 74 子任务） | P0-11：5 / 6 | `release-guardrails.md` 复用现有终态事件白名单、`schemaVersion/source/phase/status` 和 8 KiB UTF-8 限制；定义固定标签边界，禁止 run/lifecycle ID、traceId、Cookie、Authorization、密码、token、原始 SQL/shell、告警 envelope 和完整观测载荷。 | 未新增运行时指标或事件；这是发布/审计约定，真实落库和历史高频事件下线仍由 P0-12/P0-13 验证。 | 记录代码部署但关闭、测试旁路、单环境 pilot 和关闭回退 rollout。 |
 | 2026-09-16 19:20 | P0-11-6：Rollout 路径与任务收尾 | 11 / 14（55 / 74 子任务） | P0-11：6 / 6 | `release-guardrails.md` 定义四阶段 rollout：代码部署但关闭、disposable 联调、测试环境单 Operator 旁路、单环境 pilot 与关闭回退；所有阶段保持消费者契约不变、不向目标服务传递控制面语义、不授予 Agent 写权限。无新增 P0-ISSUE-016。 | P0-ISSUE-003/004/007 的 runtime/resource/revision limitation 保留；P0-ISSUE-002 告警接收阻塞和 P0-ISSUE-001/009/011 runtime limitation 不变。 | 进入 P0-12：单元测试与 fixture 覆盖。 |
+| 2026-09-16 19:34 | P0-12-1：Catalog canonicalization fixture | 11 / 14（56 / 74 子任务） | P0-12：1 / 6 | `fault-run-catalog-revision.test.ts` 直接读取 `listScenarioDefinitions()`；验证场景、参数和 options 重排保持 canonical serialization/revision，修改 `maxDurationSec` 会改变 SHA-256 revision。基线测试通过。 | 无新增问题；不复制 Catalog 定义。 | 覆盖 Report、Scenario Worker、Runner 三类 runtime summary 的折叠和缺失字段边界。 |
+| 2026-09-16 19:34 | P0-12-2：Catalog 派生 runtime source matrix | 11 / 14（57 / 74 子任务） | P0-12：2 / 6 | `baseline-event-folding.test.ts` 新增直接遍历 `listScenarioDefinitions()` 的矩阵 fixture；为全部 12 个场景提供候选 Report/Scenario Worker/Runner 事件，验证折叠器选择、生命周期时间线、请求计数、业务恢复，以及 `NON_RELEASING`/`MANUAL_CLEANUP` 清理边界。测试通过。 | 无新增问题；fixture 不复制 Catalog 参数或目标事实。 | 覆盖 `TARGET`、`WORKER`、`MANUAL_CLEANUP`、`NON_RELEASING` 的终态/非终态完整性判断。 |
+| 2026-09-16 19:34 | P0-12-3：Recovery/cleanup 与终态分支 fixture | 11 / 14（58 / 74 子任务） | P0-12：3 / 6 | `baseline-event-folding.test.ts` 新增按 Catalog recovery strategy 派生的 target/worker/manual/non-releasing fixture，覆盖 manual cleanup 缺失、完成、失败和 FAILED recovery；`baseline-capture.test.ts` 覆盖 CREATING、ACTIVE、RECOVERING 三类非终态拒绝。测试通过。 | 无新增问题；`NON_RELEASING` 的 cleanup timestamp 保持空值，避免把 recovery 完成误报为资源释放。 | 覆盖计数矛盾、缺失事件、未核验 dispatch、观测不可用、revision 失败和稳定错误 code。 |
+| 2026-09-16 19:34 | P0-12-4：失败、缺失和未知事实 fixture | 11 / 14（59 / 74 子任务） | P0-12：4 / 6 | 新增 drained-without-stopped、worker failure code fallback 和 Catalog metadata/revision failure fixture；结合既有 counter inconsistency、CART `DISPATCH_UNVERIFIED`、pilot observation unknown、source run stable error coverage，确认失败/未知状态不会生成伪造成功。测试通过。 | 无新增问题；请求已发生但 worker 失败仍按事实记录 `OBSERVED`，不把失败请求伪造成成功请求。 | 覆盖 baseline/pilot JSON schema 的敏感字段、原始响应、可执行内容和超长 payload 拒绝路径。 |
+| 2026-09-16 19:34 | P0-12-5：Baseline/Pilot 安全输入拒绝 fixture | 11 / 14（60 / 74 子任务） | P0-12：5 / 6 | `baseline-pilot.ts` 增加显式允许字段、嵌套未知字段拒绝、retention 敏感键/字符串校验和 8 KiB UTF-8 总体 payload 上限；`baseline-pilot.test.ts` 覆盖 raw response、Authorization/password、命令内容和超长 evidence 输入。pilot 与事件契约测试及 typecheck 通过。 | 无新增问题；P0-ISSUE-008 的历史高频事件仍不重写，新增输入边界只约束 baseline/pilot 写入口。 | 覆盖 source-run 幂等、pilot revision 冲突、摘要 retention 独立性和 Worker 低基数汇总。 |
+| 2026-09-16 19:34 | P0-12-6：幂等、revision、retention 与低基数收尾 | 12 / 14（61 / 74 子任务） | P0-12：6 / 6 | 新增 `baseline-schema.test.ts`，验证 baseline/pilot DDL 不依赖 Fault Run/audit 外键级联，保留 source-run 唯一键和独立 retention snapshot；现有 capture/pilot/event fixture 分别覆盖 source-run 幂等、Catalog revision conflict 和 Worker/Runner 低基数 payload。P0-12 纯 fixture 套件共 24 项通过。 | P0-ISSUE-008/010/011 保持处理中：历史高频事件、真实 failure classification 和 Worker 事件落库仍需集成/runtime 证据；无新的独立问题。 | 进入 P0-13：集成、安全边界与回退测试。 |
 
 ## Phase 0 退出标准
 

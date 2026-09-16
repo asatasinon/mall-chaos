@@ -8,6 +8,8 @@ import {
 } from './baseline-schema';
 import { getScenarioDefinition, type FaultRunScenario } from './fault-run-catalog';
 
+const MAX_PILOT_REVIEW_BYTES = 8 * 1024;
+
 export class BaselinePilotValidationError extends Error {
   constructor(public readonly code: string) {
     super(code);
@@ -34,6 +36,17 @@ export function parsePilotReviewInput(
   getScenarioDefinition(scenarioValue);
   const scenario = scenarioValue as FaultRunScenario;
   if (!isRecord(body)) throw new BaselinePilotValidationError('INVALID_PILOT_REVIEW');
+  assertAllowedKeys(body, [
+    'confirmed',
+    'catalogRevision',
+    'decision',
+    'alertRules',
+    'evidenceRequirements',
+    'retentionSnapshot',
+    'remediationBoundary',
+    'decisionReason',
+  ], 'INVALID_PILOT_REVIEW');
+  assertPayloadSize(body);
   if (body.confirmed !== true) {
     throw new BaselinePilotValidationError('PILOT_REVIEW_CONFIRMATION_REQUIRED');
   }
@@ -98,6 +111,7 @@ function parseAlertRules(value: unknown): BaselineAlertRule[] {
   }
   return value.map((item) => {
     if (!isRecord(item)) throw new BaselinePilotValidationError('INVALID_PILOT_ALERT_RULES');
+    assertAllowedKeys(item, ['name', 'threshold', 'duration', 'declared', 'observed'], 'INVALID_PILOT_ALERT_RULES');
     const name = parseRequiredText(item.name, 'INVALID_PILOT_ALERT_RULES', 128);
     const threshold = parseOptionalText(item.threshold, 'INVALID_PILOT_ALERT_RULES', 256);
     const duration = parseOptionalText(item.duration, 'INVALID_PILOT_ALERT_RULES', 128);
@@ -116,6 +130,7 @@ function parseEvidenceRequirements(value: unknown): BaselineLimitation[] {
   }
   return value.map((item) => {
     if (!isRecord(item)) throw new BaselinePilotValidationError('INVALID_PILOT_EVIDENCE');
+    assertAllowedKeys(item, ['code', 'detail'], 'INVALID_PILOT_EVIDENCE');
     const detail = parseOptionalText(item.detail, 'INVALID_PILOT_EVIDENCE', 512);
     if (detail) assertSafeReviewText(detail, 'INVALID_PILOT_EVIDENCE');
     return {
@@ -134,12 +149,14 @@ function parseRetentionSnapshot(
   const result: Record<string, string | number | boolean | null> = {};
   for (const [key, item] of entries) {
     if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(key)
+        || /(?:authorization|cookie|password|secret|token|api[_-]?key|raw|response|sql|shell|command)/i.test(key)
         || (typeof item !== 'string' && typeof item !== 'number'
           && typeof item !== 'boolean' && item !== null)
         || (typeof item === 'string' && item.length > 256)
         || (typeof item === 'number' && !Number.isFinite(item))) {
       throw new BaselinePilotValidationError('INVALID_PILOT_RETENTION');
     }
+    if (typeof item === 'string') assertSafeReviewText(item, 'INVALID_PILOT_RETENTION');
     result[key] = item;
   }
   return result;
@@ -173,6 +190,31 @@ function parseOptionalBoolean(value: unknown, code: string): boolean | null {
   if (value === null || value === undefined) return null;
   if (typeof value !== 'boolean') throw new BaselinePilotValidationError(code);
   return value;
+}
+
+function assertAllowedKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  code: string,
+): void {
+  if (Object.keys(value).some((key) => !allowedKeys.includes(key))) {
+    throw new BaselinePilotValidationError(code);
+  }
+}
+
+function assertPayloadSize(value: Record<string, unknown>): void {
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw new BaselinePilotValidationError('INVALID_PILOT_REVIEW');
+  }
+  if (serialized === undefined) {
+    throw new BaselinePilotValidationError('INVALID_PILOT_REVIEW');
+  }
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_PILOT_REVIEW_BYTES) {
+    throw new BaselinePilotValidationError('INVALID_PILOT_REVIEW');
+  }
 }
 
 function isAvailable(value: unknown): value is 'AVAILABLE' {

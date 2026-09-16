@@ -99,3 +99,47 @@ test('blocks SELECTED when baseline observation and alert evidence are unknown',
       && error.code === 'PILOT_EVIDENCE_UNAVAILABLE',
   );
 });
+
+test('rejects sensitive, raw, executable, and oversized review payloads', () => {
+  const baseReview = {
+    confirmed: true,
+    catalogRevision,
+    decision: 'CANDIDATE',
+    alertRules: [],
+    evidenceRequirements: [],
+    retentionSnapshot: { prometheus: 'UNKNOWN' },
+    remediationBoundary: 'Restore the business dependency and verify the customer operation.',
+    decisionReason: 'Evidence remains subject to runtime verification.',
+  };
+  const assertRejected = (body: unknown, code: string) => {
+    assert.throws(
+      () => parsePilotReviewInput('BROWSE_REPORT_SQL', body, catalogRevision),
+      (error: unknown) => error instanceof BaselinePilotValidationError && error.code === code,
+    );
+  };
+
+  assertRejected({ ...baseReview, rawResponse: '{"headers":{"Authorization":"secret"}}' }, 'INVALID_PILOT_REVIEW');
+  assertRejected({
+    ...baseReview,
+    alertRules: [{ name: 'availability', rawResponse: 'full HTTP response' }],
+  }, 'INVALID_PILOT_ALERT_RULES');
+  assertRejected({
+    ...baseReview,
+    evidenceRequirements: [{ code: 'OBSERVATION', detail: 'Authorization: bearer secret' }],
+  }, 'INVALID_PILOT_EVIDENCE');
+  assertRejected({
+    ...baseReview,
+    retentionSnapshot: { password: 'secret' },
+  }, 'INVALID_PILOT_RETENTION');
+  assertRejected({
+    ...baseReview,
+    decisionReason: 'curl https://example.invalid/health',
+  }, 'INVALID_PILOT_REVIEW_REASON');
+  assertRejected({
+    ...baseReview,
+    evidenceRequirements: Array.from({ length: 64 }, () => ({
+      code: 'OBSERVATION',
+      detail: 'x'.repeat(200),
+    })),
+  }, 'INVALID_PILOT_REVIEW');
+});

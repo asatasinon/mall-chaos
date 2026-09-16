@@ -128,16 +128,18 @@ test('captures a limitation-aware baseline and returns the existing row idempote
   ]);
 });
 
-test('does not create a baseline for a non-terminal run or when capture is disabled', async () => {
+test('does not create a baseline for non-terminal runs or when capture is disabled', async () => {
   const repository = new MemoryBaselineRepository();
-  await assert.rejects(
-    () => captureScenarioBaseline(
-      sourceFaultRunId,
-      {},
-      { ...dependencies(repository, []), loadRun: async () => ({ ...run, state: 'ACTIVE' as const }) },
-    ),
-    (error: unknown) => error instanceof Error && error.message === 'RUN_NOT_TERMINAL',
-  );
+  for (const state of ['CREATING', 'ACTIVE', 'RECOVERING'] as const) {
+    await assert.rejects(
+      () => captureScenarioBaseline(
+        sourceFaultRunId,
+        {},
+        { ...dependencies(repository, []), loadRun: async () => ({ ...run, state }) },
+      ),
+      (error: unknown) => error instanceof Error && error.message === 'RUN_NOT_TERMINAL',
+    );
+  }
   await assert.rejects(
     () => captureScenarioBaseline(
       sourceFaultRunId,
@@ -146,4 +148,28 @@ test('does not create a baseline for a non-terminal run or when capture is disab
     ),
     (error: unknown) => error instanceof Error && error.message === 'BASELINE_CAPTURE_DISABLED',
   );
+});
+
+test('normalizes Catalog revision loading failures to a stable capture error', async () => {
+  const repository = new MemoryBaselineRepository();
+  const eventTypes: string[] = [];
+
+  await assert.rejects(
+    () => captureScenarioBaseline(
+      sourceFaultRunId,
+      {},
+      {
+        ...dependencies(repository, eventTypes),
+        loadMetadata: () => {
+          throw new Error('raw metadata failure');
+        },
+      },
+    ),
+    (error: unknown) => error instanceof Error
+      && error.message === 'CATALOG_REVISION_FAILED:raw metadata failure',
+  );
+  assert.deepEqual(eventTypes, [
+    'BASELINE_CAPTURE_REQUESTED',
+    'BASELINE_CAPTURE_FAILED',
+  ]);
 });
