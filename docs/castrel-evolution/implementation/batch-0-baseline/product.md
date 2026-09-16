@@ -4,6 +4,7 @@
 > 对应路线阶段：阶段 0
 > 依赖：当前可运行的 Castrel Chaos 环境
 > 配套技术设计：[tech.md](./tech.md)
+> 实施任务：[task-list.md](./task-list.md)
 
 ## 1. 产品目标
 

@@ -2,6 +2,7 @@
 
 > 状态：技术设计 v1
 > 配套产品规格：[product.md](./product.md)
+> 实施任务：[task-list.md](./task-list.md)
 > 对应路线阶段：阶段 0
 > 设计原则：旁路采集、只读观测、增量迁移、不改变 Fault Run 效果
 
