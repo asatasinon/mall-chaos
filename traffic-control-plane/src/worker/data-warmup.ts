@@ -716,7 +716,7 @@ async function findMissingDays(table: typeof TABLES[number], start: string, end:
        GROUP BY DATE(${table.timeColumn})`,
     [start, end, table.name],
   );
-  const counts = new Map((rows as Record<string, unknown>[]).map((row) => [String(row.day_value).slice(0, 10), Number(row.row_count)]));
+  const counts = new Map((rows as Record<string, unknown>[]).map((row) => [formatWarmupDate(row.day_value), Number(row.row_count)]));
   const missing: string[] = [];
   for (let index = 0; index < env.DATA_WARMUP_WINDOW_DAYS; index++) {
     const date = addDays(start, index);
