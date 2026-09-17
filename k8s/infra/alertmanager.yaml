@@ -32,16 +32,28 @@ data:
         webhook_configs:
           - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'
             send_resolved: true
+            http_config:
+              authorization:
+                type: Bearer
+                credentials_file: /etc/alertmanager-secret/internal-service-key
 
       - name: 'critical-receiver'
         webhook_configs:
           - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'
             send_resolved: true
+            http_config:
+              authorization:
+                type: Bearer
+                credentials_file: /etc/alertmanager-secret/internal-service-key
 
       - name: 'warning-receiver'
         webhook_configs:
           - url: 'http://traffic-control-plane:3086/internal/alertmanager/webhook'
             send_resolved: true
+            http_config:
+              authorization:
+                type: Bearer
+                credentials_file: /etc/alertmanager-secret/internal-service-key
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -70,6 +82,9 @@ spec:
           volumeMounts:
             - name: alertmanager-config
               mountPath: /etc/alertmanager
+            - name: alertmanager-secret
+              mountPath: /etc/alertmanager-secret
+              readOnly: true
             - name: alertmanager-data
               mountPath: /alertmanager
           resources:
@@ -85,6 +100,12 @@ spec:
             name: alertmanager-config
         - name: alertmanager-data
           emptyDir: {}
+        - name: alertmanager-secret
+          secret:
+            secretName: db-secret
+            items:
+              - key: CASTREL_INTERNAL_SERVICE_KEY
+                path: internal-service-key
 ---
 apiVersion: v1
 kind: Service

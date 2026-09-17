@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import pino from 'pino';
-import { getGatewayClient, GatewayClient, GatewayRequestError } from '../lib/gateway-client';
+import {
+  CustomerRequestContext,
+  GatewayClient,
+  GatewayRequestError,
+  getGatewayClient,
+} from '../lib/gateway-client';
 import { env } from '../lib/env';
 import {
   appendFaultRunEvent,
@@ -10,7 +15,9 @@ import {
   type FaultRunTargetSummary,
 } from '../lib/fault-run-repository';
 import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
+import { createFaultRunContext } from '../lib/fault-run-context';
 import { normalizeFaultRunSummaryEventPayload } from '../lib/fault-run-event-contract';
+import { CustomerSessionManager } from './customer-session-manager';
 import {
   ControlledScenarioWorker,
   ScenarioRequestCacheError,
@@ -24,10 +31,41 @@ interface ScenarioWorkerDependencies {
   loadTargetSummary: (faultRunId: string) => Promise<FaultRunTargetSummary | null>;
   appendEvent: (faultRunId: string, eventType: string, payload?: unknown) => Promise<void>;
   registerRunDrain: (faultRunId: string, drain: () => Promise<unknown>) => () => void;
+  sessions: CustomerSessionManagerLike;
 }
 
 interface ProductDetailResponse {
   data?: { sku?: unknown };
+}
+
+interface CustomerApiResponse<T> {
+  code?: number;
+  data?: T;
+}
+
+interface ProductPage {
+  content?: ProductData[];
+}
+
+interface ProductData {
+  sku?: string;
+  status?: number | boolean;
+  availableQty?: number;
+  price?: number | string;
+}
+
+interface CartData {
+  items?: Array<{ sku?: string }>;
+}
+
+interface CustomerSessionManagerLike {
+  openSession(
+    trafficRunId: string,
+    lifecycleId: string,
+    traceId: string,
+    options?: { signal?: AbortSignal; faultRunContext?: ReturnType<typeof createFaultRunContext> },
+  ): Promise<CustomerRequestContext>;
+  closeSession(lifecycleId: string, traceId: string): Promise<void>;
 }
 
 const CACHE_RESULTS = new Set([
@@ -41,6 +79,7 @@ export class ScenarioWorkers {
   private readonly loadTargetSummary: ScenarioWorkerDependencies['loadTargetSummary'];
   private readonly appendEvent: ScenarioWorkerDependencies['appendEvent'];
   private readonly registerRunDrain: ScenarioWorkerDependencies['registerRunDrain'];
+  private readonly sessions: CustomerSessionManagerLike;
   private readonly workers = new Map<string, { worker: ControlledScenarioWorker; promise: Promise<void> }>();
   private readonly starting = new Map<string, Promise<void>>();
   private activeRunIds = new Set<string>();
@@ -54,6 +93,7 @@ export class ScenarioWorkers {
     this.appendEvent = dependencies.appendEvent ?? appendFaultRunEvent;
     this.registerRunDrain = dependencies.registerRunDrain
       ?? ((faultRunId, drain) => getFaultRunCoordinator().registerRunDrain(faultRunId, drain));
+    this.sessions = dependencies.sessions ?? new CustomerSessionManager({ gateway: this.gateway });
   }
 
   start(): void {
@@ -87,7 +127,8 @@ export class ScenarioWorkers {
       && (run.scenario === 'CATALOG_REDIS_LARGE_VALUE'
       || run.scenario === 'PROMOTION_LOCK_CONTENTION'
       || run.scenario === 'INVENTORY_TABLE_EXCLUSIVE'
-      || run.scenario === 'INVENTORY_ROW_LOCK'));
+      || run.scenario === 'INVENTORY_ROW_LOCK'
+      || run.scenario === 'CART_CATALOG_DEPENDENCY'));
     const activeIds = new Set(eligible.map((run) => run.faultRunId));
     this.activeRunIds = activeIds;
     for (const [runId, current] of this.workers) {
@@ -106,31 +147,62 @@ export class ScenarioWorkers {
     const concurrency = boundedInteger(run.parameters.concurrency, 1, 32, 1);
     const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
     let targetSummary: FaultRunTargetSummary | null = null;
+    let customerSession: CustomerRequestContext | null = null;
+    let customerLifecycleId: string | null = null;
+    let cartSku: string | null = null;
     try {
       targetSummary = run.scenario === 'CATALOG_REDIS_LARGE_VALUE'
         ? await this.loadTargetSummary(run.faultRunId)
         : null;
+      if (run.scenario === 'CART_CATALOG_DEPENDENCY') {
+        customerLifecycleId = randomUUID();
+        customerSession = await this.sessions.openSession(
+          run.faultRunId,
+          customerLifecycleId,
+          run.traceId ?? randomUUID().replace(/-/g, ''),
+          { faultRunContext: createFaultRunContext(run) },
+        );
+        cartSku = await selectCartProduct(this.gateway, customerSession);
+      }
     } catch (error) {
-      await this.appendEvent(run.faultRunId, 'SCENARIO_WORKER_SETUP_FAILED', {
-        reason: 'TARGET_SUMMARY_LOAD_FAILED',
-        error: error instanceof Error ? error.message : 'Target summary load failed',
-      }).catch(() => undefined);
+      await appendScenarioWorkerSetupFailure(this.appendEvent, run, error);
+      if (customerLifecycleId && customerSession) {
+        await this.sessions.closeSession(customerLifecycleId, customerSession.traceId).catch(() => undefined);
+      }
       return;
     }
     if (run.scenario === 'CATALOG_REDIS_LARGE_VALUE' && !isUsableTargetSummary(targetSummary)) {
-      await this.appendEvent(run.faultRunId, 'SCENARIO_WORKER_SETUP_FAILED', {
-        reason: 'TARGET_SUMMARY_UNAVAILABLE',
-      }).catch(() => undefined);
+      await appendScenarioWorkerSetupFailure(this.appendEvent, run, new Error('TARGET_SUMMARY_UNAVAILABLE'));
       return;
     }
     const memberSkus = targetSummary?.memberSkus ?? [];
-    if (this.stopping || !this.activeRunIds.has(run.faultRunId)) return;
+    if (this.stopping || !this.activeRunIds.has(run.faultRunId)) {
+      if (customerLifecycleId && customerSession) {
+        await this.sessions.closeSession(customerLifecycleId, customerSession.traceId).catch(() => undefined);
+      }
+      return;
+    }
     let memberIndex = 0;
     const request = async (signal: AbortSignal) => {
       if (run.scenario === 'CATALOG_REDIS_LARGE_VALUE') {
         const sku = memberSkus[memberIndex++ % memberSkus.length];
         return readCatalogProductDetail(
           this.gateway, sku, signal, env.PRODUCT_DETAIL_REQUEST_TIMEOUT_MS);
+      }
+      if (run.scenario === 'CART_CATALOG_DEPENDENCY') {
+        if (!customerSession || !cartSku) throw new Error('CART_WORKER_NOT_READY');
+        const response = await this.gateway.customerPost<CustomerApiResponse<CartData>>(
+          '/api/cart/items',
+          {
+            sku: cartSku,
+            quantity: 1,
+            operationId: `fault-run-${run.faultRunId}-${randomUUID()}`,
+          },
+          customerSession,
+          signal,
+        );
+        if (response?.code !== 200 || !response.data) throw new Error('CART_ADD_ITEM_FAILED');
+        return {};
       }
       const observationPath = run.scenario === 'INVENTORY_TABLE_EXCLUSIVE'
         ? '/internal/gateway/inventory/availability'
@@ -160,7 +232,12 @@ export class ScenarioWorkers {
         return;
       }
     }
-    if (this.stopping || !this.activeRunIds.has(run.faultRunId)) return;
+    if (this.stopping || !this.activeRunIds.has(run.faultRunId)) {
+      if (customerLifecycleId && customerSession) {
+        await this.sessions.closeSession(customerLifecycleId, customerSession.traceId).catch(() => undefined);
+      }
+      return;
+    }
     const worker = new ControlledScenarioWorker(run, { concurrency, requestIntervalMs, request }, this.appendEvent);
     const unregisterDrain = this.registerRunDrain(
       run.faultRunId, () => worker.stop('COORDINATOR_RECOVERY'));
@@ -176,6 +253,9 @@ export class ScenarioWorkers {
           'SCENARIO_WORKER_DRAINED',
           normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_DRAINED', worker.snapshot()),
         ).catch(() => undefined);
+        if (customerLifecycleId && customerSession) {
+          await this.sessions.closeSession(customerLifecycleId, customerSession.traceId).catch(() => undefined);
+        }
         this.workers.delete(run.faultRunId);
       }
     })();
@@ -197,6 +277,54 @@ async function appendWorkerFailure(
       error: error instanceof Error ? error.message : String(error),
     }),
   ).catch(() => undefined);
+}
+
+async function appendScenarioWorkerSetupFailure(
+  appendEvent: ScenarioWorkerDependencies['appendEvent'],
+  run: FaultRunRecord,
+  error: unknown,
+): Promise<void> {
+  await appendEvent(
+    run.faultRunId,
+    'SCENARIO_WORKER_SETUP_FAILED',
+    normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_SETUP_FAILED', {
+      failureCode: error instanceof Error && /^[A-Z][A-Z0-9_.:-]{0,63}$/.test(error.message)
+        ? error.message : 'WORKER_SETUP_FAILED',
+    }),
+  ).catch(() => undefined);
+}
+
+async function selectCartProduct(
+  gateway: GatewayClient,
+  context: CustomerRequestContext,
+): Promise<string> {
+  const products = await gateway.customerGet<CustomerApiResponse<ProductPage>>(
+    '/api/products',
+    { page: '0', size: '20', sort: 'latest' },
+    context,
+  );
+  if (products?.code !== 200 || !Array.isArray(products.data?.content)) {
+    throw new Error('CART_PRODUCT_LIST_FAILED');
+  }
+  const cart = await gateway.customerGet<CustomerApiResponse<CartData>>('/api/cart', undefined, context);
+  if (cart?.code !== 200 || !Array.isArray(cart.data?.items)) {
+    throw new Error('CART_READ_FAILED');
+  }
+  const existingSkus = new Set(
+    cart.data.items
+      .map((item) => item.sku)
+      .filter((sku): sku is string => typeof sku === 'string' && sku.length > 0),
+  );
+  const product = products.data.content.find((candidate) =>
+    typeof candidate.sku === 'string'
+      && candidate.sku.length > 0
+      && !existingSkus.has(candidate.sku)
+      && (candidate.status === 1 || candidate.status === true)
+      && typeof candidate.availableQty === 'number'
+      && candidate.availableQty > 0
+      && Number(candidate.price ?? 0) > 0);
+  if (!product?.sku) throw new Error('CART_PRODUCT_UNAVAILABLE');
+  return product.sku;
 }
 
 export async function readCatalogProductDetail(

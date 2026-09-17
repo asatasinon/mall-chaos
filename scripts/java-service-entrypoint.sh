@@ -39,8 +39,12 @@ enable_skywalking_optional_plugin() {
   done
 }
 
-if [ -n "${JAVA_OPTS:-}" ] && [ -z "${JAVA_TOOL_OPTIONS:-}" ]; then
-  export JAVA_TOOL_OPTIONS="$JAVA_OPTS"
+if [ -n "${JAVA_OPTS:-}" ]; then
+  if [ -n "${JAVA_TOOL_OPTIONS:-}" ]; then
+    export JAVA_TOOL_OPTIONS="$JAVA_OPTS $JAVA_TOOL_OPTIONS"
+  else
+    export JAVA_TOOL_OPTIONS="$JAVA_OPTS"
+  fi
 fi
 
 case "${ENABLE_CLOUDWISE_AGENT:-false}" in

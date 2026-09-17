@@ -8,7 +8,7 @@
 
 ## 1. 设计结论
 
-批次 0 不改造目标服务，也不改变现有 Fault Run 的状态转换和 Worker 调度逻辑。技术实现分成三部分：
+批次 0 不改造目标服务，也不改变既有 Fault Run 状态转换；P0-13 仅补齐 Catalog 已声明但缺失的 `CART_CATALOG_DEPENDENCY` 受控 dispatch 和必要 Worker 生命周期事件。技术实现分成三部分：
 
 1. **控制面运行事实**：从现有 `fault_runs`、`fault_run_events`、Operator audit 和 Worker 汇总事件生成基线记录。
 2. **部署与观测事实**：记录部署 revision、数据预热配置、Prometheus/Loki/Tempo retention 和告警规则的声明值与核验结果。
@@ -40,8 +40,8 @@
 - Web/Worker 没有统一的 image/release revision 字段。
 - `fault_run_events` 对不同场景的汇总字段不完全一致。
 - 当前 `ReportScenarioWorker`、`ScenarioWorkers` 和 `RunnerEngine` 的事件可提供不同粒度的统计；未知字段不能被强行补齐。
-- 当前 Catalog 中的 `CART_CATALOG_DEPENDENCY` 只有场景定义和 runbook 记录，控制面 Worker/Runner dispatch 是否真正覆盖该场景仍需核验；不能因为 Catalog 存在就把它计为可运行基线。
-- 当前 Alertmanager 配置指向 `/internal/alertmanager/webhook`，但控制面尚未实现对应接收 route；批次 0 只记录这个缺口，不在本批次实现告警接收。
+- `CART_CATALOG_DEPENDENCY` 已由 Scenario Worker 通过 Gateway customer session 读取产品/购物车并写入购物车；真实请求、终态事件和业务效果仍必须通过获批运行核验，不能把代码路径计为完整基线。
+- Alertmanager 控制面 route 已实现精确路径、`CASTREL_INTERNAL_SERVICE_KEY` 机器认证和低基数 receipt 持久化；真实 firing/resolved 投递仍是运行前置条件，配置 URL 不能替代 receipt 证据。
 - 当前 Compose 和 Kubernetes 的观测 retention 主要存在于部署配置中，运行时实际值需要单独核验。
 - 数据预热配置当前只来自 Worker 环境变量，Web/API 展示的配置可能与 Worker 不一致；本批次将配置迁移到数据库并通过 Operator API 管理。
 
@@ -88,7 +88,7 @@ Prometheus / Loki / Tempo / Alertmanager
 | `src/lib/baseline-repository.ts` | baseline、pilot review 的读写和幂等 |
 | `src/lib/baseline-capture.ts` | 终态运行的事实折叠、完整性判断和摘要生成 |
 | `src/lib/baseline-metadata.ts` | Catalog、release、部署模式、schema 和 warmup 元数据 |
-| `src/lib/baseline-observation.ts` | retention、只读检查摘要和查询引用的校验 |
+| `src/lib/observation-executor.ts` | allowlist observation adapter、窗口/超时/失败状态归一化和低基数检查摘要 |
 | `src/lib/baseline-pilot.ts` | 阶段 5 候选场景的选择记录 |
 
 ### 4.2 HTTP 路由
@@ -166,7 +166,7 @@ CREATE TABLE scenario_baselines (
 
 ### 5.2 `baseline_pilot_reviews`
 
-该表记录 12 个场景是否适合作为阶段 5 pilot。它保存候选评审事实，不保存 Alertmanager 接收记录；后者属于批次 5.0。
+该表记录 12 个场景是否适合作为阶段 5 pilot。它保存候选评审事实；Alertmanager 接收记录由独立的 `alert_receipts` 表保存，字段限制为 fingerprint、状态、receiver、告警名、severity、service 和时间，不保存原始 envelope。
 
 ```sql
 CREATE TABLE baseline_pilot_reviews (
@@ -323,7 +323,7 @@ Web 不再复制 Worker 环境变量；配置缺失或 progress 无法查询时�
 - 使用 Nginx Basic Auth 或部署内网入口完成访问，凭据不进入控制面数据库和 baseline JSON。
 - 分别保存 `declared`、`observed`、`checkedAt`、`status` 和 limitation。
 
-初始配置预期为 Prometheus 7d、Loki 168h、Tempo 168h，但设计不把这个预期写成运行时事实；实际核验失败时必须是 `UNKNOWN` 或 `UNAVAILABLE`。
+当前部署配置目标为 Prometheus 168h、Loki 168h、Tempo 168h，但设计不把这个目标写成运行时事实；实际核验失败时必须是 `UNKNOWN` 或 `UNAVAILABLE`。
 
 ### 7.5 Pilot 选择
 

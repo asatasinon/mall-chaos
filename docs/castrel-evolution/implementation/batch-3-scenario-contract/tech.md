@@ -74,14 +74,14 @@ Operator creates Fault Run
 | --- | --- | --- |
 | Catalog 与 Gateway 的关系 | Catalog 有 12 个场景；Gateway `OperationDispatchController.TARGETS` 有 10 个 target-backed operation；两种 surge operation 是本地 Worker bypass。 | 校验 target-backed operation 的 service/operation 一致性，并明确声明本地 Worker bypass。不能把“Gateway 找不到 operation”误判为所有场景错误。 |
 | Worker dispatch 分散 | 报表、surge、受控场景和 Runner 分别用硬编码条件筛选场景。 | 每个 owner 导出 descriptor；每个 Catalog 场景必须恰好匹配一个 owner。 |
-| `CART_CATALOG_DEPENDENCY` | 当前 `traffic-control-plane/src` 中没有该 ID 的运行 dispatch；`RunnerEngine` 仅选择 notification/PSP 相关 Run。 | 这是 `missingDispatch` 的真实基线。严格校验必须失败，直到补齐真实业务流量执行入口和其生命周期事件，不能用 `TARGET_ONLY` 占位。 |
+| `CART_CATALOG_DEPENDENCY` | P0-13 已在 `ScenarioWorkers` 中补齐该 ID 的 Gateway customer-session dispatch 和生命周期事件；真实请求/终态事件仍未运行核验。 | Contract 仍必须导出并校验唯一 dispatch owner、业务流量入口和 drain/summary capability；没有运行事实时继续保留 `UNKNOWN`/`INCOMPLETE`，不能用 `TARGET_ONLY` 占位。 |
 | runnable state | `listActiveFaultRuns()` 返回 `CREATING`、`ACTIVE`、`RECOVERING`；只有 `ScenarioWorkers` 额外限定 `ACTIVE`。 | 批次 1/2 前置修复：所有执行器必须只消费 `ACTIVE` Run。Contract descriptor 的 `requiresActiveState` 必须为真。 |
 | worker drain | `ScenarioWorkers` 已注册 coordinator drain；报表、surge 和 Runner 尚未对每个 Run 注册 drain。 | `WORKER` 或实际产生流量的 Contract 必须要求真实 drain registration、停止接收新请求和最终 drain 事件。缺失时为 `invalidRecoveryHook`。 |
 | recovery strategy | `FaultRunCoordinator.recover()` 当前总是 drain 后调用 adapter stop，未读取 `recoveryStrategy`。 | Contract 不能把现有字符串当作已执行事实。Phase 1/2 必须提供显式 recovery policy resolver 后，才可对所有场景开启严格检查。 |
 | manual cleanup | scenario-wide cleanup route 对所有允许清理的场景固定发送 `notification-storage`；per-run route 使用保存的 target operation。 | `CATALOG_REDIS_LARGE_VALUE` 目前会被错误路由。`MANUAL_CLEANUP`/`PER_RUN` capability 未修复前不得通过严格校验。 |
 | cleanup wire compatibility | Gateway cleanup 只发送 `runId`、`operation`、`fencingToken`，而 target cleanup handler 的上下文校验并不完全一致。 | Gateway registry test 和 target endpoint test 必须证明声明的 cleanup mode 与实际 wire contract 兼容。 |
 | evidence | runbook 有展示用 Tempo recipe，但没有 run-relative PromQL/LogQL/TraceQL、业务检查或 `evidence_unavailable` 声明。 | 所有场景必须增加结构化 evidence recipe；不可将 `now-1h to now` 的 UI 提示冒充阶段 4 Manifest。 |
-| alert delivery | Compose/Kubernetes 当前均为 generic receiver；配置 URL 尚无对应 intake route，且没有阶段 5 专用 child route/凭据来源。 | 每个场景必须有完整 alert declaration；当 delivery 为 `NOT_ENABLED_YET` 时静态 Contract 可通过，但 readiness 报告必须说明未可投递。 |
+| alert delivery | P0-13 已补齐内部 webhook route、service-key credentials file 和低基数 receipt；当前仍为 generic receiver，尚无阶段 5 专用 child route、告警关联和外部 Agent receiver。 | 每个场景必须有完整 alert declaration；当 delivery 为 `NOT_ENABLED_YET` 或尚未完成真实 receipt 时静态 Contract 可通过，但 readiness 报告必须说明未可投递/未核验。 |
 | Contract revision | `fault_runs`、`fault_run_events` 和 API record 中均没有 revision。 | 通过 nullable additive column 和既有 `CREATED` event 写入；不回填旧 Run。 |
 | 迁移 | `CREATE TABLE IF NOT EXISTS` 无法为既有 volume 加列；`infra/mysql/init` 只在新 volume 执行；当前没有通用 migration runner。 | 必须先交付显式、可审计的 control-plane migration 命令/Job，再依赖新列。不能通过重置数据库或启动时静默 `ALTER` 升级。 |
 

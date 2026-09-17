@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   FaultRunEventContractError,
+  normalizeBaselineCaptureEventPayload,
   normalizeFaultRunSummaryEventPayload,
 } from './fault-run-event-contract';
 
@@ -53,6 +54,41 @@ test('normalizes scenario worker summaries to bounded low-cardinality payloads',
   });
 });
 
+test('normalizes scenario worker start and request failure events without raw errors', () => {
+  assert.deepEqual(
+    normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_STARTED', {
+      concurrency: 2,
+      requestIntervalMs: 100,
+      scenario: 'CART_CATALOG_DEPENDENCY',
+    }),
+    {
+      schemaVersion: 1,
+      source: 'scenario-worker',
+      phase: 'worker',
+      status: 'STARTED',
+      concurrency: 2,
+      requestIntervalMs: 100,
+    },
+  );
+  assert.deepEqual(
+    normalizeFaultRunSummaryEventPayload('SCENARIO_REQUEST_FAILED', {
+      error: 'raw downstream response',
+      errorCode: 'raw-error',
+      timeout: true,
+      cacheResult: 'CACHE_BACKEND_ERROR',
+    }),
+    {
+      schemaVersion: 1,
+      source: 'scenario-worker',
+      phase: 'effect',
+      status: 'FAILED',
+      failureCode: 'WORKER_REQUEST_FAILED',
+      timeout: true,
+      cacheResult: 'CACHE_BACKEND_ERROR',
+    },
+  );
+});
+
 test('keeps runner result status while normalizing unknown error codes', () => {
   const payload = normalizeFaultRunSummaryEventPayload('RUNNER_LIFECYCLE_SUMMARY', {
     status: 'FAILED',
@@ -87,4 +123,32 @@ test('rejects unsupported summary events and preserves a strict payload bound', 
     reason: 'EXPIRED_OR_STOPPED',
     oversized: 'x'.repeat(100_000),
   }));
+});
+
+test('normalizes observation status and window fields without query details', () => {
+  assert.deepEqual(
+    normalizeBaselineCaptureEventPayload('BASELINE_OBSERVATION_CHECK_RECORDED', {
+      limitationCount: 2,
+      prometheusStatus: 'AVAILABLE',
+      lokiStatus: 'PARTIAL',
+      tempoStatus: 'UNKNOWN',
+      retentionStatus: 'CHECKED',
+      windowStart: '2026-09-16T10:00:00.000Z',
+      windowEnd: '2026-09-16T10:05:00.000Z',
+      query: 'raw query must not be copied',
+    }),
+    {
+      schemaVersion: 1,
+      source: 'coordinator',
+      phase: 'effect',
+      status: 'UNKNOWN',
+      limitationCount: 2,
+      prometheusStatus: 'AVAILABLE',
+      lokiStatus: 'PARTIAL',
+      tempoStatus: 'UNKNOWN',
+      retentionStatus: 'CHECKED',
+      windowStart: '2026-09-16T10:00:00.000Z',
+      windowEnd: '2026-09-16T10:05:00.000Z',
+    },
+  );
 });

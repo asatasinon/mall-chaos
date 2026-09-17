@@ -101,11 +101,14 @@ export class ControlledScenarioWorker {
 
   private async execute(): Promise<void> {
     try {
-      await this.eventWriter(this.run.faultRunId, 'SCENARIO_WORKER_STARTED', {
-        scenario: this.run.scenario,
-        concurrency: this.options.concurrency,
-        requestIntervalMs: this.options.requestIntervalMs,
-      });
+      await this.eventWriter(
+        this.run.faultRunId,
+        'SCENARIO_WORKER_STARTED',
+        normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_STARTED', {
+          concurrency: this.options.concurrency,
+          requestIntervalMs: this.options.requestIntervalMs,
+        }),
+      );
       while (!this.controller.signal.aborted && Date.now() < new Date(this.run.expiresAt).getTime()) {
         const batch = Array.from({ length: this.options.concurrency }, () => this.requestOnce());
         await Promise.all(batch);
@@ -140,12 +143,15 @@ export class ControlledScenarioWorker {
         const timeout = error instanceof ScenarioRequestTimeoutError;
         if (timeout) this.stats.timeouts++;
         if (error instanceof ScenarioRequestCacheError) this.stats.cacheResults[error.cacheResult]++;
-        await this.eventWriter(this.run.faultRunId, 'SCENARIO_REQUEST_FAILED', {
-          error: timeout ? 'SCENARIO_REQUEST_TIMEOUT' : error instanceof Error ? error.message : String(error),
-          errorCode: timeout ? 'SCENARIO_REQUEST_TIMEOUT' : 'SCENARIO_REQUEST_FAILED',
-          timeout,
-          ...(error instanceof ScenarioRequestCacheError ? { cacheResult: error.cacheResult } : {}),
-        }).catch(() => undefined);
+        await this.eventWriter(
+          this.run.faultRunId,
+          'SCENARIO_REQUEST_FAILED',
+          normalizeFaultRunSummaryEventPayload('SCENARIO_REQUEST_FAILED', {
+            failureCode: timeout ? 'WORKER_REQUEST_FAILED' : 'WORKER_REQUEST_FAILED',
+            timeout,
+            ...(error instanceof ScenarioRequestCacheError ? { cacheResult: error.cacheResult } : {}),
+          }),
+        ).catch(() => undefined);
       }
     } finally {
       this.stats.inFlight--;

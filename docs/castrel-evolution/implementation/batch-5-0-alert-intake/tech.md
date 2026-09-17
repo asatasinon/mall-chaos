@@ -12,7 +12,7 @@
 
 实现必须遵守以下结论：
 
-1. 现有 `POST /internal/alertmanager/webhook` 配置目标不是已实现能力：当前没有 Route Handler，且全局 middleware 会要求 Operator session。批次 5.0 必须同时补齐精确的 middleware 例外和 route 内机器认证。
+1. P0-13 已实现 `POST /internal/alertmanager/webhook` 的最小 Route Handler、精确 middleware 例外、`CASTREL_INTERNAL_SERVICE_KEY` 机器认证和低基数 receipt。批次 5.0 必须在该边界上扩展 grouped alert、关联和 Operator 读模型，不能重复创建第二个 intake route。
 2. Alertmanager 的一次通知可包含多个 `alerts[]` 项。每项必须独立规范化、去重和记录；顶层 `groupKey` 只能作为通知来源元数据，不能作为 incident 或根因身份。
 3. 告警实例的稳定业务身份是规范化的 `(fingerprint, startsAt)`。数据库唯一约束而非进程内 Map 承担重试幂等。
 4. `MATCHED`、`UNMATCHED`、`AMBIGUOUS` 和 `NOT_REQUIRED` 是关联事实，不是接收结果。没有唯一 Fault Run 上下文的 receipt 仍必须保留，供后续 Agent RCA 和 Evaluator 使用。
@@ -23,18 +23,18 @@
 
 | 事实 | 当前来源 | 本批次的处理 |
 | --- | --- | --- |
-| Alertmanager 内部 webhook URL | `infra/alertmanager/alertmanager.yml`、`k8s/infra/alertmanager.yaml` | 保持现有路径，补齐真正的接收实现与机器认证。 |
-| 全局认证 | `traffic-control-plane/src/middleware.ts` | 仅为精确路径 `/internal/alertmanager/webhook` 建立例外；绝不放开整个 `/internal/**`。 |
+| Alertmanager 内部 webhook URL | `infra/alertmanager/alertmanager.yml`、`k8s/infra/alertmanager.yaml` | 保持现有路径；P0-13 已接入 credentials-file 和真实 route，批次 5.0 在其上补齐完整接收域。 |
+| 全局认证 | `traffic-control-plane/src/middleware.ts`、`src/lib/alertmanager-webhook.ts` | 仅为精确路径 `/internal/alertmanager/webhook` 建立例外；route 使用 `CASTREL_INTERNAL_SERVICE_KEY`，绝不放开整个 `/internal/**`。 |
 | Fault Run 生命周期 | `fault_runs`、`fault_run_events`、`fault-run-repository.ts` | 只读加载候选、事件和时间线；不得调用 Coordinator、stop、release 或 cleanup。 |
 | Catalog | `src/lib/fault-run-catalog.ts` | 扩展受控的 alert contract；不在 receiver 或 route 中复制场景、服务、规则和时间窗口。 |
-| 告警配置编辑器 | `src/lib/alert-config.ts` | 现有编辑器会将 Basic Auth 明文写入 MySQL 和渲染 YAML；本批次不使用它管理内部机器凭据。 |
+| 告警配置编辑器 | `src/lib/alert-config.ts` | 现有编辑器会将 Basic Auth 明文写入 MySQL 和渲染 YAML；P0-13 的内部 receiver 使用 credentials-file，不使用该编辑器管理 service key。 |
 | 数据库模式 | `fault-run-schema.ts`、`infra/mysql/init/04-fault-run-schema.sql` | 使用运行时幂等建表加 fresh-install init SQL 的双轨方式。 |
 
 进入代码开发前，必须满足：
 
 - 阶段 3 的 `Scenario Alert Contract` 能为 pilot 候选给出允许的 alert name、service、severity、关联标签、关联窗口、`send_resolved` 策略和 contract revision。
 - 阶段 0 的 pilot review 证明候选告警可在专用非生产环境中真实 firing；不能以 Fault Run 已创建代替告警事实。
-- 已确定独立的 `ALERTMANAGER_INTAKE_*` 机器凭据，并以部署 Secret 管理，不复用 Operator session secret、`CASTREL_INTERNAL_SERVICE_KEY`、JWT 或业务服务凭据。
+- P0-13 的内部接收边界使用 `CASTREL_INTERNAL_SERVICE_KEY`，由 Compose tmpfs/Kubernetes Secret 通过 credentials-file 注入；不得复用 Operator session secret、JWT 或业务服务凭据。若阶段 5 未来拆分专用 intake credential，必须同步更新部署和回退设计。
 
 如果任一门槛未满足，`ALERT_INTAKE_ENABLED` 必须保持 `false`，Alertmanager receiver 也不得指向新 handler。
 
@@ -46,7 +46,7 @@ Prometheus
        -> control-plane-alert-intake receiver
             -> POST traffic-control-plane:3086/internal/alertmanager/webhook
                  -> 精确 middleware 例外
-                 -> route 内 Basic Auth / 固定时间比较
+                 -> route 内 service-key / 固定时间比较
                  -> AlertIntakeService
                       -> alert receipts / incident / correlation
                       -> Operator 只读查询
@@ -59,7 +59,7 @@ Catalog Alert Contract --只读匹配规则----^
 
 | 边界 | 允许的调用方 | 认证与约束 | 明确禁止 |
 | --- | --- | --- | --- |
-| Alertmanager intake route | Alertmanager Pod/container | 专用机器 Basic Auth、内部网络与 NetworkPolicy/网络隔离 | Operator cookie 作为服务凭据、匿名访问、外部 Agent 调用。 |
+| Alertmanager intake route | Alertmanager Pod/container | `CASTREL_INTERNAL_SERVICE_KEY` Bearer/header、内部网络与 NetworkPolicy/网络隔离 | Operator cookie 作为服务凭据、匿名访问、外部 Agent 调用。 |
 | Fault Run correlation | 控制面进程 | 仅读取既有 Repository 和 Catalog 合同 | 调用 Coordinator、修改 Fault Run、猜测最近运行。 |
 | Operator receipt 查询 | 已登录 Operator | 既有 session、CSRF 规则和审计 | 从 consumer path 或 Agent endpoint 返回内部关联。 |
 | 数据库存储 | 控制面 Web/Worker | MySQL 参数化 SQL、事务和最小字段 | 保存原始观测数据、凭据、完整 webhook payload。 |
@@ -69,6 +69,10 @@ Compose 的 `traffic-control-plane` 目前发布了宿主机端口 `13086`，因
 ## 4. 模块边界
 
 建议新增以下控制面模块，全部位于 `traffic-control-plane`：
+
+P0-13 已先提供 `alertmanager-webhook.ts`、`alert-receipt.ts` 和对应 route/migration，
+负责 bounded parser、service-key 认证和最小 receipt。批次 5.0 应复用这些边界并扩展
+group/incident/correlation 能力，不覆盖或复制已有的最小安全投影。
 
 | 模块 | 职责 |
 | --- | --- |

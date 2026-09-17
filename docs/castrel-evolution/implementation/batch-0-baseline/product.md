@@ -39,6 +39,7 @@
 - 提供 Operator 数据预热配置面板：启停、窗口天数、每日行数、目标行数、批大小、批间隔和并发上限均保存到数据库；窗口天数 × 每日行数必须等于目标行数。
 - 配置更新要求版本匹配、Operator session、CSRF 和审计；会改变数据窗口或写入规模的更新必须二次确认，并由 Worker 按租约逐步执行。
 - 核对 Alertmanager 当前 webhook 接收端点、`send_resolved`、pilot alert 和外部 receiver 前置条件。
+- 控制面内部 webhook 使用 `CASTREL_INTERNAL_SERVICE_KEY` 机器认证，仅保存 firing/resolved 的低基数 receipt；真实投递仍须在获批环境核验。
 - 为阶段 5 选择候选场景，并记录不选择其他场景的原因。
 
 ### 3.2 不包含
@@ -105,6 +106,7 @@ knownLimitations / residualResources / rollbackProcedure
 - 每份基线都能定位运行的关键时间窗口和失败类别。
 - Operator 可以根据记录判断是继续等待、执行回退、人工清理还是停止后续动作。
 - 配置文件中的 Alertmanager webhook URL 不会被误认为接收能力已实现。
+- 控制面 route、机器认证和 receipt schema 已具备代码边界，但未把静态配置或纯测试升级为真实 Alertmanager 投递证据。
 - 至少确定一个真实告警稳定、证据清晰、remediation 边界明确的阶段 5 pilot。
 - 基线采集旁路运行时行为，不改变场景结果。
 

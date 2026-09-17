@@ -68,6 +68,7 @@ export interface AlertRoute {
 
 const DEFAULT_RECEIVER = 'default-receiver';
 const INTERNAL_WEBHOOK = 'http://traffic-control-plane:3086/internal/alertmanager/webhook';
+const INTERNAL_WEBHOOK_CREDENTIALS_FILE = '/etc/alertmanager-secret/internal-service-key';
 export type AlertSourceKind = 'prometheus-rules' | 'alertmanager';
 
 async function ensureTables(): Promise<void> {
@@ -398,10 +399,44 @@ function toPrometheusConfig(config: AlertConfig) {
 }
 
 function toAlertmanagerConfig(config: AlertConfig) {
-  const receivers = config.receivers.filter((item) => item.enabled).map((item) => ({ name: item.receiverName, webhook_configs: [{ url: item.endpoint, send_resolved: item.sendResolved, ...(item.basicAuthUsername && item.basicAuthPassword ? { http_config: { basic_auth: { username: item.basicAuthUsername, password: item.basicAuthPassword } } } : {}) }] }));
+  const receivers = config.receivers.filter((item) => item.enabled).map((item) => ({
+    name: item.receiverName,
+    webhook_configs: [{
+      url: item.endpoint,
+      send_resolved: item.sendResolved,
+      ...(item.endpoint === INTERNAL_WEBHOOK
+        ? {
+          http_config: {
+            authorization: {
+              type: 'Bearer',
+              credentials_file: INTERNAL_WEBHOOK_CREDENTIALS_FILE,
+            },
+          },
+        }
+        : item.basicAuthUsername && item.basicAuthPassword
+          ? { http_config: { basic_auth: { username: item.basicAuthUsername, password: item.basicAuthPassword } } }
+          : {}),
+    }],
+  }));
   const fallback = config.route.receiver || receivers[0]?.name || DEFAULT_RECEIVER;
   const routes = config.route.routes.map((route) => ({ receiver: route.receiver, match: route.match, ...(route.groupBy?.length ? { group_by: route.groupBy } : {}), ...(route.groupWait ? { group_wait: route.groupWait } : {}), ...(route.groupInterval ? { group_interval: route.groupInterval } : {}), ...(route.repeatInterval ? { repeat_interval: route.repeatInterval } : {}), continue: route.continue }));
-  return { global: { resolve_timeout: '5m' }, route: { receiver: fallback, group_by: config.route.groupBy, group_wait: config.route.groupWait, group_interval: config.route.groupInterval, repeat_interval: config.route.repeatInterval, routes }, receivers: receivers.length ? receivers : [{ name: DEFAULT_RECEIVER, webhook_configs: [{ url: INTERNAL_WEBHOOK, send_resolved: true }] }] };
+  return {
+    global: { resolve_timeout: '5m' },
+    route: { receiver: fallback, group_by: config.route.groupBy, group_wait: config.route.groupWait, group_interval: config.route.groupInterval, repeat_interval: config.route.repeatInterval, routes },
+    receivers: receivers.length ? receivers : [{
+      name: DEFAULT_RECEIVER,
+      webhook_configs: [{
+        url: INTERNAL_WEBHOOK,
+        send_resolved: true,
+        http_config: {
+          authorization: {
+            type: 'Bearer',
+            credentials_file: INTERNAL_WEBHOOK_CREDENTIALS_FILE,
+          },
+        },
+      }],
+    }],
+  };
 }
 
 function toRule(row: JsonRecord): AlertRule {

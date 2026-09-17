@@ -465,6 +465,7 @@ function isScenarioWorkerScenario(scenario: FaultRunScenario): boolean {
     'PROMOTION_LOCK_CONTENTION',
     'INVENTORY_TABLE_EXCLUSIVE',
     'INVENTORY_ROW_LOCK',
+    'CART_CATALOG_DEPENDENCY',
   ].includes(scenario);
 }
 

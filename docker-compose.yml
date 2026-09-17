@@ -119,20 +119,24 @@ services:
       - ./data/prometheus:/prometheus
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - 'mkdir -p /etc/prometheus/rules && if [ ! -f /etc/prometheus/rules/alert-rules.yml ]; then cp /etc/prometheus/source-rules/alert-rules.yml /etc/prometheus/rules/alert-rules.yml; fi && exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --web.enable-lifecycle --web.enable-remote-write-receiver --storage.tsdb.retention.time=7d'
+      - 'mkdir -p /etc/prometheus/rules && if [ ! -f /etc/prometheus/rules/alert-rules.yml ]; then cp /etc/prometheus/source-rules/alert-rules.yml /etc/prometheus/rules/alert-rules.yml; fi && exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --web.enable-lifecycle --web.enable-remote-write-receiver --storage.tsdb.retention.time=168h'
 
   alertmanager:
     image: ${ALERTMANAGER_IMAGE:-harbor.cloudwise.com/noname/alertmanager:v0.28.1}
     container_name: castrel-alertmanager
     <<: *service-defaults
     user: "${ALERTMANAGER_UID:-0}:${ALERTMANAGER_GID:-0}"
+    environment:
+      CASTREL_INTERNAL_SERVICE_KEY: ${CASTREL_INTERNAL_SERVICE_KEY:?CASTREL_INTERNAL_SERVICE_KEY must be set}
     volumes:
       - ./data/alertmanager-config:/etc/alertmanager
       - ./infra/alertmanager:/etc/alertmanager-source:ro
       - ./data/alertmanager:/alertmanager
+    tmpfs:
+      - /etc/alertmanager-secret
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - 'mkdir -p /etc/alertmanager && if [ ! -f /etc/alertmanager/alertmanager.yml ]; then cp /etc/alertmanager-source/alertmanager.yml /etc/alertmanager/alertmanager.yml; fi && exec /bin/alertmanager --config.file=/etc/alertmanager/alertmanager.yml --storage.path=/alertmanager --web.listen-address=:9093 --log.level=info'
+      - 'mkdir -p /etc/alertmanager /etc/alertmanager-secret && umask 077 && printf "%s" "$$CASTREL_INTERNAL_SERVICE_KEY" > /etc/alertmanager-secret/internal-service-key && if [ ! -f /etc/alertmanager/alertmanager.yml ]; then cp /etc/alertmanager-source/alertmanager.yml /etc/alertmanager/alertmanager.yml; fi && exec /bin/alertmanager --config.file=/etc/alertmanager/alertmanager.yml --storage.path=/alertmanager --web.listen-address=:9093 --log.level=info'
     depends_on:
       - prometheus
 
@@ -408,9 +412,10 @@ services:
       RISK_SERVICE_URL: http://risk-service:8088
       PROMOTION_SERVICE_URL: http://promotion-service:8087
       NOTIFICATION_SERVICE_URL: http://notification-service:8090
+      # Local JVM tuning only; these values are not a performance baseline.
       JAVA_TOOL_OPTIONS: >-
-        -Xms512m
-        -Xmx1024m
+        -Xms${ORDER_JAVA_XMS:-512m}
+        -Xmx${ORDER_JAVA_XMX:-1024m}
         -Duser.timezone=Asia/Shanghai
         -Dfile.encoding=UTF-8
         -Dsun.jnu.encoding=UTF-8
@@ -510,7 +515,7 @@ services:
       CONTROL_PLANE_SESSION_SECRET: ${CONTROL_PLANE_SESSION_SECRET:-${CASTREL_JWT_SECRET:?CONTROL_PLANE_SESSION_SECRET or CASTREL_JWT_SECRET must be set}}
       CONTROL_PLANE_COOKIE_SECURE: ${CONTROL_PLANE_COOKIE_SECURE:-false}
       OPERATOR_ID: ${OPERATOR_ID:-3}
-      CASTREL_RELEASE_REVISION: ${CASTREL_RELEASE_REVISION:-UNKNOWN}
+      CASTREL_RELEASE_REVISION: ${CASTREL_RELEASE_REVISION:-1.4.0}
       CASTREL_DEPLOYMENT_MODE: ${CASTREL_DEPLOYMENT_MODE:-compose}
       BASELINE_CAPTURE_ENABLED: ${BASELINE_CAPTURE_ENABLED:-false}
       BASELINE_OBSERVATION_CHECK_TIMEOUT_MS: ${BASELINE_OBSERVATION_CHECK_TIMEOUT_MS:-5000}
@@ -583,7 +588,7 @@ services:
       CONTROL_PLANE_SESSION_SECRET: ${CONTROL_PLANE_SESSION_SECRET:-${CASTREL_JWT_SECRET:?CONTROL_PLANE_SESSION_SECRET or CASTREL_JWT_SECRET must be set}}
       CONTROL_PLANE_COOKIE_SECURE: ${CONTROL_PLANE_COOKIE_SECURE:-false}
       OPERATOR_ID: ${OPERATOR_ID:-3}
-      CASTREL_RELEASE_REVISION: ${CASTREL_RELEASE_REVISION:-UNKNOWN}
+      CASTREL_RELEASE_REVISION: ${CASTREL_RELEASE_REVISION:-1.4.0}
       CASTREL_DEPLOYMENT_MODE: ${CASTREL_DEPLOYMENT_MODE:-compose}
       BASELINE_CAPTURE_ENABLED: ${BASELINE_CAPTURE_ENABLED:-false}
       BASELINE_OBSERVATION_CHECK_TIMEOUT_MS: ${BASELINE_OBSERVATION_CHECK_TIMEOUT_MS:-5000}

@@ -23,14 +23,16 @@ const FAILURE_CODES = new Set([
 const SUMMARY_EVENT_META: Record<string, {
   source: 'report-worker' | 'scenario-worker' | 'runner';
   phase: 'effect' | 'worker' | 'recovery';
-  status: 'COMPLETED' | 'FAILED' | 'DRAINED';
+  status: 'STARTED' | 'COMPLETED' | 'FAILED' | 'DRAINED';
 }> = {
   REPORT_WORKER_STOPPED: { source: 'report-worker', phase: 'worker', status: 'COMPLETED' },
+  SCENARIO_WORKER_STARTED: { source: 'scenario-worker', phase: 'worker', status: 'STARTED' },
   SCENARIO_WORKER_STOPPED: { source: 'scenario-worker', phase: 'worker', status: 'COMPLETED' },
   SCENARIO_WORKER_DRAINED: { source: 'scenario-worker', phase: 'recovery', status: 'DRAINED' },
   RUNNER_LIFECYCLE_SUMMARY: { source: 'runner', phase: 'effect', status: 'COMPLETED' },
   SCENARIO_WORKER_SETUP_FAILED: { source: 'scenario-worker', phase: 'worker', status: 'FAILED' },
   REPORT_WORKER_SETUP_FAILED: { source: 'report-worker', phase: 'worker', status: 'FAILED' },
+  SCENARIO_REQUEST_FAILED: { source: 'scenario-worker', phase: 'effect', status: 'FAILED' },
 };
 
 const CAPTURE_EVENT_META: Record<string, {
@@ -72,6 +74,9 @@ export function normalizeFaultRunSummaryEventPayload(
     copyCounter(source, normalized, 'failures');
     copyLatency(source, normalized, 'averageLatencyMs');
     copyStableText(source, normalized, 'reason', 'EXPIRED_OR_STOPPED');
+  } else if (eventType === 'SCENARIO_WORKER_STARTED') {
+    copyCounter(source, normalized, 'concurrency');
+    copyCounter(source, normalized, 'requestIntervalMs');
   } else if (eventType === 'SCENARIO_WORKER_STOPPED' || eventType === 'SCENARIO_WORKER_DRAINED') {
     copyCounter(source, normalized, 'requests');
     copyCounter(source, normalized, 'successes');
@@ -85,6 +90,12 @@ export function normalizeFaultRunSummaryEventPayload(
     copyStableText(source, normalized, 'stopReason', 'UNKNOWN');
     const cacheResults = normalizeCacheResults(source.cacheResults);
     if (cacheResults) normalized.cacheResults = cacheResults;
+  } else if (eventType === 'SCENARIO_REQUEST_FAILED') {
+    const failureCode = normalizeFailureCode(source.failureCode ?? source.errorCode);
+    normalized.failureCode = failureCode ?? 'WORKER_REQUEST_FAILED';
+    if (typeof source.timeout === 'boolean') normalized.timeout = source.timeout;
+    const cacheResult = normalizeCacheResult(source.cacheResult);
+    if (cacheResult) normalized.cacheResult = cacheResult;
   } else if (eventType === 'RUNNER_LIFECYCLE_SUMMARY') {
     const resultStatus = normalizeResultStatus(source.resultStatus ?? source.status);
     normalized.resultStatus = resultStatus;
@@ -127,6 +138,12 @@ export function normalizeBaselineCaptureEventPayload(
   if (typeof source.requestSummaryAvailable === 'boolean') {
     normalized.requestSummaryAvailable = source.requestSummaryAvailable;
   }
+  copyObservationStatus(source, normalized, 'prometheusStatus');
+  copyObservationStatus(source, normalized, 'lokiStatus');
+  copyObservationStatus(source, normalized, 'tempoStatus');
+  copyRetentionStatus(source, normalized, 'retentionStatus');
+  copyTimestamp(source, normalized, 'windowStart');
+  copyTimestamp(source, normalized, 'windowEnd');
   const failureCode = normalizeFailureCode(source.failureCode);
   if (failureCode) normalized.failureCode = failureCode;
   assertPayloadSize(normalized);
@@ -163,6 +180,41 @@ function copyStableText(
     ? value : fallback;
 }
 
+function copyObservationStatus(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+  key: string,
+): void {
+  const value = source[key];
+  if (value === 'AVAILABLE' || value === 'PARTIAL' || value === 'UNAVAILABLE' || value === 'UNKNOWN') {
+    target[key] = value;
+  }
+}
+
+function copyRetentionStatus(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+  key: string,
+): void {
+  const value = source[key];
+  if (value === 'CHECKED' || value === 'PARTIAL' || value === 'UNAVAILABLE' || value === 'UNKNOWN') {
+    target[key] = value;
+  }
+}
+
+function copyTimestamp(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+  key: string,
+): void {
+  const value = source[key];
+  if (typeof value === 'string'
+      && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)
+      && !Number.isNaN(Date.parse(value))) {
+    target[key] = value;
+  }
+}
+
 function normalizeCacheResults(value: unknown): Record<string, number> | null {
   const source = asRecord(value);
   const keys = [
@@ -179,6 +231,16 @@ function normalizeCacheResults(value: unknown): Record<string, number> | null {
     result[key] = count;
   }
   return result;
+}
+
+function normalizeCacheResult(value: unknown): string | null {
+  return typeof value === 'string' && [
+    'CACHE_HIT',
+    'CACHE_MISS_DB_FALLBACK',
+    'CACHE_INVALID_FALLBACK',
+    'CACHE_BACKEND_ERROR',
+    'CACHE_UNKNOWN',
+  ].includes(value) ? value : null;
 }
 
 function assertPayloadSize(value: Record<string, unknown>): void {

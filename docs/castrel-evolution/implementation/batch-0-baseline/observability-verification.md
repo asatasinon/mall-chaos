@@ -4,6 +4,17 @@
 >
 > 本记录只保存配置摘要、状态、查询引用和限制，不保存 Prometheus/Loki/Tempo 查询结果、告警 envelope、日志、trace、凭据或 Basic Auth 密码。
 
+## 后续代码/配置修订说明（2026-09-17）
+
+下方运行时表格和结论保留 2026-09-16 的历史快照，不回写为不存在的运行时证据。其后 P0-13 已完成以下代码/配置修订：
+
+- Prometheus Compose/Kubernetes retention 目标统一为 `168h`；本文件下方旧表中的 `7d` 仅代表当时的已加载配置。
+- 控制面已新增精确的 `POST /internal/alertmanager/webhook` route，使用 `CASTREL_INTERNAL_SERVICE_KEY` 机器认证，并将 firing/resolved 告警保存为受控低基数 `alert_receipts`；未执行真实 Alertmanager 投递，因此没有 receipt 运行证据。
+- Compose/Kubernetes Alertmanager receiver 已配置 credentials-file 认证；配置语法已通过静态校验，但不能替代真实投递、重复投递和数据库读回核验。
+- Kubernetes Loki 已新增包含 retention 的 ConfigMap 和 `/etc/loki/local-config.yaml` 挂载，并保留 `emptyDir`；Kubernetes runtime 仍未部署或查询。
+
+因此，当前实现边界是“代码和静态配置已具备，真实 receipt、Kubernetes runtime 和场景 firing 仍待获批运行核验”。
+
 ## 核验范围与方法
 
 - Compose 只启动 `prometheus`、`alertmanager`、`loki`、`tempo` 和 `obs-auth-proxy`；没有启动 Web、Worker、业务服务，没有创建 Fault Run，也没有执行 Data Warmup 写入。
@@ -23,18 +34,18 @@
 
 Alertmanager 在运行容器内通过 `amtool check-config` 校验成功，包含 3 个 receiver、0 个 inhibit rule 和 0 个 template。
 
-## Compose 运行时核验
+## Compose 运行时核验（2026-09-16 历史快照）
 
 | 系统 | declared | observed | status | 查询引用与限制 |
 | --- | --- | --- | --- | --- |
 | Prometheus | `--storage.tsdb.retention.time=7d` | `/api/v1/status/runtimeinfo` 返回 `storageRetention=1w`，与声明为同一周级窗口 | `AVAILABLE` | `/-/ready` 为 HTTP 200；`/api/v1/query_range` 在 5 分钟窗口执行成功；未保存结果 |
 | Loki | `limits_config.retention_period=168h`、`compactor.retention_enabled=true` | `/config` 的 limits retention 为 `1w` 且 retention enabled；有效配置还暴露 legacy `table_manager.retention_period=0s`，未将其解释为当前 limits retention | `AVAILABLE` | 初次启动 settling 期间 `/ready` 为 503，稳定后为 HTTP 200；`/loki/api/v1/query_range` 在 5 分钟窗口执行成功；未保存结果 |
 | Tempo | `compactor.compaction.block_retention=168h` | `/status/config` 的 compactor retention 为 `168h0m0s`；同一 effective config 还暴露 backend scheduler provider 的 `block_retention=336h0m0s`，两者语义不能在本批次擅自合并 | `AVAILABLE_WITH_LIMITATION` | 稳定后 `/ready` 为 HTTP 200；`/api/search` 在 5 分钟窗口返回有效 JSON；未保存 trace 或 search result；后续必须明确两个 retention 字段的实际适用范围 |
-| Alertmanager | `resolve_timeout=5m`；default/critical/warning 三个 receiver 均 `send_resolved=true` | `/api/v2/status` 为 ready；运行版本 `0.28.1`；active config 校验成功；3 个 receiver 均仍指向控制面内部 webhook | `AVAILABLE_WITH_LIMITATION` | `/-/ready` 为 HTTP 200；`/api/v2/alerts` 可读；没有外部 receiver，也没有 `http_config` 机器认证配置；控制面未启动且当前 checkout 不存在对应 route，因此 webhook 投递能力为 `UNAVAILABLE` |
+| Alertmanager | `resolve_timeout=5m`；default/critical/warning 三个 receiver 均 `send_resolved=true` | `/api/v2/status` 为 ready；运行版本 `0.28.1`；active config 校验成功；3 个 receiver 均仍指向控制面内部 webhook | `AVAILABLE_WITH_LIMITATION` | `/-/ready` 为 HTTP 200；`/api/v2/alerts` 可读；历史快照没有外部 receiver 或 `http_config` 机器认证配置；控制面未启动且当时 checkout 不存在对应 route，因此当时 webhook 投递能力为 `UNAVAILABLE` |
 
 Compose 的观测 HTTP API 通过 Nginx Basic Auth 暴露。首次使用旧文档中的开发凭据探针返回 HTTP 401；当前部署凭据只从 `infra/nginx/.htpasswd` 读取并且没有写入本记录，维护文档已改为引用该文件作为唯一来源。
 
-## Alertmanager route 接入结论
+## Alertmanager route 接入结论（2026-09-16 历史快照）
 
 当前 Compose 和 Kubernetes 配置都声明以下内部目标：
 
@@ -42,9 +53,9 @@ Compose 的观测 HTTP API 通过 Nginx Basic Auth 暴露。首次使用旧文�
 http://traffic-control-plane:3086/internal/alertmanager/webhook
 ```
 
-但在当前 checkout 的 `traffic-control-plane/src/app` 下没有对应 route；同时 Alertmanager receiver 没有配置独立的机器认证。配置文件有效、`send_resolved` 正确和 Alertmanager API 可用，都不能证明控制面能够接收 webhook。该能力继续阻塞阶段 5 pilot，不在 Phase 0 伪造接收成功。
+但在该历史快照的 `traffic-control-plane/src/app` 下没有对应 route；同时 Alertmanager receiver 没有配置独立的机器认证。配置文件有效、`send_resolved` 正确和 Alertmanager API 可用，都不能证明控制面能够接收 webhook。该历史结论已由 P0-13 的代码/配置修订部分解决，但真实投递和 receipt 仍不能在 Phase 0 伪造成功。
 
-## Kubernetes 声明核验
+## Kubernetes 声明核验（2026-09-16 历史快照）
 
 | 系统 | 声明事实 | 当前结论 |
 | --- | --- | --- |
@@ -67,6 +78,6 @@ Kubernetes 清单 revision：
 ## Pilot 影响
 
 - Compose Prometheus、Loki、Tempo 和 Alertmanager 的只读 API 已在短窗口内可用，但 Tempo retention 语义仍需拆解。
-- Alertmanager webhook 接收 route、机器认证和实际投递没有事实证据；不能把任何候选标记为 `SELECTED`。
+- Alertmanager 真实投递和 receipt 没有事实证据；不能把任何候选标记为 `SELECTED`。
 - Kubernetes runtime、Loki retention、持久化和观测认证未核验；这些事实不能从 Compose 借用。
 - P0-10 必须保持零个 `SELECTED`，直到 route、认证、retention 和告警实际 receipt 均有独立证据。

@@ -6,8 +6,9 @@ export async function middleware(request: NextRequest) {
   const isInternalRequest = pathname.startsWith('/internal/');
   const isLoginRequest = pathname === '/login';
   const isSessionRequest = pathname === '/api/operator/session';
+  const isAlertmanagerWebhook = pathname === '/internal/alertmanager/webhook';
 
-  if (isLoginRequest || isSessionRequest) {
+  if (isLoginRequest || isSessionRequest || isAlertmanagerWebhook) {
     return NextResponse.next();
   }
 

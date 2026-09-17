@@ -91,14 +91,14 @@ sequenceDiagram
 | 总时限 | 当前 coordinator 等待 drain 和 target stop 时没有总 deadline。 | 停止请求生成绝对 drain/recovery deadline；每次等待都受剩余时限约束。 |
 | recovery strategy | 当前 `recover()` 无条件调用 `targetAdapter.stop()`。 | 使用集中且可测试的 Catalog policy resolver；`WORKER` 是否 release 由每个 Catalog 定义显式声明，`NON_RELEASING` 严格禁止 release。 |
 | active 查询 | `listActiveFaultRuns()` 返回 `CREATING`、`ACTIVE`、`RECOVERING`。Report、Traffic Surge 和 Runner 使用它或 `loadActiveFaultRun()`，可能在恢复中继续发起工作。 | 新增 `listRunnableFaultRuns()` / `loadRunnableFaultRun()`，语义固定为 `state === 'ACTIVE'`；所有实际产生效果的 scanner 使用它。 |
-| 受控场景 Worker | `ScenarioWorkers` 已只筛选 `ACTIVE`，并注册一个 `ControlledScenarioWorker.stop()` drain；`ControlledScenarioWorker` 已向 Gateway 传播 `AbortSignal`。 | 将现有能力接到统一 registry，增加绝对 deadline、未合作请求超时和迟到完成事件。 |
+| 受控场景 Worker | `ScenarioWorkers` 已只筛选 `ACTIVE`，并注册一个 `ControlledScenarioWorker.stop()` drain；`ControlledScenarioWorker` 已向 Gateway 传播 `AbortSignal`。P0-13 还补齐了 CART 的 Gateway customer-session dispatch 和 lifecycle/drain 事件代码路径，但尚未做真实运行核验。 | 将现有能力接到统一 registry，增加绝对 deadline、未合作请求超时和迟到完成事件；CART 仍必须以运行时事件证明实际排空。 |
 | Report Worker | 逐秒循环、无 Run-specific abort controller，`setTimeout` 等待不可取消；结束汇总缺少 `timeouts`、`inFlight` 和明确 stop reason。 | 增加 Run gate、abortable interval、in-flight tracker、超时摘要和 drain 注册。 |
 | Traffic Surge | 使用可取消的 `ControlledScenarioWorker`，但扫描 `listActiveFaultRuns()` 且未向 coordinator 注册 drain。 | 仅从 runnable 查询启动，注册 drain，并让 registry 控制启动与停止竞态。 |
 | Runner Engine | 对 notification/PSP 受控分支使用 `loadActiveFaultRun()`；一个 lifecycle controller 同时服务整个 customer lifecycle，且没有 Run drain 注册。 | 仅在 `ACTIVE` 时绑定 fault context；为受控 lifecycle 注册单 Run drain，不能因停止一个 Run 调用全局 `engine.stop()`。 |
 | 重启处理 | Worker 启动时 `scheduleActiveRuns()` 会对 `RECOVERING` 调用 stop，且 coordinator timer 也可能在 Web/API 进程创建。 | timer 仅作为 Worker 加速器；数据库状态为事实，Web 不再排期或恢复。 |
 | 人工 cleanup | per-run cleanup 只允许 `RECOVERED`/`STOPPED`；scenario-wide 路由固定发送 `notification-storage`，不能作为所有允许 cleanup 场景的通用路由。 | `MANUAL_CLEANUP` 必须在显式 recovery phase 中才可执行；scenario-wide cleanup 限定 storage 场景，其他场景只走兼容的 per-run operation。 |
 
-`CART_CATALOG_DEPENDENCY` 当前有 Catalog/target 定义，但没有可确认的受控执行 dispatch。Phase 1 不得为它伪造 drain 或用 `TARGET_ONLY` 描述掩盖该缺口：在目标 release 之外的真实流量 owner 必须在进入批次 3 严格 Contract gate 前补齐，或由产品和 Catalog 的一次正式变更移出可运行范围。
+`CART_CATALOG_DEPENDENCY` 已由 P0-13 补齐 Scenario Worker 的受控执行 dispatch 和生命周期代码路径，但尚无真实运行事件可确认请求或 drain。Phase 1 不得为它伪造 drain 或用 `TARGET_ONLY` 描述掩盖运行证据缺口：必须在进入批次 3 严格 Contract gate 前完成运行核验。
 
 ## 4. 总体架构与模块边界
 
@@ -358,7 +358,7 @@ recoveryDeadlineAt = requestedAt + FAULT_RUN_RECOVERY_TIMEOUT_MS
 | `TrafficSurgeExecutor` | `BROWSE_SURGE`、`ORDER_QUERY_SURGE` | 复用 `ControlledScenarioWorker`，但只在获取 permit 后启动；注册 drain，停止调用已有可取消 `worker.stop()`。 | 其他 surge Run、普通浏览/订单流量。 |
 | `ScenarioWorkers` | cache、promotion、inventory 三类受控 Run | 把已有 `registerRunDrain` 适配为 registry participant；保留 `ControlledScenarioWorker` 的真实 AbortSignal 请求，补齐 deadline/迟到完成摘要。 | 不相关的 target 或 Worker。 |
 | `RunnerEngine` 受控分支 | `NOTIFICATION_HEAP_PRESSURE`、`NOTIFICATION_STORAGE_APPEND`、`PSP_PROVIDER_OUTCOME` | 仅当 `loadRunnableFaultRun()` 返回该 Run 时，注册当前 lifecycle 的 participant；将 Run signal 合并到现有 lifecycle signal。下一次 tick 继续正常运行，但不再绑定被停止 Run。 | `RunnerEngine` 全局 stop、普通客户生命周期、补给、预热。 |
-| `CART_CATALOG_DEPENDENCY` | 当前无已确认 dispatch | 不声明虚假的 registry participant；target policy 只能记录 `NOT_APPLICABLE`，并保留 dispatch 缺口。 | 不通过 dummy 请求制造“已排空”证据。 |
+| `CART_CATALOG_DEPENDENCY` | 代码 dispatch 已存在，真实运行 dispatch/drain 尚未确认 | 不声明虚假的 registry participant；target policy 只能记录 `NOT_APPLICABLE`，并保留运行证据缺口。 | 不通过 dummy 请求制造“已排空”证据。 |
 
 Report Worker 的每秒间隔必须改为可取消等待；现有 `new Promise(resolve => setTimeout(resolve, 1000))` 会让停止边界至少滞后一轮且不能记录取消。Traffic Surge 和 Scenario Worker 现有 `ControlledScenarioWorker.stop()` 已有可取消请求基础，但必须从“无 deadline 地等到 promise 完成”改为“在 registry deadline 前等待并保留未结束参与者”。
 
@@ -634,7 +634,7 @@ typed projection + unit fixtures
 | 7 | manual cleanup、non-releasing policy、UI/i18n | 2、3、5、6 | Operator 能区分自动完成、人工 cleanup、残留和部分恢复。 |
 | 8 | 配置、Compose/Kubernetes、README、环境演练 | 1～7 | 单 Worker opt-in canary 和回退步骤已实际核验。 |
 
-`CART_CATALOG_DEPENDENCY` 的真实 dispatch 缺口作为独立阻断项追踪，不能在步骤 5 中以空 registry participant 闭合。批次 2 可以消费本批次已稳定的 `RECOVERING`/drain 投影，但不能直接复用 registry 作为 owner lease。
+`CART_CATALOG_DEPENDENCY` 的真实 dispatch/drain 运行证据缺口作为独立阻断项追踪，不能在步骤 5 中以空 registry participant 闭合。批次 2 可以消费本批次已稳定的 `RECOVERING`/drain 投影，但不能直接复用 registry 作为 owner lease。
 
 ## 13. 验收与退出条件
 
@@ -647,6 +647,6 @@ typed projection + unit fixtures
 5. `RECOVERED`/`STOPPED` 只在策略所需步骤和真实验证完成后写入。safe-runtime.v1 的超时、人工 cleanup、残留、部分恢复或服务不可用始终保留可解释的 `RECOVERING` 边界，不能通过现有 `SERVICE_UNAVAILABLE` 提前解除 active-run guard。
 6. Worker 重启、优雅关闭和取消不会把 `RECOVERING` Run 重新变成 `ACTIVE` 或再次发起效果请求；单 Run 停止不影响独立后台生命周期。
 7. 单 Worker canary 已完成手工停止、到期、timeout、target 不可用、Worker 重启和人工 cleanup 演练，且 Operator 时间线、错误 envelope、日志和 UI 没有泄露 raw stack、session、secret 或控制面上下文到消费者路径。
-8. `CART_CATALOG_DEPENDENCY` 的真实 dispatch 缺口已被明确处理或列为阻断，不作为“已安全排空”的虚假通过项。
+8. `CART_CATALOG_DEPENDENCY` 的代码 dispatch 已被补齐，但真实 dispatch/drain 仍须明确处理或列为阻断，不作为“已安全排空”的虚假通过项。
 
 满足这些退出条件后，批次 2 才能在已可靠的单 Run 停止边界上增加 owner lease、heartbeat、fencing 和重协调，而不是把多 Worker 接管建立在不确定的 in-flight 请求之上。

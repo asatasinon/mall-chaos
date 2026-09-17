@@ -5,6 +5,7 @@ import type { ScenarioBaseline } from './baseline-schema';
 import type { FaultRunEventRecord, FaultRunRecord } from './fault-run-repository';
 import { captureScenarioBaseline } from './baseline-capture';
 import type { BaselineRepository } from './baseline-repository';
+import { ObservationExecutor } from './observation-executor';
 
 const sourceFaultRunId = '123e4567-e89b-12d3-a456-426614174000';
 const run: FaultRunRecord = {
@@ -126,6 +127,36 @@ test('captures a limitation-aware baseline and returns the existing row idempote
     'BASELINE_OBSERVATION_CHECK_RECORDED',
     'BASELINE_CAPTURE_COMPLETED',
   ]);
+});
+
+test('stores normalized observation executor results in the baseline', async () => {
+  const repository = new MemoryBaselineRepository();
+  const observationExecutor = new ObservationExecutor({
+    now: () => new Date('2026-09-16T10:02:00.000Z'),
+    adapters: {
+      prometheus: { check: async () => ({ status: 'AVAILABLE' }) },
+      loki: { check: async () => ({ status: 'PARTIAL', limitation: 'LOKI_PARTIAL_RESULT' }) },
+      tempo: { check: async () => ({ status: 'AVAILABLE' }) },
+      retention: { check: async () => ({ status: 'AVAILABLE' }) },
+    },
+  });
+  const result = await captureScenarioBaseline(
+    sourceFaultRunId,
+    {},
+    {
+      ...dependencies(repository, []),
+      observationExecutor,
+    },
+  );
+
+  assert.equal(result.baseline.observationSummary.prometheus.status, 'AVAILABLE');
+  assert.equal(result.baseline.observationSummary.loki.status, 'PARTIAL');
+  assert.equal(result.baseline.observationSummary.tempo.status, 'AVAILABLE');
+  assert.equal(result.baseline.observationSummary.retention, 'CHECKED');
+  assert.deepEqual(
+    result.baseline.knownLimitations.find((limitation) => limitation.code === 'LOKI_PARTIAL_RESULT'),
+    { code: 'LOKI_PARTIAL_RESULT', detail: 'loki' },
+  );
 });
 
 test('does not create a baseline for non-terminal runs or when capture is disabled', async () => {

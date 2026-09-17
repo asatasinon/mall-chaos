@@ -8,6 +8,13 @@
 > Catalog revision：
 > `000ccc36e4a77ef27d22636bdbc4643ff79ddb0c205b21830967bc40b7abd7dc`
 
+> **后续修订（2026-09-17）：** P0-13 已补齐控制面
+> `/internal/alertmanager/webhook`、`CASTREL_INTERNAL_SERVICE_KEY` 机器认证、
+> `alert_receipts` 持久化、CART Scenario Worker dispatch 和 Kubernetes
+> retention 配置挂载。本矩阵仍保留原评审窗口的运行事实；没有真实
+> firing/resolved 投递、场景运行或 Kubernetes runtime，因此这些代码/配置变更
+> 不升级任何 `UNKNOWN`/`UNVERIFIED` 为运行证据。
+
 ## 评审边界
 
 - 本次矩阵由 `catalog-coverage-matrix.md`、英文 runbook 的 `Alert mapping`
@@ -20,9 +27,9 @@
   `168h` root compactor 和 `336h` backend scheduler 字段，适用语义尚未拆解。
   Kubernetes runtime 未核验，Kubernetes Loki 没有可确认的 retention
   ConfigMap 挂载。
-- Alertmanager 的 active config 有三个 `send_resolved=true` receiver，但当前
-  checkout 没有 `/internal/alertmanager/webhook` route，receiver 也没有独立
-  机器认证。因此没有可证明的告警 receipt。
+- Alertmanager 的 active config 有三个 `send_resolved=true` receiver；控制面
+  route 和机器认证已在 P0-13 的代码/配置中具备，但没有真实投递，因此没有可
+  证明的告警 receipt。
 - `BASELINE_CAPTURE_ENABLED=false`，本次没有调用新增 Operator 写接口。只读
   MySQL 核验显示 `baseline_pilot_reviews` 为空，`scenario_baselines` 为空；
   本矩阵的“不具备选择资格”不是持久化的 Operator review。
@@ -35,7 +42,7 @@
 | 项目 | 当前事实 | 评审含义 |
 | --- | --- | --- |
 | Actual firing | `UNKNOWN / NOT_EXECUTED`；没有新的场景运行窗口 | 不得写成告警未触发、已触发或已恢复 |
-| Alert receipt | `UNVERIFIED`；控制面 route 和机器认证缺失 | 不满足阶段 5 告警接收前置条件 |
+| Alert receipt | `UNVERIFIED`；route/认证代码与静态配置已具备，但未执行真实投递 | 不满足阶段 5 告警接收前置条件 |
 | Scenario query window | `UNAVAILABLE`；只核验过观测组件短窗口 API，不是场景证据 | 不得把组件 readiness 当作场景 baseline |
 | Compose retention | Prometheus `1w`、Loki limits `1w`；Tempo root `168h`，另有 `336h` scheduler 字段 | 可用但有 limitation，不能证明所有证据窗口语义一致 |
 | Kubernetes retention/runtime | `UNKNOWN`；Prometheus/Tempo 为声明，Loki retention 挂载未核验 | 不能从 Compose 借用 Kubernetes 事实 |
@@ -49,7 +56,7 @@
 | `ORDER_REPORT_SQL` | `order-service` / `orders-query-report` | `HighLatencyP99`、`CriticalLatencyP99`、`MySQLSlowQueries`、`HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`NodeHighCPU`；无 order-report 专用告警 | `UNKNOWN / NOT_EXECUTED`；没有场景查询窗口 | N+1/历史订单读取可能消耗 Order 的连接池、MySQL 和共享节点 CPU；本地 Order JVM 资源限制不能作为性能基线 | **不具备选择资格（本轮相当于 REJECTED，未持久化）**：无真实 baseline、firing、receipt 和完整 retention 证据；P0-ISSUE-007、009 |
 | `BROWSE_SURGE` | `catalog-service` / `browse-api-worker` | `HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate`、`TrafficSurge`、`HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`MySQLSlowQueries`、`NodeHighCPU`、`NodeHighMemory`、`RedisHighMemory` | `UNKNOWN / NOT_EXECUTED`；没有场景查询窗口 | 受控浏览流量可能扩展到 Gateway/Catalog、Hikari、MySQL、Redis 和节点资源；`TrafficSurge` 不证明每个请求到达业务服务 | **不具备选择资格（本轮相当于 REJECTED，未持久化）**：无真实 firing/receipt，且 Catalog 矩阵缺少实际 surge drain 事实；P0-ISSUE-009、011 |
 | `ORDER_QUERY_SURGE` | `order-service` / `order-query-worker` | `HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate`、`TrafficSurge`、`HikariPoolExhaustion`、`HikariPoolFull`、`HikariPoolPending`、`MySQLHighThreads`、`MySQLSlowQueries`、`NodeHighCPU`、`NodeHighMemory`、`OrderFailureRateHigh` | `UNKNOWN / NOT_EXECUTED`；没有场景查询窗口 | 查询流量可能扩展到 Order 的连接池、MySQL 和节点资源，并间接影响下单路径；`OrderFailureRateHigh` 不是直接结果 | **不具备选择资格（本轮相当于 REJECTED，未持久化）**：无真实 firing/receipt，且 Catalog 矩阵缺少实际 surge drain 事实；P0-ISSUE-007、009、011 |
-| `CART_CATALOG_DEPENDENCY` | `catalog-service` / `cart-product-validation` | `HighErrorRate`、`HighLatencyP99`、`CriticalLatencyP99`；无 Cart-to-Catalog 专用告警 | `UNKNOWN / NOT_EXECUTED`；没有场景查询窗口 | Catalog 依赖错误/延迟可能通过 Cart 业务 envelope 表现，外层 HTTP 200 不能证明依赖成功 | **不具备选择资格（本轮相当于 REJECTED，未持久化）**：当前没有控制面受控 dispatch 或场景终态汇总，不能生成请求/效果事实；P0-ISSUE-001、009 |
+| `CART_CATALOG_DEPENDENCY` | `catalog-service` / `cart-product-validation` | `HighErrorRate`、`HighLatencyP99`、`CriticalLatencyP99`；无 Cart-to-Catalog 专用告警 | `UNKNOWN / NOT_EXECUTED`；没有场景查询窗口 | Catalog 依赖错误/延迟可能通过 Cart 业务 envelope 表现，外层 HTTP 200 不能证明依赖成功 | **不具备选择资格（本轮相当于 REJECTED，未持久化）**：P0-13 已补齐控制面 dispatch 和生命周期事件，但没有真实请求/终态汇总事实；P0-ISSUE-001、009 |
 | `CATALOG_REDIS_LARGE_VALUE` | `catalog-service` / `product-detail-cache` | `RedisHighMemory`、`HighLatencyP99`、`CriticalLatencyP99`、`HighHeapUsage`、`CriticalHeapUsage`、`FrequentGCPause`、`HighErrorRate`；无 Redis large-key 专用告警 | `UNKNOWN / NOT_EXECUTED`；没有场景查询窗口 | run-scoped Redis Hash 可能增加共享 Redis 使用量，反序列化可能增加 Catalog heap/GC；逻辑字节预算不等于物理 Redis 利用率 | **不具备选择资格（本轮相当于 REJECTED，未持久化）**：未核验效果、告警、资源边界或允许的数据处理证据；P0-ISSUE-009 |
 | `NOTIFICATION_HEAP_PRESSURE` | `notification-service` / `notification-retention` | `HighHeapUsage`、`CriticalHeapUsage`、`FrequentGCPause`、`HighLatencyP99`、`CriticalLatencyP99`、`HighErrorRate`、`NodeHighMemory`、`ServiceDown` | `UNKNOWN / NOT_EXECUTED`；没有场景查询窗口 | 保留对象可能造成 JVM heap/GC、节点内存和服务可用性压力；`NON_RELEASING` 不能承诺资源自行回收 | **不具备选择资格（本轮相当于 REJECTED，未持久化）**：未核验真实告警 receipt、业务恢复和非释放资源边界；P0-ISSUE-009 |
 | `NOTIFICATION_STORAGE_APPEND` | `notification-service` / `notification-storage` | `NodeDataFilesystemGrowthRateHigh`、`NodeDataFilesystemUsageHigh`、`HighErrorRate`；无保证的专用告警 | `UNKNOWN / NOT_EXECUTED`；没有场景查询窗口 | 物理 `/data` 文件增长可能影响节点磁盘和 append endpoint；告警取决于挂载卷、增长速率和阈值 | **不具备选择资格（本轮相当于 REJECTED，未持久化）**：未执行物理文件证据或获批的数据处理验证，且需要明确人工边界；P0-ISSUE-009 |
@@ -68,7 +75,7 @@
 | `ORDER_REPORT_SQL` | 恢复订单报告依赖的数据库与连接池容量并复核正常订单查询；使用 Order 业务请求、JDBC 观测和资源指标验证，不把本地 JVM 临时配置当作修复 |
 | `BROWSE_SURGE` | 由业务/基础设施运维调整正常浏览流量容量或资源配额；复核请求率、延迟、错误率和 downstream 资源回到稳定范围，不把 `TrafficSurge` 当作 drain 证明 |
 | `ORDER_QUERY_SURGE` | 由业务/基础设施运维恢复订单查询容量并验证订单主路径；复核请求率、延迟、错误率、连接池和 MySQL 指标，不承诺共享资源影响必然出现 |
-| `CART_CATALOG_DEPENDENCY` | 修复并验证 Cart 与 Catalog 的正常依赖调用、超时和错误 envelope；使用客户端/服务端 trace、业务日志和正常购物车路径复核，不能用当前未确认 dispatch 补齐事实 |
+| `CART_CATALOG_DEPENDENCY` | 修复并验证 Cart 与 Catalog 的正常依赖调用、超时和错误 envelope；使用客户端/服务端 trace、业务日志和正常购物车路径复核，不能用尚未执行的运行路径补齐事实 |
 | `CATALOG_REDIS_LARGE_VALUE` | 按已批准的数据处理边界处理 run-scoped cache 数据并复核 Redis 内存、Catalog heap/GC 和 product detail 路径；不把逻辑字节预算当作物理资源恢复证明 |
 | `NOTIFICATION_HEAP_PRESSURE` | 通过正常服务运维流程恢复 notification JVM/节点容量并复核 heap、GC、健康和通知请求；该场景不承诺 retained object 自动释放 |
 | `NOTIFICATION_STORAGE_APPEND` | 仅在获批的数据处理窗口内处理 run-scoped 文件，核对物理文件系统、无关文件和 notification 请求；不得把文件达到目标大小或人工确认替代实际磁盘证据 |
@@ -82,7 +89,7 @@
 - 本轮 `SELECTED = 0`，且没有持久化 pilot review。这个结果由缺少真实 baseline、
   告警 receipt、场景 firing、完整 retention 语义和 Kubernetes runtime 证据共同
   导致，不是对 12 个场景永久否决。
-- P0-ISSUE-001 继续处理中；P0-ISSUE-002 保持已阻塞；P0-ISSUE-003、009、
+- P0-ISSUE-001 代码路径已补齐但运行仍待核验；P0-ISSUE-002 代码/静态边界已具备但 receipt 仍待核验；P0-ISSUE-003、009、
   011 继续待后续环境/运行核验。此次矩阵没有发现需要新增的独立问题，因此不创建
   P0-ISSUE-016。
 - 允许后续写入 `CANDIDATE` 或 `REJECTED` 前，必须使用当前 Catalog revision、

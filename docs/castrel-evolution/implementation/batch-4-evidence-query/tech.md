@@ -791,8 +791,8 @@ http://gateway-service:8080
 
 | 环境 | 当前事实 | 批次 4 启用要求 |
 | --- | --- | --- |
-| Compose | Prometheus 明确为 7d，Loki config 为 168h，Tempo config 为 168h；Promtail 已为容器日志配置 service label | 首个 pilot 环境；确认实际 metric/label/TraceQL 语法后才开启 execution |
-| Kubernetes Prometheus/Tempo | 配置声明 7d/168h，但当前使用 `emptyDir`；Pod 重启会提前丢失数据 | 可配置 endpoint，但 retention preflight 只能按声明解释；不承诺重启后的历史数据 |
+| Compose | Prometheus、Loki、Tempo 均以 `168h` 为配置目标；Promtail 已为容器日志配置 service label | 首个 pilot 环境；确认实际 metric/label/TraceQL 语法后才开启 execution |
+| Kubernetes Prometheus/Tempo | 配置声明均以 `168h` 为目标，但当前使用 `emptyDir`；Pod 重启会提前丢失数据 | 可配置 endpoint，但 retention preflight 只能按声明解释；不承诺重启后的历史数据 |
 | Kubernetes Loki | 当前 Loki 使用默认 local config，未挂载 Compose 的 168h retention 配置 | 不开启 Loki recipe execution，直到补齐明确 retention、持久存储/风险说明和 log shipping |
 | Kubernetes log shipping | 当前 `kustomization.yaml` 未包含 Promtail 资源 | 在 Kubernetes pilot 前新增并验证受控 log shipping；否则 Loki source 必须显式 `SOURCE_UNCONFIGURED` |
 

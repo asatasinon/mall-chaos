@@ -158,3 +158,88 @@ test('scenario worker reads only persisted member SKUs and does not create a cus
   assert.equal(events.some((event) => event.type === 'SCENARIO_WORKER_STARTED'), true);
   assert.equal(events.some((event) => event.type === 'SCENARIO_WORKER_DRAINED'), true);
 });
+
+test('cart dependency worker uses the authenticated cart business path through Gateway', async () => {
+  const run = {
+    faultRunId: '123e4567-e89b-12d3-a456-426614174001',
+    scenario: 'CART_CATALOG_DEPENDENCY',
+    targetService: 'catalog-service',
+    targetOperation: 'cart-product-validation',
+    state: 'ACTIVE',
+    parameters: { durationSec: 1, concurrency: 1, requestIntervalMs: 0 },
+    idempotencyKey: 'cart-worker-test-1234',
+    fencingToken: 2,
+    startedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 80).toISOString(),
+    stoppedAt: null,
+    stopReason: null,
+    recoveryResult: null,
+    recoveryError: null,
+    operatorAuditId: null,
+    traceId: 'trace-cart-worker',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  } as const;
+  const calls: Array<{ path: string; body?: unknown }> = [];
+  const events: string[] = [];
+  const context = {
+    trafficRunId: run.faultRunId,
+    lifecycleId: 'cart-lifecycle',
+    traceId: run.traceId,
+    session: {
+      accountLabel: 'lifecycle',
+      customerId: 7,
+      accessToken: 'access-token',
+      sessionToken: 'session-token',
+      expiresAt: new Date(Date.now() + 60_000),
+    },
+    refresh: async () => undefined,
+  };
+  const worker = new ScenarioWorkers({
+    gateway: {
+      async customerGet(path: string) {
+        calls.push({ path });
+        if (path === '/api/products') {
+          return {
+            code: 200,
+            data: { content: [{ sku: 'SKU-CART-001', status: 1, availableQty: 10, price: 12 }] },
+          };
+        }
+        return { code: 200, data: { items: [] } };
+      },
+      async customerPost(path: string, body: unknown) {
+        calls.push({ path, body });
+        return { code: 200, data: { items: [{ sku: 'SKU-CART-001' }] } };
+      },
+    } as unknown as GatewayClient,
+    sessions: {
+      async openSession() {
+        return context;
+      },
+      async closeSession() {
+        return undefined;
+      },
+    },
+    listActiveRuns: async () => [run],
+    appendEvent: async (_faultRunId, type) => {
+      events.push(type);
+    },
+    registerRunDrain: (_faultRunId, drain) => {
+      void drain;
+      return () => undefined;
+    },
+  });
+
+  worker.start();
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  await worker.stop();
+
+  assert.equal(calls.some((call) => call.path === '/api/products'), true);
+  assert.equal(calls.some((call) => call.path === '/api/cart'), true);
+  const addItem = calls.find((call) => call.path === '/api/cart/items');
+  assert.equal(typeof addItem?.body, 'object');
+  assert.equal((addItem?.body as { sku?: string }).sku, 'SKU-CART-001');
+  assert.equal(events.includes('SCENARIO_WORKER_STARTED'), true);
+  assert.equal(events.includes('SCENARIO_WORKER_STOPPED'), true);
+  assert.equal(events.includes('SCENARIO_WORKER_DRAINED'), true);
+});

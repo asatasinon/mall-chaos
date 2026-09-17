@@ -21,12 +21,12 @@ import {
   BASELINE_SCHEMA_REVISION,
   type BaselineAlertSummary,
   type BaselineLimitation,
-  type BaselineObservationCheck,
   type BaselineObservationSummary,
   type BaselineResidualResource,
   type BaselineRollbackStep,
   type ScenarioBaseline,
 } from './baseline-schema';
+import { ObservationExecutor } from './observation-executor';
 import {
   SqlBaselineRepository,
   type BaselineCaptureLock,
@@ -53,6 +53,7 @@ export interface BaselineCaptureDependencies {
   now?: () => Date;
   createBaselineId?: () => string;
   captureEnabled?: () => boolean;
+  observationExecutor?: ObservationExecutor;
 }
 
 export interface CaptureScenarioBaselineOptions {
@@ -76,6 +77,7 @@ const defaultDependencies: Required<BaselineCaptureDependencies> = {
   now: () => new Date(),
   createBaselineId: randomUUID,
   captureEnabled: () => env.BASELINE_CAPTURE_ENABLED,
+  observationExecutor: new ObservationExecutor(),
 };
 
 export async function captureScenarioBaseline(
@@ -124,7 +126,10 @@ async function captureScenarioBaselineUnlocked(
       deps.loadWarmupMetadata(),
     ]);
     const facts = foldBaselineEvents(run, events);
-    const limitations = collectLimitations(facts, metadata, warmupMetadata, audit);
+    const observation = await deps.observationExecutor.execute(
+      buildObservationWindow(run, deps.now()),
+    );
+    const limitations = collectLimitations(facts, metadata, warmupMetadata, audit, observation.limitations);
     await appendCaptureEvent(deps, sourceFaultRunId, 'BASELINE_RUNTIME_SUMMARY_RECORDED', {
       limitationCount: limitations.length,
       failureClassCount: facts.outcome.failureClasses.length,
@@ -136,6 +141,7 @@ async function captureScenarioBaselineUnlocked(
       facts,
       metadata,
       warmupMetadata,
+      observation.summary,
       limitations,
       audit,
       options.operatorAuditId,
@@ -144,6 +150,12 @@ async function captureScenarioBaselineUnlocked(
     );
     await appendCaptureEvent(deps, sourceFaultRunId, 'BASELINE_OBSERVATION_CHECK_RECORDED', {
       limitationCount: limitations.length,
+      prometheusStatus: observation.summary.prometheus.status,
+      lokiStatus: observation.summary.loki.status,
+      tempoStatus: observation.summary.tempo.status,
+      retentionStatus: observation.summary.retention,
+      windowStart: observation.summary.prometheus.windowStart,
+      windowEnd: observation.summary.prometheus.windowEnd,
     });
     const saved = await deps.repository.save(baseline);
     if (saved.created) {
@@ -179,6 +191,7 @@ function buildScenarioBaseline(
   facts: FoldedBaselineFacts,
   metadata: BaselineMetadata,
   warmupMetadata: BaselineWarmupMetadata,
+  observationSummary: BaselineObservationSummary,
   limitations: BaselineLimitation[],
   audit: FaultRunAuditRecord | null,
   operatorAuditId: number | null | undefined,
@@ -210,7 +223,7 @@ function buildScenarioBaseline(
     requestSummary: facts.requestSummary,
     resourceBudget: null,
     resourceObservation: null,
-    observationSummary: unknownObservationSummary(),
+    observationSummary,
     alertSummary: unknownAlertSummary(),
     knownLimitations: limitations,
     residualResources: buildResidualResources(run.scenario, facts.outcome.resourceCleanup),
@@ -260,23 +273,6 @@ function buildResidualResources(
   return [];
 }
 
-function unknownObservationSummary(): BaselineObservationSummary {
-  const check = (): BaselineObservationCheck => ({
-    status: 'UNKNOWN',
-    checkedAt: null,
-    windowStart: null,
-    windowEnd: null,
-    queryReference: null,
-    limitation: 'OBSERVATION_UNAVAILABLE',
-  });
-  return {
-    prometheus: check(),
-    loki: check(),
-    tempo: check(),
-    retention: 'UNKNOWN',
-  };
-}
-
 function unknownAlertSummary(): BaselineAlertSummary {
   return {
     rules: [],
@@ -290,15 +286,37 @@ function collectLimitations(
   metadata: BaselineMetadata,
   warmupMetadata: BaselineWarmupMetadata,
   audit: FaultRunAuditRecord | null,
+  observationLimitations: readonly { code: string; detail: string | null }[],
 ): BaselineLimitation[] {
   const limitations = [...facts.knownLimitations];
   for (const code of [...metadata.limitations, ...warmupMetadata.limitations]) {
     addLimitation(limitations, code);
   }
   if (!audit) addLimitation(limitations, 'OPERATOR_AUDIT_UNAVAILABLE');
-  addLimitation(limitations, 'OBSERVATION_UNAVAILABLE', 'PROMETHEUS_LOKI_TEMPO');
+  for (const limitation of observationLimitations) {
+    addLimitation(limitations, limitation.code, limitation.detail);
+  }
   addLimitation(limitations, 'ALERT_RECEIPT_UNVERIFIED');
   return limitations;
+}
+
+function buildObservationWindow(
+  run: FaultRunRecord,
+  now: Date,
+): { windowStart: Date; windowEnd: Date } {
+  const nowMs = now.getTime();
+  const runStart = run.startedAt ? new Date(run.startedAt).getTime() : new Date(run.createdAt).getTime();
+  const runEnd = run.stoppedAt ? new Date(run.stoppedAt).getTime() : nowMs;
+  const maxWindowMs = env.BASELINE_OBSERVATION_WINDOW_SEC * 1000;
+  const endMs = Math.min(Number.isFinite(runEnd) ? runEnd : nowMs, nowMs);
+  const startMs = Math.max(
+    Number.isFinite(runStart) ? runStart : endMs - maxWindowMs,
+    endMs - maxWindowMs,
+  );
+  return {
+    windowStart: new Date(startMs),
+    windowEnd: new Date(endMs),
+  };
 }
 
 function deriveCaptureStatus(

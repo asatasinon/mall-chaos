@@ -27,17 +27,19 @@ Pilot candidate 至少满足：
 
 ## 5.0 先补告警接收与关联基础
 
-这是阶段 5 的前置子阶段，必须在外部 Agent 接入前完成。阶段 0 只负责核对现状、记录阻塞和选择候选场景；阶段 5 负责补齐缺失实现。
+这是阶段 5 的前置子阶段，必须在外部 Agent 接入前完成。阶段 0 已先实现控制面内部
+webhook 的最小机器认证、firing/resolved 解析和低基数 receipt 边界；阶段 5 仍需
+补齐告警关联、`alertRef`/`incidentRef`、外部 receiver 和 Agent 提交流程。
 
 ### 必须实现
 
-1. **控制面 Alertmanager webhook route**
-   - 实现配置中使用的 `POST /internal/alertmanager/webhook` 或等价内部 route。
-   - 只允许 Alertmanager 所在内部网络调用；不把该 route 作为外部 Agent API。
-   - 解析 Alertmanager webhook payload 的 `status`、`groupKey`、`commonLabels`、`commonAnnotations` 和 `alerts[]`。
-   - 同时处理 `firing`、`resolved`、grouped alerts 和 `send_resolved`。
-2. **告警接收记录**
-   - 保存 `fingerprint`、alert name、severity、service、startsAt、endsAt/resolvedAt、receivedAt、groupKey、status 和关联结果。
+1. **控制面 Alertmanager webhook route（在 P0-13 边界上继续扩展）**
+   - P0-13 已实现配置使用的 `POST /internal/alertmanager/webhook`、精确路径和 `CASTREL_INTERNAL_SERVICE_KEY` 机器认证。
+   - 阶段 5 必须在此边界上扩展内部网络/来源校验和完整的 grouped notification 语义，不把该 route 作为外部 Agent API。
+   - 补齐对 `status`、`groupKey`、`commonLabels`、`commonAnnotations` 和 `alerts[]` 的阶段 5 关联处理。
+   - 同时验证 `firing`、`resolved`、grouped alerts 和 `send_resolved` 的真实投递。
+2. **告警接收记录（扩展 P0-13 的最小 receipt）**
+   - P0-13 已保存 fingerprint、状态、receiver、告警名、severity、service 和时间等低基数字段；阶段 5 还需保存受控的 `groupKey`、关联结果、`alertRef`/`incidentRef` 和评估关闭状态。
    - 保存最小字段，不保存指标、日志、Trace 或完整 Alertmanager payload 中的秘密/无关内容。
    - 对同一 fingerprint 和 startsAt 做幂等去重，重复 webhook 不重复创建告警实例。
 3. **告警与 Fault Run 关联**
@@ -176,11 +178,16 @@ correlationReason
 
 `UNMATCHED` 和 `AMBIGUOUS` 都是内部限制，不是 Alertmanager 投递失败。Evaluator 只有在 `MATCHED` 时才能把 Fault Run Event 当作该告警的受控运行上下文；其他状态下仍可根据 alert receipt、Prometheus、Loki、Tempo 和业务检查执行 RCA，但必须在报告中记录 Fault Run 上下文不可确定。
 
-当前 checkout 的 Alertmanager 配置已有类似 `/internal/alertmanager/webhook` 的目标，但控制面对应接收 route 尚未被确认实现。因此它是阶段 5 的实现阻塞项，而不是已经存在的功能。
+P0-13 已实现 `/internal/alertmanager/webhook` 的最小控制面接收边界，但尚未通过真实
+Alertmanager 投递，也没有实现阶段 5 的关联、`alertRef`/`incidentRef` 和外部 Agent
+交付。因此 route 代码存在不等于阶段 5 告警接入完成。
 
 ## 进入本阶段前必须核对的告警接入
 
-当前部署配置已经使用类似 `/internal/alertmanager/webhook` 的内部 webhook 配置；但在当前 checkout 的控制面 `src/app` 路由中没有找到对应的已实现接收 route。配置存在不等于控制面已有完整告警接收能力，因此阶段 5 目前被该能力阻塞。阶段 0/5 必须通过代码和集成测试确认：
+当前部署配置已经使用 `/internal/alertmanager/webhook` 的内部 webhook 配置，控制面
+route、机器认证和最小 receipt schema 已在 P0-13 具备。配置和代码存在不等于完整告警
+接收能力，因此阶段 5 仍被真实投递、关联和外部 Agent 链路阻塞。阶段 0/5 必须通过
+代码和集成测试确认：
 
 - 控制面 webhook route 是否真实存在；Alertmanager 到该 route 使用内部服务网络。
 - Alertmanager payload 的 `firing`/`resolved`、grouped alerts 和 `send_resolved` 是否正确处理。
@@ -192,7 +199,8 @@ correlationReason
 - Agent 是否能够使用部署侧提供的 Basic Auth 访问现有观测入口。
 - 报告入口是否接收 `AgentRcaReport.json` 并自动排队 Evaluator。
 
-阶段 5 不应把配置文件中的 webhook URL 当作现成实现；缺失部分属于本阶段的实现范围。
+阶段 5 不应把配置文件中的 webhook URL 或 P0-13 的静态 receipt 边界当作完整实现；
+真实投递、告警关联、外部 receiver 和 Agent 提交流程仍属于本阶段实现范围。
 
 ### AlertRef 与 IncidentRef
 
