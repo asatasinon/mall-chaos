@@ -67,11 +67,11 @@ export async function saveAlertReceipts(
     for (const receipt of receipts) {
       const receiptKey = createReceiptKey(receipt);
       const [result] = await connection.execute(
-        `INSERT INTO alert_receipts
+        `INSERT IGNORE INTO alert_receipts
           (receipt_key, fingerprint, alert_status, receiver, alert_name, severity,
            service_name, starts_at, ends_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE receipt_key = VALUES(receipt_key)`,
+         `,
         [
           receiptKey,
           receipt.fingerprint,
