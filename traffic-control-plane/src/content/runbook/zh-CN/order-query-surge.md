@@ -44,7 +44,7 @@ catalog 接受 `durationSec`、`concurrency`、`requestIntervalMs` 和 `pageSize
 
 ## 证据与判断
 
-- `fault_run_events`：`SCENARIO_WORKER_STARTED`、`SCENARIO_REQUEST_FAILED` 和 `SCENARIO_WORKER_STOPPED` 提供请求/失败计数、延迟分位数和在途状态。
+- `fault_run_events`：`SCENARIO_WORKER_STARTED`、`SCENARIO_WORKER_STOPPED` 和 `SCENARIO_WORKER_DRAINED` 提供请求/失败计数、延迟分位数和在途状态。旧运行可能包含 `SCENARIO_REQUEST_FAILED`；新 worker 将请求失败聚合到终态汇总。
 - Tempo：检查 Gateway HTTP span 和 `order-service` 的认证 HTTP/JDBC span。
 - 应用日志：使用正常客户会话和业务关联字段区分本场景流量与普通订单请求。
 - worker 成功计数只证明客户端收到响应，不能证明数据库容量没有受到影响。

@@ -44,7 +44,7 @@ The query is scoped to one selected non-`19` lifecycle account. It does not targ
 
 ## Evidence
 
-- `fault_run_events`: `SCENARIO_WORKER_STARTED`, `SCENARIO_REQUEST_FAILED`, and `SCENARIO_WORKER_STOPPED` provide request/failure counts, latency percentiles and in-flight state.
+- `fault_run_events`: `SCENARIO_WORKER_STARTED`, `SCENARIO_WORKER_STOPPED`, and `SCENARIO_WORKER_DRAINED` provide request/failure counts, latency percentiles and in-flight state. Older runs may also contain `SCENARIO_REQUEST_FAILED`; new workers aggregate request failures into terminal summaries.
 - Tempo: inspect the Gateway HTTP span and the authenticated `order-service` HTTP/JDBC spans.
 - Application logs: use the normal customer session and business correlation fields to distinguish this traffic from unrelated orders.
 - A worker success count proves the client received a response, not that database capacity was unaffected.

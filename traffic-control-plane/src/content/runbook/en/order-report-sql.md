@@ -49,7 +49,7 @@ The scenario does not intentionally read another customer’s data, write busine
 
 ## Evidence
 
-- `fault_run_events`: `REPORT_WORKER_STARTED`, `REPORT_REQUEST`, `REPORT_REQUEST_FAILED`, and `REPORT_WORKER_STOPPED` provide request counts, failures and latency snapshots.
+- `fault_run_events`: `REPORT_WORKER_STARTED` and `REPORT_WORKER_STOPPED` provide request counts, failures and latency snapshots. Older runs may also contain `REPORT_REQUEST`/`REPORT_REQUEST_FAILED`; new workers do not emit those high-frequency events.
 - Tempo: inspect the authenticated report HTTP span and its JDBC children in `order-service`.
 - Database: the baseline query and repeated `order_items` lookups are the strongest evidence of the N+1 path; use `EXPLAIN` and query counts in the deployed environment.
 - Session evidence: the worker’s customer session is a control-plane mechanism, not a business impact metric.

@@ -45,7 +45,7 @@ The scenario does not intentionally modify business data, orders, payments, or u
 
 Use these evidence sources separately:
 
-- `fault_run_events`: `REPORT_WORKER_STARTED`, `REPORT_REQUEST`, `REPORT_REQUEST_FAILED`, and `REPORT_WORKER_STOPPED` show worker activity, request counts, failures and latency.
+- `fault_run_events`: `REPORT_WORKER_STARTED` and `REPORT_WORKER_STOPPED` show worker activity, request counts, failures and latency. Older runs may also contain `REPORT_REQUEST`/`REPORT_REQUEST_FAILED`; new workers do not emit those high-frequency events.
 - Tempo: inspect the Catalog HTTP server span and child JDBC spans for the report request.
 - Database: compare the baseline query plan and scanned rows with the optimized version using `EXPLAIN` in the target environment.
 - Application behavior: a successful response proves the report completed, not that it used the optimized plan.

@@ -56,6 +56,19 @@ test('normalizes scenario worker summaries to bounded low-cardinality payloads',
 
 test('normalizes scenario worker start and request failure events without raw errors', () => {
   assert.deepEqual(
+    normalizeFaultRunSummaryEventPayload('REPORT_WORKER_STARTED', {
+      requestIntervalMs: 1000,
+      scenario: 'ORDER_REPORT_SQL',
+    }),
+    {
+      schemaVersion: 1,
+      source: 'report-worker',
+      phase: 'worker',
+      status: 'STARTED',
+      requestIntervalMs: 1000,
+    },
+  );
+  assert.deepEqual(
     normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_STARTED', {
       concurrency: 2,
       requestIntervalMs: 100,

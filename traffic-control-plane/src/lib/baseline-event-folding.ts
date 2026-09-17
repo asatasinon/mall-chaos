@@ -214,6 +214,17 @@ function foldRuntimeSummary(
     };
   }
 
+  if (run.scenario === 'CART_CATALOG_DEPENDENCY') {
+    const runtimeEvents = events.filter((event) =>
+      event.eventType === 'SCENARIO_WORKER_STOPPED'
+      || event.eventType === 'REPORT_WORKER_STOPPED'
+      || event.eventType === 'RUNNER_LIFECYCLE_SUMMARY');
+    if (runtimeEvents.length === 0) {
+      addLimitation('DISPATCH_UNVERIFIED', definition.targetOperation);
+      return { kind: 'NONE', requestSummary: null, requiredEventMissing: null, effectObserved: false };
+    }
+  }
+
   if (isScenarioWorkerScenario(run.scenario)) {
     const stopped = findLast(events, 'SCENARIO_WORKER_STOPPED');
     const drained = findLast(events, 'SCENARIO_WORKER_DRAINED');
@@ -237,17 +248,6 @@ function foldRuntimeSummary(
       requiredEventMissing: stopped ? null : 'SCENARIO_WORKER_STOPPED',
       effectObserved: hasPositiveCounter(requestSummary?.requests),
     };
-  }
-
-  if (run.scenario === 'CART_CATALOG_DEPENDENCY') {
-    const runtimeEvents = events.filter((event) =>
-      event.eventType === 'SCENARIO_WORKER_STOPPED'
-      || event.eventType === 'REPORT_WORKER_STOPPED'
-      || event.eventType === 'RUNNER_LIFECYCLE_SUMMARY');
-    if (runtimeEvents.length === 0) {
-      addLimitation('DISPATCH_UNVERIFIED', definition.targetOperation);
-      return { kind: 'NONE', requestSummary: null, requiredEventMissing: null, effectObserved: false };
-    }
   }
 
   const lifecycleEvents = events.filter((event) => event.eventType === 'RUNNER_LIFECYCLE_SUMMARY');

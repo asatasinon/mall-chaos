@@ -143,15 +143,6 @@ export class ControlledScenarioWorker {
         const timeout = error instanceof ScenarioRequestTimeoutError;
         if (timeout) this.stats.timeouts++;
         if (error instanceof ScenarioRequestCacheError) this.stats.cacheResults[error.cacheResult]++;
-        await this.eventWriter(
-          this.run.faultRunId,
-          'SCENARIO_REQUEST_FAILED',
-          normalizeFaultRunSummaryEventPayload('SCENARIO_REQUEST_FAILED', {
-            failureCode: timeout ? 'WORKER_REQUEST_FAILED' : 'WORKER_REQUEST_FAILED',
-            timeout,
-            ...(error instanceof ScenarioRequestCacheError ? { cacheResult: error.cacheResult } : {}),
-          }),
-        ).catch(() => undefined);
       }
     } finally {
       this.stats.inFlight--;

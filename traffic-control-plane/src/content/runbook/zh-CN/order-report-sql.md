@@ -49,7 +49,7 @@ catalog 要求 `durationSec`。报表 worker 负责重复调用，在到期或�
 
 ## 证据与判断
 
-- `fault_run_events`：`REPORT_WORKER_STARTED`、`REPORT_REQUEST`、`REPORT_REQUEST_FAILED` 和 `REPORT_WORKER_STOPPED` 提供请求数、失败数和延迟快照。
+- `fault_run_events`：`REPORT_WORKER_STARTED` 和 `REPORT_WORKER_STOPPED` 提供请求数、失败数和延迟快照。旧运行可能包含 `REPORT_REQUEST`/`REPORT_REQUEST_FAILED`；新 worker 不再产生这些高频事件。
 - Tempo：检查 `order-service` 的认证报表 HTTP span 及 JDBC 子 span。
 - 数据库：baseline 查询和重复的 `order_items` 查询是 N+1 路径的强证据；应在部署环境使用 `EXPLAIN` 和查询统计。
 - 客户会话是控制面实现细节，不是业务影响指标。

@@ -85,6 +85,7 @@ test('controlled worker waits for the configured interval between batches', asyn
 });
 
 test('controlled worker counts timeout requests and records low-cardinality results', async () => {
+  const eventTypes: string[] = [];
   const timeoutWorker = new ControlledScenarioWorker({
     ...run,
     expiresAt: new Date(Date.now() + 100).toISOString(),
@@ -94,13 +95,16 @@ test('controlled worker counts timeout requests and records low-cardinality resu
     request: async () => {
       throw new ScenarioRequestTimeoutError();
     },
-  }, async () => undefined);
+  }, async (_runId, eventType) => {
+    eventTypes.push(eventType);
+  });
 
   const stats = await timeoutWorker.start().then(() => timeoutWorker.snapshot());
 
   assert.equal(stats.requests > 0, true);
   assert.equal(stats.timeouts, stats.failures);
   assert.equal(stats.cacheResults.CACHE_UNKNOWN, 0);
+  assert.deepEqual(eventTypes, ['SCENARIO_WORKER_STARTED', 'SCENARIO_WORKER_STOPPED']);
 });
 
 test('controlled worker aggregates cache results returned by a request', async () => {

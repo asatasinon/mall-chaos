@@ -39,7 +39,7 @@ The scenario does not change Catalog data, does not use a customer session and d
 
 ## Evidence
 
-- `fault_run_events`: `SCENARIO_WORKER_STARTED`, `SCENARIO_REQUEST_FAILED`, and `SCENARIO_WORKER_STOPPED` contain request, failure, timeout, in-flight and latency-percentile statistics.
+- `fault_run_events`: `SCENARIO_WORKER_STARTED`, `SCENARIO_WORKER_STOPPED`, and `SCENARIO_WORKER_DRAINED` contain request, failure, timeout, in-flight and latency-percentile statistics. Older runs may also contain `SCENARIO_REQUEST_FAILED`; new workers aggregate request failures into terminal summaries.
 - Tempo: inspect Gateway and Catalog HTTP spans, then the JDBC/Redis/downstream spans underneath them.
 - Metrics/logs: Catalog’s normal list query counter and service latency/health signals provide supporting evidence; they are not a scenario-specific fault metric.
 - The worker’s final snapshot proves generated traffic, not that every request reached the business service.

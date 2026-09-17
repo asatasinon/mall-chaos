@@ -25,6 +25,7 @@ const SUMMARY_EVENT_META: Record<string, {
   phase: 'effect' | 'worker' | 'recovery';
   status: 'STARTED' | 'COMPLETED' | 'FAILED' | 'DRAINED';
 }> = {
+  REPORT_WORKER_STARTED: { source: 'report-worker', phase: 'worker', status: 'STARTED' },
   REPORT_WORKER_STOPPED: { source: 'report-worker', phase: 'worker', status: 'COMPLETED' },
   SCENARIO_WORKER_STARTED: { source: 'scenario-worker', phase: 'worker', status: 'STARTED' },
   SCENARIO_WORKER_STOPPED: { source: 'scenario-worker', phase: 'worker', status: 'COMPLETED' },
@@ -68,7 +69,9 @@ export function normalizeFaultRunSummaryEventPayload(
     status: metadata.status,
   };
 
-  if (eventType === 'REPORT_WORKER_STOPPED') {
+  if (eventType === 'REPORT_WORKER_STARTED') {
+    copyCounter(source, normalized, 'requestIntervalMs');
+  } else if (eventType === 'REPORT_WORKER_STOPPED') {
     copyCounter(source, normalized, 'requests');
     copyCounter(source, normalized, 'successes');
     copyCounter(source, normalized, 'failures');

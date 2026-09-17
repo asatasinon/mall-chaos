@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getPool } from './db';
 import { ensureFaultRunSchema } from './fault-run-schema';
+import { serializeFaultRunEventPayload } from './fault-run-event-policy';
 import type { FaultRunScenario, FaultRunState } from './fault-run-catalog';
 
 export interface FaultRunRecord {
@@ -455,7 +456,7 @@ async function insertEvent(
   await connection.query(
     `INSERT INTO fault_run_events (fault_run_id, event_type, payload)
      VALUES (?, ?, ?)`,
-    [faultRunId, eventType, JSON.stringify(payload ?? {})],
+    [faultRunId, eventType, serializeFaultRunEventPayload(eventType, payload)],
   );
 }
 

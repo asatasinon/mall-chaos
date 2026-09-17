@@ -26,7 +26,7 @@
 | Fault Run 状态和时间 | `fault_runs` | 读取 `state`、`started_at`、`expires_at`、`stopped_at`、恢复结果和错误 |
 | 运行时间线 | `fault_run_events` | 按 `created_at, id` 顺序折叠事件 |
 | Operator 操作 | `operator_audit_logs` | 通过 `operator_audit_id` 和 audit 查询关联 |
-| 报表请求统计 | `REPORT_REQUEST`、`REPORT_WORKER_STOPPED` | 读取最后一个累计计数和最终汇总 |
+| 报表请求统计 | `REPORT_WORKER_STOPPED`（历史兼容读取 `REPORT_REQUEST`） | 新代码只读取终态汇总；历史累计事件仅在旧 Run 折叠时作为回退 |
 | 受控场景 Worker 统计 | `SCENARIO_WORKER_STOPPED` | 读取 requests、successes、failures、timeouts、延迟和 drain 信息 |
 | 正常生命周期/存储增长摘要 | `RUNNER_LIFECYCLE_SUMMARY` | 统计可确认的 lifecycle 结果，不推断缺失的业务请求数 |
 | 目标确认信息 | `TARGET_CONFIRMED` | 只保存已通过目标摘要校验的低基数摘要 |
@@ -38,11 +38,12 @@
 - 没有独立的 baseline 持久化表。
 - Catalog 没有显式 revision，需要从规范化后的 Catalog 内容派生。
 - Web/Worker 没有统一的 image/release revision 字段。
-- `fault_run_events` 对不同场景的汇总字段不完全一致。
+- `fault_run_events` 对不同场景的汇总字段不完全一致；历史记录仍可能包含高频逐请求事件，但新 Worker 路径只写生命周期汇总。
 - 当前 `ReportScenarioWorker`、`ScenarioWorkers` 和 `RunnerEngine` 的事件可提供不同粒度的统计；未知字段不能被强行补齐。
 - `CART_CATALOG_DEPENDENCY` 已由 Scenario Worker 通过 Gateway customer session 读取产品/购物车并写入购物车；真实请求、终态事件和业务效果仍必须通过获批运行核验，不能把代码路径计为完整基线。
 - Alertmanager 控制面 route 已实现精确路径、`CASTREL_INTERNAL_SERVICE_KEY` 机器认证和低基数 receipt 持久化；真实 firing/resolved 投递仍是运行前置条件，配置 URL 不能替代 receipt 证据。
 - 当前 Compose 和 Kubernetes 的观测 retention 主要存在于部署配置中，运行时实际值需要单独核验。
+- 事件写入入口对当前写入执行固定 event type、退役高频事件和 8 KiB UTF-8 payload 护栏；历史可空 JSON 不重写，继续由既有 Fault Run retention 清理。
 - 数据预热配置当前只来自 Worker 环境变量，Web/API 展示的配置可能与 Worker 不一致；本批次将配置迁移到数据库并通过 Operator API 管理。
 
 ## 3. 总体架构
@@ -295,7 +296,7 @@ Web 不再复制 Worker 环境变量；配置缺失或 progress 无法查询时�
 
 | 场景/来源 | 统计策略 |
 | --- | --- |
-| `BROWSE_REPORT_SQL`、`ORDER_REPORT_SQL` | 读取最后一个 `REPORT_REQUEST` 累计值，并以 `REPORT_WORKER_STOPPED` 补充平均延迟和结束原因 |
+| `BROWSE_REPORT_SQL`、`ORDER_REPORT_SQL` | 优先读取 `REPORT_WORKER_STOPPED` 的终态累计值；为兼容旧 Run，缺少 stopped 时回退到最后一个 `REPORT_REQUEST`，但新 Worker 不再写入该高频事件 |
 | `BROWSE_SURGE`、`ORDER_QUERY_SURGE` | 读取 `SCENARIO_WORKER_STOPPED` 的完整统计 |
 | `CATALOG_REDIS_LARGE_VALUE`、`PROMOTION_LOCK_CONTENTION`、`INVENTORY_TABLE_EXCLUSIVE`、`INVENTORY_ROW_LOCK` | 读取受控 Worker 的最终 snapshot 和 setup/target 事件 |
 | `NOTIFICATION_HEAP_PRESSURE`、`NOTIFICATION_STORAGE_APPEND`、`PSP_PROVIDER_OUTCOME` | 统计 `RUNNER_LIFECYCLE_SUMMARY` 的成功/失败/中断和 latency；没有可靠总请求数时保留 `null` |

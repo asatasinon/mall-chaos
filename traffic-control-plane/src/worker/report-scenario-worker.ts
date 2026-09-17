@@ -60,10 +60,11 @@ export class ReportScenarioWorker {
     let session: CustomerRequestContext | null = null;
     let sessionManager: CustomerSessionManager | null = null;
     try {
-      await appendFaultRunEvent(run.faultRunId, 'REPORT_WORKER_STARTED', {
-        scenario: run.scenario,
-        targetOperation: run.targetOperation,
-      });
+      await appendFaultRunEvent(
+        run.faultRunId,
+        'REPORT_WORKER_STARTED',
+        normalizeFaultRunSummaryEventPayload('REPORT_WORKER_STARTED', { requestIntervalMs: 1000 }),
+      );
       if (run.scenario === 'ORDER_REPORT_SQL') {
         const account = loadLifecycleAccounts().find((candidate) => candidate.enabled && candidate.expectedCustomerId !== 19);
         if (!account) throw new Error('REPORT_CUSTOMER_ACCOUNT_UNAVAILABLE');
@@ -84,25 +85,15 @@ export class ReportScenarioWorker {
             await this.gateway.customerGet('/api/reports/order-query', undefined, session, signal);
           }
           successes++;
-        } catch (error) {
+        } catch {
           if (signal.aborted) {
             requests--;
             break;
           }
           failures++;
-          await appendFaultRunEvent(run.faultRunId, 'REPORT_REQUEST_FAILED', {
-            error: error instanceof Error ? error.message : String(error),
-          });
         }
         const latencyMs = Date.now() - startedAt;
         totalLatencyMs += latencyMs;
-        await appendFaultRunEvent(run.faultRunId, 'REPORT_REQUEST', {
-          requests,
-          successes,
-          failures,
-          latencyMs,
-          inFlight: 0,
-        });
         await abortableDelay(1000, signal);
       }
     } finally {

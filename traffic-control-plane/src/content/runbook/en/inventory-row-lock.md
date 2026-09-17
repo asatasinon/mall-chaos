@@ -98,7 +98,7 @@ Confirm new summary calls stop, the held transaction rolls back, its connection 
 | `CriticalLatencyP99` | Inventory-summary P99 exceeds 10 seconds for 1 minute | Indicates that the row-lock wait has caused critical request latency. |
 | `HighErrorRate` | A row-lock wait timeout or database failure is exposed as HTTP 5xx by the Gateway observation URI, and the ratio reaches 5% for 1 minute | This is the primary conditional result alert; the target business envelope may be HTTP 200 and is converted to 502 by Gateway when rejected. |
 | `HikariPoolExhaustion`, `HikariPoolFull`, `HikariPoolPending`, `MySQLSlowQueries`, `MySQLHighThreads` | Pool alerts reach their relevant rule thresholds; slow-query rate exceeds 0.5 per second for 1 minute; or MySQL connections exceed 255 for 1 minute | May appear when concurrent waits consume connections or increase database pressure. |
-| No row-lock-wait-specific alert | Not applicable | Correlate alerts with `SCENARIO_REQUEST_FAILED`, Tempo exception/JDBC spans and MySQL row-lock-wait diagnostics. |
+| No row-lock-wait-specific alert | Not applicable | Correlate alerts with the terminal `SCENARIO_WORKER_STOPPED`/`SCENARIO_WORKER_DRAINED` summary, historical `SCENARIO_REQUEST_FAILED` when present, Tempo exception/JDBC spans and MySQL row-lock-wait diagnostics. |
 
 ## Limits and safe interpretation
 

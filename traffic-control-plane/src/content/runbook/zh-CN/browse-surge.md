@@ -39,7 +39,7 @@ catalog 接受 `durationSec`、`concurrency`、`requestIntervalMs` 和 `pageSize
 
 ## 证据与判断
 
-- `fault_run_events`：`SCENARIO_WORKER_STARTED`、`SCENARIO_REQUEST_FAILED` 和 `SCENARIO_WORKER_STOPPED` 包含请求、失败、超时、在途数和延迟分位数。
+- `fault_run_events`：`SCENARIO_WORKER_STARTED`、`SCENARIO_WORKER_STOPPED` 和 `SCENARIO_WORKER_DRAINED` 包含请求、失败、超时、在途数和延迟分位数。旧运行可能包含 `SCENARIO_REQUEST_FAILED`；新 worker 将请求失败聚合到终态汇总。
 - Tempo：检查 Gateway 和 Catalog 的 HTTP span，再查看其下方 JDBC/Redis/下游 span。
 - 指标/日志：Catalog 普通 list 查询计数和服务延迟/健康信号可作辅助证据，但不是场景专属故障指标。
 - worker 最终快照证明生成了流量，不保证每个请求都到达业务服务。

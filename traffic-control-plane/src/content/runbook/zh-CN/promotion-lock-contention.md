@@ -48,7 +48,7 @@ sequenceDiagram
 
 ## 证据与判断
 
-- `fault_run_events`：`SCENARIO_WORKER_STARTED`、`SCENARIO_REQUEST_FAILED`、`SCENARIO_WORKER_STOPPED` 和恢复事件展示请求结果与生命周期。
+- `fault_run_events`：`SCENARIO_WORKER_STARTED`、`SCENARIO_WORKER_STOPPED`、`SCENARIO_WORKER_DRAINED` 和恢复事件展示请求结果与生命周期。旧运行可能包含 `SCENARIO_REQUEST_FAILED`；新 worker 将请求失败聚合到终态汇总。
 - Tempo：检查 Promotion HTTP span、JDBC span、duration 和 exception event。
 - 数据库：查看 deadlock/lock-wait 诊断，并确认两条事务回滚。
 - `{ status: "CONSISTENT" }` 之类的成功响应只能证明一次调用完成，不能证明运行期间没有发生竞争。

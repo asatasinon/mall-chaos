@@ -48,7 +48,7 @@ The scenario does not intentionally select arbitrary customer coupons, commit bu
 
 ## Evidence
 
-- `fault_run_events`: `SCENARIO_WORKER_STARTED`, `SCENARIO_REQUEST_FAILED`, `SCENARIO_WORKER_STOPPED` and recovery events show request outcomes and lifecycle.
+- `fault_run_events`: `SCENARIO_WORKER_STARTED`, `SCENARIO_WORKER_STOPPED`, and `SCENARIO_WORKER_DRAINED` plus recovery events show request outcomes and lifecycle. Older runs may also contain `SCENARIO_REQUEST_FAILED`; new workers aggregate request failures into terminal summaries.
 - Tempo: inspect Promotion HTTP spans, JDBC spans, duration and exception events.
 - Database: inspect deadlock/lock-wait diagnostics and confirm both transactions roll back.
 - A successful consistency response such as `{ status: "CONSISTENT" }` proves that one invocation completed; it does not prove that no contention occurred during the run.

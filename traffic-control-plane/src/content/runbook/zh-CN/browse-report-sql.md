@@ -43,7 +43,7 @@ catalog 要求提供 `durationSec`，并按场景最大值限制。worker 负责
 
 ## 证据与判断
 
-- `fault_run_events`：`REPORT_WORKER_STARTED`、`REPORT_REQUEST`、`REPORT_REQUEST_FAILED` 和 `REPORT_WORKER_STOPPED` 展示 worker 活动、请求计数、失败和延迟。
+- `fault_run_events`：`REPORT_WORKER_STARTED` 和 `REPORT_WORKER_STOPPED` 展示 worker 活动、请求计数、失败和延迟。旧运行可能包含 `REPORT_REQUEST`/`REPORT_REQUEST_FAILED`；新 worker 不再产生这些高频事件。
 - Tempo：查看 Catalog 的 HTTP server span 及其 JDBC 子 span。
 - 数据库：在目标环境使用 `EXPLAIN` 对比 baseline 和 optimized 的执行计划及扫描行数。
 - 成功响应只能证明报表完成，不能证明使用了 optimized 计划。
