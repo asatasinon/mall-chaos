@@ -274,7 +274,7 @@
     },
     "memberSizeBytes": {
       "label": "值大小（S）",
-      "description": "每个字段 256B-128M；N × S 必须不超过 512M。"
+      "description": "每个字段 1KiB-128M；N × S 必须不超过 512M。"
     },
     "keyTtlSec": {
       "label": "安全 TTL",

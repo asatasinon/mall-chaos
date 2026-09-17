@@ -6,7 +6,7 @@
 
 This scenario exercises selected catalog product-detail reads through a run-scoped Redis Hash. The fixed target operation is `product-detail-cache`; preparation uses `/internal/catalog/product-details/cache/prepare`, and normal traffic is `GET /api/products/{sku}` through `gateway-service`.
 
-The catalog parameters are `durationSec`, `concurrency`, `requestIntervalMs`, `memberCount`, `memberSizeBytes` and `keyTtlSec`. `memberCount` is the number of Hash fields. It is not the number of top-level keys and it is not the read concurrency.
+The catalog parameters are `durationSec`, `concurrency`, `requestIntervalMs`, `memberCount`, `memberSizeBytes` and `keyTtlSec`. `memberCount` is the number of Hash fields. It is not the number of top-level keys and it is not the read concurrency. `memberSizeBytes` accepts 1KiB-128MiB because the serialized product-detail envelope must fit before padding.
 
 ## Actual implementation
 

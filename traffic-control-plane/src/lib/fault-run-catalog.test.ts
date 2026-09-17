@@ -152,6 +152,13 @@ test('catalog rejects unknown scenarios and duration above scenario limit', () =
 });
 
 test('catalog enforces Hash member budget and a TTL that covers the run', () => {
+  assert.throws(
+    () => validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', {
+      durationSec: 30, memberCount: 1, memberSizeBytes: 256, keyTtlSec: 900,
+    }),
+    (error: unknown) => error instanceof FaultRunValidationError
+      && error.message === 'INVALID_PARAMETER:memberSizeBytes',
+  );
   assert.deepEqual(
     validateScenarioParameters('CATALOG_REDIS_LARGE_VALUE', {
       durationSec: 30, memberCount: 4, memberSizeBytes: '128M', keyTtlSec: 900,

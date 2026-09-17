@@ -10,7 +10,11 @@ import {
   type FaultRunRecord,
   type FaultRunTargetSummary,
 } from './fault-run-repository';
-import { getScenarioDefinition, validateScenarioParameters } from './fault-run-catalog';
+import {
+  CATALOG_LARGE_VALUE_MIN_MEMBER_SIZE_BYTES,
+  getScenarioDefinition,
+  validateScenarioParameters,
+} from './fault-run-catalog';
 
 export interface FaultRunTargetAdapter {
   start(run: FaultRunRecord): Promise<unknown>;
@@ -343,7 +347,7 @@ function sanitizeTargetSummary(run: FaultRunRecord, response: unknown): FaultRun
     summary.hashKey = source.hashKey;
   }
   assignSafeInteger(source.memberCount, 1, 47, (value) => { summary.memberCount = value; });
-  assignSafeInteger(source.memberSizeBytes, 256, 128 * 1024 * 1024,
+  assignSafeInteger(source.memberSizeBytes, CATALOG_LARGE_VALUE_MIN_MEMBER_SIZE_BYTES, 128 * 1024 * 1024,
     (value) => { summary.memberSizeBytes = value; });
   assignSafeInteger(source.logicalBytes, 1, 512 * 1024 * 1024,
     (value) => { summary.logicalBytes = value; });

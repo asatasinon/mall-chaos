@@ -30,6 +30,7 @@ import java.util.UUID;
 public class ProductDetailCacheProvisioningService {
 
     public static final String TARGET_OPERATION = "product-detail-cache";
+    private static final int MIN_MEMBER_SIZE_BYTES = 1024;
 
     private static final Set<String> ALLOWED_PARAMETERS = Set.of(
             "durationSec", "concurrency", "requestIntervalMs", "memberCount", "memberSizeBytes", "keyTtlSec");
@@ -222,7 +223,7 @@ public class ProductDetailCacheProvisioningService {
         int durationSec = integer(parameters, "durationSec", 600, 1, 1800);
         int memberCount = integer(parameters, "memberCount", 8, 1, properties.getMaxMemberCount());
         int memberSizeBytes = integer(parameters, "memberSizeBytes", 32 * 1024 * 1024,
-                1, properties.getMaxMemberSizeBytes());
+                MIN_MEMBER_SIZE_BYTES, properties.getMaxMemberSizeBytes());
         int keyTtlSec = integer(parameters, "keyTtlSec", 900, 1, 3600);
         int grace = Math.max(0, properties.getCleanupGraceSeconds());
         if (keyTtlSec < durationSec + grace) {

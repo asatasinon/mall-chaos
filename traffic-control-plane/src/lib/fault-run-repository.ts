@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { getPool } from './db';
 import { ensureFaultRunSchema } from './fault-run-schema';
 import { serializeFaultRunEventPayload } from './fault-run-event-policy';
-import type { FaultRunScenario, FaultRunState } from './fault-run-catalog';
+import {
+  CATALOG_LARGE_VALUE_MIN_MEMBER_SIZE_BYTES,
+  type FaultRunScenario,
+  type FaultRunState,
+} from './fault-run-catalog';
 
 export interface FaultRunRecord {
   faultRunId: string;
@@ -344,7 +348,8 @@ export function extractFaultRunTargetSummary(
   if (summary.layout !== 'HASH'
       || summary.hashKey !== `catalog:product-detail:operation:${faultRunId}`
       || !isSafeInteger(summary.memberCount, 1, 47)
-      || !isSafeInteger(summary.memberSizeBytes, 256, 128 * 1024 * 1024)
+      || !isSafeInteger(summary.memberSizeBytes,
+        CATALOG_LARGE_VALUE_MIN_MEMBER_SIZE_BYTES, 128 * 1024 * 1024)
       || !isSafeInteger(summary.logicalBytes, 1, 512 * 1024 * 1024)
       || !isSafeInteger(summary.keyTtlSec, 1, 3600)
       || typeof summary.probeSku !== 'string'

@@ -126,6 +126,13 @@ class ProductDetailCacheProvisioningServiceTest {
     }
 
     @Test
+    void rejectsMemberSizeThatCannotContainTheCacheEnvelope() {
+        assertThatThrownBy(() -> provisioningService.start(context(), parameters(1, 256)))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("memberSizeBytes is out of range");
+    }
+
+    @Test
     void rejectsARequestThatCannotLeaveAProbeSku() {
         when(catalogService.listSellableProducts()).thenReturn(List.of(product("SKU-001"), product("SKU-002")));
 

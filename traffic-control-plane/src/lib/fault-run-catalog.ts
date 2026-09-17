@@ -86,6 +86,7 @@ const requestInterval: FaultRunParameterDefinition = {
 
 const CATALOG_LARGE_VALUE_CLEANUP_GRACE_SEC = 60;
 const CATALOG_LARGE_VALUE_MAX_LOGICAL_BYTES = 512 * 1024 * 1024;
+export const CATALOG_LARGE_VALUE_MIN_MEMBER_SIZE_BYTES = 1024;
 
 const BYTE_UNIT_MULTIPLIERS: Record<string, number> = {
   B: 1,
@@ -166,7 +167,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     allowManualCleanup: true,
     parameters: [duration, boundedConcurrency, requestInterval,
       { name: 'memberCount', kind: 'integer', default: 8, min: 1, max: 47 },
-      { name: 'memberSizeBytes', kind: 'integer', unit: 'bytes', default: '32M', min: 256, max: 128 * 1024 * 1024 },
+      { name: 'memberSizeBytes', kind: 'integer', unit: 'bytes', default: '32M', min: CATALOG_LARGE_VALUE_MIN_MEMBER_SIZE_BYTES, max: 128 * 1024 * 1024 },
       { name: 'keyTtlSec', kind: 'integer', default: 900, min: 1, max: 3600 }],
   },
   CART_CATALOG_DEPENDENCY: {

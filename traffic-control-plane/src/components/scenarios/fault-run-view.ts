@@ -6,6 +6,7 @@ import type {
   FaultRunTargetSummary,
   FaultRunWorkerStats,
 } from './types';
+import { CATALOG_LARGE_VALUE_MIN_MEMBER_SIZE_BYTES } from '@/lib/fault-run-catalog';
 
 const CACHE_RESULT_KEYS = [
   'CACHE_HIT',
@@ -133,7 +134,7 @@ function findTargetSummary(events: Event[], faultRunId: string): FaultRunTargetS
       || typeof candidate.probeSku !== 'string'
       || !SKU_PATTERN.test(candidate.probeSku)
       || memberSkus.includes(candidate.probeSku)
-      || !safeInteger(candidate.memberSizeBytes, 256)
+      || !safeInteger(candidate.memberSizeBytes, CATALOG_LARGE_VALUE_MIN_MEMBER_SIZE_BYTES)
       || !safeInteger(candidate.logicalBytes, 1)
       || candidate.logicalBytes !== candidate.memberCount * candidate.memberSizeBytes
       || !safeInteger(candidate.keyTtlSec, 1)) {

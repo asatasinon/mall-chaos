@@ -274,7 +274,7 @@
     },
     "memberSizeBytes": {
       "label": "Value size (S)",
-      "description": "256B-128M per field; N × S must stay at or below 512M."
+      "description": "1KiB-128M per field; N × S must stay at or below 512M."
     },
     "keyTtlSec": {
       "label": "Safety TTL",

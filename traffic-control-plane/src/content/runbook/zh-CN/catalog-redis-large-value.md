@@ -6,7 +6,7 @@
 
 本场景通过运行级 Redis Hash 压测选定的 Catalog 商品详情读取。固定目标操作为 `product-detail-cache`；准备使用 `/internal/catalog/product-details/cache/prepare`，正常业务流量是经 `gateway-service` 的 `GET /api/products/{sku}`。
 
-Catalog 参数包括 `durationSec`、`concurrency`、`requestIntervalMs`、`memberCount`、`memberSizeBytes` 和 `keyTtlSec`。`memberCount` 表示 Hash field 数，不是顶层 key 数，也不是读取并发数。
+Catalog 参数包括 `durationSec`、`concurrency`、`requestIntervalMs`、`memberCount`、`memberSizeBytes` 和 `keyTtlSec`。`memberCount` 表示 Hash field 数，不是顶层 key 数，也不是读取并发数。`memberSizeBytes` 接受 1KiB-128MiB，因为序列化后的商品详情 envelope 必须先能容纳，再进行填充。
 
 ## 实际实现逻辑
 
