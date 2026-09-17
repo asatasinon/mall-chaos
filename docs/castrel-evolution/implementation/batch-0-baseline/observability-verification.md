@@ -15,6 +15,12 @@
 
 因此，当前实现边界是“代码和静态配置已具备，真实 receipt、Kubernetes runtime 和场景 firing 仍待获批运行核验”。
 
+**P0-14 更新（2026-09-17）：** 上述内容保留 P0-13/历史观测窗口事实。
+远端 Compose 已在控制面运行后真实核验 Alertmanager route、机器认证、
+firing/resolved receipt 和重复投递；本文件末尾记录该运行窗口。真实
+Prometheus/Loki/Tempo adapter 仍未实现，因此场景 baseline 的 observation
+状态仍必须保留为 `UNKNOWN`/limitation；Kubernetes runtime 仍未执行。
+
 ## 核验范围与方法
 
 - Compose 只启动 `prometheus`、`alertmanager`、`loki`、`tempo` 和 `obs-auth-proxy`；没有启动 Web、Worker、业务服务，没有创建 Fault Run，也没有执行 Data Warmup 写入。
@@ -81,3 +87,43 @@ Kubernetes 清单 revision：
 - Alertmanager 真实投递和 receipt 没有事实证据；不能把任何候选标记为 `SELECTED`。
 - Kubernetes runtime、Loki retention、持久化和观测认证未核验；这些事实不能从 Compose 借用。
 - P0-10 必须保持零个 `SELECTED`，直到 route、认证、retention 和告警实际 receipt 均有独立证据。
+
+## P0-14 远端 Compose 运行窗口（2026-09-17）
+
+远端最终部署为 `CASTREL_DEPLOYMENT_MODE=compose`、`CASTREL_RELEASE_REVISION=1.4.0`，
+`BASELINE_CAPTURE_ENABLED=false`、`DATA_WARMUP_ENABLED=true`。源码为干净
+`a2df62984548625e10588e5de9948e71c4059ea2`；Catalog 镜像为
+`sha256:f4cd1e9cbf18093ec5f7fc11d4e7bb0cce8e4b76c19512605515c08dc0ced03d`，
+控制面与 Worker 镜像为
+`sha256:f9e5fd0ce3ebfcc51e97a83019a60f90fcb59cabfff554a791529602a173c8a5`。
+这组 digest 只作为发布一致性证据，不替代 Kubernetes image/runtime 证据。
+
+### Alertmanager runtime receipt
+
+在远端控制面通过受保护 webhook 入口执行了 firing/resolved 和重复投递验证：
+
+| 检查 | 结果 |
+| --- | --- |
+| 未认证入口 | HTTP 401 |
+| 首次 firing/resolved | HTTP 200，`accepted=1`、`duplicates=0` |
+| 重复 firing/resolved | HTTP 200，`accepted=0`、`duplicates=1` |
+| 数据库 receipt 表 | 6 条：3 条 `firing`、3 条 `resolved` |
+| 低基数/敏感输出 | 未保存原始告警 envelope、凭据或完整 labels；baseline/event 安全扫描 0 命中 |
+
+该验证证明控制面接收端点、机器认证和 receipt 幂等可用；它不是某个 Catalog
+场景已经触发 Prometheus rule 的证明。场景级 `actual firing` 和查询窗口仍为
+`UNKNOWN`，因为当前 capture 只有 observation executor interface，没有真实
+Prometheus/Loki/Tempo adapter。
+
+### Compose observation and rollback boundary
+
+Prometheus/Loki/Tempo readiness 与短窗口 API 的历史结果仍为可用，Prometheus/Loki
+retention 约为一周，Tempo 同时暴露 root `168h` 与 backend scheduler `336h`
+字段，语义未在本批次擅自合并。P0-14 因此把 Compose 组件可用性记为
+`AVAILABLE_WITH_LIMITATION`，不把它升级成每个场景的观测证据。
+
+baseline 开关关闭后的 smoke 保持既有 Fault Run/baseline 可读，baseline 写入口
+返回 `BASELINE_CAPTURE_DISABLED`，Gateway 商品接口、Runner status 和
+Alertmanager route 仍可用；未删除业务数据、Data Warmup 进度或历史 baseline。
+Kubernetes runtime、持久化、认证入口和真实 retention 查询仍需专用 namespace
+与批准窗口，不能从这次 Compose 结果推断。

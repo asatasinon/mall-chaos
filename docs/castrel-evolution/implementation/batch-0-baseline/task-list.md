@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | P0-13 已完成（保留真实运行、适配器和 Kubernetes runtime limitation）；P0-01 至 P0-13 已完成 |
+| 状态 | P0-14 已完成（有 limitation；Kubernetes runtime 与真实观测 adapter 阻塞）；P0-01 至 P0-14 已处理 |
 | 版本 | 1.4 |
-| 更新时间 | 2026-09-17 11:16 CST（代码/配置修复后的跨批次文档同步） |
+| 更新时间 | 2026-09-17 16:28 CST（远端 Compose 真实验收与回退核验） |
 | 路线阶段 | [阶段 0：基线和发布护栏](../../roadmap/phases/phase-0-baseline.md) |
 | 产品规格 | [product.md](./product.md) |
 | 技术设计 | [tech.md](./tech.md) |
@@ -25,11 +25,11 @@
 
 ## 总体进度
 
-- **总体状态：** Phase 0 执行中；P0-01 至 P0-13 已完成，保留真实场景/Worker/预热运行证据、实际观测适配器、告警投递 receipt、资源预算和 Kubernetes runtime limitation。
-- **总体进度：** 13 / 14 个任务组（67 / 74 个子任务）。
-- **当前任务：** P0-14：真实环境基线、验收与阶段退出（未开始；按用户确认暂不执行真实运行）。
-- **当前问题：** P0-ISSUE-001、P0-ISSUE-002、P0-ISSUE-003、P0-ISSUE-004、P0-ISSUE-007、P0-ISSUE-016 已完成代码/配置边界但保留运行或适配器 limitation；P0-ISSUE-005、P0-ISSUE-008、P0-ISSUE-010、P0-ISSUE-011、P0-ISSUE-012、P0-ISSUE-013、P0-ISSUE-014、P0-ISSUE-015 已完成代码/fixture 或范围内闭环；P0-ISSUE-006、P0-ISSUE-009 以及各项真实运行证据仍待授权核验。
-- **下一步：** 仅在用户批准真实 Worker、Catalog Fault Run、Data Warmup 和 Kubernetes runtime 核验后进入 P0-14；当前保持 `BASELINE_CAPTURE_ENABLED=false`、零个 `SELECTED`，不把静态适配器/配置证据写成现场 receipt 或场景基线。
+- **总体状态：** Phase 0 已完成（有 limitation，暂不进入 Batch 1）；P0-01 至 P0-14 均已处理。Compose 真实运行、Data Warmup、baseline、Alertmanager receipt、回退和 Pilot review 已有证据；Kubernetes runtime 与真实 Prometheus/Loki/Tempo adapter 仍未具备。
+- **总体进度：** 14 / 14 个任务组（73 / 74 个子任务完成，1 个子任务阻塞）。
+- **当前任务：** P0-14：真实环境基线、验收与阶段退出（已完成；P0-14-3 因无授权 Kubernetes namespace/runtime 标记阻塞）。
+- **当前问题：** P0-ISSUE-001、P0-ISSUE-002、P0-ISSUE-004、P0-ISSUE-006、P0-ISSUE-009、P0-ISSUE-011 已完成 Compose 运行核验但保留各自 limitation；P0-ISSUE-003 仍受 Kubernetes runtime 限制；P0-ISSUE-010 的个别业务 failure code 仍需复核；P0-ISSUE-016 的真实观测 adapter 尚未实现；P0-ISSUE-017 的镜像/源码漂移已修复。
+- **下一步：** 若要进入 Batch 1，先提供可复查的 Kubernetes namespace/owner/window，实现并接入真实观测 adapter，再对当前 `a9f117...` Catalog revision 重新评审；当前保持 `BASELINE_CAPTURE_ENABLED=false`、`DATA_WARMUP_ENABLED=true`、零个 `SELECTED`，不删除历史 baseline 或数据卷。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
@@ -46,7 +46,7 @@
 | P0-11 | 配置、资源预算、运行手册与回退护栏 | 已完成（有 limitation） | 6 / 6 | P0-03、P0-04、P0-08 至 P0-10 |
 | P0-12 | 单元测试与 fixture 覆盖 | 已完成（有 limitation） | 6 / 6 | P0-03 至 P0-10 |
 | P0-13 | 集成、安全边界与回退测试 | 已完成（有 limitation） | 6 / 6 | P0-08 至 P0-12 |
-| P0-14 | 真实环境基线、验收与阶段退出 | 未开始 | 0 / 7 | P0-11 至 P0-13 |
+| P0-14 | 真实环境基线、验收与阶段退出 | 已完成（有 limitation） | 7 / 7（6 完成，1 阻塞） | P0-11 至 P0-13 |
 
 ## 执行依赖
 
@@ -219,7 +219,7 @@ graph TD
 
 **状态：** 已完成（有 limitation）；**进度：** 6 / 6；**关联问题：** P0-ISSUE-004、P0-ISSUE-006、P0-ISSUE-012
 
-- [x] 实现从 `listScenarioDefinitions()` 派生的 canonical Catalog 序列化和 SHA-256 `catalogRevision`；排序、参数和 options 重排测试通过，Catalog 事实变化会改变 revision；当前矩阵已更新为 `000ccc36e4a77ef27d22636bdbc4643ff79ddb0c205b21830967bc40b7abd7dc`。
+- [x] 实现从 `listScenarioDefinitions()` 派生的 canonical Catalog 序列化和 SHA-256 `catalogRevision`；排序、参数和 options 重排测试通过，Catalog 事实变化会改变 revision；历史矩阵 revision 为 `000ccc36e4a77ef27d22636bdbc4643ff79ddb0c205b21830967bc40b7abd7dc`，Redis 合同修订后的当前运行 revision 为 `a9f117905993ed8898c0276c5c40267c4a434fc89b6254be8cb1725a7f15702b`。
 - [x] 增加并校验 `CASTREL_RELEASE_REVISION`，由 Compose/Kubernetes 配置提供注入入口；缺失或不合法时记录 `UNKNOWN` 和 limitation，不能从 `NODE_ENV` 推测版本。
 - [x] 增加并校验 `CASTREL_DEPLOYMENT_MODE`，只接受 `local`、`compose`、`kubernetes` 和 `unknown`；Web/Worker 均读取显式配置，不依据 hostname、端口或容器特征猜测。
 - [x] 将 `BASELINE_SCHEMA_REVISION=baseline.v1` 作为单一应用常量，并在应用 migration、fresh-install SQL 和 baseline metadata 中保持一致；两份 baseline DDL 已通过 `cmp`。
@@ -310,11 +310,11 @@ graph TD
 
 - [x] 复核 `CANDIDATE`、`SELECTED`、`REJECTED` 的受控 review 模型与 `(scenario, catalogRevision)` 幂等约束；`baseline-pilot.ts` 已实现 Catalog revision conflict、全局 selection lock 和 eligibility gate，schema 以唯一键保证同 revision 幂等。
 - [x] 逐项记录 Catalog 派生覆盖矩阵中每个条目的告警规则、实际 firing 核验、目标服务/operation 映射、查询窗口、retention、共享资源风险和排除理由；详见 [`pilot-review-matrix.md`](./pilot-review-matrix.md)。
-- [x] 按真实证据门槛评估 `SELECTED`；由于没有真实 Fault Run baseline、告警 receipt、场景 firing、完整 retention 语义和 Kubernetes runtime 证据，没有条目满足选择条件，未创建或选择 pilot。
-- [x] 对 12 个条目记录当前窗口的不具备选择资格、具体 limitation 和问题关联；MySQL 只读核验显示 `scenario_baselines=0`、`baseline_pilot_reviews=0`，没有用推荐名称或已创建 Fault Run 代替告警事实。
+- [x] 按真实证据门槛评估 `SELECTED`；P0-14 已产生真实 Fault Run、baseline 和 Alertmanager route receipt，但真实 Prometheus/Loki/Tempo 场景窗口、Kubernetes runtime、资源边界和部分 remediation 证据仍不足，因此没有条目满足选择条件。
+- [x] 对 12 个条目记录当前窗口的不具备选择资格、具体 limitation 和问题关联；P0-14 已通过 Operator API 持久化 12 条当前 revision 的 `REJECTED` review，`SELECTED=0`，没有用推荐名称或已创建 Fault Run 代替场景告警事实。
 - [x] 将每个条目的 `remediation` 限制在正常业务/基础设施修复、验证和数据处理边界；矩阵没有授予 Agent 写权限，也没有把控制面生命周期动作写入 remediation。
 
-证据与限制：`pilot-review-matrix.md` 固定当前 Catalog revision 和 12 条 runbook alert mapping；P0-09 的 Compose retention/查询和 Alertmanager active config 只作为配置/入口证据，不能升级为场景 firing 或 receipt。`BASELINE_CAPTURE_ENABLED=false`，未调用 Operator 写接口、未执行 Fault Run、baseline capture、Data Warmup 写入或场景 remediation。P0-13 已补齐 Alertmanager route、机器认证和 receipt 持久化代码边界，但真实 firing/resolved receipt 仍缺失；Kubernetes retention/runtime 和实际场景终态仍待后续 P0-14。
+证据与限制：`pilot-review-matrix.md` 固定历史 Catalog revision、当前 revision 和 12 条 runbook alert mapping；P0-09 的 Compose retention/查询和 Alertmanager active config 不能升级为场景 firing，但 P0-14 已独立验证 route receipt 幂等。P0-14 的 baseline 开关最终关闭，历史 baseline 仍可读；Kubernetes retention/runtime、真实 observation adapter、场景级 query window 和资源/remediation 边界仍待后续环境。
 
 ## P0-11：配置、资源预算、运行手册与回退护栏
 
@@ -377,21 +377,50 @@ Operator audit、路由鉴权、Worker 事件落库和 retention runtime 仍留�
 - [x] 实现 observation executor interface、allowlist reference、窗口校验、timeout/network/authentication/expired 状态归一化、capture 接入和低基数审计事件；默认无适配器返回 `UNKNOWN`，真实 Prometheus/Loki/Tempo adapter 尚未实现。
 - [x] 执行与变更范围匹配的 TypeScript、lint、迁移、控制面测试、部署配置和运行时术语检查；将命令、版本和结果写入执行记录。
 
-**P0-13 限制：** 本任务组的 Alertmanager receipt、观测 executor 和 Kubernetes retention 均只完成代码/配置及纯测试验证。按用户确认，本次未启动 Worker、Data Warmup、真实 Catalog Fault Run、Alertmanager 投递或 Kubernetes runtime；因此 P0-ISSUE-006、P0-ISSUE-009、P0-ISSUE-010、P0-ISSUE-011 以及真实 receipt/adapter 能力仍不能标记为现场已验证。P0-ISSUE-008 的新写入路径已完成，但历史 schema/事件仍按兼容 retention 边界保留。
+**P0-13 限制（该任务组完成时的历史边界）：** Alertmanager receipt、观测
+executor 和 Kubernetes retention 当时只完成代码/配置及纯测试验证；P0-14
+随后在远端 Compose 补充了真实 Fault Run、Data Warmup、Alertmanager 投递和
+回退证据。真实 Prometheus/Loki/Tempo adapter、Kubernetes runtime 和场景级
+observation window 仍不能标记为现场已验证。P0-ISSUE-008 的新写入路径已完成，
+但历史 schema/事件仍按兼容 retention 边界保留。
 
 ## P0-14：真实环境基线、验收与阶段退出
 
 **目标：** 在受控环境中完成真实运行基线、告警前置核验和可回退验收，决定是否进入批次 1。
 
-**状态：** 未开始（等待用户批准真实运行）；**进度：** 0 / 7；**关联问题：** P0-ISSUE-001、P0-ISSUE-002、P0-ISSUE-003、P0-ISSUE-006、P0-ISSUE-007、P0-ISSUE-009、P0-ISSUE-010、P0-ISSUE-011、P0-ISSUE-016
+**状态：** 已完成（有 limitation；P0-14-3 阻塞）；**进度：** 7 / 7（6 完成，1 阻塞）；**关联问题：** P0-ISSUE-001、P0-ISSUE-002、P0-ISSUE-003、P0-ISSUE-006、P0-ISSUE-007、P0-ISSUE-009、P0-ISSUE-010、P0-ISSUE-011、P0-ISSUE-016、P0-ISSUE-017
 
-- [ ] 在 disposable Compose 环境以合适时长运行 Catalog 派生覆盖矩阵中的每个条目；每次运行先做 smoke、执行 Fault Run、生成 baseline，再核对事件、汇总、audit、恢复和残留资源。
-- [ ] 对每个 baseline 核对 `catalogRevision`、发布/部署/预热元数据、关键时间窗口、失败分类、回退步骤和 limitations；不完整记录不得被当作完整基线。
-- [ ] 在 Kubernetes 配置和可用专用环境中核验观测/告警实际配置、retention 与查询可用性，记录与 Compose 的差异和环境限制。
-- [ ] 完成 pilot review：选择一个满足全部前置事实的条目，或明确记录没有合格候选及其阻塞方案；不以全部条目均支持作为退出条件。
-- [ ] 检查所有 baseline、事件、审计和文档不含 secret、原始观测现场、可执行命令或面向消费者暴露的控制面术语。
-- [ ] 关闭 baseline 开关并执行回退 smoke，确认停止旁路采集不停止 Worker、不改变 Fault Run 状态、不删除业务数据，已写 baseline 仍可读取。
-- [ ] 汇总完成证据、未解决问题、灰度范围和回退结果；仅在退出标准满足时将 Phase 0 标为完成并更新下一批次入口状态。
+- [x] 在远端 disposable Compose 环境以合适时长运行 Catalog 派生覆盖矩阵中的 12 个条目；每次运行执行 smoke、Fault Run、baseline、事件/汇总/audit、恢复和残留资源核对。另对 Redis 合同修订后的 `memberSizeBytes=1024` 运行了重跑。
+- [x] 对本轮 13 个运行集合核对 `catalogRevision`、发布/部署/预热元数据、关键时间窗口、失败分类、回退步骤和 limitations；`scenario_baselines` 总体为 15 条 `COMPLETE_WITH_LIMITATIONS`、4 条 `INCOMPLETE`，不完整记录未当作完整基线。
+- [!] 在 Kubernetes 配置和可用专用环境中核验观测/告警实际配置、retention 与查询可用性：`kubectl kustomize k8s` 通过，但当前没有获批 namespace/owner/window，未执行 Kubernetes runtime；Compose retention/查询历史证据单独保留。关联 P0-ISSUE-003。
+- [x] 完成 pilot review：以当前 Catalog revision 持久化 12 条 `REJECTED` review，`SELECTED=0`；没有合格候选及阻塞方案，不以全部条目均支持作为退出条件。
+- [x] 检查 baseline、事件、审计和文档安全输出：本轮选定运行集合的 secret、Authorization、Cookie、password、SQL、shell、docker、kubectl 等敏感匹配均为 0；不保存原始观测载荷或凭据。
+- [x] 关闭 baseline 开关并执行回退 smoke：既有 Fault Run/baseline 仍可读，新增 baseline 写入返回 `BASELINE_CAPTURE_DISABLED`，Gateway 商品接口、Runner status 和 Alertmanager route 保持可用；未删除业务数据或数据卷。
+- [x] 汇总 Compose 证据、未解决问题、灰度范围和回退结果；Phase 0 标记为“有 limitation 完成”，但在 Kubernetes runtime 和真实观测 adapter 补齐前不进入 Batch 1、不选择 pilot。
+
+### P0-14 远端 Compose 验收记录（2026-09-17）
+
+远端仓库为 `/home/raven/code/castrel-chaos`，最终源码 `HEAD=a2df62984548625e10588e5de9948e71c4059ea2`，工作区已恢复干净。控制面/Catalog/Worker 从该提交的干净内容重建并部署；Catalog 镜像 digest 为 `sha256:f4cd1e9cbf18093ec5f7fc11d4e7bb0cce8e4b76c19512605515c08dc0ced03d`，控制面与 Worker 共用 `sha256:f9e5fd0ce3ebfcc51e97a83019a60f90fcb59cabfff554a791529602a173c8a5`。最终 `BASELINE_CAPTURE_ENABLED=false`、`DATA_WARMUP_ENABLED=true`、`CASTREL_RELEASE_REVISION=1.4.0`、`CASTREL_DEPLOYMENT_MODE=compose`，Compose 服务均为 running，带 healthcheck 的服务为 healthy。
+
+| Scenario | Run ID | 终态与运行摘要 |
+| --- | --- | --- |
+| `BROWSE_REPORT_SQL` | `a1f064ac-cd31-4a35-b198-09c4d412337b` | `RECOVERED`；约 60 秒报表请求，1 次/0 成功/1 失败；baseline 有慢 SQL 与观测 limitation |
+| `ORDER_REPORT_SQL` | `14450128-9a3c-467e-ac6a-05aadf69774f` | `RECOVERED`；约 60 秒报表请求，1 次/0 成功/1 失败；baseline 有慢 SQL 与观测 limitation |
+| `BROWSE_SURGE` | `7fffdf75-b6a3-4983-8ab7-ebf61b07fdd9` | `RECOVERED`；110/110 成功；有 `SCENARIO_WORKER_DRAINED` |
+| `ORDER_QUERY_SURGE` | `0fcb640c-5655-4373-9bc6-ff694bf3f9c1` | `RECOVERED`；80/80 成功；有 `SCENARIO_WORKER_DRAINED` |
+| `CATALOG_REDIS_LARGE_VALUE` | `6b8e8d21-f9e8-4f9a-98df-9986f1922d68` | `RECOVERED`；1024B 运行，92/92 cache hit，cleanup HTTP 200 |
+| `CATALOG_REDIS_LARGE_VALUE`（合同修订重跑） | `d4bfa872-c48b-44c1-b425-1df59df5765f` | `RECOVERED`；修订后 1024B 合同，含 Worker drain、recovery 和 baseline 事件 |
+| `CART_CATALOG_DEPENDENCY` | `0ac60702-0c11-4c62-849b-861f3af733bf` | `RECOVERED`；91 次请求/0 成功/91 失败；真实依赖失败可见，但 failure code 仍需业务复核 |
+| `NOTIFICATION_STORAGE_APPEND` | `09a819ba-d1df-4bec-a9f7-018e786bcd0d` | `RECOVERED`；Runner summary 成功；人工 cleanup HTTP 200 |
+| `PROMOTION_LOCK_CONTENTION` | `19c75f1c-4c83-43e0-9b8a-a92527046ee4` | `RECOVERED`；160 次请求/0 成功；记录锁竞争效果 |
+| `INVENTORY_TABLE_EXCLUSIVE` | `5c4b5858-2ea1-4dd9-a8a2-4233c129dfd5` | `RECOVERED`；1 次请求，约 10.9 秒延迟 |
+| `INVENTORY_ROW_LOCK` | `c647bf0b-8995-493a-a9e1-b7327c9f3735` | `RECOVERED`；4 次请求/2 成功/2 失败；有延迟分布 |
+| `PSP_PROVIDER_OUTCOME` | `5707b05d-774e-43ba-9fd0-3a112cf46aae` | `RECOVERED`；Runner summary 成功；`TARGET_EFFECT_FAILURE` |
+| `NOTIFICATION_HEAP_PRESSURE` | `4bb51b52-3879-473b-b09d-e1fe7dd1bc06` | `RECOVERED`；3 个 Runner summary；`NON_RELEASING`，cleanup `NOT_REQUIRED` |
+
+运行集合的 baseline 元数据：本轮 12 个条目使用历史 revision `000ccc36e4a77ef27d22636bdbc4643ff79ddb0c205b21830967bc40b7abd7dc`，Redis 合同重跑使用当前 revision `a9f117905993ed8898c0276c5c40267c4a434fc89b6254be8cb1725a7f15702b`。数据库 baseline 总体按 revision 分组为旧 revision 18 条、新 revision 1 条；全部核对 baseline 的 release/deployment metadata 为 `1.4.0`/`compose`。Data Warmup 配置为 `180 days × 300000 rows/day = 54000000`，`user_behavior_log` 与 `product_price_history` 均为 `APPENDING`、54000000/54000000 行、持有 lease 且有成功时间。Alertmanager 真实 route 已验证 firing/resolved 与重复投递：首次 `accepted=1, duplicates=0`，重复 `accepted=0, duplicates=1`；receipt 表共 6 条（3 firing、3 resolved）。
+
+回退 smoke 结果：既有 run `d4bfa872-c48b-44c1-b425-1df59df5765f` GET 200/`RECOVERED`，baseline GET 200/`COMPLETE_WITH_LIMITATIONS`，baseline POST 404/`BASELINE_CAPTURE_DISABLED`，Gateway 商品接口 200，Runner status 200，Alertmanager route 200。256B Redis 参数在干净重部署后稳定返回 400/`INVALID_PARAMETER:memberSizeBytes`，不再出现目标启动 502。该次漂移已登记为 P0-ISSUE-017 并关闭。
 
 ---
 
@@ -401,22 +430,23 @@ Operator audit、路由鉴权、Worker 事件落库和 retention runtime 仍留�
 
 | ID | 发现阶段/任务 | 问题 | 影响 | 可能的解决方案/下一步 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| P0-ISSUE-001 | 设计基线 / P0-01、P0-02、P0-05、P0-06、P0-13 | 静态代码核验确认 Catalog 中的 `CART_CATALOG_DEPENDENCY` 有 Gateway target map 和目标服务 endpoint，但此前没有真实受控流量 dispatch 或场景专属终态汇总事件。 | 在没有 Worker/运行证据时该条目只能生成 `DISPATCH_UNVERIFIED`/`INCOMPLETE`，不得伪造请求统计或被选择为 pilot。 | 已补齐 Scenario Worker 的 Gateway customer session、产品/购物车读取、可售 SKU 选择、购物车写入、setup failure/stop/drain 生命周期事件，并加入低基数 normalization 与单测；真实 Catalog 运行和落库仍待 P0-14。 | 已解决（代码，运行待核验） |
-| P0-ISSUE-002 | 设计基线 / P0-09、P0-13 | Alertmanager 配置中的控制面 webhook URL 不等于接收端点、认证和 `send_resolved` 已真实可用。 | 没有机器认证和 receipt 幂等时，告警 receipt 无法作为 pilot 前置事实。 | 已新增精确 `/internal/alertmanager/webhook` route、`CASTREL_INTERNAL_SERVICE_KEY` Bearer/受保护 header 校验、firing/resolved 解析、重复投递 key、低基数 `alert_receipts` 表及 Compose/Kubernetes credentials file；纯 parser/config 检查通过，真实投递/数据库 receipt 仍待 P0-14。 | 已解决（代码/静态，投递运行待核验） |
-| P0-ISSUE-003 | 设计基线 / P0-01、P0-09、P0-13、P0-14 | Prometheus、Loki、Tempo 的 retention 和查询可用性可能与部署声明不一致。 | 关键证据窗口不明确时不得选择 pilot；Kubernetes runtime 仍不能由静态 manifest 代替。 | Prometheus Compose/Kubernetes 均改为显式 `168h`；Kubernetes 新增 Loki 3.6.10 ConfigMap、retention 配置挂载并保留 `emptyDir`；Tempo 保持 `168h`。Compose/Kustomize 静态校验通过，Kubernetes runtime 和真实查询仍待后续环境。 | 已解决（配置，runtime 待核验） |
-| P0-ISSUE-004 | 设计基线 / P0-01、P0-04、P0-07、P0-11、P0-13 | Web/Worker 需要统一的 release revision 与显式 deployment mode 采集事实。 | baseline 可能无法完整关联发布版本或部署模式，但不得阻断既有 Fault Run。 | `getBaselineMetadata()` 已接入 capture；Compose 与 Kubernetes 默认 release revision 已固定为 `1.4.0`，deployment mode 保持显式注入；控制面环境变量仍允许发布系统覆盖，未把本地 tag 当 immutable digest。 | 已解决（代码/配置，immutable runtime 仍待核验） |
+| P0-ISSUE-001 | 设计基线 / P0-01、P0-02、P0-05、P0-06、P0-13、P0-14 | 静态代码核验确认 Catalog 中的 `CART_CATALOG_DEPENDENCY` 有 Gateway target map 和目标服务 endpoint，但此前没有真实受控流量 dispatch 或场景专属终态汇总事件。 | 在没有 Worker/运行证据时该条目只能生成 `DISPATCH_UNVERIFIED`/`INCOMPLETE`，不得伪造请求统计或被选择为 pilot。 | 已补齐 Scenario Worker 的 Gateway customer session、产品/购物车读取、可售 SKU 选择、购物车写入、setup failure/stop/drain 生命周期事件，并加入低基数 normalization 与单测；P0-14 远端运行已记录 91 次请求、0 成功、91 失败和完整 Worker drain/recovery 事件。 | 已解决（代码与 Compose 运行；failure code 仍需业务复核） |
+| P0-ISSUE-002 | 设计基线 / P0-09、P0-13、P0-14 | Alertmanager 配置中的控制面 webhook URL 不等于接收端点、认证和 `send_resolved` 已真实可用。 | 没有机器认证和 receipt 幂等时，告警 receipt 无法作为 pilot 前置事实。 | 已新增精确 `/internal/alertmanager/webhook` route、`CASTREL_INTERNAL_SERVICE_KEY` Bearer/受保护 header 校验、firing/resolved 解析、重复投递 key、低基数 `alert_receipts` 表及 Compose/Kubernetes credentials file；远端已验证首次 firing/resolved accepted、重复投递 duplicates，receipt 表为 3 firing/3 resolved。 | 已解决（代码与 Compose 投递；场景级 firing/观测窗口仍未满足 pilot） |
+| P0-ISSUE-003 | 设计基线 / P0-01、P0-09、P0-13、P0-14 | Prometheus、Loki、Tempo 的 retention 和查询可用性可能与部署声明不一致。 | 关键证据窗口不明确时不得选择 pilot；Kubernetes runtime 仍不能由静态 manifest 代替。 | Prometheus Compose/Kubernetes 均改为显式 `168h`；Kubernetes 新增 Loki 3.6.10 ConfigMap、retention 配置挂载并保留 `emptyDir`；Tempo 保持 `168h`。Compose readiness/query 与配置已核验，Kubernetes 仅完成 kustomize，因无 namespace/owner/window 未执行 runtime。 | 部分解决（Compose/config；Kubernetes runtime 已阻塞） |
+| P0-ISSUE-004 | 设计基线 / P0-01、P0-04、P0-07、P0-11、P0-13、P0-14 | Web/Worker 需要统一的 release revision 与显式 deployment mode 采集事实。 | baseline 可能无法完整关联发布版本或部署模式，但不得阻断既有 Fault Run。 | `getBaselineMetadata()` 已接入 capture；远端 Compose baseline 均记录 `1.4.0`/`compose`，并额外记录控制面/Catalog/Worker immutable image digest；Kubernetes 仍无 runtime 核验。 | 已解决（Compose 证据；Kubernetes runtime limitation 保留） |
 | P0-ISSUE-005 | P0-01-3 | 初始检查时当前工作区没有完整 disposable Compose 栈；当前 Kubernetes context 中不存在 `castrel` namespace；也没有登记本次运行的环境 owner、观测访问责任人和批准的停止窗口。 | 初始状态无法安全执行完整 Catalog 运行、目标效果/恢复/告警核验或回退；本地 MySQL/Redis 不能替代完整环境。 | 用户已确认本次执行可使用当前工作区作为 disposable Compose，停止窗口为本次核验结束，边界为停止/移除容器但保留数据卷；完整栈已启动并完成核心健康核验。Kubernetes 仍只作为配置核验，后续共享环境仍需单独 owner 和窗口。 | 已解决（本次执行范围） |
-| P0-ISSUE-006 | P0-01-4、P0-04、P0-14 | 当前 MySQL 的两条预热进度均停留在历史 `BACKFILLING`：`target_rows=90000000`、`actual_rows=0`、`current_date_value=2026-08-27`、无 lease owner 和成功时间，且目标与当前支持的 180 天 × 300000 行/天约束不一致。 | 不能证明预热配置、进度、租约或历史数据处于可用状态；不得将过期进度写入 baseline，也不得手工改表伪造完成。 | 在获批 disposable 环境启动当前 Worker，由兼容性检查、租约、heartbeat、rollover 和 stale-job recovery 逻辑处理；核验支持元组后重新记录进度。处理前 baseline 的 `dataWarmup` 标记为 `UNKNOWN`/`STALE`。 | 待处理 |
+| P0-ISSUE-006 | P0-01-4、P0-04、P0-14 | 初始 MySQL 的两条预热进度曾停留在历史 `BACKFILLING`：`target_rows=90000000`、`actual_rows=0`、无 lease owner 和成功时间，且目标与当前支持元组不一致。 | 在没有重新取得租约并核对目标前，不能证明预热配置、进度或历史数据处于可用状态；不得手工改表伪造完成。 | 远端 Worker 按数据库配置、租约、heartbeat 和 rollover 运行后，配置已为 `180×300000=54000000`；`user_behavior_log` 与 `product_price_history` 均达到 54000000/54000000，状态 `APPENDING`、持有 lease 且有成功时间。`APPENDING` 是持续维护状态，不等同于失败。 | 已解决（Compose 运行；持续维护状态保留） |
 | P0-ISSUE-007 | P0-01-3、P0-01-4、P0-13 | 在 Apple Silicon 本地以 Compose 默认 Order JVM 上限启动时，`order-service` 因资源不足以退出码 `137`/OOM，导致第一次完整栈启动不完整。 | 本地环境不能用默认资源预算证明 Order 场景的性能或稳定性；若不处理，Gateway 依赖链虽可启动但 Order 业务路径不完整。 | Compose 增加可覆盖的 `ORDER_JAVA_XMS`/`ORDER_JAVA_XMX`，Kubernetes entrypoint 现在把显式 `JAVA_OPTS` 合并到共享 `JAVA_TOOL_OPTIONS`，避免 Order heap 设置静默失效；本地资源仅为启动调优，仍不是性能基线。 | 已解决（配置/脚本，资源基线 limitation 保留） |
 | P0-ISSUE-008 | P0-02-1、P0-02-4、P0-06、P0-07、P0-13 follow-up | `fault_run_events.payload` 的历史 schema 仍是可空 JSON，旧数据中存在按请求/按失败写入的高频事件；如果新代码继续沿用，会造成高写入量并扩大原始错误内容进入事件的风险。 | 长期摘要难以保证低基数；baseline 不能把任意历史 payload 当作可信汇总，历史数据也不能通过重写来伪造新合同。 | 新代码已停止产生 `REPORT_REQUEST`、`REPORT_REQUEST_FAILED` 和 `SCENARIO_REQUEST_FAILED`；报表/受控 Worker 只写生命周期汇总。事件写入口现在拒绝动态 event type、退役高频事件、不可序列化 payload，并对当前写入施加 8 KiB UTF-8 上限；历史事件保留七天 retention、只作兼容折叠，不重写。 | 已解决（新写入路径；历史 schema/运行数据 limitation 保留） |
-| P0-ISSUE-009 | P0-02-2、P0-05、P0-06、P0-10、P0-14 | 11 个条目虽有静态 Worker/Runner dispatch，但当前 MySQL 没有对应的当前终态汇总；历史 `EXERCISE_WORKER_*` 与当前 `SCENARIO_WORKER_*` 合同不一致，多个条目只有 create failure 或完全没有运行记录。 | 不能证明真实受控请求、目标效果、请求计数、成功/失败、延迟或终态 drain；任何静态“已核验”条目都不能直接生成完整 baseline 或被选择为 pilot。 | 保持 `UNKNOWN`/`INCOMPLETE`，不回填 0 或成功；在获批 disposable/专用环境按当前 Catalog revision 逐条运行并核对 Worker/Runner 终态事件。P0-06 只补齐缺失的低基数终态摘要，不用旧事件改名掩盖运行事实。 | 待核验 |
-| P0-ISSUE-010 | P0-02-3、P0-05、P0-07、P0-12 | 当前 Fault Run state 只有通用 `FAILED`，现有事件也没有统一的五类失败分类和稳定 failure code；直接按 state 或异常文本分类会混淆目标效果、控制动作、Worker、恢复和清理。 | baseline 无法可靠解释“失败发生在哪里”及四种事实边界，可能把目标未观察、控制面失败或资源清理失败误报为同一结果。 | P0-05 已在纯折叠层派生五类 `failureClass`/首批稳定 `failureCode`，保留事件来源和 limitation；P0-06 补齐终态摘要，P0-07/12 接入 capture，并由 fixture 验证优先级；不修改既有 Fault Run state。 | 已解决（代码/fixture；真实运行分类待核验） |
-| P0-ISSUE-011 | P0-02-4、P0-06、P0-12 | `TrafficSurgeExecutor` 直接使用 `ControlledScenarioWorker`，原先只产生 `SCENARIO_WORKER_STARTED`、请求失败和 `SCENARIO_WORKER_STOPPED`，没有 `SCENARIO_WORKER_DRAINED`；Catalog 矩阵不能把 stopped 统计当 drain/资源释放证据。 | surge 运行结束前无法证明 worker drain snapshot 已写入；baseline 不能把 stopped 统计误当 drain/资源释放证据。 | P0-06 已为 surge 注册 Coordinator drain，并在 promise finally 写入规范化 `SCENARIO_WORKER_DRAINED`；P0-12 fixture 已覆盖 drain 边界，P0-14 仍需验证事件实际落库。 | 已解决（代码/fixture；真实落库待核验） |
+| P0-ISSUE-009 | P0-02-2、P0-05、P0-06、P0-10、P0-14 | 11 个条目虽有静态 Worker/Runner dispatch，但当前 MySQL 没有对应的当前终态汇总；历史 `EXERCISE_WORKER_*` 与当前 `SCENARIO_WORKER_*` 合同不一致，多个条目只有 create failure 或完全没有运行记录。 | 不能证明真实受控请求、目标效果、请求计数、成功/失败、延迟或终态 drain；任何静态“已核验”条目都不能直接生成完整 baseline 或被选择为 pilot。 | P0-14 已在远端 Compose 对 12 个条目完成运行；报告/ surge/Scenario/Runner 终态事件和 recovery/cleanup 已落库，13 个本轮运行集合均形成 baseline 或显式 limitation。真实 observation query、专用资源边界和 pilot eligibility 仍未满足。 | 已解决（Compose 运行；观测/资源/pilot limitation 保留） |
+| P0-ISSUE-010 | P0-02-3、P0-05、P0-07、P0-12、P0-14 | 当前 Fault Run state 只有通用 `FAILED`，现有事件也没有统一的五类失败分类和稳定 failure code；直接按 state 或异常文本分类会混淆目标效果、控制动作、Worker、恢复和清理。 | baseline 无法可靠解释“失败发生在哪里”及四种事实边界，可能把目标未观察、控制面失败或资源清理失败误报为同一结果。 | P0-05 已在折叠层派生五类 `failureClass`/稳定 `failureCode`，P0-14 已将其写入运行集合 baseline；`CART_CATALOG_DEPENDENCY` 的真实失败数量已记录，但其业务 failure code 仍需单独复核，不从数量推导分类。 | 已解决（代码与运行折叠；个别业务 code limitation） |
+| P0-ISSUE-011 | P0-02-4、P0-06、P0-12、P0-14 | `TrafficSurgeExecutor` 直接使用 `ControlledScenarioWorker`，原先只产生 `SCENARIO_WORKER_STARTED`、请求失败和 `SCENARIO_WORKER_STOPPED`，没有 `SCENARIO_WORKER_DRAINED`；Catalog 矩阵不能把 stopped 统计当 drain/资源释放证据。 | surge 运行结束前无法证明 worker drain snapshot 已写入；baseline 不能把 stopped 统计误当 drain/资源释放证据。 | P0-06 已为 surge 注册 Coordinator drain，并在 promise finally 写入规范化 `SCENARIO_WORKER_DRAINED`；P0-14 的 `BROWSE_SURGE`、`ORDER_QUERY_SURGE` 和其他 Scenario Worker 运行均已核对 drain 事件。 | 已解决（代码、fixture 与 Compose 落库） |
 | P0-ISSUE-012 | 用户决策 / P0-04 | Data Warmup 配置原先只来自 Worker 环境变量，Web/API 可能展示与 Worker 不一致的默认值，且无法通过页面启停或调整参数。 | 配置事实不可审计，页面修改无法跨独立进程生效；baseline 不能可靠关联采集时的实际预热配置。 | 已新增 `data_warmup_config` 单行表；首次启动严格校验且仅在无行时使用环境默认值，之后数据库为唯一来源；Operator 更新使用版本 CAS、CSRF、二次确认和审计，Worker 每批次重读配置；Web/Worker 的 bootstrap 环境已统一。 | 已解决（运行时配置范围） |
 | P0-ISSUE-013 | P0-08 review | baseline API 原先在 baseline 持久化后才创建 capture audit，且并发请求可重复写 capture lifecycle events；audit 写入失败后已有 baseline 也无法可靠补关联。 | 违反重复 capture 不重复审计/事件的幂等要求，且摘要可能缺少本次 Operator capture 引用。 | P0-08 已在来源级 advisory lock 内建立 audit reservation，再传入 capture；capture event 和 baseline 均使用该 audit id，成功后更新 audit 为 SUCCESS；已有记录在锁内直接返回。仍需 P0-13/P0-14 运行时落库核验。 | 已解决（代码，运行待核验） |
 | P0-ISSUE-014 | P0-08 review | pilot review 原先未限制全局多个 `SELECTED`、未覆盖 recovery/cleanup 未知边界，且 free text 可能包含命令或敏感内容。 | 可能把不安全或不可复查的条目标记为 pilot，或同时存在多个 active selected。 | P0-08 已增加全局 selection advisory lock、Catalog revision conflict、业务恢复/清理和观测/告警 eligibility gate；review text 使用长度、primitive、命令/SQL/凭据过滤，Catalog scenario 使用 own-property 校验。实际 review 写入仍待专用环境核验。 | 已解决（代码，运行待核验） |
 | P0-ISSUE-015 | P0-09 | 维护文档曾把观测 Basic Auth 写成固定开发密码，但当前 `infra/nginx/.htpasswd` 使用了不同的本地开发凭据；首次探针因此返回 401。 | Operator 可能使用错误凭据，把认证失败误判为观测服务不可用；凭据来源不一致也可能导致不安全复制。 | 已将 `CLAUDE.md` 改为只引用 `infra/nginx/.htpasswd` 作为开发 Compose 的凭据来源，不在台账和证据文件写入密码；后续部署文档继续避免复制具体凭据。 | 已解决（文档来源） |
-| P0-ISSUE-016 | P0-13-5、P0-13 | 当前 checkout 没有独立的 baseline observation executor；原有配置项只有读取逻辑，capture 只生成固定 `UNKNOWN`。 | 未有 executor 时无法分别表达 timeout、网络、认证和过期窗口，也不能把观测 limitation 作为可审计摘要。 | 已新增 `ObservationExecutor` interface/allowlist reference、窗口 future/expired/invalid 校验、timeout/network/authentication 归一化、capture 接入、低基数 `BASELINE_OBSERVATION_CHECK_RECORDED` 状态/窗口字段和纯测试；默认无 adapter 仍返回 `UNKNOWN`，真实 Prometheus/Loki/Tempo adapter 与 runtime query 仍待后续。 | 已解决（接口/状态/审计边界，真实适配器待实现） |
+| P0-ISSUE-016 | P0-13-5、P0-13、P0-14 | 当前 checkout 没有独立的 baseline observation executor；原有配置项只有读取逻辑，capture 只生成固定 `UNKNOWN`。 | 未有真实 adapter 时无法分别从 Prometheus/Loki/Tempo 查询场景窗口，也不能把真实 timeout、网络、认证和过期结果作为 pilot 前置事实。 | 已新增 `ObservationExecutor` interface/allowlist reference、窗口 future/expired/invalid 校验、timeout/network/authentication 归一化、capture 接入、低基数 `BASELINE_OBSERVATION_CHECK_RECORDED` 状态/窗口字段和纯测试；默认无 adapter 仍返回 `UNKNOWN`，远端 baseline 因此保留 observation limitation。 | 已阻塞（接口边界完成，真实适配器未实现） |
+| P0-ISSUE-017 | P0-14 远端发布验收 | 控制面镜像、Catalog 镜像和远端工作区曾不对应同一提交；在该漂移状态下，256B Redis 参数实际到达目标并返回 502，不能作为参数合同验收证据。 | 运行证据可能来自不同源码/镜像版本，Catalog revision、目标校验和回退结论不可复查。 | 保留远端未提交差异，临时从干净 `a2df629` 构建 Catalog/控制面/Worker，重新部署并确认 256B 返回 400 `INVALID_PARAMETER:memberSizeBytes`；随后将远端工作区恢复为干净 HEAD，并记录两个镜像 digest。 | 已解决（Compose 发布一致性） |
 
 ## 执行更新记录
 
@@ -496,6 +526,11 @@ Operator audit、路由鉴权、Worker 事件落库和 retention runtime 仍留�
 | 2026-09-17 11:32 | P0-13 follow-up：退役高频事件与事件写入护栏 | 13 / 14（67 / 74 子任务） | P0-13：6 / 6 | `ReportScenarioWorker` 不再写 `REPORT_REQUEST`/`REPORT_REQUEST_FAILED`，`ControlledScenarioWorker` 不再按失败写 `SCENARIO_REQUEST_FAILED`；两类 Worker 仅保留 started/stopped/drained 低基数汇总。新增 `fault-run-event-policy.ts`：动态 event type、不可序列化 payload、超过 8 KiB UTF-8 的当前写入和退役高频事件均显式拒绝；兼容折叠仍读取历史事件。新增策略与 Worker 测试覆盖通过静态验证。 | P0-ISSUE-008 更新为“已解决（新写入路径；历史 schema/运行数据 limitation 保留）”；P0-ISSUE-010/011 更新为代码/fixture 已解决，但真实分类和事件落库仍待授权运行。未重写历史事件，未启动 Worker、Fault Run 或 Data Warmup。 | 保持 P0-14 未开始、`BASELINE_CAPTURE_ENABLED=false` 和零个 `SELECTED`；后续只在获得运行授权后补现场证据。 |
 | 2026-09-17 13:04 | P0-13 follow-up 验证完成 | 13 / 14（67 / 74 子任务） | P0-13：6 / 6 | 事件策略、事件合同、Worker、baseline folding 聚焦测试 20 / 20 通过；`pnpm test:runner` 73 / 73 通过；`pnpm typecheck`、`pnpm lint`、`pnpm test:i18n` 和 `git diff --check` 通过。CART 缺失 runtime dispatch 的回归断言已恢复为 `DISPATCH_UNVERIFIED`，不改变真实运行边界。 | 代码/fixture 和文档一致性已完成；仍未执行真实 Worker、Catalog Fault Run、Data Warmup、Alertmanager 投递或 Kubernetes runtime，因此 P0-14 以及相关现场证据保持未开始/待核验。 | 保持 `BASELINE_CAPTURE_ENABLED=false`、零个 `SELECTED` 和历史事件只读兼容策略；只有获得明确运行授权后才补现场证据。 |
 | 2026-09-17 13:09 | P0-13 follow-up 构建验证 | 13 / 14（67 / 74 子任务） | P0-13：6 / 6 | `pnpm build` 成功，Next.js route/module 校验通过；事件策略新模块和 repository 写入口已进入生产构建。 | 构建成功不增加 runtime evidence；真实 Worker、Catalog Fault Run、Data Warmup、Alertmanager 投递和 Kubernetes runtime 仍未执行。 | 继续保持 P0-14 未开始、`BASELINE_CAPTURE_ENABLED=false` 和零个 `SELECTED`。 |
+| 2026-09-17 16:28 | P0-14-1/2：远端 Compose 场景与 baseline 验收 | 14 / 14（69 / 74 子任务） | P0-14：2 / 7 | 在远端 Compose 完成 12 个 Catalog 场景的真实 Fault Run，并对修订后的 Redis 合同追加重跑；共形成 13 个本轮运行集合，核对终态事件、recovery/cleanup、audit、baseline 和 warmup metadata。数据库总体为 15 条 `COMPLETE_WITH_LIMITATIONS`、4 条 `INCOMPLETE`；其中数据库按 revision 为旧 revision 18 条、新 revision 1 条，本轮运行集合实际使用 12 条旧 revision 与 1 条新 revision。 | P0-ISSUE-001、009、010、011 更新为 Compose runtime 已核验但保留各自 limitation；慢 SQL、CART failure code、Runner drain 时序和无真实 observation adapter 不被伪造为 complete。 | 完成 Kubernetes/runtime limitation、Pilot review、安全扫描和 default-off 回退 smoke。 |
+| 2026-09-17 16:28 | P0-14-3：Kubernetes runtime 核验 | 14 / 14（69 / 74 子任务） | P0-14：3 / 7（阻塞） | `kubectl kustomize k8s` 通过；当前无获批 Kubernetes namespace、owner 和运行窗口，未执行部署、查询或 teardown，因此不把 Compose 观测事实复制为 Kubernetes runtime 事实。 | P0-ISSUE-003 保留为 Kubernetes runtime limitation；没有足够环境信息时不执行破坏性部署。 | 等待专用 namespace/owner/window 后补 retention、查询和告警 runtime 核验。 |
+| 2026-09-17 16:28 | P0-14-4/5：Pilot review 与安全输出扫描 | 14 / 14（71 / 74 子任务） | P0-14：5 / 7 | 通过 Operator API 为 12 个场景写入当前 revision `a9f117...` 的 `REJECTED` review，`SELECTED=0`；选定运行集合的敏感关键词扫描为 0 命中，未发现 secret、Authorization、Cookie、password、SQL、shell、docker 或 kubectl 内容。 | 无合格 pilot 是正确结果：真实观测窗口/adapter、Kubernetes runtime 和部分资源边界仍不满足 eligibility；不把 receipt route 可用等同于场景告警 firing。 | 执行 default-off rollback smoke，并保留 0 selected。 |
+| 2026-09-17 16:28 | P0-14-6/7：回退与阶段退出收尾 | 14 / 14（73 / 74 子任务） | P0-14：7 / 7（6 完成，1 阻塞） | `BASELINE_CAPTURE_ENABLED=false` 下既有 run/baseline 可读，baseline 写入返回 404，Gateway/Runner/Alertmanager route 仍返回成功；Data Warmup 维持 `180×300000=54M`、两表满目标并持有 lease。远端镜像从干净 `a2df629` 重建，源码工作区恢复 clean。 | P0-ISSUE-017 已解决；P0-ISSUE-016 真实 adapter 未实现、P0-ISSUE-003 Kubernetes runtime 未核验，因此 Phase 0 为“有 limitation 完成”，不进入 Batch 1。 | 提供 Kubernetes runtime 与真实观测 adapter 后，基于当前 revision 重新评审 pilot。 |
+| 2026-09-17 16:45 | P0-14 文档证据同步与一致性收尾 | 14 / 14（73 / 74 子任务） | P0-14：7 / 7（6 完成，1 阻塞） | 将远端 Compose 的 release revision、源码/镜像 digest、Alertmanager 首次/重复 receipt、default-off rollback 和当前 Catalog revision 追加到 `observability-verification.md`；将 release guardrail 的当前 revision、历史 revision 边界和 P0-14 运行集合链接同步；修正 task list 中数据库历史 baseline 与本轮 13 个运行集合的表述。`git diff --check` 通过。 | 不改变现场结论：真实 Prometheus/Loki/Tempo adapter 和 Kubernetes runtime 仍为 limitation；`SELECTED=0` 保持。 | 等待 Kubernetes namespace/owner/window 或真实 observation adapter 实现后再继续 Phase 0。 |
 
 ## Phase 0 退出标准
 

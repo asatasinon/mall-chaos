@@ -4,9 +4,14 @@
 > 场景事实、目标 operation、参数、时长和 recovery strategy 只从
 > `traffic-control-plane/src/lib/fault-run-catalog.ts` 读取。
 >
-> 当前记录窗口：2026-09-16  
+> 当前记录窗口：2026-09-17
 > 当前 Catalog revision：
-> `000ccc36e4a77ef27d22636bdbc4643ff79ddb0c205b21830967bc40b7abd7dc`
+> `a9f117905993ed8898c0276c5c40267c4a434fc89b6254be8cb1725a7f15702b`
+>
+> 历史 Compose 健康核验使用的 revision 为
+> `000ccc36e4a77ef27d22636bdbc4643ff79ddb0c205b21830967bc40b7abd7dc`；
+> 两代 revision 的运行差异和 Redis 参数合同修订见
+> [`catalog-coverage-matrix.md`](./catalog-coverage-matrix.md)。
 
 ## 1. 配置合同
 
@@ -42,6 +47,11 @@ Web 与 Worker 必须注入同一组发布和观测配置。默认关闭旁路�
 | 开发 Compose | Compose 没有为业务容器统一设置 CPU/内存上限；通用 Java 服务通常使用 `-Xmx256m`，Order 使用 `-Xmx1024m`；控制面与 Worker 使用应用配置和宿主机资源 | Apple Silicon 本地完整栈健康核验时，Order 曾因资源不足退出码 137；只为健康核验临时使用较低 JVM 上限后恢复 | 适合接口、迁移和文档联调；不能作为性能、容量或阶段 5 pilot 基线 |
 | full disposable Compose | 同开发 Compose 的镜像和 JVM 声明，观测数据与业务数据使用工作区 `data/` 挂载 | 本窗口只做过健康/观测组件核验，没有执行新的场景或 warmup 写入；业务资源实际余量为 `UNKNOWN` | 只允许在明确停止窗口内运行；必须保留磁盘下限、危险场景隔离和人工停止边界 |
 | 专用 Kubernetes pilot | 控制面 Web/Worker：`256Mi/250m` request、`512Mi/500m` limit；普通 Java 业务服务通常 `256Mi/250m`、`512Mi/500m`；Order/Payment `768Mi` limit；Shopfront/PSP `256Mi` limit；MySQL `512Mi/1Gi`、Redis `128Mi/256Mi` | 当前 Kubernetes namespace/runtime 未部署或未核验；不能把 manifest request/limit 写成实际使用量 | 只有在 namespace owner、观测 retention、告警接收和数据处理窗口明确后，才可进入单场景核验；完整清单以 `k8s/**/deployment.yaml` 为准 |
+
+P0-14 远端 Compose 已完成 12 个 Catalog 条目、Redis 合同修订重跑、Data
+Warmup 目标核验和 default-off 回退 smoke；这些结果是运行集合的事实，不把
+Compose 资源观察外推为 Kubernetes 容量或性能基线。远端运行集合和限制见
+[`task-list.md`](./task-list.md#p0-14-远端-compose-验收记录2026-09-17)。
 
 ### 2.1 危险场景隔离
 

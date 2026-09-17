@@ -5,7 +5,7 @@
 > `traffic-control-plane/src/lib/fault-run-catalog.ts` 为准。
 >
 > 评审窗口：2026-09-16  
-> Catalog revision：
+> 历史 Catalog revision：
 > `000ccc36e4a77ef27d22636bdbc4643ff79ddb0c205b21830967bc40b7abd7dc`
 
 > **后续修订（2026-09-17）：** P0-13 已补齐控制面
@@ -14,6 +14,11 @@
 > retention 配置挂载。本矩阵仍保留原评审窗口的运行事实；没有真实
 > firing/resolved 投递、场景运行或 Kubernetes runtime，因此这些代码/配置变更
 > 不升级任何 `UNKNOWN`/`UNVERIFIED` 为运行证据。
+
+> **P0-14 当前运行 revision（2026-09-17）：**
+> `a9f117905993ed8898c0276c5c40267c4a434fc89b6254be8cb1725a7f15702b`
+> （Redis `memberSizeBytes` 最小值修订后）。本文件下方新增的 P0-14 评审
+> 记录不覆盖 2026-09-16 的历史快照。
 
 ## 评审边界
 
@@ -36,6 +41,42 @@
 - “不具备选择资格（本轮相当于 REJECTED）”只表示当前证据窗口不能进入
   `SELECTED`，不表示场景永久排除。后续必须以同一 Catalog revision 的真实
   baseline、告警 receipt、证据窗口和 remediation 验证重新评审。
+
+## P0-14 远端 Compose 实际评审（2026-09-17）
+
+本次远端 Compose 已完成 12 个 Catalog 条目的真实 Fault Run，另对 Redis 合同
+修订后的条目追加一次重跑；本轮运行集合共 13 个。数据库中 `scenario_baselines`
+共 15 条 `COMPLETE_WITH_LIMITATIONS`、4 条 `INCOMPLETE`；本轮选定运行集合
+包含 12 个条目基线和 1 个修订后 Redis 基线。所有已核对基线记录
+`releaseRevision=1.4.0`、`deploymentMode=compose` 和 Data Warmup 元数据。
+`baseline_pilot_reviews` 已通过 Operator API 持久化 12 条当前 revision 的
+`REJECTED` review，`SELECTED=0`。
+
+Alertmanager route 的机器认证、firing/resolved 和重复投递已通过真实控制面
+入口验证，receipt 表当前为 3 条 firing、3 条 resolved；这证明接收端点和幂等，
+不等同于每个场景都产生了 Alertmanager firing。由于真实 Prometheus/Loki/Tempo
+adapter 尚未实现，场景 query window 仍为 `UNKNOWN`，因此没有候选满足
+`SELECTED` eligibility。Kubernetes 只有 kustomize/声明核验，没有 runtime。
+
+| Scenario | P0-14 Run ID | Runtime result | Review decision | 主要阻塞 |
+| --- | --- | --- | --- | --- |
+| `BROWSE_REPORT_SQL` | `a1f064ac-cd31-4a35-b198-09c4d412337b` | `RECOVERED`；约 60 秒，1/0/1 | `REJECTED` | 慢 SQL 运行限制、无真实 observation window |
+| `ORDER_REPORT_SQL` | `14450128-9a3c-467e-ac6a-05aadf69774f` | `RECOVERED`；约 60 秒，1/0/1 | `REJECTED` | 慢 SQL 运行限制、无真实 observation window |
+| `BROWSE_SURGE` | `7fffdf75-b6a3-4983-8ab7-ebf61b07fdd9` | `RECOVERED`；110/110，drained | `REJECTED` | 无真实 observation window、资源边界未核验 |
+| `ORDER_QUERY_SURGE` | `0fcb640c-5655-4373-9bc6-ff694bf3f9c1` | `RECOVERED`；80/80，drained | `REJECTED` | 无真实 observation window、资源边界未核验 |
+| `CATALOG_REDIS_LARGE_VALUE` | `6b8e8d21-f9e8-4f9a-98df-9986f1922d68`、`d4bfa872-c48b-44c1-b425-1df59df5765f` | 均 `RECOVERED`；1024B，含 cleanup/drain | `REJECTED` | 逻辑字节不等于物理容量、无真实 observation window |
+| `CART_CATALOG_DEPENDENCY` | `0ac60702-0c11-4c62-849b-861f3af733bf` | `RECOVERED`；91/0/91，drained | `REJECTED` | 业务 failure code 仍需复核、无真实 observation window |
+| `NOTIFICATION_HEAP_PRESSURE` | `4bb51b52-3879-473b-b09d-e1fe7dd1bc06` | `RECOVERED`；3 Runner summary，`NON_RELEASING` | `REJECTED` | 非释放资源与资源容量未核验、无真实 observation window |
+| `NOTIFICATION_STORAGE_APPEND` | `09a819ba-d1df-4bec-a9f7-018e786bcd0d` | `RECOVERED`；Runner summary，cleanup 200 | `REJECTED` | 物理文件/数据处理边界未进入 pilot、无真实 observation window |
+| `PROMOTION_LOCK_CONTENTION` | `19c75f1c-4c83-43e0-9b8a-a92527046ee4` | `RECOVERED`；160/0，drained | `REJECTED` | 共享锁/资源边界未核验、无真实 observation window |
+| `INVENTORY_TABLE_EXCLUSIVE` | `5c4b5858-2ea1-4dd9-a8a2-4233c129dfd5` | `RECOVERED`；约 10.9 秒，drained | `REJECTED` | 表锁共享影响未核验、无真实 observation window |
+| `INVENTORY_ROW_LOCK` | `c647bf0b-8995-493a-a9e1-b7327c9f3735` | `RECOVERED`；4/2/2，drained | `REJECTED` | 行锁共享影响未核验、无真实 observation window |
+| `PSP_PROVIDER_OUTCOME` | `5707b05d-774e-43ba-9fd0-3a112cf46aae` | `RECOVERED`；Runner summary，target failure | `REJECTED` | PSP/订单业务恢复与 observation window 未核验 |
+
+**当前结论：** `SELECTED=0` 是证据门槛的正确结果，不是运行失败。下一次
+评审必须继续使用 Catalog 当前 revision，并补齐真实 observation adapter、
+Kubernetes runtime/retention、场景级查询窗口和资源/remediation 证据；不得因
+已有 baseline 或 Alertmanager route receipt 自动升级为 `SELECTED`。
 
 ## 共同证据状态
 

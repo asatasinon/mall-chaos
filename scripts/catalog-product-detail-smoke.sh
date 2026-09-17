@@ -103,7 +103,7 @@ trap 'cleanup_run "$?"' EXIT
 
 [[ "$DURATION_SEC" =~ ^[0-9]+$ && "$DURATION_SEC" -ge 1 ]] || fail 'CATALOG_SMOKE_DURATION_SEC must be a positive integer'
 [[ "$MEMBER_COUNT" =~ ^[0-9]+$ && "$MEMBER_COUNT" -ge 1 ]] || fail 'CATALOG_SMOKE_MEMBER_COUNT must be a positive integer'
-[[ "$MEMBER_SIZE_BYTES" =~ ^[0-9]+$ && "$MEMBER_SIZE_BYTES" -ge 256 ]] || fail 'CATALOG_SMOKE_MEMBER_SIZE_BYTES must be at least 256'
+[[ "$MEMBER_SIZE_BYTES" =~ ^[0-9]+$ && "$MEMBER_SIZE_BYTES" -ge 1024 ]] || fail 'CATALOG_SMOKE_MEMBER_SIZE_BYTES must be at least 1024'
 [[ "$KEY_TTL_SEC" =~ ^[0-9]+$ && "$KEY_TTL_SEC" -ge $((DURATION_SEC + 60)) ]] \
   || fail 'CATALOG_SMOKE_KEY_TTL_SEC must cover duration plus 60 seconds of cleanup grace'
 
