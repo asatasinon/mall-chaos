@@ -5,6 +5,7 @@
 > 对应路线阶段：[阶段 1：安全停止和失败传播](../../roadmap/phases/phase-1-safe-runtime.md)
 > 前置条件：批次 0 已提供可复查的运行基线；本设计不将尚未核验的基线事实视为已完成能力
 > 设计原则：Worker 执行长流程、单 Run 闭合、新旧状态兼容、真实请求取消、总时限、失败不伪装为恢复成功
+> 当前验证范围（2026-09-17）：根据用户决策，本批次仅在 Docker Compose 单 Worker 环境实施和验证；不执行 Kubernetes 配置或运行时核验。文中保留的 Kubernetes 要求仅是后续部署约束，不能计作当前实施、canary 或退出证据。
 
 ## 1. 设计结论
 
@@ -107,7 +108,8 @@ sequenceDiagram
 | 模块 | Phase 1 后的职责 | 明确不负责 |
 | --- | --- | --- |
 | `src/lib/fault-run-coordinator.ts` | 创建 Run、处理创建期取消、持久化停止请求、提供 target adapter。 | 不持有 Worker drain map、不定时恢复、不在 Web 请求中 release。 |
-| `src/lib/fault-run-recovery.ts`（新增） | 恢复投影类型、严格 parser、步骤合并、policy resolver、稳定错误码和结果优先级。 | 不保存第二份场景映射、不发 HTTP。 |
+| `src/lib/fault-run-recovery.ts`（新增） | 恢复投影类型、严格 parser/serializer、步骤合同、稳定错误码和结果优先级。 | 不保存第二份场景映射、不发 HTTP。 |
+| `src/lib/fault-run-recovery-policy.ts`（新增） | 从单个 Catalog definition 解析并校验 recovery policy。 | 不保存第二份场景映射、不发 HTTP。 |
 | `src/lib/fault-run-repository.ts` | runnable/pending 查询、停止命令事务、恢复步骤事务、终态转换及现有事件读写。 | 不解释 Worker 内存状态，不执行业务请求。 |
 | `src/worker/fault-run-drain-registry.ts`（新增） | 单进程 Run gate、参与者/permit、取消、deadline 汇总、迟到完成观察。 | 跨进程所有权、fencing、目标 release。 |
 | `src/worker/fault-run-recovery-executor.ts`（新增） | Worker 启动恢复、到期扫描、执行恢复计划、串行化同一 Run 的恢复尝试。 | 业务创建、UI、正常客户 Runner 的全局关闭。 |
@@ -164,7 +166,7 @@ export function loadRunnableFaultRun(): Promise<FaultRunRecord | null>;
 | --- | --- | --- |
 | `CREATING` | 无，或 `STOP_REQUESTED` 创建期取消标记 | target prepare 尚未提交为 ACTIVE；任何 Worker 都不得执行效果请求。 |
 | `ACTIVE` | `NONE` | 可被 runnable scanner 接受。 |
-| `RECOVERING` | `STOP_REQUESTED`、`DRAINING`、`RELEASING`、`VERIFYING`、`MANUAL_CLEANUP_REQUIRED`、`NON_RELEASING_ACTIVE` 或 `PARTIAL_RECOVERY` | 新工作已被拒绝；Worker 只允许继续同一 Run 的恢复。 |
+| `RECOVERING` | `STOP_REQUESTED`、`DRAINING`、`RELEASING`、`VERIFYING`、`MANUAL_CLEANUP_REQUIRED`、`CLEANING`、`NON_RELEASING_ACTIVE` 或 `PARTIAL_RECOVERY` | 新工作已被拒绝；Worker 只允许继续同一 Run 的恢复。 |
 | `STOPPED` | `SUCCEEDED` | 手工停止所需的自动步骤和验证已完成。 |
 | `RECOVERED` | `SUCCEEDED` | 到期或服务恢复后的所需步骤和验证已完成。 |
 | `FAILED` | 创建/补偿的不可恢复失败，或经过明确人工决策的最终失败 | 不能作为 drain、release 或 cleanup 单步失败的笼统替代；这些失败首先保留在 `RECOVERING` 投影和事件中。 |
@@ -174,7 +176,7 @@ export function loadRunnableFaultRun(): Promise<FaultRunRecord | null>;
 
 ### 5.2 `recovery_result` 的版本化逻辑结构
 
-`FaultRunRecord.recoveryResult` 从 `unknown` 收敛为受运行时 parser 校验的 `FaultRunRecoveryProjection | null`。数据库继续保存 JSON，TypeScript 不对未知历史 JSON 进行断言；旧 Run 或不合法 JSON 显示为 `UNKNOWN`，不会推导成功。
+`FaultRunRecord.recoveryResult` 保持 `unknown`，由安全路径和 Operator read model 在读取时使用 parser 收敛为 `FaultRunRecoveryProjection | null`。数据库继续保存 JSON，TypeScript 不对未知历史 JSON 进行断言；旧 Run 或不合法 JSON 显示为 `UNKNOWN`，不会推导成功。
 
 ```ts
 export type FaultRunStopReason =
@@ -192,6 +194,7 @@ export type FaultRunRecoveryPhase =
   | 'RELEASING'
   | 'VERIFYING'
   | 'MANUAL_CLEANUP_REQUIRED'
+  | 'CLEANING'
   | 'NON_RELEASING_ACTIVE'
   | 'PARTIAL_RECOVERY'
   | 'COMPLETED';
@@ -199,14 +202,16 @@ export type FaultRunRecoveryPhase =
 export type FaultRunRecoveryOutcome =
   | 'PENDING'
   | 'SUCCEEDED'
+  | 'PARTIAL_RECOVERY'
   | 'DRAIN_TIMEOUT'
   | 'WORKER_FAILED'
   | 'RELEASE_FAILED'
   | 'CLEANUP_FAILED'
+  | 'VERIFY_UNAVAILABLE'
+  | 'VERIFY_FAILED'
   | 'MANUAL_CLEANUP_REQUIRED'
   | 'NON_RELEASING_ACTIVE'
-  | 'SERVICE_UNAVAILABLE'
-  | 'PARTIAL_RECOVERY';
+  | 'SERVICE_UNAVAILABLE';
 
 export interface FaultRunRecoveryProjection {
   schemaVersion: 'safe-runtime.v1';
@@ -215,7 +220,7 @@ export interface FaultRunRecoveryProjection {
   stop: {
     reason: FaultRunStopReason;
     requestedAt: string;
-    requestKeyHash: string;
+    requestKeyHash?: string;
     attempt: number;
   };
   deadlines: {
@@ -224,7 +229,7 @@ export interface FaultRunRecoveryProjection {
   };
   drain: FaultRunRecoveryStep;
   release: FaultRunRecoveryStep;
-  cleanup: FaultRunRecoveryStep;
+  cleanup: FaultRunCleanupRecoveryStep;
   verification: FaultRunRecoveryStep;
   residuals: readonly FaultRunResidual[];
   lastError?: {
@@ -235,9 +240,9 @@ export interface FaultRunRecoveryProjection {
 }
 ```
 
-`FaultRunRecoveryStep` 只含 `NOT_STARTED`、`RUNNING`、`SUCCEEDED`、`TIMED_OUT`、`FAILED`、`SKIPPED`、`NOT_APPLICABLE`、`MANUAL_REQUIRED` 等稳定状态、开始/完成时间、低基数统计和错误码。`FaultRunResidual` 只描述受控资源类别、处理责任和下一步，例如“notification heap retention requires service restart”；不保存 path、文件内容、命令、target response 或 secret。
+`FaultRunRecoveryStep` 只含 `NOT_STARTED`、`RUNNING`、`SUCCEEDED`、`TIMED_OUT`、`FAILED`、`SKIPPED`、`NOT_APPLICABLE`、`MANUAL_REQUIRED`、`NOT_CONFIGURED` 等稳定状态、开始/完成时间、低基数统计和错误码。`FaultRunCleanupRecoveryStep` 仅在 `CLEANING` 且 cleanup 为 `RUNNING` 时额外保存请求 key hash，以实现 cleanup command 重放；不会保存原始 key。`FaultRunResidual` 只描述受控资源类别、处理责任和下一步，例如“notification heap retention requires service restart”；不保存 path、文件内容、命令、target response 或 secret。
 
-`requestKeyHash` 为 `X-Idempotency-Key` 的 SHA-256，供同一停止命令重放识别。原始 key 仅在当前 HTTP 请求和现有 Operator audit 参数 hash 处理中短暂使用，不写入恢复投影、事件 payload 或日志。
+`requestKeyHash` 为手工 `X-Idempotency-Key` 的 SHA-256，供同一停止命令重放识别。自动到期停止没有 Operator request key，因此允许该字段缺失；原始 key 只在当前 HTTP 请求中短暂使用，安全路径的 audit hash 基于其 SHA-256，不写入恢复投影、事件 payload 或日志。
 
 ### 5.3 停止与恢复转换
 
@@ -269,8 +274,18 @@ stateDiagram-v2
 恢复计划是不可变的代码语义，而不是第二个场景注册表。`FaultRunScenarioDefinition` 增加同一 Catalog 项内的 `recoveryPolicy`，避免从 `recoveryStrategy` 的宽泛分类猜测已有 prepare 是否需要 release：
 
 ```ts
+export type FaultRunWorkerDrainOwner =
+  | 'REPORT_SCENARIO_WORKER'
+  | 'TRAFFIC_SURGE_EXECUTOR'
+  | 'SCENARIO_WORKERS'
+  | 'RUNNER_ENGINE';
+
+export type FaultRunWorkerDrainPolicy =
+  | { requirement: 'REQUIRED'; owner: FaultRunWorkerDrainOwner }
+  | { requirement: 'NOT_APPLICABLE' };
+
 export interface FaultRunRecoveryPolicy {
-  workerDrain: 'REQUIRED' | 'NOT_APPLICABLE';
+  workerDrain: FaultRunWorkerDrainPolicy;
   targetRelease: 'REQUIRED' | 'FORBIDDEN' | 'NOT_APPLICABLE';
   cleanup: 'NONE' | 'OPTIONAL_PER_RUN' | 'OPERATOR_CONFIRMED';
   verification: 'REQUIRED' | 'BEST_EFFORT' | 'NOT_CONFIGURED';
@@ -283,7 +298,7 @@ export interface FaultRunScenarioDefinition {
 }
 ```
 
-每一个 `recoveryPolicy` 与场景、固定 target 和参数一起维护在 `fault-run-catalog.ts`；resolver 不维护平行 `Record<FaultRunScenario, ...>`。它只读取该 policy、`allowManualCleanup`、固定 target operation 和 Run 的已验证参数：
+每一个 `recoveryPolicy` 与场景、固定 target 和参数一起维护在 `fault-run-catalog.ts`；resolver 不维护平行 `Record<FaultRunScenario, ...>`。它只读取该 policy、`allowManualCleanup`、固定 target operation 和 Run 的已验证参数。当前所有 Catalog entry 都显式使用 `NOT_CONFIGURED`：在具备独立且固定的真实 verification adapter 前，Worker 必须记录 `VERIFY_UNAVAILABLE` 和受控 residual，并保留顶层 `RECOVERING`。`REQUIRED` 与 `BEST_EFFORT` 仅保留为未来由真实 adapter 支撑的类型空间，不能由 Gateway acknowledgement、abort 或一般连通性填充：
 
 批次 3 引入 Scenario Contract 时，`recoveryPolicy` 必须成为同一 Catalog `contract.lifecycle` supplement 的来源或被其吸收，不能在 Contract validator、Gateway、Worker 或文档中复制一份可独立编辑的策略表。
 
@@ -356,9 +371,9 @@ recoveryDeadlineAt = requestedAt + FAULT_RUN_RECOVERY_TIMEOUT_MS
 | --- | --- | --- | --- |
 | `ReportScenarioWorker` | `BROWSE_REPORT_SQL`、`ORDER_REPORT_SQL` | 每个 Run 保存 gate、abort controller、in-flight 和终态 promise；向 `gateway.get`、`customerGet`、session 打开/关闭及间隔传递 signal；输出结构化 `REPORT_WORKER_STOPPED`。 | 其他 report Run、正常 customer lifecycle。 |
 | `TrafficSurgeExecutor` | `BROWSE_SURGE`、`ORDER_QUERY_SURGE` | 复用 `ControlledScenarioWorker`，但只在获取 permit 后启动；注册 drain，停止调用已有可取消 `worker.stop()`。 | 其他 surge Run、普通浏览/订单流量。 |
-| `ScenarioWorkers` | cache、promotion、inventory 三类受控 Run | 把已有 `registerRunDrain` 适配为 registry participant；保留 `ControlledScenarioWorker` 的真实 AbortSignal 请求，补齐 deadline/迟到完成摘要。 | 不相关的 target 或 Worker。 |
+| `ScenarioWorkers` | cache、CART dependency、promotion、inventory 四类受控 Run | 把已有 `registerRunDrain` 适配为 registry participant；保留 `ControlledScenarioWorker` 的真实 AbortSignal 请求，补齐 deadline/迟到完成摘要。 | 不相关的 target 或 Worker。 |
 | `RunnerEngine` 受控分支 | `NOTIFICATION_HEAP_PRESSURE`、`NOTIFICATION_STORAGE_APPEND`、`PSP_PROVIDER_OUTCOME` | 仅当 `loadRunnableFaultRun()` 返回该 Run 时，注册当前 lifecycle 的 participant；将 Run signal 合并到现有 lifecycle signal。下一次 tick 继续正常运行，但不再绑定被停止 Run。 | `RunnerEngine` 全局 stop、普通客户生命周期、补给、预热。 |
-| `CART_CATALOG_DEPENDENCY` | 代码 dispatch 已存在，真实运行 dispatch/drain 尚未确认 | 不声明虚假的 registry participant；target policy 只能记录 `NOT_APPLICABLE`，并保留运行证据缺口。 | 不通过 dummy 请求制造“已排空”证据。 |
+| `CART_CATALOG_DEPENDENCY` | 代码 dispatch 已存在，真实运行 dispatch/drain 尚未确认 | 由 `SCENARIO_WORKERS` policy owner 注册真实 participant；若实际 participant 缺失，记录 `DRAIN_PARTICIPANT_MISSING` 或受控未知状态，而不是 dummy 成功。 | 不通过 dummy 请求制造“已排空”证据。 |
 
 Report Worker 的每秒间隔必须改为可取消等待；现有 `new Promise(resolve => setTimeout(resolve, 1000))` 会让停止边界至少滞后一轮且不能记录取消。Traffic Surge 和 Scenario Worker 现有 `ControlledScenarioWorker.stop()` 已有可取消请求基础，但必须从“无 deadline 地等到 promise 完成”改为“在 registry deadline 前等待并保留未结束参与者”。
 
@@ -375,7 +390,7 @@ Worker 启动顺序必须如下：
 
 收到 `SIGINT`/`SIGTERM` 时，Worker 先用一次性 latch 停止接收新的受控工作并对已注册 Run 调用有界 drain。若 deadline 内无法结束，写入 `WORKER_SHUTDOWN`、`DRAIN_TIMEOUT` 或 `PARTIAL_RECOVERY` 后退出；不得把进程退出当作 Run 已恢复。重启后的 executor 只恢复 `RECOVERING` 工作，不允许 scanner 把该 Run 重新作为 `ACTIVE` 执行。
 
-进程关闭还必须使用独立的 shutdown budget：先停止 scanner/admission，再完成可持久化的 Run 事件和数据预热 lease 释放，最后关闭 MySQL/Redis client。无法完成关键持久化时进程以非零状态退出，不能继续无条件 `process.exit(0)`。Compose 的 worker `stop_grace_period` 和 Kubernetes `terminationGracePeriodSeconds` 必须大于 `FAULT_RUN_SHUTDOWN_TIMEOUT_MS` 加上 MySQL/Redis 关闭缓冲；它们只约束**进程关闭**，不改变单个 Fault Run 停止时正常 Runner、预热或补给的隔离边界。
+进程关闭还必须使用独立的 shutdown budget：先停止 scanner/admission，再完成可持久化的 Run 事件和数据预热 lease 释放，最后关闭 MySQL/Redis client。无法完成关键持久化时进程以非零状态退出，不能继续无条件 `process.exit(0)`。Docker Compose 的 worker `stop_grace_period` 必须大于 `FAULT_RUN_SHUTDOWN_TIMEOUT_MS` 加上 MySQL/Redis 关闭缓冲。Kubernetes 的 `terminationGracePeriodSeconds` 保留为后续部署约束，当前不执行核验，也不作为 Docker-only 验收依据；这些配置只约束**进程关闭**，不改变单个 Fault Run 停止时正常 Runner、预热或补给的隔离边界。
 
 Phase 1 使用进程内 `running` map 避免单 Worker 内对同一 Run 并发执行两次恢复。该 map 在崩溃后会丢失，正因如此 Kubernetes/Compose 必须保持 Worker 副本数为 `1`，且本阶段不声称跨 Worker 排他性；批次 2 用持久 owner lease 取代这一限制。
 
@@ -430,6 +445,7 @@ X-Idempotency-Key: <valid key>
 | `DRAIN_LATE_COMPLETED` | `participant`、`completedAt` | 仅补充事实，不能回写此前 timeout 为成功。 |
 | `RELEASE_STARTED` / `RELEASE_COMPLETED` / `RELEASE_FAILED` | `operation`、`attempt`、`errorCode?` | operation 是控制面固定值，结果只保存白名单摘要。 |
 | `MANUAL_CLEANUP_REQUIRED` | `operation`、`responsibility`、`completionCheckIds` | 明确指出必须由 Operator 确认，而非自动删除。 |
+| `MANUAL_CLEANUP_REQUESTED` | `attempt`、`cleanupAttempt`、`operatorAuditId` | cleanup command 已原子受理，不代表 Worker 已完成实际清理。 |
 | `NON_RELEASING_RECORDED` | `residualKind`、`responsibility` | 记录保留效果，不调用 release。 |
 | `VERIFY_COMPLETED` / `VERIFY_UNAVAILABLE` / `VERIFY_FAILED` | `checkId`、`status`、`errorCode?` | 区分控制动作和可观察的恢复事实。 |
 | `RECOVERY_PARTIAL` / `RECOVERY_BLOCKED` / `RECOVERY_COMPLETED` | `outcome`、`attempt`、`nextAction` | 展示下一步，不能覆盖先前事件。 |
@@ -438,9 +454,9 @@ X-Idempotency-Key: <valid key>
 
 ### 7.4 人工 cleanup 与非释放场景
 
-`NOTIFICATION_STORAGE_APPEND` 的自动路径只负责停止 append 和 release。随后 Run 保持 `RECOVERING + MANUAL_CLEANUP_REQUIRED`，per-run cleanup route 才可在明确 confirmation、CSRF、idempotency 和 audit 下执行实际的固定 cleanup operation。cleanup 成功后：
+`NOTIFICATION_STORAGE_APPEND` 的自动路径只负责停止 append 和 release。随后 Run 保持 `RECOVERING + MANUAL_CLEANUP_REQUIRED`，per-run cleanup route 才可在明确 confirmation、CSRF、idempotency 和 audit 下原子受理 command，转为 `RECOVERING + CLEANING` 和 `cleanup: RUNNING`；Worker 才执行实际的固定 cleanup operation。cleanup 成功后：
 
-1. 写入 `MANUAL_CLEANUP_STARTED`、`MANUAL_CLEANUP_COMPLETED` 和必要的 `VERIFY_*`；
+1. 写入 `MANUAL_CLEANUP_REQUESTED`、`MANUAL_CLEANUP_COMPLETED` 和必要的 `VERIFY_*`；
 2. 合并恢复投影中的 cleanup/verification step；
 3. 仅在所有必需条件满足时，将原手工停止转换为 `STOPPED`、到期停止转换为 `RECOVERED`。
 
@@ -487,7 +503,7 @@ recovery_error
 | `requestFaultRunStop()` | 锁定 Run、验证状态/请求 hash、更新 `state`/`stop_reason`/初始 `recovery_result`、追加 `STOP_REQUESTED`。 |
 | `recordRecoveryStep()` | 锁定 Run、校验投影版本和 phase 转换、合并一个步骤摘要、更新 `recovery_result`/稳定 `recovery_error`、追加对应事件。 |
 | `completeRecovery()` | 锁定 Run、校验所有策略必需步骤、写最终投影、追加最终事件、在允许时转换为 `STOPPED`/`RECOVERED`。 |
-| `completeManualCleanup()` | 锁定 Run、确认 phase 为 `MANUAL_CLEANUP_REQUIRED`、写 cleanup/verification 事件和投影、转换终态。 |
+| `completeManualCleanup()` | 锁定 `CLEANING` Run、确认已受理 cleanup command、写 cleanup 结果和投影；verification 与最终状态转换仍通过各自的短事务完成。 |
 
 对外 HTTP 不得持有 MySQL 事务或行锁。executor 必须先持久化 `*_STARTED`，提交事务，执行有界 Gateway 调用，再开启新事务写入结果。这样不会把外部网络等待变成数据库锁，也能在进程重启时区分“尚未开始”和“调用中断”。
 
@@ -542,7 +558,7 @@ recovery_error
 | `FAULT_RUN_RECOVERY_TIMEOUT_MS` | `60000` | 严格解析整数，范围 `5000..300000`，且不得小于 drain timeout；覆盖 release、验证和关键持久化等待。 |
 | `FAULT_RUN_SHUTDOWN_TIMEOUT_MS` | `90000` | 严格解析整数，范围 `5000..600000`，且不得小于 recovery timeout；只用于 `SIGINT`/`SIGTERM` 的 Worker 进程关闭预算。 |
 
-新配置不能复用宽松的“非法值静默取默认值”逻辑。`env.ts` 必须在启动时拒绝非法或相互矛盾的值。相同变量要同时写入 Compose 的 Web/Worker service、Kubernetes Web/worker deployment、部署配置说明和 README；Worker Deployment 继续明确 `replicas: 1`，并将 Compose `stop_grace_period`、Kubernetes `terminationGracePeriodSeconds` 设为大于 shutdown budget 的值。
+新配置不能复用宽松的“非法值静默取默认值”逻辑。`env.ts` 必须在启动时拒绝非法或相互矛盾的值。当前范围内，相同变量必须写入并验证 Compose 的 Web/Worker service 和 README，保持单 Worker 容器，并将 Compose `stop_grace_period` 设为大于 shutdown budget 的值。Kubernetes Web/worker deployment 的同步和核验均延期，不能被列为本批次完成或发布证据。
 
 ### 10.2 可观测性
 
@@ -610,7 +626,7 @@ typed projection + unit fixtures
 7. Worker 进程重启对 `RECOVERING` Run 只恢复 stop/release，不重新执行 prepare、业务流量或创建 target；同 Run target release 的幂等 context 和原始停止原因保持不变。
 8. `MANUAL_CLEANUP_REQUIRED` 时 cleanup route 必须要求 CSRF、confirmation 和 idempotency；成功后才允许终态。cache per-run cleanup 与 storage scenario-wide cleanup 的 operation 不能串线。
 9. `NON_RELEASING` route/executor 不调用 target release，safe-runtime.v1 的服务不可用结果仍保留 `RECOVERING`/active-run guard，只有现有服务恢复信号才可使其终态。
-10. `SIGINT`/`SIGTERM` 同时到达时只执行一次有界 shutdown；无法写入关键恢复事实时进程以非零状态退出，Compose/Kubernetes grace period 足以覆盖默认预算。
+10. `SIGINT`/`SIGTERM` 同时到达时只执行一次有界 shutdown；无法写入关键恢复事实时进程以非零状态退出，Docker Compose grace period 足以覆盖默认预算。Kubernetes grace period 是后续部署验证项，不在当前范围内。
 
 ### 11.3 UI、集成与环境验证
 
@@ -619,7 +635,7 @@ typed projection + unit fixtures
 3. 使用 fresh MySQL 与含历史 Run 的已有 volume 验证 JSON 兼容、七天 retention 和未解决 `RECOVERING` Run 不被删除。
 4. 在 disposable 单 Worker 环境中分别演练 Report、Surge、Scenario 和 Runner 受控分支的手工停止、到期停止、drain timeout、Gateway 不可用、Worker 重启和 `SIGTERM`。
 5. 验证停止一个 Run 不会停止正常 lifecycle、数据预热、库存/优惠券补给；检查消费者响应、Gateway 请求和目标服务日志没有新增控制面恢复字段。
-6. 将新增测试纳入现有 `pnpm test:runner`，并执行控制面 `typecheck`、`lint`、`build`、`test:i18n`、术语检查及 `git diff --check`。
+6. 将新增测试纳入现有 `pnpm test:runner`，并执行控制面 `typecheck`、`lint`、`build`、`test:i18n`、Docker Compose 配置检查、术语检查及 `git diff --check`。Kubernetes 相关验证不在当前范围内。
 
 ## 12. 实施顺序与任务拆分
 
@@ -632,7 +648,7 @@ typed projection + unit fixtures
 | 5 | Report、Surge、Scenario Worker 接入 | 3、4 | 三类路径只执行 `ACTIVE` Run，均有可见 drain 结果。 |
 | 6 | Runner 受控分支和 worker shutdown/restart 边界 | 3、4 | 单 Run 停止不终止正常 Runner；重启不重新激活 stopped Run。 |
 | 7 | manual cleanup、non-releasing policy、UI/i18n | 2、3、5、6 | Operator 能区分自动完成、人工 cleanup、残留和部分恢复。 |
-| 8 | 配置、Compose/Kubernetes、README、环境演练 | 1～7 | 单 Worker opt-in canary 和回退步骤已实际核验。 |
+| 8 | 配置、Docker Compose、README、环境演练 | 1～7 | Docker Compose 单 Worker opt-in canary 和回退步骤已实际核验；Kubernetes 验证延期。 |
 
 `CART_CATALOG_DEPENDENCY` 的真实 dispatch/drain 运行证据缺口作为独立阻断项追踪，不能在步骤 5 中以空 registry participant 闭合。批次 2 可以消费本批次已稳定的 `RECOVERING`/drain 投影，但不能直接复用 registry 作为 owner lease。
 

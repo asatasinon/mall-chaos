@@ -37,3 +37,44 @@ test('catalog facts change the revision', () => {
   assert.notEqual(getCatalogRevision(definitions), getCatalogRevision(changed));
 });
 
+test('every recovery policy fact contributes to the catalog revision', () => {
+  const definitions = listScenarioDefinitions();
+  const definition = definitions[0];
+  assert.ok(definition);
+
+  const revisions = [
+    replaceFirstPolicy(definitions, {
+      ...definition.recoveryPolicy,
+      workerDrain: { requirement: 'REQUIRED', owner: 'RUNNER_ENGINE' },
+    }),
+    replaceFirstPolicy(definitions, {
+      ...definition.recoveryPolicy,
+      workerDrain: { requirement: 'NOT_APPLICABLE' },
+    }),
+    replaceFirstPolicy(definitions, {
+      ...definition.recoveryPolicy,
+      targetRelease: 'NOT_APPLICABLE',
+    }),
+    replaceFirstPolicy(definitions, {
+      ...definition.recoveryPolicy,
+      cleanup: 'OPTIONAL_PER_RUN',
+    }),
+    replaceFirstPolicy(definitions, {
+      ...definition.recoveryPolicy,
+      verification: 'BEST_EFFORT',
+    }),
+  ].map((changed) => getCatalogRevision(changed));
+
+  for (const revision of revisions) {
+    assert.notEqual(revision, getCatalogRevision(definitions));
+  }
+});
+
+function replaceFirstPolicy(
+  definitions: ReturnType<typeof listScenarioDefinitions>,
+  recoveryPolicy: ReturnType<typeof listScenarioDefinitions>[number]['recoveryPolicy'],
+) {
+  return definitions.map((definition, index) => index === 0
+    ? { ...definition, recoveryPolicy }
+    : definition);
+}

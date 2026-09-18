@@ -1,3 +1,5 @@
+import { assertFaultRunRecoveryPolicy } from './fault-run-recovery-policy';
+
 export type FaultRunState =
   | 'CREATING'
   | 'ACTIVE'
@@ -22,6 +24,31 @@ export type FaultRunScenario =
   | 'PSP_PROVIDER_OUTCOME';
 
 export type FaultRunRecoveryStrategy = 'TARGET' | 'WORKER' | 'NON_RELEASING' | 'MANUAL_CLEANUP';
+export type FaultRunWorkerDrainOwner =
+  | 'REPORT_SCENARIO_WORKER'
+  | 'TRAFFIC_SURGE_EXECUTOR'
+  | 'SCENARIO_WORKERS'
+  | 'RUNNER_ENGINE';
+export type FaultRunWorkerDrainPolicy =
+  | {
+      requirement: 'REQUIRED';
+      owner: FaultRunWorkerDrainOwner;
+    }
+  | {
+      requirement: 'NOT_APPLICABLE';
+      owner?: never;
+    };
+export type FaultRunTargetReleasePolicy = 'REQUIRED' | 'FORBIDDEN' | 'NOT_APPLICABLE';
+export type FaultRunCleanupPolicy = 'NONE' | 'OPTIONAL_PER_RUN' | 'OPERATOR_CONFIRMED';
+export type FaultRunVerificationPolicy = 'REQUIRED' | 'BEST_EFFORT' | 'NOT_CONFIGURED';
+
+export interface FaultRunRecoveryPolicy {
+  workerDrain: FaultRunWorkerDrainPolicy;
+  targetRelease: FaultRunTargetReleasePolicy;
+  cleanup: FaultRunCleanupPolicy;
+  verification: FaultRunVerificationPolicy;
+}
+
 type ParameterKind = 'integer' | 'number' | 'string';
 type ParameterUnit = 'bytes';
 
@@ -43,6 +70,7 @@ export interface FaultRunScenarioDefinition {
   targetOperation: string;
   maxDurationSec: number;
   recoveryStrategy: FaultRunRecoveryStrategy;
+  recoveryPolicy: FaultRunRecoveryPolicy;
   allowManualCleanup: boolean;
   parameters: readonly FaultRunParameterDefinition[];
 }
@@ -126,6 +154,12 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'products-browse-report',
     maxDurationSec: 3600,
     recoveryStrategy: 'WORKER',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'REPORT_SCENARIO_WORKER' },
+      targetRelease: 'REQUIRED',
+      cleanup: 'NONE',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: false,
     parameters: [duration],
   },
@@ -135,6 +169,12 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'orders-query-report',
     maxDurationSec: 3600,
     recoveryStrategy: 'WORKER',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'REPORT_SCENARIO_WORKER' },
+      targetRelease: 'REQUIRED',
+      cleanup: 'NONE',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: false,
     parameters: [duration],
   },
@@ -144,6 +184,12 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'browse-api-worker',
     maxDurationSec: 1800,
     recoveryStrategy: 'WORKER',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'TRAFFIC_SURGE_EXECUTOR' },
+      targetRelease: 'NOT_APPLICABLE',
+      cleanup: 'NONE',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: false,
     parameters: [duration, trafficSurgeConcurrency, requestInterval,
       { name: 'pageSize', kind: 'integer', default: 20, min: 1, max: TRAFFIC_SURGE_MAX_PAGE_SIZE }],
@@ -154,6 +200,12 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'order-query-worker',
     maxDurationSec: 1800,
     recoveryStrategy: 'WORKER',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'TRAFFIC_SURGE_EXECUTOR' },
+      targetRelease: 'NOT_APPLICABLE',
+      cleanup: 'NONE',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: false,
     parameters: [duration, trafficSurgeConcurrency, requestInterval,
       { name: 'pageSize', kind: 'integer', default: 20, min: 1, max: TRAFFIC_SURGE_MAX_PAGE_SIZE }],
@@ -164,6 +216,12 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'product-detail-cache',
     maxDurationSec: 1800,
     recoveryStrategy: 'TARGET',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'SCENARIO_WORKERS' },
+      targetRelease: 'REQUIRED',
+      cleanup: 'OPTIONAL_PER_RUN',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: true,
     parameters: [duration, boundedConcurrency, requestInterval,
       { name: 'memberCount', kind: 'integer', default: 8, min: 1, max: 47 },
@@ -176,6 +234,12 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'cart-product-validation',
     maxDurationSec: 900,
     recoveryStrategy: 'TARGET',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'SCENARIO_WORKERS' },
+      targetRelease: 'REQUIRED',
+      cleanup: 'NONE',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: false,
     parameters: [duration],
   },
@@ -185,6 +249,12 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'notification-retention',
     maxDurationSec: 3600,
     recoveryStrategy: 'NON_RELEASING',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'RUNNER_ENGINE' },
+      targetRelease: 'FORBIDDEN',
+      cleanup: 'NONE',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: false,
     parameters: [duration, requestInterval,
       { name: 'retainedBytesPerNotification', kind: 'integer', unit: 'bytes', default: '1M', min: 1024, max: 10 * 1024 * 1024 }],
@@ -195,6 +265,12 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'notification-storage',
     maxDurationSec: 3600,
     recoveryStrategy: 'MANUAL_CLEANUP',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'RUNNER_ENGINE' },
+      targetRelease: 'REQUIRED',
+      cleanup: 'OPERATOR_CONFIRMED',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: true,
     parameters: [duration, requestInterval,
       { name: 'totalBytes', kind: 'integer', unit: 'bytes', default: '10G', min: 1024 },
@@ -207,6 +283,12 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'coupon-reservation-consistency',
     maxDurationSec: 1800,
     recoveryStrategy: 'TARGET',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'SCENARIO_WORKERS' },
+      targetRelease: 'REQUIRED',
+      cleanup: 'NONE',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: false,
     parameters: [duration, boundedConcurrency, requestInterval],
   },
@@ -216,6 +298,12 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'inventory-availability-report',
     maxDurationSec: 1800,
     recoveryStrategy: 'TARGET',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'SCENARIO_WORKERS' },
+      targetRelease: 'REQUIRED',
+      cleanup: 'NONE',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: false,
     parameters: [duration],
   },
@@ -225,6 +313,12 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'inventory-reservation-summary',
     maxDurationSec: 1800,
     recoveryStrategy: 'TARGET',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'SCENARIO_WORKERS' },
+      targetRelease: 'REQUIRED',
+      cleanup: 'NONE',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: false,
     parameters: [duration, boundedConcurrency, requestInterval],
   },
@@ -234,12 +328,22 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     targetOperation: 'provider-outcome',
     maxDurationSec: 1800,
     recoveryStrategy: 'TARGET',
+    recoveryPolicy: {
+      workerDrain: { requirement: 'REQUIRED', owner: 'RUNNER_ENGINE' },
+      targetRelease: 'REQUIRED',
+      cleanup: 'NONE',
+      verification: 'NOT_CONFIGURED',
+    },
     allowManualCleanup: false,
     parameters: [duration,
       { name: 'providerOutcome', kind: 'string', required: true, default: 'TIMEOUT', options: ['AUTHORIZED', 'DECLINED', 'TIMEOUT'], maxLength: 16 },
       { name: 'effectPercentage', kind: 'integer', default: 100, min: 0, max: 100 }],
   },
 };
+
+for (const definition of Object.values(CATALOG)) {
+  assertFaultRunRecoveryPolicy(definition);
+}
 
 export class FaultRunValidationError extends Error {
   constructor(message: string) {

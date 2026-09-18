@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   listScenarioDefinitions,
   type FaultRunParameterDefinition,
+  type FaultRunRecoveryPolicy,
   type FaultRunScenarioDefinition,
 } from './fault-run-catalog';
 
@@ -36,6 +37,18 @@ function canonicalParameter(parameter: FaultRunParameterDefinition): Record<stri
   };
 }
 
+function canonicalRecoveryPolicy(policy: FaultRunRecoveryPolicy): Record<string, unknown> {
+  return {
+    cleanup: policy.cleanup,
+    targetRelease: policy.targetRelease,
+    verification: policy.verification,
+    workerDrain: {
+      owner: policy.workerDrain.requirement === 'REQUIRED' ? policy.workerDrain.owner : null,
+      requirement: policy.workerDrain.requirement,
+    },
+  };
+}
+
 function canonicalDefinition(definition: FaultRunScenarioDefinition): Record<string, unknown> {
   return {
     allowManualCleanup: definition.allowManualCleanup,
@@ -43,6 +56,7 @@ function canonicalDefinition(definition: FaultRunScenarioDefinition): Record<str
     parameters: [...definition.parameters]
       .sort((left, right) => left.name.localeCompare(right.name))
       .map(canonicalParameter),
+    recoveryPolicy: canonicalRecoveryPolicy(definition.recoveryPolicy),
     recoveryStrategy: definition.recoveryStrategy,
     scenario: definition.scenario,
     targetOperation: definition.targetOperation,
@@ -67,4 +81,3 @@ export function getCatalogRevision(
     .update(canonicalizeCatalogDefinitions(definitions), 'utf8')
     .digest('hex');
 }
-

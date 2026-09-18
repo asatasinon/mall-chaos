@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | P0-14 已完成（有 limitation；Kubernetes runtime 与真实观测 adapter 阻塞）；P0-01 至 P0-14 已处理 |
-| 版本 | 1.4 |
-| 更新时间 | 2026-09-17 16:28 CST（远端 Compose 真实验收与回退核验） |
+| 状态 | P0-14 已完成（有 limitation；Kubernetes runtime 验证已延期，真实观测 adapter 仍未实现）；P0-01 至 P0-14 已处理 |
+| 版本 | 1.5 |
+| 更新时间 | 2026-09-17 17:05 CST（Phase 1 Docker-only 范围决策） |
 | 路线阶段 | [阶段 0：基线和发布护栏](../../roadmap/phases/phase-0-baseline.md) |
 | 产品规格 | [product.md](./product.md) |
 | 技术设计 | [tech.md](./tech.md) |
@@ -25,11 +25,11 @@
 
 ## 总体进度
 
-- **总体状态：** Phase 0 已完成（有 limitation，暂不进入 Batch 1）；P0-01 至 P0-14 均已处理。Compose 真实运行、Data Warmup、baseline、Alertmanager receipt、回退和 Pilot review 已有证据；Kubernetes runtime 与真实 Prometheus/Loki/Tempo adapter 仍未具备。
-- **总体进度：** 14 / 14 个任务组（73 / 74 个子任务完成，1 个子任务阻塞）。
-- **当前任务：** P0-14：真实环境基线、验收与阶段退出（已完成；P0-14-3 因无授权 Kubernetes namespace/runtime 标记阻塞）。
-- **当前问题：** P0-ISSUE-001、P0-ISSUE-002、P0-ISSUE-004、P0-ISSUE-006、P0-ISSUE-009、P0-ISSUE-011 已完成 Compose 运行核验但保留各自 limitation；P0-ISSUE-003 仍受 Kubernetes runtime 限制；P0-ISSUE-010 的个别业务 failure code 仍需复核；P0-ISSUE-016 的真实观测 adapter 尚未实现；P0-ISSUE-017 的镜像/源码漂移已修复。
-- **下一步：** 若要进入 Batch 1，先提供可复查的 Kubernetes namespace/owner/window，实现并接入真实观测 adapter，再对当前 `a9f117...` Catalog revision 重新评审；当前保持 `BASELINE_CAPTURE_ENABLED=false`、`DATA_WARMUP_ENABLED=true`、零个 `SELECTED`，不删除历史 baseline 或数据卷。
+- **总体状态：** Phase 0 已完成（有 limitation）。2026-09-17 的后续范围决策允许 Phase 1 在 Docker Compose 单 Worker 环境内实施和验证；Kubernetes runtime 验证明确延期，不作为该 Docker-only 范围的进入门禁。Compose 真实运行、Data Warmup、baseline、Alertmanager receipt、回退和 Pilot review 已有证据；真实 Prometheus/Loki/Tempo adapter 仍未实现，不能被视为已核验能力。
+- **总体进度：** 14 / 14 个任务组（73 / 74 个子任务完成，1 个 Kubernetes runtime 子任务延期且不计为通过）。
+- **当前任务：** P0-14：真实环境基线、验收与阶段退出（已完成；P0-14-3 的 Kubernetes runtime 核验延期，不在当前 Docker-only 范围执行）。
+- **当前问题：** P0-ISSUE-001、P0-ISSUE-002、P0-ISSUE-004、P0-ISSUE-006、P0-ISSUE-009、P0-ISSUE-011 已完成 Compose 运行核验但保留各自 limitation；P0-ISSUE-003 的 Kubernetes runtime 验证延期；P0-ISSUE-010 的个别业务 failure code 仍需复核；P0-ISSUE-016 的真实观测 adapter 尚未实现；P0-ISSUE-017 的镜像/源码漂移已修复。
+- **下一步：** 进入 Phase 1 的 Docker-only 实施与验证，不执行 Kubernetes 相关核验。真实 observation adapter 仍保留为独立 limitation，任何缺失验证均须写为 `UNKNOWN`、`VERIFY_UNAVAILABLE` 或明确 limitation；继续保持 `BASELINE_CAPTURE_ENABLED=false`、`DATA_WARMUP_ENABLED=true`、零个 `SELECTED`，不删除历史 baseline 或数据卷。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
@@ -47,6 +47,12 @@
 | P0-12 | 单元测试与 fixture 覆盖 | 已完成（有 limitation） | 6 / 6 | P0-03 至 P0-10 |
 | P0-13 | 集成、安全边界与回退测试 | 已完成（有 limitation） | 6 / 6 | P0-08 至 P0-12 |
 | P0-14 | 真实环境基线、验收与阶段退出 | 已完成（有 limitation） | 7 / 7（6 完成，1 阻塞） | P0-11 至 P0-13 |
+
+### 后续范围决策（2026-09-17 17:05 CST）
+
+用户明确当前只进行 Docker Compose 验证，不做 Kubernetes 相关验证。因此 P0-14-3 和 P0-ISSUE-003 保留为未完成的 Kubernetes runtime limitation，但不再阻断 Phase 1 的 Docker-only 实施、测试或单 Worker canary。此决策不将 Kubernetes 配置、retention、告警、资源或运行时行为标为已验证；未来如需 Kubernetes 支持，必须在独立的获批 namespace、owner 和停止窗口内重新核验。
+
+P0-ISSUE-016 的真实 Prometheus/Loki/Tempo observation adapter 仍未实现。它继续限制基线/Pilot 的观测结论，但不允许安全停止流程把缺失 verification 伪造成成功；Phase 1 应如实记录 `VERIFY_UNAVAILABLE`、`UNKNOWN` 或其它稳定 limitation。
 
 ## 执行依赖
 
@@ -432,7 +438,7 @@ observation window 仍不能标记为现场已验证。P0-ISSUE-008 的新写入
 | --- | --- | --- | --- | --- | --- |
 | P0-ISSUE-001 | 设计基线 / P0-01、P0-02、P0-05、P0-06、P0-13、P0-14 | 静态代码核验确认 Catalog 中的 `CART_CATALOG_DEPENDENCY` 有 Gateway target map 和目标服务 endpoint，但此前没有真实受控流量 dispatch 或场景专属终态汇总事件。 | 在没有 Worker/运行证据时该条目只能生成 `DISPATCH_UNVERIFIED`/`INCOMPLETE`，不得伪造请求统计或被选择为 pilot。 | 已补齐 Scenario Worker 的 Gateway customer session、产品/购物车读取、可售 SKU 选择、购物车写入、setup failure/stop/drain 生命周期事件，并加入低基数 normalization 与单测；P0-14 远端运行已记录 91 次请求、0 成功、91 失败和完整 Worker drain/recovery 事件。 | 已解决（代码与 Compose 运行；failure code 仍需业务复核） |
 | P0-ISSUE-002 | 设计基线 / P0-09、P0-13、P0-14 | Alertmanager 配置中的控制面 webhook URL 不等于接收端点、认证和 `send_resolved` 已真实可用。 | 没有机器认证和 receipt 幂等时，告警 receipt 无法作为 pilot 前置事实。 | 已新增精确 `/internal/alertmanager/webhook` route、`CASTREL_INTERNAL_SERVICE_KEY` Bearer/受保护 header 校验、firing/resolved 解析、重复投递 key、低基数 `alert_receipts` 表及 Compose/Kubernetes credentials file；远端已验证首次 firing/resolved accepted、重复投递 duplicates，receipt 表为 3 firing/3 resolved。 | 已解决（代码与 Compose 投递；场景级 firing/观测窗口仍未满足 pilot） |
-| P0-ISSUE-003 | 设计基线 / P0-01、P0-09、P0-13、P0-14 | Prometheus、Loki、Tempo 的 retention 和查询可用性可能与部署声明不一致。 | 关键证据窗口不明确时不得选择 pilot；Kubernetes runtime 仍不能由静态 manifest 代替。 | Prometheus Compose/Kubernetes 均改为显式 `168h`；Kubernetes 新增 Loki 3.6.10 ConfigMap、retention 配置挂载并保留 `emptyDir`；Tempo 保持 `168h`。Compose readiness/query 与配置已核验，Kubernetes 仅完成 kustomize，因无 namespace/owner/window 未执行 runtime。 | 部分解决（Compose/config；Kubernetes runtime 已阻塞） |
+| P0-ISSUE-003 | 设计基线 / P0-01、P0-09、P0-13、P0-14 | Prometheus、Loki、Tempo 的 retention 和查询可用性可能与部署声明不一致。 | 关键证据窗口不明确时不得选择 pilot；Kubernetes runtime 仍不能由静态 manifest 代替。 | Prometheus Compose/Kubernetes 均改为显式 `168h`；Kubernetes 新增 Loki 3.6.10 ConfigMap、retention 配置挂载并保留 `emptyDir`；Tempo 保持 `168h`。Compose readiness/query 与配置已核验，Kubernetes 仅完成 kustomize，因无 namespace/owner/window 未执行 runtime。2026-09-17 决定将 Kubernetes runtime 验证延期，当前不再执行该项。 | 部分解决（Compose/config；Kubernetes runtime 验证已延期） |
 | P0-ISSUE-004 | 设计基线 / P0-01、P0-04、P0-07、P0-11、P0-13、P0-14 | Web/Worker 需要统一的 release revision 与显式 deployment mode 采集事实。 | baseline 可能无法完整关联发布版本或部署模式，但不得阻断既有 Fault Run。 | `getBaselineMetadata()` 已接入 capture；远端 Compose baseline 均记录 `1.4.0`/`compose`，并额外记录控制面/Catalog/Worker immutable image digest；Kubernetes 仍无 runtime 核验。 | 已解决（Compose 证据；Kubernetes runtime limitation 保留） |
 | P0-ISSUE-005 | P0-01-3 | 初始检查时当前工作区没有完整 disposable Compose 栈；当前 Kubernetes context 中不存在 `castrel` namespace；也没有登记本次运行的环境 owner、观测访问责任人和批准的停止窗口。 | 初始状态无法安全执行完整 Catalog 运行、目标效果/恢复/告警核验或回退；本地 MySQL/Redis 不能替代完整环境。 | 用户已确认本次执行可使用当前工作区作为 disposable Compose，停止窗口为本次核验结束，边界为停止/移除容器但保留数据卷；完整栈已启动并完成核心健康核验。Kubernetes 仍只作为配置核验，后续共享环境仍需单独 owner 和窗口。 | 已解决（本次执行范围） |
 | P0-ISSUE-006 | P0-01-4、P0-04、P0-14 | 初始 MySQL 的两条预热进度曾停留在历史 `BACKFILLING`：`target_rows=90000000`、`actual_rows=0`、无 lease owner 和成功时间，且目标与当前支持元组不一致。 | 在没有重新取得租约并核对目标前，不能证明预热配置、进度或历史数据处于可用状态；不得手工改表伪造完成。 | 远端 Worker 按数据库配置、租约、heartbeat 和 rollover 运行后，配置已为 `180×300000=54000000`；`user_behavior_log` 与 `product_price_history` 均达到 54000000/54000000，状态 `APPENDING`、持有 lease 且有成功时间。`APPENDING` 是持续维护状态，不等同于失败。 | 已解决（Compose 运行；持续维护状态保留） |
@@ -531,10 +537,13 @@ observation window 仍不能标记为现场已验证。P0-ISSUE-008 的新写入
 | 2026-09-17 16:28 | P0-14-4/5：Pilot review 与安全输出扫描 | 14 / 14（71 / 74 子任务） | P0-14：5 / 7 | 通过 Operator API 为 12 个场景写入当前 revision `a9f117...` 的 `REJECTED` review，`SELECTED=0`；选定运行集合的敏感关键词扫描为 0 命中，未发现 secret、Authorization、Cookie、password、SQL、shell、docker 或 kubectl 内容。 | 无合格 pilot 是正确结果：真实观测窗口/adapter、Kubernetes runtime 和部分资源边界仍不满足 eligibility；不把 receipt route 可用等同于场景告警 firing。 | 执行 default-off rollback smoke，并保留 0 selected。 |
 | 2026-09-17 16:28 | P0-14-6/7：回退与阶段退出收尾 | 14 / 14（73 / 74 子任务） | P0-14：7 / 7（6 完成，1 阻塞） | `BASELINE_CAPTURE_ENABLED=false` 下既有 run/baseline 可读，baseline 写入返回 404，Gateway/Runner/Alertmanager route 仍返回成功；Data Warmup 维持 `180×300000=54M`、两表满目标并持有 lease。远端镜像从干净 `a2df629` 重建，源码工作区恢复 clean。 | P0-ISSUE-017 已解决；P0-ISSUE-016 真实 adapter 未实现、P0-ISSUE-003 Kubernetes runtime 未核验，因此 Phase 0 为“有 limitation 完成”，不进入 Batch 1。 | 提供 Kubernetes runtime 与真实观测 adapter 后，基于当前 revision 重新评审 pilot。 |
 | 2026-09-17 16:45 | P0-14 文档证据同步与一致性收尾 | 14 / 14（73 / 74 子任务） | P0-14：7 / 7（6 完成，1 阻塞） | 将远端 Compose 的 release revision、源码/镜像 digest、Alertmanager 首次/重复 receipt、default-off rollback 和当前 Catalog revision 追加到 `observability-verification.md`；将 release guardrail 的当前 revision、历史 revision 边界和 P0-14 运行集合链接同步；修正 task list 中数据库历史 baseline 与本轮 13 个运行集合的表述。`git diff --check` 通过。 | 不改变现场结论：真实 Prometheus/Loki/Tempo adapter 和 Kubernetes runtime 仍为 limitation；`SELECTED=0` 保持。 | 等待 Kubernetes namespace/owner/window 或真实 observation adapter 实现后再继续 Phase 0。 |
+| 2026-09-17 17:05 | P0-SCOPE：Phase 1 Docker-only 范围决策 | 14 / 14（73 / 74 子任务） | P0-14：7 / 7（6 完成，1 个 Kubernetes 子任务延期） | 用户明确当前不做 Kubernetes 相关验证，Phase 1 改在 Docker Compose 单 Worker 环境实施和验证；未执行 Kubernetes 命令、部署、查询或 teardown。 | P0-ISSUE-003 更新为 Kubernetes runtime 验证延期，仍不构成通过事实；P0-ISSUE-016 真实 observation adapter 未实现，继续作为独立 limitation。 | 由 Phase 1 在 Docker-only 范围执行安全停止任务；未来 Kubernetes 支持另行获批、实施和核验。 |
 
 ## Phase 0 退出标准
 
 阶段退出时必须同时满足以下事实：
+
+**当前范围例外：** 对 Phase 1 的 Docker-only 工作，Kubernetes runtime 核验明确延期，不能作为 Docker 实施或 canary 的阻断项，也不能据此声称 Kubernetes 已就绪。真实 observation adapter 的缺口继续作为 limitation 保留，缺失观测不得转化为成功结论。
 
 - Catalog 派生覆盖矩阵中的每个条目都有可复查 baseline，或有明确的 `INCOMPLETE`/limitation、残留资源和回退方案；没有未解释的伪造成功。
 - 五类失败分类、关键时间线、恢复策略边界、Operator audit 和低基数事件均可追溯。

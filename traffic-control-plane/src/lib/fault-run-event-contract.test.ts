@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   FaultRunEventContractError,
   normalizeBaselineCaptureEventPayload,
+  normalizeFaultRunRecoveryEventPayload,
   normalizeFaultRunSummaryEventPayload,
 } from './fault-run-event-contract';
 
@@ -164,4 +165,75 @@ test('normalizes observation status and window fields without query details', ()
       windowEnd: '2026-09-16T10:05:00.000Z',
     },
   );
+});
+
+test('normalizes a manual stop event without retaining the raw command key', () => {
+  const payload = normalizeFaultRunRecoveryEventPayload('STOP_REQUESTED', {
+    reason: 'MANUAL',
+    attempt: 1,
+    drainDeadlineAt: '2026-09-17T10:00:30.000Z',
+    recoveryDeadlineAt: '2026-09-17T10:01:00.000Z',
+    operatorAuditId: 42,
+    requestKey: 'must-not-persist',
+    requestKeyHash: 'also-not-needed-in-event',
+    response: { body: 'must-not-persist' },
+  });
+
+  assert.deepEqual(payload, {
+    schemaVersion: 1,
+    source: 'safe-runtime',
+    phase: 'command',
+    status: 'REQUESTED',
+    reason: 'MANUAL',
+    attempt: 1,
+    drainDeadlineAt: '2026-09-17T10:00:30.000Z',
+    recoveryDeadlineAt: '2026-09-17T10:01:00.000Z',
+    operatorAuditId: 42,
+    auditAction: 'FAULT_RUN_STOP',
+    auditResult: 'SUCCESS',
+  });
+});
+
+test('requires an audit reference for operator commands and permits expiry without one', () => {
+  assert.throws(
+    () => normalizeFaultRunRecoveryEventPayload('STOP_REQUESTED', {
+      reason: 'MANUAL',
+      attempt: 1,
+      drainDeadlineAt: '2026-09-17T10:00:30.000Z',
+      recoveryDeadlineAt: '2026-09-17T10:01:00.000Z',
+    }),
+    (error: unknown) => error instanceof FaultRunEventContractError
+      && error.message === 'RECOVERY_AUDIT_ID_REQUIRED',
+  );
+  assert.equal(
+    normalizeFaultRunRecoveryEventPayload('STOP_REQUESTED', {
+      reason: 'EXPIRED',
+      attempt: 1,
+      drainDeadlineAt: '2026-09-17T10:00:30.000Z',
+      recoveryDeadlineAt: '2026-09-17T10:01:00.000Z',
+    }).operatorAuditId,
+    undefined,
+  );
+});
+
+test('normalizes a manual cleanup command audit and omits arbitrary request data', () => {
+  const payload = normalizeFaultRunRecoveryEventPayload('MANUAL_CLEANUP_REQUESTED', {
+    attempt: 2,
+    cleanupAttempt: 2,
+    operatorAuditId: 43,
+    idempotencyKey: 'must-not-persist',
+    targetResponse: { content: 'must-not-persist' },
+  });
+
+  assert.deepEqual(payload, {
+    schemaVersion: 1,
+    source: 'safe-runtime',
+    phase: 'cleanup',
+    status: 'REQUESTED',
+    attempt: 2,
+    cleanupAttempt: 2,
+    operatorAuditId: 43,
+    auditAction: 'FAULT_RUN_CLEANUP',
+    auditResult: 'SUCCESS',
+  });
 });

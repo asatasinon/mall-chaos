@@ -1,3 +1,13 @@
+import {
+  FAULT_RUN_DRAIN_PARTICIPANT_KINDS,
+  FAULT_RUN_RECOVERY_ERROR_CODES,
+  FAULT_RUN_RECOVERY_NEXT_ACTIONS,
+  FAULT_RUN_RECOVERY_OUTCOMES,
+  FAULT_RUN_RECOVERY_RESIDUAL_KINDS,
+  FAULT_RUN_RECOVERY_RESPONSIBILITIES,
+  FAULT_RUN_STOP_REASONS,
+} from './fault-run-recovery';
+
 const MAX_PAYLOAD_BYTES = 8 * 1024;
 const FAILURE_CODES = new Set([
   'TARGET_EFFECT_REJECTED',
@@ -46,6 +56,59 @@ const CAPTURE_EVENT_META: Record<string, {
   BASELINE_CAPTURE_COMPLETED: { phase: 'control', status: 'COMPLETED' },
   BASELINE_CAPTURE_INCOMPLETE: { phase: 'control', status: 'UNKNOWN' },
   BASELINE_CAPTURE_FAILED: { phase: 'control', status: 'FAILED' },
+};
+
+export const SAFE_RUNTIME_RECOVERY_EVENT_TYPES = [
+  'STOP_REQUESTED',
+  'DRAIN_STARTED',
+  'DRAIN_COMPLETED',
+  'DRAIN_TIMED_OUT',
+  'DRAIN_LATE_COMPLETED',
+  'DRAIN_FAILED',
+  'RELEASE_STARTED',
+  'RELEASE_COMPLETED',
+  'RELEASE_FAILED',
+  'RELEASE_SKIPPED',
+  'MANUAL_CLEANUP_REQUIRED',
+  'MANUAL_CLEANUP_REQUESTED',
+  'MANUAL_CLEANUP_COMPLETED',
+  'MANUAL_CLEANUP_FAILED',
+  'NON_RELEASING_RECORDED',
+  'VERIFY_COMPLETED',
+  'VERIFY_UNAVAILABLE',
+  'VERIFY_FAILED',
+  'RECOVERY_PARTIAL',
+  'RECOVERY_BLOCKED',
+  'RECOVERY_COMPLETED',
+] as const;
+
+export type FaultRunRecoveryEventType = typeof SAFE_RUNTIME_RECOVERY_EVENT_TYPES[number];
+
+const RECOVERY_EVENT_META: Record<FaultRunRecoveryEventType, {
+  phase: 'command' | 'drain' | 'release' | 'cleanup' | 'verification' | 'recovery';
+  status: 'REQUESTED' | 'STARTED' | 'COMPLETED' | 'TIMED_OUT' | 'FAILED' | 'SKIPPED' | 'BLOCKED';
+}> = {
+  STOP_REQUESTED: { phase: 'command', status: 'REQUESTED' },
+  DRAIN_STARTED: { phase: 'drain', status: 'STARTED' },
+  DRAIN_COMPLETED: { phase: 'drain', status: 'COMPLETED' },
+  DRAIN_TIMED_OUT: { phase: 'drain', status: 'TIMED_OUT' },
+  DRAIN_LATE_COMPLETED: { phase: 'drain', status: 'COMPLETED' },
+  DRAIN_FAILED: { phase: 'drain', status: 'FAILED' },
+  RELEASE_STARTED: { phase: 'release', status: 'STARTED' },
+  RELEASE_COMPLETED: { phase: 'release', status: 'COMPLETED' },
+  RELEASE_FAILED: { phase: 'release', status: 'FAILED' },
+  RELEASE_SKIPPED: { phase: 'release', status: 'SKIPPED' },
+  MANUAL_CLEANUP_REQUIRED: { phase: 'cleanup', status: 'BLOCKED' },
+  MANUAL_CLEANUP_REQUESTED: { phase: 'cleanup', status: 'REQUESTED' },
+  MANUAL_CLEANUP_COMPLETED: { phase: 'cleanup', status: 'COMPLETED' },
+  MANUAL_CLEANUP_FAILED: { phase: 'cleanup', status: 'FAILED' },
+  NON_RELEASING_RECORDED: { phase: 'recovery', status: 'BLOCKED' },
+  VERIFY_COMPLETED: { phase: 'verification', status: 'COMPLETED' },
+  VERIFY_UNAVAILABLE: { phase: 'verification', status: 'BLOCKED' },
+  VERIFY_FAILED: { phase: 'verification', status: 'FAILED' },
+  RECOVERY_PARTIAL: { phase: 'recovery', status: 'BLOCKED' },
+  RECOVERY_BLOCKED: { phase: 'recovery', status: 'BLOCKED' },
+  RECOVERY_COMPLETED: { phase: 'recovery', status: 'COMPLETED' },
 };
 
 export class FaultRunEventContractError extends Error {
@@ -153,6 +216,72 @@ export function normalizeBaselineCaptureEventPayload(
   return normalized;
 }
 
+export function normalizeFaultRunRecoveryEventPayload(
+  eventType: FaultRunRecoveryEventType,
+  value: unknown = {},
+): Record<string, unknown> {
+  const metadata = RECOVERY_EVENT_META[eventType];
+  const source = asRecord(value);
+  const normalized: Record<string, unknown> = {
+    schemaVersion: 1,
+    source: 'safe-runtime',
+    phase: metadata.phase,
+    status: metadata.status,
+  };
+
+  if (eventType === 'STOP_REQUESTED') {
+    const reason = source.reason;
+    const attempt = source.attempt;
+    const drainDeadlineAt = source.drainDeadlineAt;
+    const recoveryDeadlineAt = source.recoveryDeadlineAt;
+    if (!(FAULT_RUN_STOP_REASONS as readonly unknown[]).includes(reason)
+      || !isPositiveCounter(attempt)
+      || !isTimestamp(drainDeadlineAt)
+      || !isTimestamp(recoveryDeadlineAt)) {
+      throw new FaultRunEventContractError('INVALID_RECOVERY_STOP_REQUEST_EVENT');
+    }
+    normalized.reason = reason;
+    normalized.attempt = attempt;
+    normalized.drainDeadlineAt = drainDeadlineAt;
+    normalized.recoveryDeadlineAt = recoveryDeadlineAt;
+    if (reason === 'MANUAL' || source.operatorAuditId !== undefined) {
+      copyOperatorAudit(source, normalized, 'FAULT_RUN_STOP');
+    }
+  } else if (eventType === 'MANUAL_CLEANUP_REQUESTED') {
+    if (!isPositiveCounter(source.attempt) || !isPositiveCounter(source.cleanupAttempt)) {
+      throw new FaultRunEventContractError('INVALID_MANUAL_CLEANUP_REQUEST_EVENT');
+    }
+    normalized.attempt = source.attempt;
+    normalized.cleanupAttempt = source.cleanupAttempt;
+    copyOperatorAudit(source, normalized, 'FAULT_RUN_CLEANUP');
+  } else {
+    copyCounter(source, normalized, 'attempt');
+    copyCounter(source, normalized, 'cleanupAttempt');
+    copyCounter(source, normalized, 'participants');
+    copyCounter(source, normalized, 'accepted');
+    copyCounter(source, normalized, 'completed');
+    copyCounter(source, normalized, 'aborted');
+    copyCounter(source, normalized, 'inFlightAtStart');
+    copyCounter(source, normalized, 'inFlightAtDeadline');
+    copyCounter(source, normalized, 'inFlightAtFinish');
+    copyTimestamp(source, normalized, 'deadlineAt');
+    copyTimestamp(source, normalized, 'completedAt');
+    copyRecoveryOperation(source, normalized);
+    copyRecoveryParticipant(source, normalized);
+    copyRecoveryErrorCode(source, normalized);
+    copyRecoveryOutcome(source, normalized);
+    copyRecoveryResidual(source, normalized);
+    copyRecoveryNextAction(source, normalized);
+    copyRecoveryResponsibility(source, normalized);
+    if (metadata.phase === 'verification') {
+      copyStableText(source, normalized, 'checkId', 'UNKNOWN');
+    }
+  }
+
+  assertPayloadSize(normalized);
+  return normalized;
+}
+
 function normalizeResultStatus(value: unknown): 'SUCCESS' | 'FAILED' | 'NOOP' | 'INTERRUPTED' | 'UNKNOWN' {
   return value === 'SUCCESS' || value === 'FAILED' || value === 'NOOP' || value === 'INTERRUPTED'
     ? value : 'UNKNOWN';
@@ -216,6 +345,78 @@ function copyTimestamp(
       && !Number.isNaN(Date.parse(value))) {
     target[key] = value;
   }
+}
+
+function copyOperatorAudit(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+  action: 'FAULT_RUN_STOP' | 'FAULT_RUN_CLEANUP',
+): void {
+  if (!isPositiveCounter(source.operatorAuditId)) {
+    throw new FaultRunEventContractError('RECOVERY_AUDIT_ID_REQUIRED');
+  }
+  target.operatorAuditId = source.operatorAuditId;
+  target.auditAction = action;
+  target.auditResult = 'SUCCESS';
+}
+
+function copyRecoveryOperation(source: Record<string, unknown>, target: Record<string, unknown>): void {
+  const operation = source.operation;
+  if (typeof operation === 'string' && /^[a-z][a-z0-9-]{0,127}$/.test(operation)) {
+    target.operation = operation;
+  }
+}
+
+function copyRecoveryParticipant(source: Record<string, unknown>, target: Record<string, unknown>): void {
+  const participant = source.participant;
+  if ((FAULT_RUN_DRAIN_PARTICIPANT_KINDS as readonly unknown[]).includes(participant)) {
+    target.participant = participant;
+  }
+}
+
+function copyRecoveryErrorCode(source: Record<string, unknown>, target: Record<string, unknown>): void {
+  const errorCode = source.errorCode;
+  if ((FAULT_RUN_RECOVERY_ERROR_CODES as readonly unknown[]).includes(errorCode)) {
+    target.errorCode = errorCode;
+  }
+}
+
+function copyRecoveryOutcome(source: Record<string, unknown>, target: Record<string, unknown>): void {
+  const outcome = source.outcome;
+  if ((FAULT_RUN_RECOVERY_OUTCOMES as readonly unknown[]).includes(outcome)) {
+    target.outcome = outcome;
+  }
+}
+
+function copyRecoveryResidual(source: Record<string, unknown>, target: Record<string, unknown>): void {
+  const residualKind = source.residualKind;
+  if ((FAULT_RUN_RECOVERY_RESIDUAL_KINDS as readonly unknown[]).includes(residualKind)) {
+    target.residualKind = residualKind;
+  }
+}
+
+function copyRecoveryNextAction(source: Record<string, unknown>, target: Record<string, unknown>): void {
+  const nextAction = source.nextAction;
+  if ((FAULT_RUN_RECOVERY_NEXT_ACTIONS as readonly unknown[]).includes(nextAction)) {
+    target.nextAction = nextAction;
+  }
+}
+
+function copyRecoveryResponsibility(source: Record<string, unknown>, target: Record<string, unknown>): void {
+  const responsibility = source.responsibility;
+  if ((FAULT_RUN_RECOVERY_RESPONSIBILITIES as readonly unknown[]).includes(responsibility)) {
+    target.responsibility = responsibility;
+  }
+}
+
+function isPositiveCounter(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function isTimestamp(value: unknown): value is string {
+  return typeof value === 'string'
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)
+    && !Number.isNaN(Date.parse(value));
 }
 
 function normalizeCacheResults(value: unknown): Record<string, number> | null {

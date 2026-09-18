@@ -61,6 +61,7 @@ test('runbook metadata covers the catalog exactly once', () => {
     assert.equal(entry.targetOperation, definition.targetOperation, definition.scenario);
     assert.equal(entry.maxDurationSec, definition.maxDurationSec, definition.scenario);
     assert.equal(entry.recoveryStrategy, definition.recoveryStrategy, definition.scenario);
+    assert.deepEqual(entry.recoveryPolicy, definition.recoveryPolicy, definition.scenario);
     assert.equal(entry.allowManualCleanup, definition.allowManualCleanup, definition.scenario);
     assert.equal(entry.articleFile.endsWith('.md'), true, definition.scenario);
     assert.equal(entry.articleFile.includes('/'), false, definition.scenario);

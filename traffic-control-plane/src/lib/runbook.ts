@@ -276,8 +276,8 @@ export function getRunbookEntry(scenario: string): RunbookEntry {
   const definition = getScenarioDefinition(scenario);
   const metadata = RUNBOOK_METADATA[definition.scenario];
   return {
-    ...definition,
     ...metadata,
+    ...definition,
     tempoQueries: buildTempoQueries(metadata.tempo),
   };
 }

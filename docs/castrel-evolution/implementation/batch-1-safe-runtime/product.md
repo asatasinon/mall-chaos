@@ -63,6 +63,7 @@ Operator 点击停止或运行到期
 | `RELEASE_FAILED` | 允许 release，但目标资源未成功释放 |
 | `CLEANUP_FAILED` | 允许清理，但运行级资源未成功清理 |
 | `MANUAL_CLEANUP_REQUIRED` | 需要 Operator 确认或执行人工清理 |
+| `CLEANING` | 已接受带确认的运行级 cleanup command，Worker 正在执行受控清理 |
 | `NON_RELEASING_ACTIVE` | 场景按设计不释放已产生的效果，只记录停止边界和残留 |
 | `PARTIAL_RECOVERY` | 部分恢复完成，仍需人工处理 |
 
