@@ -126,7 +126,7 @@ class ProductDetailCacheProvisioningServiceTest {
     }
 
     @Test
-    void rejectsMemberSizeThatCannotContainTheCacheEnvelope() {
+        void rejectsMemberSizeBelowTheConfiguredMinimum() {
         assertThatThrownBy(() -> provisioningService.start(context(), parameters(1, 256)))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("memberSizeBytes is out of range");
@@ -157,10 +157,12 @@ class ProductDetailCacheProvisioningServiceTest {
 
     @Test
     void rejectsMemberSizeThatCannotContainAProductDetailEnvelope() {
+        ProductDTO oversizedProduct = product("SKU-001");
+        oversizedProduct.setName("x".repeat(1024));
         when(catalogService.listSellableProducts()).thenReturn(List.of(
-                product("SKU-001"), product("SKU-002")));
+                oversizedProduct, product("SKU-002")));
 
-        assertThatThrownBy(() -> provisioningService.start(context(), parameters(1, 1)))
+        assertThatThrownBy(() -> provisioningService.start(context(), parameters(1, 1024)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("smaller");
 
