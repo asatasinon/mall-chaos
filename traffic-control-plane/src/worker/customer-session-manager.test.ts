@@ -36,25 +36,58 @@ function fakeGateway(overrides: Partial<GatewayClient> = {}): GatewayClient & {
   loginCalls: string[];
   refreshCalls: string[];
   logoutCalls: string[];
+  loginSignals: Array<AbortSignal | undefined>;
+  refreshSignals: Array<AbortSignal | undefined>;
+  logoutSignals: Array<AbortSignal | undefined>;
 } {
   const gateway = {
     loginCalls: [],
     refreshCalls: [],
     logoutCalls: [],
-    async login(email: string): Promise<CustomerAuthResponse> {
+    loginSignals: [],
+    refreshSignals: [],
+    logoutSignals: [],
+    async login(
+      email: string,
+      _password?: string,
+      _traceId?: string,
+      signal?: AbortSignal,
+    ): Promise<CustomerAuthResponse> {
       gateway.loginCalls.push(email);
+      gateway.loginSignals.push(signal);
       return auth();
     },
-    async refresh(sessionToken: string): Promise<CustomerAuthResponse> {
+    async refresh(
+      sessionToken: string,
+      _traceId?: string,
+      signal?: AbortSignal,
+    ): Promise<CustomerAuthResponse> {
       gateway.refreshCalls.push(sessionToken);
+      gateway.refreshSignals.push(signal);
       return auth();
     },
-    async logout(sessionToken: string): Promise<void> {
+    async logout(sessionToken: string, _traceId?: string, signal?: AbortSignal): Promise<void> {
       gateway.logoutCalls.push(sessionToken);
+      gateway.logoutSignals.push(signal);
     },
     ...overrides,
-  } as unknown as GatewayClient & { loginCalls: string[]; refreshCalls: string[]; logoutCalls: string[] };
+  } as unknown as GatewayClient & {
+    loginCalls: string[];
+    refreshCalls: string[];
+    logoutCalls: string[];
+    loginSignals: Array<AbortSignal | undefined>;
+    refreshSignals: Array<AbortSignal | undefined>;
+    logoutSignals: Array<AbortSignal | undefined>;
+  };
   return gateway;
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
 }
 
 test('selects an enabled account and creates one lifecycle session', async () => {
@@ -143,6 +176,125 @@ test('refreshes only the lifecycle session and keeps customer ownership', async 
   assert.deepEqual(gateway.refreshCalls, ['session-token']);
   assert.equal(context.session, oldSession);
   assert.equal(context.session.customerId, 2);
+});
+
+test('forwards a Run cancellation signal to login and does not retain a late login response', async () => {
+  const login = deferred<CustomerAuthResponse>();
+  let loginSignal: AbortSignal | undefined;
+  const gateway = fakeGateway({
+    async login(
+      _email: string,
+      _password: string,
+      _traceId?: string,
+      signal?: AbortSignal,
+    ): Promise<CustomerAuthResponse> {
+      loginSignal = signal;
+      return login.promise;
+    },
+  });
+  const manager = new CustomerSessionManager({ accounts, gateway, random: () => 0 });
+  const controller = new AbortController();
+
+  const opening = manager.openSession('run-1', 'lifecycle-1', 'trace-1', { signal: controller.signal });
+  await Promise.resolve();
+  assert.equal(loginSignal, controller.signal);
+
+  controller.abort();
+  login.resolve(auth());
+  await assert.rejects(
+    opening,
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+  assert.equal(manager.hasSession('lifecycle-1'), false);
+});
+
+test('does not rewrite a cancelled refresh as a normal session refresh failure', async () => {
+  const refresh = deferred<CustomerAuthResponse>();
+  let refreshSignal: AbortSignal | undefined;
+  const gateway = fakeGateway({
+    async refresh(
+      _sessionToken: string,
+      _traceId?: string,
+      signal?: AbortSignal,
+    ): Promise<CustomerAuthResponse> {
+      refreshSignal = signal;
+      return refresh.promise;
+    },
+  });
+  const manager = new CustomerSessionManager({ accounts, gateway, random: () => 0 });
+  const context = await manager.openSession('run-1', 'lifecycle-1', 'trace-1');
+  const controller = new AbortController();
+
+  const refreshing = manager.refreshSession('lifecycle-1', 'trace-refresh', controller.signal);
+  await Promise.resolve();
+  assert.equal(refreshSignal, controller.signal);
+  controller.abort();
+  refresh.resolve(auth());
+
+  await assert.rejects(
+    refreshing,
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+  assert.equal(context.session.accessToken, 'access-token');
+  assert.equal(context.session.sessionToken, 'session-token');
+});
+
+test('clears local credentials before a cancelled logout can settle', async () => {
+  const logout = deferred<void>();
+  let logoutSignal: AbortSignal | undefined;
+  const gateway = fakeGateway({
+    async logout(
+      _sessionToken: string,
+      _traceId?: string,
+      signal?: AbortSignal,
+    ): Promise<void> {
+      logoutSignal = signal;
+      return logout.promise;
+    },
+  });
+  const manager = new CustomerSessionManager({ accounts, gateway, random: () => 0 });
+  const context = await manager.openSession('run-1', 'lifecycle-1', 'trace-1');
+  const controller = new AbortController();
+  controller.abort();
+
+  const closing = manager.closeSession('lifecycle-1', 'trace-logout', controller.signal);
+  assert.equal(logoutSignal, controller.signal);
+  assert.equal(manager.hasSession('lifecycle-1'), false);
+  assert.equal(context.session.accessToken, '');
+  assert.equal(context.session.sessionToken, '');
+
+  logout.resolve();
+  await closing;
+  assert.equal(manager.hasSession('lifecycle-1'), false);
+});
+
+test('does not restore credentials when refresh races with local session closure', async () => {
+  const refresh = deferred<CustomerAuthResponse>();
+  const logout = deferred<void>();
+  const gateway = fakeGateway({
+    async refresh(): Promise<CustomerAuthResponse> {
+      return refresh.promise;
+    },
+    async logout(): Promise<void> {
+      return logout.promise;
+    },
+  });
+  const manager = new CustomerSessionManager({ accounts, gateway, random: () => 0 });
+  const context = await manager.openSession('run-1', 'lifecycle-1', 'trace-1');
+
+  const refreshing = manager.refreshSession('lifecycle-1', 'trace-refresh');
+  await Promise.resolve();
+  const closing = manager.closeSession('lifecycle-1', 'trace-logout');
+  assert.equal(manager.hasSession('lifecycle-1'), false);
+  assert.equal(context.session.accessToken, '');
+  assert.equal(context.session.sessionToken, '');
+
+  refresh.resolve(auth());
+  await assert.rejects(refreshing, /LIFECYCLE_SESSION_NOT_FOUND/);
+  assert.equal(context.session.accessToken, '');
+  assert.equal(context.session.sessionToken, '');
+  logout.resolve();
+  await closing;
 });
 
 test('refresh failures use a stable result and logout failure still clears session', async () => {

@@ -2,19 +2,69 @@ import pino from 'pino';
 import { v4 as uuidv4 } from 'uuid';
 import { loadRunnerConfigFromDb, RunnerConfig } from '../lib/runner-config';
 import { completeTrafficRun, ensureTrafficRun } from '../lib/runner-persistence';
-import { appendFaultRunEvent, loadActiveFaultRun } from '../lib/fault-run-repository';
+import {
+  appendFaultRunEvent,
+  loadRunnableFaultRun,
+  type FaultRunRecord,
+} from '../lib/fault-run-repository';
 import { normalizeFaultRunSummaryEventPayload } from '../lib/fault-run-event-contract';
 import { createFaultRunContext } from '../lib/fault-run-context';
 import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
 import { getRunnerControlState, pushActivity, setRunnerStatus } from '../lib/runtime-state';
+import { env } from '../lib/env';
+import { forwardAbortSignal } from '../lib/abort-signal';
 import {
   RunnerActionResult,
   TrafficActionOrchestrator,
 } from './traffic-action-orchestrator';
+import {
+  getFaultRunDrainRegistry,
+  type FaultRunDrainParticipant,
+  type FaultRunDrainRegistry,
+  type FaultRunWorkPermit,
+} from './fault-run-drain-registry';
 
 const log = pino({ name: 'runner-engine' });
 
+export interface RunnerEngineDependencies {
+  loadConfig: typeof loadRunnerConfigFromDb;
+  ensureTrafficRun: typeof ensureTrafficRun;
+  completeTrafficRun: typeof completeTrafficRun;
+  loadRunnableFaultRun: typeof loadRunnableFaultRun;
+  appendEvent: typeof appendFaultRunEvent;
+  markServiceUnavailable: (
+    faultRunId: string,
+    input: { lifecycleId?: string; errorCode?: string },
+  ) => Promise<unknown>;
+  getControlState: typeof getRunnerControlState;
+  activityWriter: typeof pushActivity;
+  statusWriter: typeof setRunnerStatus;
+  orchestrator: Pick<TrafficActionOrchestrator, 'executeLifecycle' | 'executeStorageGrowth'>;
+  drainRegistry: Pick<FaultRunDrainRegistry, 'register' | 'tryAcquire'>;
+  safeRuntimeEnabled: boolean;
+  now: () => number;
+  createTrafficRunId: () => string;
+}
+
+interface RunnerAdmission {
+  complete(): void;
+}
+
 export class RunnerEngine {
+  private readonly loadConfig: RunnerEngineDependencies['loadConfig'];
+  private readonly persistTrafficRun: RunnerEngineDependencies['ensureTrafficRun'];
+  private readonly finishTrafficRun: RunnerEngineDependencies['completeTrafficRun'];
+  private readonly loadRunnableRun: RunnerEngineDependencies['loadRunnableFaultRun'];
+  private readonly appendEvent: RunnerEngineDependencies['appendEvent'];
+  private readonly markServiceUnavailable: RunnerEngineDependencies['markServiceUnavailable'];
+  private readonly getControlState: RunnerEngineDependencies['getControlState'];
+  private readonly activityWriter: RunnerEngineDependencies['activityWriter'];
+  private readonly statusWriter: RunnerEngineDependencies['statusWriter'];
+  private readonly orchestrator: RunnerEngineDependencies['orchestrator'];
+  private readonly drainRegistry: RunnerEngineDependencies['drainRegistry'];
+  private readonly safeRuntimeEnabled: boolean;
+  private readonly now: () => number;
+  private readonly createTrafficRunId: () => string;
   private config: RunnerConfig;
   private paused = false;
   private running = false;
@@ -24,7 +74,10 @@ export class RunnerEngine {
   private trafficRunId: string | null = null;
   private trafficRunPersistence: Promise<void> | null = null;
   private lifecycleAbortController: AbortController | null = null;
-  private lifecyclePromise: Promise<void> | null = null;
+  private lifecyclePromise: Promise<RunnerActionResult> | null = null;
+  private stopPromise: Promise<void> | null = null;
+  private readonly ticks = new Set<Promise<void>>();
+  private runGeneration = 0;
   private currentLifecycleId: string | null = null;
   private lastLifecycleStartedAt: number | null = null;
   private lastLifecycleCompletedAt: number | null = null;
@@ -43,9 +96,23 @@ export class RunnerEngine {
   private cartReusedCount = 0;
   private pendingPaymentRetainedCount = 0;
   private storageGrowthCompletedRunId: string | null = null;
-  private readonly orchestrator = new TrafficActionOrchestrator();
 
-  constructor() {
+  constructor(dependencies: Partial<RunnerEngineDependencies> = {}) {
+    this.loadConfig = dependencies.loadConfig ?? loadRunnerConfigFromDb;
+    this.persistTrafficRun = dependencies.ensureTrafficRun ?? ensureTrafficRun;
+    this.finishTrafficRun = dependencies.completeTrafficRun ?? completeTrafficRun;
+    this.loadRunnableRun = dependencies.loadRunnableFaultRun ?? loadRunnableFaultRun;
+    this.appendEvent = dependencies.appendEvent ?? appendFaultRunEvent;
+    this.markServiceUnavailable = dependencies.markServiceUnavailable
+      ?? ((faultRunId, input) => getFaultRunCoordinator().markServiceUnavailable(faultRunId, input));
+    this.getControlState = dependencies.getControlState ?? getRunnerControlState;
+    this.activityWriter = dependencies.activityWriter ?? pushActivity;
+    this.statusWriter = dependencies.statusWriter ?? setRunnerStatus;
+    this.orchestrator = dependencies.orchestrator ?? new TrafficActionOrchestrator();
+    this.drainRegistry = dependencies.drainRegistry ?? getFaultRunDrainRegistry();
+    this.safeRuntimeEnabled = dependencies.safeRuntimeEnabled ?? env.FAULT_RUN_SAFE_RUNTIME_ENABLED;
+    this.now = dependencies.now ?? Date.now;
+    this.createTrafficRunId = dependencies.createTrafficRunId ?? uuidv4;
     this.config = {
       version: 1,
       enabled: true,
@@ -60,16 +127,18 @@ export class RunnerEngine {
   }
 
   async loadConfigFromDb(): Promise<void> {
-    this.config = await loadRunnerConfigFromDb();
+    this.config = await this.loadConfig();
     log.info({ config: this.config }, 'Config loaded from DB');
   }
 
   start(): void {
     if (this.running) return;
+    this.stopPromise = null;
     this.running = true;
-    this.trafficRunId = uuidv4();
+    this.runGeneration++;
+    this.trafficRunId = this.createTrafficRunId();
     const trafficRunId = this.trafficRunId;
-    this.trafficRunPersistence = ensureTrafficRun(trafficRunId, this.config.version).catch((error) => {
+    this.trafficRunPersistence = this.persistTrafficRun(trafficRunId, this.config.version).catch((error) => {
       log.error({ error }, 'Failed to persist runner start');
     });
     this.scheduleTick();
@@ -85,7 +154,14 @@ export class RunnerEngine {
   }
 
   async stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
+    this.stopPromise = this.stopInternal();
+    return this.stopPromise;
+  }
+
+  private async stopInternal(): Promise<void> {
     this.running = false;
+    this.runGeneration++;
     if (this.statusTimer) {
       clearInterval(this.statusTimer);
       this.statusTimer = null;
@@ -97,11 +173,12 @@ export class RunnerEngine {
     }
     const trafficRunId = this.trafficRunId;
     this.trafficRunId = null;
+    await Promise.allSettled([...this.ticks]);
     const lifecycleDrain = this.lifecyclePromise ?? Promise.resolve();
     await lifecycleDrain;
     if (trafficRunId) {
       await (this.trafficRunPersistence ?? Promise.resolve());
-      await completeTrafficRun(trafficRunId).catch((error) => {
+      await this.finishTrafficRun(trafficRunId).catch((error) => {
         log.error({ error, trafficRunId }, 'Failed to persist runner stop');
       });
     }
@@ -154,8 +231,6 @@ export class RunnerEngine {
     };
   }
 
-  // ── Private ──
-
   private scheduleTick(): void {
     if (!this.running) return;
     const delayMs = Math.max(this.config.lifecycleIntervalSec * 1000, 1000);
@@ -169,24 +244,36 @@ export class RunnerEngine {
     }, delayMs);
   }
 
-  private async tick(): Promise<void> {
+  tick(): Promise<void> {
+    if (!this.running) return Promise.resolve();
+    const tick = this.tickInternal(this.runGeneration);
+    this.ticks.add(tick);
+    void tick.then(
+      () => this.ticks.delete(tick),
+      () => this.ticks.delete(tick),
+    );
+    return tick;
+  }
+
+  private async tickInternal(generation: number): Promise<void> {
     await this.refreshControlState();
     await this.refreshConfigIfNeeded();
     await this.publishStatus();
 
     if (!this.config.enabled || this.paused) return;
     if (!this.trafficRunId) return;
-    const t0 = Date.now();
+    const t0 = this.now();
     const trafficRunId = this.trafficRunId;
     if (this.trafficRunPersistence) await this.trafficRunPersistence;
-    const activeFaultRun = await loadActiveFaultRun();
-    const runnerFaultRun = activeFaultRun
-      && (activeFaultRun.scenario === 'NOTIFICATION_HEAP_PRESSURE'
-        || activeFaultRun.scenario === 'NOTIFICATION_STORAGE_APPEND'
-        || activeFaultRun.scenario === 'PSP_PROVIDER_OUTCOME')
-      ? activeFaultRun
+    if (!this.isCurrentTrafficRun(trafficRunId, generation)) return;
+    const runnableFaultRun = await this.loadRunnableRun();
+    if (!this.isCurrentTrafficRun(trafficRunId, generation)) return;
+    const runnerFaultRun = runnableFaultRun
+      && runnableFaultRun.state === 'ACTIVE'
+      && Date.parse(runnableFaultRun.expiresAt) > this.now()
+      && isRunnerScenario(runnableFaultRun)
+      ? runnableFaultRun
       : null;
-    const runnerFaultContext = runnerFaultRun ? createFaultRunContext(runnerFaultRun) : undefined;
     if (runnerFaultRun?.scenario !== 'NOTIFICATION_STORAGE_APPEND') {
       this.storageGrowthCompletedRunId = null;
     }
@@ -194,18 +281,26 @@ export class RunnerEngine {
         && this.storageGrowthCompletedRunId === runnerFaultRun.faultRunId) {
       return;
     }
+
     const lifecycleAbortController = new AbortController();
+    const admission = runnerFaultRun && this.safeRuntimeEnabled
+      ? this.admitControlledLifecycle(runnerFaultRun, lifecycleAbortController)
+      : null;
+    if (runnerFaultRun && this.safeRuntimeEnabled && !admission) return;
+
+    const runnerFaultContext = runnerFaultRun ? createFaultRunContext(runnerFaultRun) : undefined;
     this.lifecycleAbortController = lifecycleAbortController;
     this.lifecycleStartedCount++;
     this.lastLifecycleStartedAt = t0;
     this.currentLifecycleId = null;
-    this.lifecyclePromise = (runnerFaultRun?.scenario === 'NOTIFICATION_STORAGE_APPEND'
-      ? this.orchestrator.executeStorageGrowth(trafficRunId, runnerFaultContext!, {
-        signal: lifecycleAbortController.signal,
-        requestIntervalMs: Number(runnerFaultRun.parameters.requestIntervalMs ?? 100),
-        totalBytes: Number(runnerFaultRun.parameters.totalBytes ?? 10 * 1024 ** 3),
-      })
-      : this.orchestrator.executeLifecycle(trafficRunId, {
+    this.lifecyclePromise = (async () => {
+      const result = runnerFaultRun?.scenario === 'NOTIFICATION_STORAGE_APPEND'
+        ? await this.orchestrator.executeStorageGrowth(trafficRunId, runnerFaultContext!, {
+          signal: lifecycleAbortController.signal,
+          requestIntervalMs: Number(runnerFaultRun.parameters.requestIntervalMs ?? 100),
+          totalBytes: Number(runnerFaultRun.parameters.totalBytes ?? 10 * 1024 ** 3),
+        })
+        : await this.orchestrator.executeLifecycle(trafficRunId, {
           maxItems: this.config.maxItems,
           maxItemQuantity: this.config.maxItemQuantity,
           paymentSuccessRatio: this.config.successfulPaymentRatio,
@@ -213,42 +308,41 @@ export class RunnerEngine {
         }, {
           signal: lifecycleAbortController.signal,
           ...(runnerFaultContext ? { faultRunContext: runnerFaultContext } : {}),
-        }))
-      .then((result) => {
-        if (runnerFaultRun?.scenario === 'NOTIFICATION_STORAGE_APPEND'
-            && result.resultCode === 'STORAGE_APPEND_COMPLETE') {
-          this.storageGrowthCompletedRunId = runnerFaultRun.faultRunId;
-        }
-        return this.finishLifecycle(result, t0);
-      })
-      .finally(() => {
+        });
+      if (runnerFaultRun?.scenario === 'NOTIFICATION_STORAGE_APPEND'
+          && result.resultCode === 'STORAGE_APPEND_COMPLETE') {
+        this.storageGrowthCompletedRunId = runnerFaultRun.faultRunId;
+      }
+      this.finishLifecycle(result, t0);
+      if (runnerFaultRun?.scenario === 'NOTIFICATION_HEAP_PRESSURE' && result.status === 'FAILED') {
+        await this.markServiceUnavailable(runnerFaultRun.faultRunId, {
+          lifecycleId: result.lifecycleId,
+          errorCode: result.errorCode,
+        }).catch((error) => log.warn({ error, faultRunId: runnerFaultRun.faultRunId }, 'Failed to mark notification service unavailable'));
+      }
+      if (runnerFaultRun) {
+        await this.appendEvent(
+          runnerFaultRun.faultRunId,
+          'RUNNER_LIFECYCLE_SUMMARY',
+          normalizeFaultRunSummaryEventPayload('RUNNER_LIFECYCLE_SUMMARY', {
+            resultStatus: result.status,
+            success: result.success,
+            latencyMs: this.now() - t0,
+            errorCode: result.errorCode,
+          }),
+        ).catch((error) => log.warn({ error }, 'Failed to record Fault Run runner summary'));
+      }
+      return result;
+    })().finally(() => {
+        admission?.complete();
         if (this.lifecycleAbortController === lifecycleAbortController) {
           this.lifecycleAbortController = null;
         }
         this.lifecyclePromise = null;
       });
-    await this.lifecyclePromise;
-    const result = this.lastLifecycleResult!;
-    if (runnerFaultRun?.scenario === 'NOTIFICATION_HEAP_PRESSURE' && result.status === 'FAILED') {
-      await getFaultRunCoordinator().markServiceUnavailable(runnerFaultRun.faultRunId, {
-        lifecycleId: result.lifecycleId,
-        errorCode: result.errorCode,
-      }).catch((error) => log.warn({ error, faultRunId: runnerFaultRun.faultRunId }, 'Failed to mark notification service unavailable'));
-    }
-    if (runnerFaultRun) {
-      await appendFaultRunEvent(
-        runnerFaultRun.faultRunId,
-        'RUNNER_LIFECYCLE_SUMMARY',
-        normalizeFaultRunSummaryEventPayload('RUNNER_LIFECYCLE_SUMMARY', {
-          resultStatus: result.status,
-          success: result.success,
-          latencyMs: Date.now() - t0,
-          errorCode: result.errorCode,
-        }),
-      ).catch((error) => log.warn({ error }, 'Failed to record Fault Run runner summary'));
-    }
-    const latencyMs = Date.now() - t0;
-    void pushActivity({
+    const result = await this.lifecyclePromise;
+    const latencyMs = this.now() - t0;
+    void this.activityWriter({
       ts: t0,
       action: result.steps?.some((step) => step.actionType === 'NOTIFICATION_STORAGE_APPEND')
         ? 'NOTIFICATION_STORAGE_APPEND' : 'CUSTOMER_LIFECYCLE',
@@ -267,12 +361,41 @@ export class RunnerEngine {
     await this.publishStatus();
   }
 
-  private lastLifecycleResult: RunnerActionResult | null = null;
+  private isCurrentTrafficRun(trafficRunId: string, generation: number): boolean {
+    return this.running
+      && this.runGeneration === generation
+      && this.trafficRunId === trafficRunId;
+  }
+
+  private admitControlledLifecycle(
+    run: FaultRunRecord,
+    lifecycleAbortController: AbortController,
+  ): RunnerAdmission | null {
+    const completion = deferredVoid();
+    const participant: FaultRunDrainParticipant = {
+      kind: 'RUNNER',
+      requestStop: () => lifecycleAbortController.abort(),
+      settled: () => completion.promise,
+    };
+    const unregisterParticipant = this.drainRegistry.register(run.faultRunId, participant);
+    const permit = this.drainRegistry.tryAcquire(run.faultRunId, 'RUNNER');
+    if (!permit) {
+      completion.resolve();
+      unregisterParticipant();
+      return null;
+    }
+    const removePermitAbortListener = forwardAbortSignal(permit.signal, lifecycleAbortController);
+    return completeRunnerAdmission(
+      permit,
+      completion.resolve,
+      removePermitAbortListener,
+      unregisterParticipant,
+    );
+  }
 
   private finishLifecycle(result: RunnerActionResult, startedAt: number): void {
-    this.lastLifecycleResult = result;
     this.currentLifecycleId = result.lifecycleId ?? null;
-    this.lastLifecycleCompletedAt = Date.now();
+    this.lastLifecycleCompletedAt = this.now();
     if (this.previousLifecycleStartedAt !== null) {
       this.intervalSamples.push((startedAt - this.previousLifecycleStartedAt) / 1000);
       this.intervalSamples = this.intervalSamples.slice(-100);
@@ -295,7 +418,7 @@ export class RunnerEngine {
   }
 
   private async refreshControlState(): Promise<void> {
-    const state = await getRunnerControlState();
+    const state = await this.getControlState();
     this.paused = state.paused;
   }
 
@@ -312,7 +435,7 @@ export class RunnerEngine {
       return;
     }
     this.lastConfigCheckAt = now;
-    const latest = await loadRunnerConfigFromDb();
+    const latest = await this.loadConfig();
     if (latest.version !== this.config.version) {
       this.config = latest;
       log.info({ version: latest.version }, 'Runner config reloaded from DB');
@@ -320,8 +443,41 @@ export class RunnerEngine {
   }
 
   private async publishStatus(): Promise<void> {
-    await setRunnerStatus(this.getStatus());
+    await this.statusWriter(this.getStatus());
   }
+}
+
+function isRunnerScenario(run: FaultRunRecord): boolean {
+  return run.scenario === 'NOTIFICATION_HEAP_PRESSURE'
+    || run.scenario === 'NOTIFICATION_STORAGE_APPEND'
+    || run.scenario === 'PSP_PROVIDER_OUTCOME';
+}
+
+function deferredVoid(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
+function completeRunnerAdmission(
+  permit: FaultRunWorkPermit,
+  resolveCompletion: () => void,
+  removePermitAbortListener: () => void,
+  unregisterParticipant: () => void,
+): RunnerAdmission {
+  let completed = false;
+  return {
+    complete: () => {
+      if (completed) return;
+      completed = true;
+      removePermitAbortListener();
+      permit.complete();
+      resolveCompletion();
+      unregisterParticipant();
+    },
+  };
 }
 
 // Singleton

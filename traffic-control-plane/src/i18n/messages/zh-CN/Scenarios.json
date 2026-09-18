@@ -149,6 +149,112 @@
   "byteValueHelp": "字节值可使用 B、K、KB、M、MB、G 或 GB（不区分大小写）。每个字段上限为 128M，整个 Hash 上限为 512M：N × S 必须同时满足两个限制。读取并发只控制压力。",
   "currentRunDetails": "查看当前运行详情",
   "runParametersFallback": "由场景目录校验。",
+  "recovery": {
+    "label": "恢复状态",
+    "unknown": "恢复详情不可用或未通过校验。",
+    "legacy": "此历史运行没有 safe-runtime 恢复投影。",
+    "unknownState": "未知",
+    "stopReason": "停止原因",
+    "drainDeadline": "排空截止时间",
+    "recoveryDeadline": "恢复截止时间",
+    "attempt": "尝试次数",
+    "retryable": "可重试",
+    "residualsLabel": "剩余责任",
+    "phases": {
+      "NONE": "未开始",
+      "STOP_REQUESTED": "已请求停止",
+      "DRAINING": "排空中",
+      "RELEASING": "释放中",
+      "VERIFYING": "验证中",
+      "MANUAL_CLEANUP_REQUIRED": "需要手动清理",
+      "CLEANING": "清理中",
+      "NON_RELEASING_ACTIVE": "不可释放效果仍活动",
+      "PARTIAL_RECOVERY": "部分恢复",
+      "COMPLETED": "已完成"
+    },
+    "outcomes": {
+      "PENDING": "待处理",
+      "SUCCEEDED": "成功",
+      "PARTIAL_RECOVERY": "部分恢复",
+      "DRAIN_TIMEOUT": "排空超时",
+      "WORKER_FAILED": "Worker 失败",
+      "RELEASE_FAILED": "释放失败",
+      "CLEANUP_FAILED": "清理失败",
+      "VERIFY_UNAVAILABLE": "验证不可用",
+      "VERIFY_FAILED": "验证失败",
+      "MANUAL_CLEANUP_REQUIRED": "需要手动清理",
+      "NON_RELEASING_ACTIVE": "不可释放效果仍活动",
+      "SERVICE_UNAVAILABLE": "服务不可用"
+    },
+    "stopReasons": {
+      "MANUAL": "Operator 请求",
+      "EXPIRED": "运行已到期",
+      "WORKER_FAILED": "Worker 失败",
+      "WORKER_SHUTDOWN": "Worker 已关闭",
+      "CONTROL_PLANE_RESTART": "控制面重启",
+      "SERVICE_UNAVAILABLE": "服务不可用"
+    },
+    "steps": {
+      "drain": "排空",
+      "release": "释放",
+      "cleanup": "清理",
+      "verification": "验证"
+    },
+    "stepStatuses": {
+      "NOT_STARTED": "未开始",
+      "RUNNING": "运行中",
+      "SUCCEEDED": "成功",
+      "TIMED_OUT": "超时",
+      "FAILED": "失败",
+      "SKIPPED": "已跳过",
+      "NOT_APPLICABLE": "不适用",
+      "MANUAL_REQUIRED": "需要手动操作",
+      "NOT_CONFIGURED": "未配置"
+    },
+    "errorCodes": {
+      "DRAIN_PARTICIPANT_MISSING": "未注册排空参与者",
+      "DRAIN_TIMEOUT": "排空超时",
+      "DRAIN_ABORT_FAILED": "排空取消失败",
+      "DRAIN_FAILED": "排空失败",
+      "WORKER_FAILED": "Worker 失败",
+      "TARGET_RELEASE_TIMEOUT": "目标释放超时",
+      "TARGET_RELEASE_UNAVAILABLE": "目标释放不可用",
+      "TARGET_RELEASE_REJECTED": "目标拒绝释放",
+      "TARGET_RELEASE_FAILED": "目标释放失败",
+      "MANUAL_CLEANUP_REQUIRED": "需要手动清理",
+      "CLEANUP_OPERATION_FAILED": "清理操作失败",
+      "VERIFY_UNAVAILABLE": "未配置验证",
+      "VERIFY_FAILED": "验证失败"
+    },
+    "metrics": {
+      "participants": "参与者",
+      "accepted": "已受理",
+      "completed": "已完成",
+      "aborted": "已取消",
+      "inFlightAtStart": "开始时进行中",
+      "inFlightAtDeadline": "截止时进行中",
+      "inFlightAtFinish": "结束时进行中"
+    },
+    "residuals": {
+      "DRAIN_UNCERTAIN": "排空结果仍不确定",
+      "MANUAL_CLEANUP_PENDING": "手动清理仍待完成",
+      "NON_RELEASING_EFFECT": "保留效果按设计不会自动释放",
+      "SERVICE_RECOVERY_REQUIRED": "仍需要服务恢复",
+      "VERIFICATION_UNAVAILABLE": "恢复验证不可用"
+    },
+    "responsibilities": {
+      "CONTROL_PLANE": "控制面",
+      "OPERATOR": "Operator",
+      "SERVICE_OWNER": "服务负责人"
+    },
+    "nextActions": {
+      "RETRY_RECOVERY": "重试恢复",
+      "INVESTIGATE_DRAIN": "调查排空情况",
+      "COMPLETE_MANUAL_CLEANUP": "确认并完成手动清理",
+      "WAIT_FOR_SERVICE_RECOVERY": "等待确认服务恢复",
+      "CONFIGURE_VERIFICATION": "配置恢复验证"
+    }
+  },
   "scenarioMeta": {
     "BROWSE_REPORT_SQL": {
       "label": "商品浏览慢 SQL",

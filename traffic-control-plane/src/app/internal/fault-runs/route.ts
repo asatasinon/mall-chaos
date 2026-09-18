@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { jsonError, jsonOk } from '@/lib/api-response';
 import { isCsrfRequest } from '@/lib/csrf';
+import { env } from '@/lib/env';
 import {
   FaultRunValidationError,
   getScenarioDefinition,
@@ -18,6 +19,7 @@ import {
 } from '@/lib/fault-run-repository';
 import { getOrCreateTraceId } from '@/lib/trace';
 import { recordOperatorAudit } from '@/lib/operator-audit';
+import { buildFaultRunOperatorRun } from '@/lib/fault-run-operator-view';
 
 export async function GET(request: NextRequest) {
   const state = request.nextUrl.searchParams.get('state') || undefined;
@@ -29,7 +31,12 @@ export async function GET(request: NextRequest) {
       state: state as FaultRunState | undefined,
       scenario: scenario as FaultRunScenario | undefined,
     });
-    return jsonOk({ scenarios: listScenarioDefinitions(), runs });
+    return jsonOk({
+      scenarios: listScenarioDefinitions(),
+      runs: runs.map((run) => buildFaultRunOperatorRun(run, {
+        safeRuntimeEnabled: env.FAULT_RUN_SAFE_RUNTIME_ENABLED,
+      })),
+    });
   } catch (error) {
     return jsonError(400, errorMessage(error), 400);
   }
@@ -67,7 +74,9 @@ export async function POST(request: NextRequest) {
       correlationId: traceId,
     });
     await attachOperatorAudit(result.run.faultRunId, auditId);
-    return jsonOk(result.run, result.created ? 201 : 200);
+    return jsonOk(buildFaultRunOperatorRun(result.run, {
+      safeRuntimeEnabled: env.FAULT_RUN_SAFE_RUNTIME_ENABLED,
+    }), result.created ? 201 : 200);
   } catch (error) {
     const message = errorMessage(error);
     await recordOperatorAudit({
@@ -81,7 +90,13 @@ export async function POST(request: NextRequest) {
     if (error instanceof FaultRunValidationError) return jsonError(400, message, 400);
     if (error instanceof ActiveFaultRunError) {
       return Response.json(
-        { code: 409, message: 'An active Fault Run already exists', data: error.activeRun },
+        {
+          code: 409,
+          message: 'An active Fault Run already exists',
+          data: buildFaultRunOperatorRun(error.activeRun, {
+            safeRuntimeEnabled: env.FAULT_RUN_SAFE_RUNTIME_ENABLED,
+          }),
+        },
         { status: 409 },
       );
     }

@@ -3,6 +3,7 @@ import type {
   FaultRunCleanupResult,
   FaultRunDetails,
   FaultRunDrain,
+  FaultRun,
   FaultRunTargetSummary,
   FaultRunWorkerStats,
 } from './types';
@@ -26,6 +27,7 @@ export type FaultRunViewModel = {
   drain: FaultRunDrain | null;
   cleanup: FaultRunCleanupResult | null;
   markerState: 'PUBLISHED' | 'RELEASED' | 'UNKNOWN';
+  recovery: FaultRun['recovery'];
 };
 
 export function buildFaultRunView(details: FaultRunDetails): FaultRunViewModel {
@@ -38,9 +40,9 @@ export function buildFaultRunView(details: FaultRunDetails): FaultRunViewModel {
   const drain = readDrain(recoveryPayload?.workerDrain);
   const cleanup = readCleanup(
     recoveryPayload?.result,
+    recoveryPayload?.cleanup,
     recoveryPayload,
     details.events.find((event) => event.eventType === 'MANUAL_CLEANUP_COMPLETED')?.payload,
-    details.run.recoveryResult,
   );
 
   return {
@@ -53,7 +55,30 @@ export function buildFaultRunView(details: FaultRunDetails): FaultRunViewModel {
       : targetSummary && ['ACTIVE', 'RECOVERING'].includes(details.run.state)
         ? 'PUBLISHED'
         : 'UNKNOWN',
+    recovery: details.run.recovery,
   };
+}
+
+export function isManualCleanupAvailable(run: FaultRun): boolean {
+  if (run.manualCleanup === 'LEGACY_TERMINAL') return true;
+  return run.manualCleanup === 'SAFE_COMMAND'
+    && run.recovery.kind === 'SAFE_RUNTIME_V1'
+    && run.recovery.projection.phase === 'MANUAL_CLEANUP_REQUIRED'
+    && run.recovery.projection.outcome === 'MANUAL_CLEANUP_REQUIRED'
+    && run.recovery.projection.cleanup.status === 'MANUAL_REQUIRED';
+}
+
+export function requiresNotificationServiceRecovery(run: FaultRun): boolean {
+  return run.scenario === 'NOTIFICATION_HEAP_PRESSURE'
+    && (
+      run.state === 'SERVICE_UNAVAILABLE'
+      || (run.state === 'RECOVERING'
+        && run.recovery.kind === 'SAFE_RUNTIME_V1'
+        && run.recovery.projection.outcome === 'SERVICE_UNAVAILABLE'
+        && run.recovery.projection.residuals.some(
+          (residual) => residual.kind === 'SERVICE_RECOVERY_REQUIRED',
+        ))
+    );
 }
 
 export function summarizeFaultRunEvent(event: Event, translate: FaultRunTranslator = defaultTranslate): string {
@@ -81,6 +106,47 @@ export function summarizeFaultRunEvent(event: Event, translate: FaultRunTranslat
       return cleanupSummary(readCleanup(payload.result), translate);
     case 'MANUAL_CLEANUP_FAILED':
       return translate('cleanupFailed');
+    case 'STOP_REQUESTED':
+      return translate('stopRequested');
+    case 'DRAIN_STARTED':
+      return translate('drainStarted');
+    case 'DRAIN_COMPLETED':
+      return translate('drainCompleted');
+    case 'DRAIN_TIMED_OUT':
+      return translate('drainTimedOut');
+    case 'DRAIN_FAILED':
+      return translate('drainFailed');
+    case 'RELEASE_STARTED':
+      return translate('releaseStarted');
+    case 'RELEASE_COMPLETED':
+      return translate('releaseCompleted');
+    case 'RELEASE_FAILED':
+      return translate('releaseFailed');
+    case 'RELEASE_SKIPPED':
+      return translate('releaseSkipped');
+    case 'CLEANUP_SKIPPED':
+      return translate('cleanupSkipped');
+    case 'MANUAL_CLEANUP_REQUIRED':
+      return translate('manualCleanupRequired');
+    case 'MANUAL_CLEANUP_REQUESTED':
+      return translate('manualCleanupRequested');
+    case 'NON_RELEASING_RECORDED':
+      return translate('nonReleasingRecorded');
+    case 'VERIFY_STARTED':
+      return translate('verificationStarted');
+    case 'VERIFY_COMPLETED':
+      return translate('verificationCompleted');
+    case 'VERIFY_UNAVAILABLE':
+      return translate('verificationUnavailable');
+    case 'VERIFY_FAILED':
+      return translate('verificationFailed');
+    case 'RECOVERY_PARTIAL':
+    case 'RECOVERY_BLOCKED':
+      return translate('recoveryBlocked');
+    case 'NOTIFICATION_RESTART_COMPLETED':
+      return translate('notificationRestartCompleted');
+    case 'NOTIFICATION_RESTART_FAILED':
+      return translate('notificationRestartFailed');
     case 'SCENARIO_WORKER_SETUP_FAILED':
       return translate('setupFailed');
     default:
@@ -269,6 +335,26 @@ const DEFAULT_FAULT_RUN_MESSAGES: Record<string, string> = {
   recoveryCompleted: 'Recovery completed',
   recoveryFailed: 'Recovery failed; inspect the protected recovery result',
   cleanupFailed: 'Per-run cleanup failed',
+  stopRequested: 'Stop command accepted',
+  drainStarted: 'Worker drain started',
+  drainCompleted: 'Worker drain completed',
+  drainTimedOut: 'Worker drain reached its deadline',
+  drainFailed: 'Worker drain could not be confirmed',
+  releaseStarted: 'Target release started',
+  releaseCompleted: 'Target release completed',
+  releaseFailed: 'Target release failed',
+  releaseSkipped: 'Target release was not applicable',
+  cleanupSkipped: 'Cleanup was not applicable',
+  manualCleanupRequired: 'Operator-confirmed cleanup is required',
+  manualCleanupRequested: 'Manual cleanup command accepted',
+  nonReleasingRecorded: 'Non-releasing residual recorded',
+  verificationStarted: 'Recovery verification started',
+  verificationCompleted: 'Recovery verification completed',
+  verificationUnavailable: 'Recovery verification is not configured',
+  verificationFailed: 'Recovery verification failed',
+  recoveryBlocked: 'Recovery remains incomplete',
+  notificationRestartCompleted: 'Notification restart completed',
+  notificationRestartFailed: 'Notification restart failed',
   setupFailed: 'Reader setup failed before traffic started',
   recordedEvent: 'Recorded Fault Run event',
   markerReleasedAndHashRemoved: 'Marker released and run Hash removed',

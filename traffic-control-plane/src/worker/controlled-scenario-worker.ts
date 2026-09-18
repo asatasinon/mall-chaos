@@ -1,6 +1,7 @@
 import { appendFaultRunEvent } from '../lib/fault-run-repository';
 import { normalizeFaultRunSummaryEventPayload } from '../lib/fault-run-event-contract';
 import type { FaultRunRecord } from '../lib/fault-run-repository';
+import { forwardAbortSignal } from '../lib/abort-signal';
 
 export interface ScenarioWorkerStats {
   requests: number;
@@ -45,6 +46,7 @@ export interface ControlledScenarioOptions {
   concurrency: number;
   requestIntervalMs: number;
   request: (signal: AbortSignal) => Promise<void | ScenarioRequestResult>;
+  signal?: AbortSignal;
 }
 
 export class ControlledScenarioWorker {
@@ -71,6 +73,7 @@ export class ControlledScenarioWorker {
   private totalLatencyMs = 0;
   private readonly latencySamples: number[] = [];
   private running: Promise<void> | null = null;
+  private removeParentAbortListener: (() => void) | null = null;
 
   constructor(
     private readonly run: FaultRunRecord,
@@ -80,7 +83,13 @@ export class ControlledScenarioWorker {
 
   start(): Promise<void> {
     if (!this.running) {
-      this.running = this.execute();
+      if (this.options.signal) {
+        this.removeParentAbortListener = forwardAbortSignal(this.options.signal, this.controller);
+      }
+      this.running = this.execute().finally(() => {
+        this.removeParentAbortListener?.();
+        this.removeParentAbortListener = null;
+      });
     }
     return this.running;
   }
@@ -101,6 +110,10 @@ export class ControlledScenarioWorker {
 
   private async execute(): Promise<void> {
     try {
+      if (this.controller.signal.aborted) {
+        this.stats.stopReason = this.stats.stopReason ?? 'STOP_REQUESTED';
+        return;
+      }
       await this.eventWriter(
         this.run.faultRunId,
         'SCENARIO_WORKER_STARTED',

@@ -5,21 +5,26 @@ import {
   loadFaultRun,
   listActiveFaultRuns,
   listExpiredActiveFaultRuns,
+  requestFaultRunStop,
   transitionFaultRun,
   type CreateFaultRunInput,
+  type FaultRunCommandResult,
   type FaultRunRecord,
   type FaultRunTargetSummary,
+  type RequestFaultRunStopInput,
 } from './fault-run-repository';
 import {
   CATALOG_LARGE_VALUE_MIN_MEMBER_SIZE_BYTES,
   getScenarioDefinition,
   validateScenarioParameters,
 } from './fault-run-catalog';
+import { env } from './env';
 
 export interface FaultRunTargetAdapter {
   start(run: FaultRunRecord): Promise<unknown>;
-  stop(run: FaultRunRecord): Promise<unknown>;
-  compensate(run: FaultRunRecord): Promise<void>;
+  stop(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown>;
+  cleanup(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown>;
+  compensate(run: FaultRunRecord, signal?: AbortSignal): Promise<void>;
 }
 
 export interface FaultRunStore {
@@ -27,6 +32,7 @@ export interface FaultRunStore {
   load(faultRunId: string): Promise<FaultRunRecord | null>;
   listActive(): Promise<FaultRunRecord[]>;
   listExpired(now?: Date): Promise<FaultRunRecord[]>;
+  requestStop(input: RequestFaultRunStopInput): Promise<FaultRunCommandResult | null>;
   transition(
     faultRunId: string,
     expectedStates: readonly FaultRunRecord['state'][],
@@ -41,6 +47,7 @@ export class SqlFaultRunStore implements FaultRunStore {
   load(faultRunId: string) { return loadFaultRun(faultRunId); }
   listActive() { return listActiveFaultRuns(); }
   listExpired(now?: Date) { return listExpiredActiveFaultRuns(now); }
+  requestStop(input: RequestFaultRunStopInput) { return requestFaultRunStop(input); }
   transition(...args: Parameters<FaultRunStore['transition']>) { return transitionFaultRun(...args); }
   appendEvent(faultRunId: string, eventType: string, payload?: unknown) {
     return appendFaultRunEvent(faultRunId, eventType, payload);
@@ -56,7 +63,7 @@ export class GatewayFaultRunTargetAdapter implements FaultRunTargetAdapter {
       '/internal/gateway/operations/prepare', toGatewayPayload(run), run.traceId ?? undefined);
   }
 
-  async stop(run: FaultRunRecord): Promise<unknown> {
+  async stop(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown> {
     if (run.scenario === 'BROWSE_SURGE' || run.scenario === 'ORDER_QUERY_SURGE') {
       return { stopped: true, target: 'worker' };
     }
@@ -64,11 +71,21 @@ export class GatewayFaultRunTargetAdapter implements FaultRunTargetAdapter {
       '/internal/gateway/operations/release',
       toGatewayPayload(run),
       run.traceId ?? undefined,
+      signal,
     );
   }
 
-  async compensate(run: FaultRunRecord): Promise<void> {
-    await this.stop(run);
+  async cleanup(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown> {
+    return getGatewayClient().postInternal(
+      '/internal/gateway/operations/cleanup',
+      toGatewayCleanupPayload(run),
+      run.traceId ?? undefined,
+      signal,
+    );
+  }
+
+  async compensate(run: FaultRunRecord, signal?: AbortSignal): Promise<void> {
+    await this.stop(run, signal);
   }
 }
 
@@ -79,19 +96,25 @@ export interface CreateFaultRunCommand {
   traceId: string;
 }
 
+export interface FaultRunCoordinatorOptions {
+  safeRuntimeEnabled?: boolean;
+  drainTimeoutMs?: number;
+  recoveryTimeoutMs?: number;
+}
+
 export class FaultRunCoordinator {
-  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly recoveryPromises = new Map<string, Promise<FaultRunRecord | null>>();
-  private readonly runDrains = new Map<string, () => Promise<unknown>>();
+  private readonly safeRuntimeEnabled: boolean;
+  private readonly drainTimeoutMs: number;
+  private readonly recoveryTimeoutMs: number;
 
   constructor(
     private readonly targetAdapter: FaultRunTargetAdapter = new GatewayFaultRunTargetAdapter(),
     private readonly store: FaultRunStore = new SqlFaultRunStore(),
-  ) {}
-
-  registerRunDrain(faultRunId: string, drain: () => Promise<unknown>): () => void {
-    this.runDrains.set(faultRunId, drain);
-    return () => this.runDrains.delete(faultRunId);
+    options: FaultRunCoordinatorOptions = {},
+  ) {
+    this.safeRuntimeEnabled = options.safeRuntimeEnabled ?? env.FAULT_RUN_SAFE_RUNTIME_ENABLED;
+    this.drainTimeoutMs = options.drainTimeoutMs ?? env.FAULT_RUN_DRAIN_TIMEOUT_MS;
+    this.recoveryTimeoutMs = options.recoveryTimeoutMs ?? env.FAULT_RUN_RECOVERY_TIMEOUT_MS;
   }
 
   async create(command: CreateFaultRunCommand): Promise<{ run: FaultRunRecord; created: boolean }> {
@@ -111,15 +134,19 @@ export class FaultRunCoordinator {
       traceId: command.traceId,
     };
     const result = await this.store.create(input);
-    if (!result.created) {
-      this.schedule(result.run);
-      return result;
+    if (!result.created) return result;
+
+    let targetResponse: unknown;
+    try {
+      targetResponse = await this.targetAdapter.start(result.run);
+    } catch {
+      return this.failCreatedRun(result.run);
     }
 
+    const targetSummary = sanitizeTargetSummary(result.run, targetResponse);
+    let active: FaultRunRecord | null;
     try {
-      const targetResponse = await this.targetAdapter.start(result.run);
-      const targetSummary = sanitizeTargetSummary(result.run, targetResponse);
-      const active = await this.store.transition(
+      active = await this.store.transition(
         result.run.faultRunId,
         ['CREATING'],
         'ACTIVE',
@@ -131,178 +158,102 @@ export class FaultRunCoordinator {
           },
         },
       );
-      if (!active) throw new Error('FAULT_RUN_ACTIVATION_READBACK_FAILED');
-      this.schedule(active);
+    } catch {
+      return this.failCreatedRun(result.run);
+    }
+    if (!active || active.state === 'FAILED' || active.state === 'SERVICE_UNAVAILABLE') {
+      return this.failCreatedRun(result.run);
+    }
+    if (active.state === 'RECOVERING') {
+      await this.store.appendEvent(active.faultRunId, 'CREATE_CANCELLED_AFTER_PREPARE');
       return { run: active, created: true };
-    } catch (error) {
-      const compensationError = await this.compensateAfterCreateFailure(result.run, error);
-      await this.store.transition(
-        result.run.faultRunId,
-        ['CREATING'],
-        'FAILED',
-        {
-          eventType: 'CREATE_FAILED',
-          payload: { error: errorMessage(error), compensationError },
-          stopReason: 'TARGET_UNAVAILABLE',
-          recoveryResult: { compensated: compensationError === null },
-          recoveryError: compensationError ?? errorMessage(error),
-        },
-      );
-      throw new Error('FAULT_RUN_TARGET_START_FAILED');
     }
-  }
-
-  async stop(faultRunId: string, reason: 'MANUAL' | 'EXPIRED' = 'MANUAL'): Promise<FaultRunRecord | null> {
-    const existing = await this.store.load(faultRunId);
-    if (!existing) return null;
-    if (isTerminal(existing.state)) return existing;
-    if (existing.state === 'SERVICE_UNAVAILABLE') return existing;
-    if (existing.parameters.durationSec && existing.expiresAt <= new Date().toISOString()) reason = 'EXPIRED';
-
-    const current = this.recoveryPromises.get(faultRunId);
-    if (current) return current;
-    const recovery = this.recover(existing, reason);
-    this.recoveryPromises.set(faultRunId, recovery);
-    try {
-      return await recovery;
-    } finally {
-      this.recoveryPromises.delete(faultRunId);
-    }
-  }
-
-  async stopExpired(faultRunId: string): Promise<FaultRunRecord | null> {
-    return this.stop(faultRunId, 'EXPIRED');
+    if (active.state !== 'ACTIVE') return this.failCreatedRun(result.run);
+    return { run: active, created: true };
   }
 
   async markServiceUnavailable(faultRunId: string, details: unknown = {}): Promise<FaultRunRecord | null> {
-    this.clearTimer(faultRunId);
+    if (this.safeRuntimeEnabled) {
+      const command = await this.store.requestStop({
+        faultRunId,
+        reason: 'SERVICE_UNAVAILABLE',
+        drainTimeoutMs: this.drainTimeoutMs,
+        recoveryTimeoutMs: this.recoveryTimeoutMs,
+      });
+      return command?.run ?? null;
+    }
+    const summary = sanitizeServiceUnavailableSummary(details);
     return this.store.transition(
       faultRunId,
       ['ACTIVE', 'RECOVERING'],
       'SERVICE_UNAVAILABLE',
-      { eventType: 'SERVICE_UNAVAILABLE', payload: details, stopReason: 'SERVICE_UNAVAILABLE' },
+      { eventType: 'SERVICE_UNAVAILABLE', payload: summary, stopReason: 'SERVICE_UNAVAILABLE' },
     );
   }
-
   async markServiceRecovered(faultRunId: string, details: unknown = {}): Promise<FaultRunRecord | null> {
-    this.clearTimer(faultRunId);
+    if (this.safeRuntimeEnabled) {
+      return this.store.load(faultRunId);
+    }
+    const summary = sanitizeServiceRecoverySummary(details);
     return this.store.transition(
       faultRunId,
       ['SERVICE_UNAVAILABLE'],
       'RECOVERED',
       {
         eventType: 'SERVICE_RECOVERED',
-        payload: details,
-        recoveryResult: { serviceRestarted: true, ...asRecord(details) },
+        payload: summary,
+        recoveryResult: summary,
       },
     );
   }
 
-  async recoverExpiredRuns(): Promise<void> {
-    const runs = await this.store.listExpired();
-    await Promise.all(runs.map((run) => this.stop(run.faultRunId, 'EXPIRED')));
-  }
-
-  async scheduleActiveRuns(): Promise<void> {
-    const runs = await this.store.listActive();
-    await Promise.all(runs.map(async (run) => {
-      if (run.state === 'CREATING') {
-        const compensationError = await this.compensateAfterCreateFailure(run, new Error('CONTROL_PLANE_RESTART'));
-        await this.store.transition(
-          run.faultRunId,
-          ['CREATING'],
-          'FAILED',
-          {
-            eventType: 'CREATE_RECOVERY_FAILED',
-            payload: { compensationError },
-            stopReason: 'CONTROL_PLANE_RESTART',
-            recoveryResult: { compensated: compensationError === null },
-            recoveryError: compensationError ?? 'CREATING run was interrupted by control-plane restart',
-          },
-        );
-      } else if (run.state === 'RECOVERING') await this.stop(run.faultRunId, 'EXPIRED');
-      else if (run.expiresAt <= new Date().toISOString()) await this.stop(run.faultRunId, 'EXPIRED');
-      else this.schedule(run);
-    }));
-  }
-
-  private async recover(run: FaultRunRecord, reason: 'MANUAL' | 'EXPIRED'): Promise<FaultRunRecord | null> {
-    this.clearTimer(run.faultRunId);
-    const recovering = run.state === 'RECOVERING'
-      ? run
-      : await this.store.transition(
-        run.faultRunId,
-        ['CREATING', 'ACTIVE'],
-        'RECOVERING',
-        { eventType: 'RECOVERY_STARTED', payload: { reason }, stopReason: reason },
-      );
-    if (!recovering || isTerminal(recovering.state)) return recovering;
-    const workerDrain = await this.drainRun(run.faultRunId);
-    try {
-      const result = await this.targetAdapter.stop(recovering);
-      return this.store.transition(
-        run.faultRunId,
-        ['RECOVERING'],
-        reason === 'MANUAL' ? 'STOPPED' : 'RECOVERED',
-        {
-          eventType: 'RECOVERY_COMPLETED',
-          payload: { ...(asRecord(result)), workerDrain },
-          recoveryResult: { ...(asRecord(result)), workerDrain, stopped: true },
-        },
-      );
-    } catch (error) {
-      return this.store.transition(
-        run.faultRunId,
-        ['RECOVERING'],
-        'FAILED',
-        {
-          eventType: 'RECOVERY_FAILED',
-          payload: { error: errorMessage(error), workerDrain },
-          recoveryResult: { stopped: false, workerDrain },
-          recoveryError: errorMessage(error),
-          stopReason: 'RECOVERY_FAILED',
-        },
-      );
-    }
-  }
-
-  private async compensateAfterCreateFailure(run: FaultRunRecord, originalError: unknown): Promise<string | null> {
-    await this.store.appendEvent(run.faultRunId, 'COMPENSATION_STARTED', { error: errorMessage(originalError) });
+  private async compensateAfterCreateFailure(run: FaultRunRecord): Promise<string | null> {
+    await this.store.appendEvent(run.faultRunId, 'COMPENSATION_STARTED');
     try {
       await this.targetAdapter.compensate(run);
       await this.store.appendEvent(run.faultRunId, 'COMPENSATION_COMPLETED');
       return null;
-    } catch (error) {
-      const message = errorMessage(error);
-      await this.store.appendEvent(run.faultRunId, 'COMPENSATION_FAILED', { error: message });
-      return message;
+    } catch {
+      await this.store.appendEvent(run.faultRunId, 'COMPENSATION_FAILED', {
+        errorCode: 'RECOVERY_COMPENSATION_FAILED',
+      });
+      return 'RECOVERY_COMPENSATION_FAILED';
     }
   }
 
-  private schedule(run: FaultRunRecord): void {
-    this.clearTimer(run.faultRunId);
-    if (isTerminal(run.state) || run.state === 'SERVICE_UNAVAILABLE') return;
-    const delay = Math.max(0, new Date(run.expiresAt).getTime() - Date.now());
-    this.timers.set(run.faultRunId, setTimeout(() => {
-      void this.stop(run.faultRunId, 'EXPIRED');
-    }, delay));
-  }
-
-  private clearTimer(faultRunId: string): void {
-    const timer = this.timers.get(faultRunId);
-    if (timer) clearTimeout(timer);
-    this.timers.delete(faultRunId);
-  }
-
-  private async drainRun(faultRunId: string): Promise<Record<string, unknown>> {
-    const drain = this.runDrains.get(faultRunId);
-    if (!drain) return { registered: false, drained: true };
-    try {
-      return { registered: true, drained: true, result: asRecord(await drain()) };
-    } catch (error) {
-      return { registered: true, drained: false, error: errorMessage(error) };
+  private async failCreatedRun(run: FaultRunRecord): Promise<never> {
+    const current = await this.store.load(run.faultRunId);
+    if (current?.state === 'RECOVERING') {
+      throw new Error('FAULT_RUN_TARGET_START_FAILED');
     }
+    if (this.safeRuntimeEnabled) {
+      await this.store.requestStop({
+        faultRunId: run.faultRunId,
+        reason: 'WORKER_FAILED',
+        drainTimeoutMs: this.drainTimeoutMs,
+        recoveryTimeoutMs: this.recoveryTimeoutMs,
+      });
+      throw new Error('FAULT_RUN_TARGET_START_FAILED');
+    }
+    const compensationError = await this.compensateAfterCreateFailure(run);
+    await this.store.transition(
+      run.faultRunId,
+      ['CREATING'],
+      'FAILED',
+      {
+        eventType: 'CREATE_FAILED',
+        payload: {
+          errorCode: compensationError ? 'RECOVERY_COMPENSATION_FAILED' : 'TARGET_EFFECT_REJECTED',
+          compensationError,
+        },
+        stopReason: 'TARGET_UNAVAILABLE',
+        recoveryResult: { compensated: compensationError === null },
+        recoveryError: compensationError ?? 'TARGET_EFFECT_REJECTED',
+      },
+    );
+    throw new Error('FAULT_RUN_TARGET_START_FAILED');
   }
+
 }
 
 function toGatewayPayload(run: FaultRunRecord): Record<string, unknown> {
@@ -316,18 +267,43 @@ function toGatewayPayload(run: FaultRunRecord): Record<string, unknown> {
   };
 }
 
-function isTerminal(state: FaultRunRecord['state']): boolean {
-  return state === 'RECOVERED' || state === 'STOPPED' || state === 'FAILED';
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function toGatewayCleanupPayload(run: FaultRunRecord): Record<string, unknown> {
+  return {
+    runId: run.faultRunId,
+    operation: run.targetOperation,
+    fencingToken: run.fencingToken,
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function sanitizeServiceUnavailableSummary(value: unknown): Record<string, string> {
+  const source = asRecord(value);
+  return typeof source.errorCode === 'string' && /^[A-Z0-9_]{3,96}$/.test(source.errorCode)
+    ? { errorCode: source.errorCode }
+    : {};
+}
+
+function sanitizeServiceRecoverySummary(value: unknown): {
+  serviceRestarted: boolean;
+  healthy: boolean;
+  restartMode?: 'compose' | 'kubernetes';
+} {
+  const source = asRecord(value);
+  const nestedResult = asRecord(source.result);
+  const result = Object.keys(nestedResult).length > 0 ? nestedResult : source;
+  const restartMode = result.mode === 'compose' || result.mode === 'kubernetes'
+    ? result.mode
+    : undefined;
+  return {
+    serviceRestarted: result.restarted === true,
+    healthy: result.healthy === true,
+    ...(restartMode === undefined ? {} : { restartMode }),
+  };
 }
 
 function sanitizeTargetSummary(run: FaultRunRecord, response: unknown): FaultRunTargetSummary | undefined {

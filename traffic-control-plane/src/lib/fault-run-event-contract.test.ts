@@ -216,6 +216,31 @@ test('requires an audit reference for operator commands and permits expiry witho
   );
 });
 
+test('derives service-unavailable recovery facts without retaining source details', () => {
+  const payload = normalizeFaultRunRecoveryEventPayload('STOP_REQUESTED', {
+    reason: 'SERVICE_UNAVAILABLE',
+    attempt: 1,
+    drainDeadlineAt: '2026-09-17T10:00:30.000Z',
+    recoveryDeadlineAt: '2026-09-17T10:01:00.000Z',
+    rawTargetPayload: 'must-not-persist',
+  });
+
+  assert.deepEqual(payload, {
+    schemaVersion: 1,
+    source: 'safe-runtime',
+    phase: 'command',
+    status: 'REQUESTED',
+    reason: 'SERVICE_UNAVAILABLE',
+    attempt: 1,
+    drainDeadlineAt: '2026-09-17T10:00:30.000Z',
+    recoveryDeadlineAt: '2026-09-17T10:01:00.000Z',
+    outcome: 'SERVICE_UNAVAILABLE',
+    residualKind: 'SERVICE_RECOVERY_REQUIRED',
+    responsibility: 'SERVICE_OWNER',
+    nextAction: 'WAIT_FOR_SERVICE_RECOVERY',
+  });
+});
+
 test('normalizes a manual cleanup command audit and omits arbitrary request data', () => {
   const payload = normalizeFaultRunRecoveryEventPayload('MANUAL_CLEANUP_REQUESTED', {
     attempt: 2,
@@ -236,4 +261,49 @@ test('normalizes a manual cleanup command audit and omits arbitrary request data
     auditAction: 'FAULT_RUN_CLEANUP',
     auditResult: 'SUCCESS',
   });
+});
+
+test('normalizes executor step events without target or request details', () => {
+  assert.deepEqual(
+    normalizeFaultRunRecoveryEventPayload('RELEASE_STARTED', {
+      attempt: 1,
+      operation: 'products-browse-report',
+      targetResponse: { secret: 'must-not-persist' },
+    }),
+    {
+      schemaVersion: 1,
+      source: 'safe-runtime',
+      phase: 'release',
+      status: 'STARTED',
+      attempt: 1,
+      operation: 'products-browse-report',
+    },
+  );
+  assert.deepEqual(
+    normalizeFaultRunRecoveryEventPayload('CLEANUP_SKIPPED', {
+      attempt: 1,
+      rawReason: 'must-not-persist',
+    }),
+    {
+      schemaVersion: 1,
+      source: 'safe-runtime',
+      phase: 'cleanup',
+      status: 'SKIPPED',
+      attempt: 1,
+    },
+  );
+  assert.deepEqual(
+    normalizeFaultRunRecoveryEventPayload('VERIFY_STARTED', {
+      attempt: 1,
+      request: { headers: { authorization: 'must-not-persist' } },
+    }),
+    {
+      schemaVersion: 1,
+      source: 'safe-runtime',
+      phase: 'verification',
+      status: 'STARTED',
+      attempt: 1,
+      checkId: 'UNKNOWN',
+    },
+  );
 });

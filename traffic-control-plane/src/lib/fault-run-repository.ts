@@ -383,6 +383,37 @@ export async function listRunnableFaultRuns(): Promise<FaultRunRecord[]> {
   return asRecords(rows).map(toFaultRun);
 }
 
+export async function listShutdownCandidateFaultRuns(): Promise<FaultRunRecord[]> {
+  await ensureFaultRunSchema();
+  const [rows] = await getPool().query(
+    `SELECT * FROM fault_runs
+     WHERE state IN ('CREATING', 'ACTIVE')
+     ORDER BY created_at, fault_run_id`,
+  );
+  return asRecords(rows).map(toFaultRun);
+}
+
+export async function listRecoveringFaultRuns(): Promise<FaultRunRecord[]> {
+  await ensureFaultRunSchema();
+  const [rows] = await getPool().query(
+    `SELECT * FROM fault_runs
+     WHERE state = 'RECOVERING'
+     ORDER BY updated_at, fault_run_id`,
+  );
+  return asRecords(rows).map(toFaultRun);
+}
+
+export async function listExpiredRunnableFaultRuns(now = new Date()): Promise<FaultRunRecord[]> {
+  await ensureFaultRunSchema();
+  const [rows] = await getPool().query(
+    `SELECT * FROM fault_runs
+     WHERE state = 'ACTIVE' AND expires_at <= ?
+     ORDER BY expires_at, created_at`,
+    [now],
+  );
+  return asRecords(rows).map(toFaultRun);
+}
+
 export function isRunnableFaultRun(run: Pick<FaultRunRecord, 'state'>): boolean {
   return run.state === 'ACTIVE';
 }
@@ -1293,13 +1324,16 @@ function isRecoveryEventForStage(
       return eventType === 'RELEASE_STARTED'
         || eventType === 'RELEASE_COMPLETED'
         || eventType === 'RELEASE_FAILED'
-        || eventType === 'RELEASE_SKIPPED';
+        || eventType === 'RELEASE_SKIPPED'
+        || eventType === 'NON_RELEASING_RECORDED';
     case 'CLEANUP':
       return eventType === 'MANUAL_CLEANUP_REQUIRED'
+        || eventType === 'CLEANUP_SKIPPED'
         || eventType === 'MANUAL_CLEANUP_COMPLETED'
         || eventType === 'MANUAL_CLEANUP_FAILED';
     case 'VERIFY':
-      return eventType === 'VERIFY_COMPLETED'
+      return eventType === 'VERIFY_STARTED'
+        || eventType === 'VERIFY_COMPLETED'
         || eventType === 'VERIFY_UNAVAILABLE'
         || eventType === 'VERIFY_FAILED';
   }

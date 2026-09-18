@@ -27,19 +27,18 @@ export type FaultRun = {
   targetOperation: string;
   state: string;
   parameters?: Record<string, number | string>;
-  fencingToken?: number;
   startedAt?: string | null;
   expiresAt: string;
   stoppedAt?: string | null;
   stopReason?: string | null;
-  recoveryResult?: unknown;
-  recoveryError?: string | null;
+  recovery: FaultRunRecoveryView;
+  manualCleanup: 'UNAVAILABLE' | 'SAFE_COMMAND' | 'LEGACY_TERMINAL';
   createdAt: string;
   updatedAt?: string;
   operatorAuditId?: number | null;
 };
 
-export type Event = { id: number; eventType: string; payload?: unknown; createdAt: string };
+export type Event = { id: number; eventType: string; payload: Record<string, unknown>; createdAt: string };
 export type ConsoleData = { scenarios: Scenario[]; runs: FaultRun[] };
 
 export type FaultRunTargetSummary = {
@@ -88,9 +87,7 @@ export type FaultRunAudit = {
   operatorId: number | null;
   action: string;
   target: string | null;
-  parameterHash: string | null;
   result: 'SUCCESS' | 'FAILURE';
-  correlationId: string | null;
   createdAt: string;
 };
 
@@ -98,4 +95,6 @@ export type FaultRunDetails = {
   run: FaultRun;
   events: Event[];
   audit?: FaultRunAudit | null;
+  audits: FaultRunAudit[];
 };
+import type { FaultRunRecoveryView } from '@/lib/fault-run-operator-view';

@@ -64,6 +64,14 @@ function dependencies(
   };
 }
 
+async function waitFor(assertion: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (assertion()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail('Timed out waiting for replenishment request');
+}
+
 const TEST_WINDOW_ID = `UTC-6H-${Math.floor(
   new Date('2026-08-25T01:00:00.000Z').getTime() / 1000 / (6 * 60 * 60),
 )}`;
@@ -92,6 +100,68 @@ test('scheduler executes the current window before the lifecycle starts', async 
   assert.equal(status.lastCompletedAt, '2026-08-25T01:00:00.000Z');
   assert.match(status.lastWindowId ?? '', /^UTC-6H-/);
   assert.ok(status.nextExecutionAt);
+});
+
+test('scheduler stop waits for an in-flight replenishment window to release its lock', async () => {
+  const redis = new FakeRedis();
+  let requests = 0;
+  let completeRequest!: () => void;
+  const request = new Promise<void>((resolve) => {
+    completeRequest = resolve;
+  });
+  const scheduler = new CouponReplenishmentScheduler(dependencies(
+    gatewayThat(async () => {
+      requests++;
+      await request;
+      return { code: 200, data: { addedCount: 1, skippedCount: 0, failedCount: 0 } };
+    }),
+    redis,
+  ));
+
+  const execution = scheduler.executeManual();
+  await waitFor(() => requests === 1);
+  let stopped = false;
+  const stopping = scheduler.stop().then(() => {
+    stopped = true;
+  });
+  await Promise.resolve();
+  assert.equal(stopped, false);
+
+  completeRequest();
+  await Promise.all([execution, stopping]);
+  assert.equal(stopped, true);
+});
+
+test('stopped scheduler startup cannot dispatch its initial replenishment window', async () => {
+  const redis = new FakeRedis();
+  let requests = 0;
+  let statusCalls = 0;
+  let allowInitialStatus!: () => void;
+  const initialStatus = new Promise<void>((resolve) => {
+    allowInitialStatus = resolve;
+  });
+  const scheduler = new CouponReplenishmentScheduler({
+    ...dependencies(
+      gatewayThat(async () => {
+        requests++;
+        return { code: 200, data: { addedCount: 1, skippedCount: 0, failedCount: 0 } };
+      }),
+      redis,
+    ),
+    statusPublisher: async () => {
+      statusCalls++;
+      if (statusCalls === 1) await initialStatus;
+    },
+  });
+
+  const starting = scheduler.start();
+  await waitFor(() => statusCalls === 1);
+  const stopping = scheduler.stop();
+  allowInitialStatus();
+  await Promise.all([starting, stopping]);
+
+  assert.equal(requests, 0);
+  assert.equal(scheduler.getStatus().running, false);
 });
 
 test('lock contention skips a window without marking it completed', async () => {

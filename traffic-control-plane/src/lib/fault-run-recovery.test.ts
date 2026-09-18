@@ -92,6 +92,24 @@ test('allows expiry stops without a manual idempotency-key hash', () => {
   assert.equal(parseFaultRunRecoveryProjection(projection).kind, 'SAFE_RUNTIME_V1');
 });
 
+test('records service unavailability as a non-terminal recovery fact', () => {
+  const projection = createInitialFaultRunRecoveryProjection({
+    reason: 'SERVICE_UNAVAILABLE',
+    requestedAt,
+    drainDeadlineAt: drainAt,
+    recoveryDeadlineAt: recoveryAt,
+  });
+
+  assert.equal(projection.phase, 'PARTIAL_RECOVERY');
+  assert.equal(projection.outcome, 'SERVICE_UNAVAILABLE');
+  assert.deepEqual(projection.residuals, [{
+    kind: 'SERVICE_RECOVERY_REQUIRED',
+    responsibility: 'SERVICE_OWNER',
+    nextAction: 'WAIT_FOR_SERVICE_RECOVERY',
+  }]);
+  assert.equal(parseFaultRunRecoveryProjection(projection).kind, 'SAFE_RUNTIME_V1');
+});
+
 test('classifies historical recovery results without inferring success', () => {
   assert.deepEqual(parseFaultRunRecoveryProjection(null), { kind: 'ABSENT', projection: null });
   assert.deepEqual(parseFaultRunRecoveryProjection(undefined), { kind: 'ABSENT', projection: null });

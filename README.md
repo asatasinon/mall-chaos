@@ -119,6 +119,9 @@ Compose 和 Kubernetes 都将控制面拆成 `traffic-control-plane` 与 `traffi
 | `BASELINE_CAPTURE_ENABLED` | 可选 | 默认 `false`；开启 Operator baseline API 和旁路采集，不能在完成迁移、验证和回退前于共享环境启用。 |
 | `CASTREL_RELEASE_REVISION` / `CASTREL_DEPLOYMENT_MODE` | 可选 | 为 baseline 注入发布 revision 和显式部署模式；缺失 revision 记录为 `UNKNOWN`，不通过运行时特征猜测。 |
 | `BASELINE_OBSERVATION_CHECK_TIMEOUT_MS` / `BASELINE_OBSERVATION_WINDOW_SEC` | 可选 | 只读观测核验的单项超时和默认查询窗口，默认 `5000` / `900`，受边界校验且不包含任何凭据。 |
+| `FAULT_RUN_SAFE_RUNTIME_ENABLED` | 可选 | 默认 `false`。只可由同一 Compose 配置同时注入 Web/API 和 worker；在单 Worker Docker canary、回退和阶段退出完成前不得设为 `true`。 |
+| `FAULT_RUN_STOP_SCAN_INTERVAL_MS` / `FAULT_RUN_DRAIN_TIMEOUT_MS` / `FAULT_RUN_RECOVERY_TIMEOUT_MS` / `FAULT_RUN_SHUTDOWN_TIMEOUT_MS` | 可选 | 默认 `1000` / `30000` / `60000` / `90000` 毫秒。值必须是严格整数；recovery 不得小于 drain，shutdown 不得小于 recovery。 |
+| `FAULT_RUN_WORKER_STOP_GRACE_PERIOD` | 可选 | Docker Compose 默认 `105s`。只允许正整数加 `ms`、`s` 或 `m`；必须大于 shutdown budget，worker 会拒绝无法由 Docker 优雅关闭期限覆盖的配置。 |
 
 下面的值只用于本地示例，真实密码和随机密钥应经环境管理或 Secret 注入：
 
@@ -153,6 +156,14 @@ docker compose down
 ```
 
 Compose 的运营登录默认值是 `castrel` / `C@stre1_best_ai`，仅适合本地开发。共享部署必须覆盖 `CONTROL_PLANE_USERNAME`、`CONTROL_PLANE_PASSWORD` 和独立的 `CONTROL_PLANE_SESSION_SECRET`。正常启动会同时创建 Web/API 容器和 `traffic-control-plane-worker`；后者负责 Runner、报表/流量场景执行、资源补给、到期恢复、留存清理和可选数据预热。停止源码 worker 时请发送 `SIGINT` 或 `SIGTERM`，让它按顺序释放租约和受控资源。
+
+### Fault Run safe-runtime Docker 发布与回退
+
+Compose 通过同一个环境锚点向 Web/API 与唯一 worker 注入 safe-runtime flag 和四个超时值；worker 的 `stop_grace_period` 使用同一个 `FAULT_RUN_WORKER_STOP_GRACE_PERIOD` 值。默认 `105s` 比默认 `90000` 毫秒 shutdown budget 多出关闭缓冲。不要只覆盖其中一个容器或只覆盖 grace period；worker 启动时会拒绝 grace period 不大于 shutdown budget 的组合。部署前在已配置所需 Secret 的环境中运行 `./scripts/check-safe-runtime-compose.sh`，确认 Web/Worker 配对、单一 worker service 和 shutdown grace budget。
+
+启用前必须确认两种容器镜像包含同一 `safe-runtime.v1` parser、Compose 只声明一个 worker、Web/API 与 worker 得到相同 flag/超时值，并且 worker 可访问 MySQL、Gateway、生命周期账号和内部服务密钥。还必须在获批的非生产 Docker Compose 环境完成单 Worker canary；当前默认值保持 `false`，不能以容器健康或静态 Compose 输出替代真实 stop/drain/cleanup 证据。
+
+回退时先暂停 Operator 发起新的 Fault Run，并处理或保留全部 `safe-runtime.v1` `RECOVERING` Run 的真实 drain、release、manual cleanup 或 non-releasing residual。当前没有独立的跨进程创建总闸门，因此这是一项受控操作边界，而不是可由单个 flag 自动强制的承诺。只有不存在未完成的新协议 Run 时，才将 Web/API 与 worker 的 flag 一起关闭并回退镜像。保留 `recovery_result`、事件、审计和 target 资源；不要通过删除 Fault Run、重置 MySQL volume、删除 target 文件或强制终态来完成回退。
 
 ### 2. 构建本地镜像
 

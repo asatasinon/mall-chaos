@@ -13,6 +13,7 @@ import {
   ScenarioWorkspace,
 } from '@/components/LocalizedScenarioControlSections';
 import { ACTIVE_STATES, getScenarioLabel, getScenarioStateLabel } from '@/components/scenarios/meta';
+import { requiresNotificationServiceRecovery } from '@/components/scenarios/fault-run-view';
 import type { ConsoleData, FaultRun, FaultRunDetails, Scenario } from '@/components/scenarios/types';
 import { fetchWithAuth } from '@/lib/auth-fetch';
 import { isClientNetworkError } from '@/lib/client-error';
@@ -77,7 +78,7 @@ export default function ScenarioControlPage() {
   }, [load]);
 
   const activeRun = data?.runs.find((run) => ACTIVE_STATES.includes(run.state));
-  const unavailableHeapRun = data?.runs.find((run) => run.scenario === 'NOTIFICATION_HEAP_PRESSURE' && run.state === 'SERVICE_UNAVAILABLE');
+  const unavailableHeapRun = data?.runs.find(requiresNotificationServiceRecovery);
   const visibleRuns = data?.runs.filter((run) => (filterState === 'ALL' || run.state === filterState) && (filterScenario === 'ALL' || run.scenario === filterScenario)) || [];
 
   const openDetails = async (run: FaultRun) => {
@@ -220,7 +221,7 @@ export default function ScenarioControlPage() {
     {unavailableHeapRun && <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3"><div><p className="text-sm font-medium">{t('notificationUnavailable')}</p><p className="mt-1 text-xs text-muted-foreground">{t('notificationUnavailableHelp')}</p></div><Button size="sm" onClick={() => void restartNotification(unavailableHeapRun)} disabled={busy === unavailableHeapRun.faultRunId}><ServerCog className="size-3.5" />{busy === unavailableHeapRun.faultRunId ? t('restarting') : t('restartNotificationButton')}</Button></div>}
     <ScenarioWorkspace key={selectedScenario || 'scenario-workspace'} scenarios={data.scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} activeRun={activeRun} unavailableRun={unavailableHeapRun} busy={busy} onCreate={createRun} onDetails={openDetails} onStop={stopRun} onRestart={restartNotification} />
     <RunHistory runs={visibleRuns} scenarios={data.scenarios} filterState={filterState} filterScenario={filterScenario} setFilterState={setFilterState} setFilterScenario={setFilterScenario} onDetails={openDetails} onCleanup={cleanupRun} />
-    {selectedRun && <RunDetails details={selectedRun} onClose={() => setSelectedRun(null)} onCleanup={cleanupRun} allowManualCleanup={Boolean(data.scenarios.find((scenario) => scenario.scenario === selectedRun.run.scenario)?.allowManualCleanup)} />}
+    {selectedRun && <RunDetails details={selectedRun} onClose={() => setSelectedRun(null)} onCleanup={cleanupRun} />}
     {confirmation && <ConfirmDialog title={confirmation.title} description={confirmation.description} confirmVariant={confirmation.confirmVariant} destructive={confirmation.destructive} onCancel={() => setConfirmation(null)} onConfirm={async () => { await confirmation.action(); setConfirmation(null); }} />}
   </div>;
 }

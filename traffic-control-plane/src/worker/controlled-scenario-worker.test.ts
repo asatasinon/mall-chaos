@@ -57,6 +57,29 @@ test('controlled worker respects concurrency and drains aborted requests', async
   assert.equal(stats.p50LatencyMs > 0, true);
 });
 
+test('controlled worker propagates a parent Run signal without emitting a new start after pre-abort', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const events: string[] = [];
+  let requests = 0;
+  const worker = new ControlledScenarioWorker(run, {
+    concurrency: 1,
+    requestIntervalMs: 0,
+    signal: controller.signal,
+    request: async () => {
+      requests++;
+    },
+  }, async (_runId, eventType) => {
+    events.push(eventType);
+  });
+
+  const stats = await worker.start().then(() => worker.snapshot());
+
+  assert.equal(requests, 0);
+  assert.equal(events.includes('SCENARIO_WORKER_STARTED'), false);
+  assert.equal(stats.stopReason, 'STOP_REQUESTED');
+});
+
 test('controlled worker waits for the configured interval between batches', async () => {
   const requestStartedAt: number[] = [];
   let resolveSecondRequest!: () => void;

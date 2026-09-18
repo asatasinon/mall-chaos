@@ -138,6 +138,32 @@ export interface ManualWarmupJob {
   completedAt: string | null;
 }
 
+export interface DataWarmupServiceDependencies {
+  loadConfig: () => Promise<DataWarmupConfig>;
+  validateConfig: (config: DataWarmupConfig) => void;
+  ensureProgress: (config: DataWarmupConfig) => Promise<void>;
+  updateStatuses: (status: WarmupStatus, reason: string, owner?: string | null) => Promise<void>;
+  acquireLease: (owner: string) => Promise<boolean>;
+  renewLease: (owner: string) => Promise<boolean>;
+  markLeaseOwner: (owner: string) => Promise<void>;
+  syncProgressConfiguration: (config: DataWarmupConfig) => Promise<void>;
+  reclaimStaleManualJobs: () => Promise<void>;
+  releaseLease: (owner: string) => Promise<void>;
+}
+
+const defaultDataWarmupServiceDependencies: DataWarmupServiceDependencies = {
+  loadConfig: loadDataWarmupConfig,
+  validateConfig: validateDataWarmupConfig,
+  ensureProgress: ensureProgressTable,
+  updateStatuses: updateWarmupStatuses,
+  acquireLease,
+  renewLease,
+  markLeaseOwner: markWarmupLeaseOwner,
+  syncProgressConfiguration: syncWarmupProgressConfiguration,
+  reclaimStaleManualJobs: reclaimStaleManualWarmupJobs,
+  releaseLease: releaseWarmupLease,
+};
+
 export class DataWarmupService {
   private readonly owner = randomUUID();
   private started = false;
@@ -151,6 +177,13 @@ export class DataWarmupService {
   private leaseRenewalInFlight = false;
   private leaseHeld = false;
   private activeConfig: DataWarmupConfig | null = null;
+  private readonly dependencies: DataWarmupServiceDependencies;
+
+  constructor(
+    dependencies: Partial<DataWarmupServiceDependencies> = {},
+  ) {
+    this.dependencies = { ...defaultDataWarmupServiceDependencies, ...dependencies };
+  }
 
   start(): void {
     if (this.started) return;
@@ -158,7 +191,9 @@ export class DataWarmupService {
     this.stopped = false;
     this.stopPromise = new Promise<void>((resolve) => { this.resolveStop = resolve; });
     this.runPromise = this.runLoop();
-    void this.runPromise;
+    void this.runPromise.catch((error) => {
+      log.error({ error }, 'Data warmup run loop stopped unexpectedly');
+    });
   }
 
   async stop(): Promise<void> {
@@ -166,44 +201,70 @@ export class DataWarmupService {
     this.leaseSessionActive = false;
     this.resolveStop?.();
     this.resolveStop = null;
-    await this.runPromise?.catch(() => undefined);
+    await this.runPromise?.catch((error) => {
+      log.error({ error }, 'Data warmup run loop stopped before shutdown completed');
+    });
     await this.releaseLease();
   }
 
   private async runLoop(): Promise<void> {
     while (!this.stopped) {
       try {
-        const config = await loadDataWarmupConfig();
+        const config = await this.dependencies.loadConfig();
+        if (this.stopped) return;
         this.activeConfig = config;
         configureWarmupLimiters(config);
-        validateDataWarmupConfig(config);
-        await ensureProgressTable(config);
+        this.dependencies.validateConfig(config);
+        if (this.stopped) return;
+        await this.dependencies.ensureProgress(config);
+        if (this.stopped) return;
         if (!config.enabled) {
-          await updateWarmupStatuses('DISABLED', 'DATA_WARMUP_ENABLED=false');
+          await this.dependencies.updateStatuses('DISABLED', 'DATA_WARMUP_ENABLED=false');
           await this.sleepOrStop(Math.min(Math.max(config.batchIntervalMs, 1000), 5000));
           continue;
         }
-        if (!(await acquireLease(this.owner))) {
+        const leaseAcquired = await this.dependencies.acquireLease(this.owner);
+        if (!leaseAcquired) {
           await this.sleepOrStop(Math.max(config.batchIntervalMs, 1000));
           continue;
         }
         this.leaseHeld = true;
+        if (this.stopped) return;
         this.startLeaseHeartbeat();
-        if (!(await renewLease(this.owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
-        await markWarmupLeaseOwner(this.owner);
-        await syncWarmupProgressConfiguration(config);
-        await reclaimStaleManualWarmupJobs();
+        if (!(await this.dependencies.renewLease(this.owner))) throw new Error('DATA_WARMUP_LEASE_LOST');
+        if (this.stopped) return;
+        await this.dependencies.markLeaseOwner(this.owner);
+        if (this.stopped) return;
+        await this.dependencies.syncProgressConfiguration(config);
+        if (this.stopped) return;
+        await this.dependencies.reclaimStaleManualJobs();
+        if (this.stopped) return;
         await this.runLeaseSession(config);
       } catch (error) {
         const errorOwner = this.leaseHeld ? this.owner : null;
         this.stopLeaseHeartbeat();
-        this.leaseHeld = false;
         log.error({ error }, 'Data warmup iteration failed');
-        await updateWarmupStatuses('ERROR', error instanceof Error ? error.message : String(error), errorOwner);
+        if (this.leaseHeld) {
+          try {
+            await this.releaseLease();
+          } catch (releaseError) {
+            log.error({ error: releaseError }, 'Data warmup lease release failed after an iteration error');
+          }
+        }
+        await this.dependencies.updateStatuses(
+          'ERROR',
+          error instanceof Error ? error.message : String(error),
+          errorOwner,
+        );
         await this.sleepOrStop(5_000);
       }
     }
-    await this.releaseLease();
+    try {
+      await this.releaseLease();
+    } catch (error) {
+      log.error({ error }, 'Data warmup lease release failed after the run loop stopped');
+      throw error;
+    }
   }
 
   private async runLeaseSession(initialConfig: DataWarmupConfig): Promise<void> {
@@ -254,7 +315,7 @@ export class DataWarmupService {
   }
 
   private async refreshActiveConfig(): Promise<DataWarmupConfig | null> {
-    const config = await loadDataWarmupConfig();
+    const config = await this.dependencies.loadConfig();
     this.activeConfig = config;
     configureWarmupLimiters(config);
     if (!config.enabled) this.leaseSessionActive = false;
@@ -300,7 +361,7 @@ export class DataWarmupService {
     this.leaseHeartbeat = setInterval(() => {
       if (!this.leaseHeld || this.leaseRenewalInFlight) return;
       this.leaseRenewalInFlight = true;
-      void renewLease(this.owner).then((renewed) => {
+      void this.dependencies.renewLease(this.owner).then((renewed) => {
         if (renewed) return;
         this.stopLeaseHeartbeat();
         this.leaseHeld = false;
@@ -321,21 +382,30 @@ export class DataWarmupService {
   private async releaseLease(): Promise<void> {
     this.stopLeaseHeartbeat();
     if (!this.leaseHeld) return;
-    const redis = getRedis();
-    await redis.connect().catch(() => undefined);
-    await redis.eval(
-      "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
-      1,
-      LEASE_KEY,
-      this.owner,
-    ).catch(() => undefined);
-    await getPool().query(
-      `UPDATE data_warmup_progress SET lease_owner = NULL
-         WHERE lease_owner = ? AND table_name IN (?, ?)`,
-      [this.owner, TABLES[0].name, TABLES[1].name],
-    ).catch(() => undefined);
-    this.leaseHeld = false;
+    try {
+      await this.dependencies.releaseLease(this.owner);
+      this.leaseHeld = false;
+    } catch (error) {
+      log.error({ error }, 'Failed to release data warmup lease');
+      throw new Error('DATA_WARMUP_LEASE_RELEASE_FAILED');
+    }
   }
+}
+
+async function releaseWarmupLease(owner: string): Promise<void> {
+  const redis = getRedis();
+  if (redis.status === 'wait') await redis.connect();
+  await redis.eval(
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+    1,
+    LEASE_KEY,
+    owner,
+  );
+  await getPool().query(
+    `UPDATE data_warmup_progress SET lease_owner = NULL
+       WHERE lease_owner = ? AND table_name IN (?, ?)`,
+    [owner, TABLES[0].name, TABLES[1].name],
+  );
 }
 
 export async function loadWarmupProgress(): Promise<WarmupProgress[]> {
@@ -990,7 +1060,8 @@ async function updateWarmupStatuses(status: WarmupStatus, reason: string, owner:
     return;
   }
   await getPool().query(
-    `UPDATE data_warmup_progress SET status = ?, guard_reason = ?, lease_owner = NULL WHERE table_name IN (?, ?)`,
+    `UPDATE data_warmup_progress SET status = ?, guard_reason = ?
+       WHERE lease_owner IS NULL AND table_name IN (?, ?)`,
     [status, reason, TABLES[0].name, TABLES[1].name],
   ).catch(() => undefined);
 }

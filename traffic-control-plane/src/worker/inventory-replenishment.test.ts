@@ -63,6 +63,14 @@ function dependencies(gateway: GatewayClient, redis: FakeRedis) {
   };
 }
 
+async function waitFor(assertion: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (assertion()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail('Timed out waiting for replenishment request');
+}
+
 test('inventory scheduler executes immediately and reports replenishment counts', async () => {
   const redis = new FakeRedis();
   let calls = 0;
@@ -89,6 +97,68 @@ test('inventory scheduler executes immediately and reports replenishment counts'
   assert.equal(status.lastSkippedCount, 1);
   assert.equal(status.lastFailedCount, 0);
   assert.ok(status.nextExecutionAt);
+});
+
+test('inventory scheduler stop waits for an in-flight replenishment window to release its lock', async () => {
+  const redis = new FakeRedis();
+  let requests = 0;
+  let completeRequest!: () => void;
+  const request = new Promise<void>((resolve) => {
+    completeRequest = resolve;
+  });
+  const scheduler = new InventoryReplenishmentScheduler(dependencies(
+    gatewayThat(async () => {
+      requests++;
+      await request;
+      return { code: 200, data: { addedQuantity: 1, skippedCount: 0, failedCount: 0 } };
+    }),
+    redis,
+  ));
+
+  const execution = scheduler.executeManual();
+  await waitFor(() => requests === 1);
+  let stopped = false;
+  const stopping = scheduler.stop().then(() => {
+    stopped = true;
+  });
+  await Promise.resolve();
+  assert.equal(stopped, false);
+
+  completeRequest();
+  await Promise.all([execution, stopping]);
+  assert.equal(stopped, true);
+});
+
+test('stopped inventory scheduler startup cannot dispatch its initial replenishment window', async () => {
+  const redis = new FakeRedis();
+  let requests = 0;
+  let statusCalls = 0;
+  let allowInitialStatus!: () => void;
+  const initialStatus = new Promise<void>((resolve) => {
+    allowInitialStatus = resolve;
+  });
+  const scheduler = new InventoryReplenishmentScheduler({
+    ...dependencies(
+      gatewayThat(async () => {
+        requests++;
+        return { code: 200, data: { addedQuantity: 1, skippedCount: 0, failedCount: 0 } };
+      }),
+      redis,
+    ),
+    statusPublisher: async () => {
+      statusCalls++;
+      if (statusCalls === 1) await initialStatus;
+    },
+  });
+
+  const starting = scheduler.start();
+  await waitFor(() => statusCalls === 1);
+  const stopping = scheduler.stop();
+  allowInitialStatus();
+  await Promise.all([starting, stopping]);
+
+  assert.equal(requests, 0);
+  assert.equal(scheduler.getStatus().running, false);
 });
 
 test('inventory lock contention skips without completing the window', async () => {

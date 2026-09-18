@@ -64,7 +64,9 @@ export class InventoryReplenishmentScheduler {
   private readonly persistenceWriter: (record: ReplenishmentRunRecord) => Promise<void>;
   private readonly instanceId = randomUUID();
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly executions = new Set<Promise<unknown>>();
   private running = false;
+  private generation = 0;
   private status: InventoryReplenishmentStatus = {
     running: false,
     isExecuting: false,
@@ -93,22 +95,27 @@ export class InventoryReplenishmentScheduler {
 
   async start(): Promise<void> {
     if (this.running) return;
+    const generation = ++this.generation;
     this.running = true;
     this.status = { ...this.status, running: true };
     await this.publishStatus();
+    if (!this.isCurrentGeneration(generation)) return;
     await this.executeScheduledWindow();
-    this.scheduleNext();
+    if (!this.isCurrentGeneration(generation)) return;
+    this.scheduleNext(generation);
     log.info({ status: this.status }, 'Inventory replenishment scheduler started');
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.running = false;
+    this.generation++;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
     this.status = { ...this.status, running: false, nextExecutionAt: null };
-    void this.publishStatus();
+    await Promise.allSettled([...this.executions]);
+    await this.publishStatus();
     log.info({ status: this.status }, 'Inventory replenishment scheduler stopped');
   }
 
@@ -117,11 +124,11 @@ export class InventoryReplenishmentScheduler {
   }
 
   async executeScheduledWindow(): Promise<InventoryReplenishmentStatus> {
-    return this.execute(this.windowId(this.now()), true, randomUUID());
+    return this.track(this.execute(this.windowId(this.now()), true, randomUUID()));
   }
 
   async executeManual(correlationId: string = randomUUID()): Promise<InventoryReplenishmentStatus> {
-    return this.execute(`manual:${randomUUID()}`, false, correlationId);
+    return this.track(this.execute(`manual:${randomUUID()}`, false, correlationId));
   }
 
   private async execute(
@@ -213,8 +220,8 @@ export class InventoryReplenishmentScheduler {
     }
   }
 
-  private scheduleNext(): void {
-    if (!this.running) return;
+  private scheduleNext(generation: number): void {
+    if (!this.isCurrentGeneration(generation)) return;
     try {
       const interval = CronExpressionParser.parse(CRON_EXPRESSION, {
         currentDate: this.now(),
@@ -223,14 +230,27 @@ export class InventoryReplenishmentScheduler {
       const next = interval.next().toDate();
       this.status = { ...this.status, nextExecutionAt: next.toISOString() };
       this.timer = setTimeout(async () => {
-        if (!this.running) return;
+        if (!this.isCurrentGeneration(generation)) return;
         await this.executeScheduledWindow();
-        this.scheduleNext();
+        this.scheduleNext(generation);
       }, Math.max(next.getTime() - this.now().getTime(), 1000));
       void this.publishStatus();
     } catch (error) {
       log.error({ error: safeErrorMessage(error) }, 'Failed to schedule inventory replenishment');
     }
+  }
+
+  private track<T>(execution: Promise<T>): Promise<T> {
+    this.executions.add(execution);
+    void execution.then(
+      () => this.executions.delete(execution),
+      () => this.executions.delete(execution),
+    );
+    return execution;
+  }
+
+  private isCurrentGeneration(generation: number): boolean {
+    return this.running && this.generation === generation;
   }
 
   private inCurrentWindow(windowId: string): boolean {

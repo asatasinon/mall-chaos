@@ -1,6 +1,7 @@
 import { env } from './env';
 import { withTrace } from './trace';
 import type { FaultRunContext } from './fault-run-context';
+import { isAbortError, throwIfAborted } from './abort-signal';
 
 /**
  * Gateway client — all outbound HTTP from traffic-control-plane goes through gateway.
@@ -67,18 +68,27 @@ export class GatewayClient {
     return res.json();
   }
 
-  async login(email: string, password: string, traceId?: string): Promise<CustomerAuthResponse> {
-    return this.authRequest('/api/auth/login', { email, password }, undefined, traceId);
+  async login(
+    email: string,
+    password: string,
+    traceId?: string,
+    signal?: AbortSignal,
+  ): Promise<CustomerAuthResponse> {
+    return this.authRequest('/api/auth/login', { email, password }, undefined, traceId, signal);
   }
 
-  async refresh(sessionToken: string, traceId?: string): Promise<CustomerAuthResponse> {
-    return this.authRequest('/api/auth/refresh', undefined, sessionToken, traceId);
+  async refresh(
+    sessionToken: string,
+    traceId?: string,
+    signal?: AbortSignal,
+  ): Promise<CustomerAuthResponse> {
+    return this.authRequest('/api/auth/refresh', undefined, sessionToken, traceId, signal);
   }
 
-  async logout(sessionToken: string, traceId?: string): Promise<void> {
+  async logout(sessionToken: string, traceId?: string, signal?: AbortSignal): Promise<void> {
     await this.request('/api/auth/logout', 'POST', undefined, {
       'X-Session-Token': sessionToken,
-    }, traceId);
+    }, traceId, signal);
   }
 
   async customerGet<T = unknown>(
@@ -185,6 +195,7 @@ export class GatewayClient {
     body: unknown,
     sessionToken: string | undefined,
     traceId?: string,
+    signal?: AbortSignal,
   ): Promise<CustomerAuthResponse> {
     const response = await this.request<ApiEnvelope<CustomerAuthResponse>>(
       path,
@@ -192,7 +203,9 @@ export class GatewayClient {
       body,
       sessionToken ? { 'X-Session-Token': sessionToken } : undefined,
       traceId,
+      signal,
     );
+    throwIfAborted(signal);
     if (!response?.data || !Number.isInteger(response.data.userId)
         || typeof response.data.accessToken !== 'string'
         || typeof response.data.sessionToken !== 'string') {
@@ -208,16 +221,19 @@ export class GatewayClient {
     context: CustomerRequestContext,
     signal?: AbortSignal,
   ): Promise<T> {
+    const effectiveSignal = signal ?? context.signal;
+    throwIfAborted(effectiveSignal);
     let refreshed = false;
     if (shouldRefresh(context.session.expiresAt, Date.now())) {
-      await this.refreshCustomerSession(context);
+      await this.refreshCustomerSession(context, effectiveSignal);
       refreshed = true;
     }
 
-    let response = await this.rawCustomerRequest<T>(method, path, payload, context, signal);
+    let response = await this.rawCustomerRequest<T>(method, path, payload, context, effectiveSignal);
     if (response.response.status === 401 && !refreshed) {
-      await this.refreshCustomerSession(context);
-      response = await this.rawCustomerRequest<T>(method, path, payload, context, signal);
+      throwIfAborted(effectiveSignal);
+      await this.refreshCustomerSession(context, effectiveSignal);
+      response = await this.rawCustomerRequest<T>(method, path, payload, context, effectiveSignal);
     }
     if (!response.response.ok) {
       throw new Error(`Gateway customer ${method} ${path} failed (${response.response.status})`);
@@ -232,6 +248,8 @@ export class GatewayClient {
     context: CustomerRequestContext,
     signal?: AbortSignal,
   ): Promise<{ response: Response; body?: T }> {
+    const effectiveSignal = signal ?? context.signal;
+    throwIfAborted(effectiveSignal);
     const isGet = method === 'GET';
     const qs = isGet && payload ? '?' + new URLSearchParams(payload as Record<string, string>).toString() : '';
     const response = await fetch(`${this.baseUrl}${path}${qs}`, withTrace({
@@ -246,17 +264,26 @@ export class GatewayClient {
           'X-Operation-Run-Idempotency-Key': context.faultRunContext.idempotencyKey,
         } : {}),
       },
-      signal: signal ?? context.signal,
+      signal: effectiveSignal,
       ...(!isGet && payload !== undefined ? { body: JSON.stringify(payload) } : {}),
     }, context.traceId));
+    throwIfAborted(effectiveSignal);
     if (!response.ok) return { response };
-    return { response, body: await response.json() as T };
+    const body = await response.json() as T;
+    throwIfAborted(effectiveSignal);
+    return { response, body };
   }
 
-  private async refreshCustomerSession(context: CustomerRequestContext): Promise<void> {
+  private async refreshCustomerSession(
+    context: CustomerRequestContext,
+    signal?: AbortSignal,
+  ): Promise<void> {
     try {
-      await context.refresh();
-    } catch {
+      throwIfAborted(signal);
+      await context.refresh(signal);
+      throwIfAborted(signal);
+    } catch (error) {
+      if (signal?.aborted || isAbortError(error)) throw error;
       throw new Error('CUSTOMER_SESSION_REFRESH_FAILED');
     }
   }
@@ -267,7 +294,9 @@ export class GatewayClient {
     body?: unknown,
     extraHeaders?: Record<string, string>,
     traceId?: string,
+    signal?: AbortSignal,
   ): Promise<T> {
+    throwIfAborted(signal);
     const response = await fetch(`${this.baseUrl}${path}`, withTrace({
       method,
       headers: {
@@ -275,11 +304,15 @@ export class GatewayClient {
         ...(extraHeaders ?? {}),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal,
     }, traceId));
+    throwIfAborted(signal);
     if (!response.ok) {
       throw new GatewayRequestError(method, path, response.status);
     }
-    return response.json();
+    const parsed = await response.json() as T;
+    throwIfAborted(signal);
+    return parsed;
   }
 }
 
@@ -306,7 +339,7 @@ export interface CustomerRequestContext {
   lifecycleId: string;
   traceId: string;
   session: CustomerSession;
-  refresh: () => Promise<void>;
+  refresh: (signal?: AbortSignal) => Promise<void>;
   signal?: AbortSignal;
   faultRunContext?: FaultRunContext;
 }

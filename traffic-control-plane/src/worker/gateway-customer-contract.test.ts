@@ -72,6 +72,45 @@ test('customer login, refresh, and logout use trace without runner headers', { c
   }
 });
 
+test('authentication requests forward their cancellation signal and reject before a pre-aborted fetch', { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  const signals: Array<AbortSignal | null | undefined> = [];
+  let requests = 0;
+  globalThis.fetch = async (input, init) => {
+    requests++;
+    signals.push(init?.signal);
+    const url = String(input);
+    if (url.endsWith('/api/auth/login') || url.endsWith('/api/auth/refresh')) {
+      return new Response(JSON.stringify({ data: {
+        userId: 1,
+        accessToken: 'access-token',
+        sessionToken: 'session-token',
+        expiresAt: '2026-08-25T01:15:00',
+        roles: ['CUSTOMER'],
+      } }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ data: null }), { status: 200 });
+  };
+
+  try {
+    const gateway = new GatewayClient('http://gateway.test');
+    const controller = new AbortController();
+    const auth = await gateway.login('alice@example.com', 'password-123', 'trace-login', controller.signal);
+    await gateway.refresh(auth.sessionToken, 'trace-refresh', controller.signal);
+    await gateway.logout(auth.sessionToken, 'trace-logout', controller.signal);
+    assert.deepEqual(signals, [controller.signal, controller.signal, controller.signal]);
+
+    controller.abort();
+    await assert.rejects(
+      gateway.login('alice@example.com', 'password-123', 'trace-aborted', controller.signal),
+      (error: unknown) => error instanceof Error && error.name === 'AbortError',
+    );
+    assert.equal(requests, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('customer request refreshes once after the first 401 and retries with the new bearer token', { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
   const captured: Array<{ headers: Headers; url: string }> = [];
@@ -101,6 +140,61 @@ test('customer request refreshes once after the first 401 and retries with the n
     assert.equal(captured[0].headers.get('X-Trace-Id'), 'trace-1');
     assert.equal(captured[1].headers.get('X-Trace-Id'), 'trace-1');
     assert.equal(captured[0].headers.get('X-Traffic-Run-Id'), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('customer refresh and retry use the effective request cancellation signal', { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  const signals: Array<AbortSignal | null | undefined> = [];
+  let calls = 0;
+  globalThis.fetch = async (_input, init) => {
+    signals.push(init?.signal);
+    calls++;
+    if (calls === 1) return new Response('', { status: 401 });
+    return new Response(JSON.stringify({ code: 200, data: { id: 1 } }), { status: 200 });
+  };
+
+  try {
+    const gateway = new GatewayClient('http://gateway.test');
+    const controller = new AbortController();
+    let refreshSignal: AbortSignal | undefined;
+    const result = await gateway.customerGet(
+      '/api/me',
+      undefined,
+      context(session(), async (signal?: AbortSignal) => {
+        refreshSignal = signal;
+      }),
+      controller.signal,
+    );
+
+    assert.deepEqual(result, { code: 200, data: { id: 1 } });
+    assert.equal(refreshSignal, controller.signal);
+    assert.deepEqual(signals, [controller.signal, controller.signal]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a customer request does not retry after its refresh signal is cancelled', { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response('', { status: 401 });
+  };
+
+  try {
+    const gateway = new GatewayClient('http://gateway.test');
+    const controller = new AbortController();
+    await assert.rejects(
+      gateway.customerGet('/api/me', undefined, context(session(), async () => {
+        controller.abort();
+      }), controller.signal),
+      (error: unknown) => error instanceof Error && error.name === 'AbortError',
+    );
+    assert.equal(calls, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

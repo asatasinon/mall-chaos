@@ -10,6 +10,7 @@ import {
   ScenarioRequestCacheError,
   ScenarioRequestTimeoutError,
 } from './controlled-scenario-worker';
+import { FaultRunDrainRegistry } from './fault-run-drain-registry';
 import { readCatalogProductDetail, ScenarioWorkers } from './scenario-workers';
 
 test('catalog reader returns the low-cardinality cache result from Gateway metadata', async () => {
@@ -25,6 +26,24 @@ test('catalog reader returns the low-cardinality cache result from Gateway metad
 
   assert.equal(requestedPath, '/api/products/SKU-001');
   assert.deepEqual(result, { cacheResult: 'CACHE_HIT' });
+});
+
+test('catalog reader rejects an already-aborted worker signal before opening a request timeout', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let calls = 0;
+  const gateway = {
+    async getWithMetadata(): Promise<GatewayResponse<unknown>> {
+      calls++;
+      throw new Error('REQUEST_SHOULD_NOT_START');
+    },
+  };
+
+  await assert.rejects(
+    () => readCatalogProductDetail(gateway, 'SKU-001', controller.signal, 5000),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  );
+  assert.equal(calls, 0);
 });
 
 test('catalog reader maps an HTTP cache backend failure to a stable cache result', async () => {
@@ -96,6 +115,60 @@ test('target summary parser accepts only a complete Hash member set', () => {
       memberSkus: ['SKU-001', 'SKU-002'],
     },
   }), null);
+});
+
+test('scenario scanner refuses a Run already closed by the local drain gate', async () => {
+  const run = {
+    faultRunId: '123e4567-e89b-12d3-a456-426614174099',
+    scenario: 'CART_CATALOG_DEPENDENCY',
+    targetService: 'catalog-service',
+    targetOperation: 'cart-product-validation',
+    state: 'ACTIVE',
+    parameters: { concurrency: 1, requestIntervalMs: 0 },
+    idempotencyKey: 'scenario-gate-test-001',
+    fencingToken: 1,
+    startedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 1_000).toISOString(),
+    stoppedAt: null,
+    stopReason: null,
+    recoveryResult: null,
+    recoveryError: null,
+    operatorAuditId: null,
+    traceId: 'trace-scenario-gate',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  } as const;
+  const registry = new FaultRunDrainRegistry();
+  await registry.closeGate({
+    run,
+    owner: 'SCENARIO_WORKERS',
+    deadlineAt: new Date(Date.now() + 1_000),
+  });
+  let sessionOpens = 0;
+  let events = 0;
+  const worker = new ScenarioWorkers({
+    gateway: {} as GatewayClient,
+    listRunnableRuns: async () => [run],
+    appendEvent: async () => {
+      events++;
+    },
+    sessions: {
+      async openSession(): Promise<never> {
+        sessionOpens++;
+        throw new Error('SESSION_SHOULD_NOT_OPEN');
+      },
+      async closeSession(): Promise<void> {},
+    },
+    drainRegistry: registry,
+    safeRuntimeEnabled: true,
+  });
+
+  worker.start();
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  await worker.stop();
+
+  assert.equal(sessionOpens, 0);
+  assert.equal(events, 0);
 });
 
 test('scenario worker reads only persisted member SKUs and does not create a customer session', async () => {

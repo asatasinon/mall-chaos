@@ -18,19 +18,39 @@
   "runScopedHash": "run-scoped Hash",
   "moreMembers": "+ {count} more",
   "bytes": "{value} bytes",
-  "notAvailable": "n/a"
-  ,"detailsClose": "Close"
-  ,"cleanupRun": "Cleanup run"
-  ,"auditTrail": "Audit trail"
-  ,"eventTimeline": "Event timeline"
-  ,"events": "{count} events"
-  ,"noEvents": "No events recorded."
-  ,"recoveryError": "Recovery ended with a recorded error."
-  ,"workerRunning": "running"
-  ,"cleanupComplete": "complete"
-  ,"cleanupReview": "review"
-  ,"yes": "yes"
-  ,"no": "no"
-  ,"readerP95": "{successes}/{requests} requests completed · p95 {latency} ms"
-  ,"inFlightValue": "inFlight={count}"
+  "notAvailable": "n/a",
+  "detailsClose": "Close",
+  "cleanupRun": "Cleanup run",
+  "auditTrail": "Audit trail",
+  "eventTimeline": "Event timeline",
+  "events": "{count} events",
+  "noEvents": "No events recorded.",
+  "recoveryError": "Recovery ended with a recorded error.",
+  "workerRunning": "running",
+  "cleanupComplete": "complete",
+  "cleanupReview": "review",
+  "yes": "yes",
+  "no": "no",
+  "readerP95": "{successes}/{requests} requests completed · p95 {latency} ms",
+  "inFlightValue": "inFlight={count}",
+  "stopRequested": "Stop command accepted",
+  "drainStarted": "Worker drain started",
+  "drainCompleted": "Worker drain completed",
+  "drainTimedOut": "Worker drain reached its deadline",
+  "drainFailed": "Worker drain could not be confirmed",
+  "releaseStarted": "Target release started",
+  "releaseCompleted": "Target release completed",
+  "releaseFailed": "Target release failed",
+  "releaseSkipped": "Target release was not applicable",
+  "cleanupSkipped": "Cleanup was not applicable",
+  "manualCleanupRequired": "Operator-confirmed cleanup is required",
+  "manualCleanupRequested": "Manual cleanup command accepted",
+  "nonReleasingRecorded": "Non-releasing residual recorded",
+  "verificationStarted": "Recovery verification started",
+  "verificationCompleted": "Recovery verification completed",
+  "verificationUnavailable": "Recovery verification is not configured",
+  "verificationFailed": "Recovery verification failed",
+  "recoveryBlocked": "Recovery remains incomplete",
+  "notificationRestartCompleted": "Notification restart completed",
+  "notificationRestartFailed": "Notification restart failed"
 }

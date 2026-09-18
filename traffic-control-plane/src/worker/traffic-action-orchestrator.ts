@@ -374,7 +374,8 @@ export class TrafficActionOrchestrator {
       return this.finish(lifecycleId, customerId, traceId, steps, 'SUCCESS', finalOrder.value?.data?.status,
         Date.now() - startedAt, order, pendingPaymentRetained, paymentId);
     } catch (error) {
-      const interrupted = error instanceof Error && error.message === 'LIFECYCLE_INTERRUPTED';
+      const interrupted = options.signal?.aborted === true
+        || (error instanceof Error && error.message === 'LIFECYCLE_INTERRUPTED');
       if (context) {
         await this.recordStep(steps, lifecycleId, 'LIFECYCLE_INTERRUPTED',
           interrupted ? 'INTERRUPTED' : 'FAILED', false, errorCode(error),
@@ -384,7 +385,7 @@ export class TrafficActionOrchestrator {
         undefined, Date.now() - startedAt, order, pendingPaymentRetained, paymentId,
         errorCode(error));
     } finally {
-      if (context) await this.sessions.closeSession(lifecycleId, traceId);
+      if (context) await this.sessions.closeSession(lifecycleId, traceId, options.signal);
       this.currentCustomerId = 0;
       this.currentTrafficRunId = '';
       this.currentTraceId = '';

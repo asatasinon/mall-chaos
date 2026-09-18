@@ -149,6 +149,112 @@
   "byteValueHelp": "Use B, K, KB, M, MB, G, or GB for byte values (case-insensitive). Each field is capped at 128M and the whole Hash at 512M: N × S must fit both limits. Read concurrency only controls pressure.",
   "currentRunDetails": "View current run details",
   "runParametersFallback": "Validated by the scenario catalog.",
+  "recovery": {
+    "label": "Recovery status",
+    "unknown": "Recovery details are unavailable or could not be validated.",
+    "legacy": "This historical run does not have a safe-runtime recovery projection.",
+    "unknownState": "Unknown",
+    "stopReason": "Stop reason",
+    "drainDeadline": "Drain deadline",
+    "recoveryDeadline": "Recovery deadline",
+    "attempt": "Attempt",
+    "retryable": "Retryable",
+    "residualsLabel": "Remaining responsibility",
+    "phases": {
+      "NONE": "Not started",
+      "STOP_REQUESTED": "Stop requested",
+      "DRAINING": "Draining",
+      "RELEASING": "Releasing",
+      "VERIFYING": "Verifying",
+      "MANUAL_CLEANUP_REQUIRED": "Manual cleanup required",
+      "CLEANING": "Cleaning",
+      "NON_RELEASING_ACTIVE": "Non-releasing effect active",
+      "PARTIAL_RECOVERY": "Partial recovery",
+      "COMPLETED": "Completed"
+    },
+    "outcomes": {
+      "PENDING": "Pending",
+      "SUCCEEDED": "Succeeded",
+      "PARTIAL_RECOVERY": "Partial recovery",
+      "DRAIN_TIMEOUT": "Drain timed out",
+      "WORKER_FAILED": "Worker failed",
+      "RELEASE_FAILED": "Release failed",
+      "CLEANUP_FAILED": "Cleanup failed",
+      "VERIFY_UNAVAILABLE": "Verification unavailable",
+      "VERIFY_FAILED": "Verification failed",
+      "MANUAL_CLEANUP_REQUIRED": "Manual cleanup required",
+      "NON_RELEASING_ACTIVE": "Non-releasing effect active",
+      "SERVICE_UNAVAILABLE": "Service unavailable"
+    },
+    "stopReasons": {
+      "MANUAL": "Operator requested",
+      "EXPIRED": "Run expired",
+      "WORKER_FAILED": "Worker failed",
+      "WORKER_SHUTDOWN": "Worker shutdown",
+      "CONTROL_PLANE_RESTART": "Control plane restart",
+      "SERVICE_UNAVAILABLE": "Service unavailable"
+    },
+    "steps": {
+      "drain": "Drain",
+      "release": "Release",
+      "cleanup": "Cleanup",
+      "verification": "Verification"
+    },
+    "stepStatuses": {
+      "NOT_STARTED": "Not started",
+      "RUNNING": "Running",
+      "SUCCEEDED": "Succeeded",
+      "TIMED_OUT": "Timed out",
+      "FAILED": "Failed",
+      "SKIPPED": "Skipped",
+      "NOT_APPLICABLE": "Not applicable",
+      "MANUAL_REQUIRED": "Manual action required",
+      "NOT_CONFIGURED": "Not configured"
+    },
+    "errorCodes": {
+      "DRAIN_PARTICIPANT_MISSING": "Drain participant is not registered",
+      "DRAIN_TIMEOUT": "Drain timed out",
+      "DRAIN_ABORT_FAILED": "Drain abort failed",
+      "DRAIN_FAILED": "Drain failed",
+      "WORKER_FAILED": "Worker failed",
+      "TARGET_RELEASE_TIMEOUT": "Target release timed out",
+      "TARGET_RELEASE_UNAVAILABLE": "Target release is unavailable",
+      "TARGET_RELEASE_REJECTED": "Target release was rejected",
+      "TARGET_RELEASE_FAILED": "Target release failed",
+      "MANUAL_CLEANUP_REQUIRED": "Manual cleanup is required",
+      "CLEANUP_OPERATION_FAILED": "Cleanup operation failed",
+      "VERIFY_UNAVAILABLE": "Verification is not configured",
+      "VERIFY_FAILED": "Verification failed"
+    },
+    "metrics": {
+      "participants": "Participants",
+      "accepted": "Accepted",
+      "completed": "Completed",
+      "aborted": "Aborted",
+      "inFlightAtStart": "In flight at start",
+      "inFlightAtDeadline": "In flight at deadline",
+      "inFlightAtFinish": "In flight at finish"
+    },
+    "residuals": {
+      "DRAIN_UNCERTAIN": "Drain outcome remains uncertain",
+      "MANUAL_CLEANUP_PENDING": "Manual cleanup remains pending",
+      "NON_RELEASING_EFFECT": "The retained effect is intentionally non-releasing",
+      "SERVICE_RECOVERY_REQUIRED": "Service recovery remains required",
+      "VERIFICATION_UNAVAILABLE": "Recovery verification is unavailable"
+    },
+    "responsibilities": {
+      "CONTROL_PLANE": "Control plane",
+      "OPERATOR": "Operator",
+      "SERVICE_OWNER": "Service owner"
+    },
+    "nextActions": {
+      "RETRY_RECOVERY": "Retry recovery",
+      "INVESTIGATE_DRAIN": "Investigate the drain",
+      "COMPLETE_MANUAL_CLEANUP": "Confirm and complete manual cleanup",
+      "WAIT_FOR_SERVICE_RECOVERY": "Wait for confirmed service recovery",
+      "CONFIGURE_VERIFICATION": "Configure recovery verification"
+    }
+  },
   "scenarioMeta": {
     "BROWSE_REPORT_SQL": {
       "label": "Product browse slow SQL",

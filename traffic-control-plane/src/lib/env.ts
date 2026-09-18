@@ -1,5 +1,68 @@
 // Environment configuration for traffic-control-plane
 
+export interface FaultRunRuntimeConfig {
+  safeRuntimeEnabled: boolean;
+  stopScanIntervalMs: number;
+  drainTimeoutMs: number;
+  recoveryTimeoutMs: number;
+  shutdownTimeoutMs: number;
+  workerStopGracePeriodMs: number | null;
+}
+
+export function parseFaultRunRuntimeConfig(
+  source: Record<string, string | undefined>,
+): FaultRunRuntimeConfig {
+  const drainTimeoutMs = strictBoundedInteger(
+    'FAULT_RUN_DRAIN_TIMEOUT_MS',
+    source.FAULT_RUN_DRAIN_TIMEOUT_MS,
+    30_000,
+    1_000,
+    120_000,
+  );
+  const recoveryTimeoutMs = strictBoundedInteger(
+    'FAULT_RUN_RECOVERY_TIMEOUT_MS',
+    source.FAULT_RUN_RECOVERY_TIMEOUT_MS,
+    60_000,
+    Math.max(5_000, drainTimeoutMs),
+    300_000,
+  );
+  const shutdownTimeoutMs = strictBoundedInteger(
+    'FAULT_RUN_SHUTDOWN_TIMEOUT_MS',
+    source.FAULT_RUN_SHUTDOWN_TIMEOUT_MS,
+    90_000,
+    recoveryTimeoutMs,
+    600_000,
+  );
+  const workerStopGracePeriodMs = optionalStrictDurationMs(
+    'FAULT_RUN_WORKER_STOP_GRACE_PERIOD',
+    source.FAULT_RUN_WORKER_STOP_GRACE_PERIOD,
+  );
+  if (workerStopGracePeriodMs !== null && workerStopGracePeriodMs <= shutdownTimeoutMs) {
+    throw new Error('FAULT_RUN_WORKER_STOP_GRACE_PERIOD_TOO_SHORT');
+  }
+
+  return {
+    safeRuntimeEnabled: strictBoolean(
+      'FAULT_RUN_SAFE_RUNTIME_ENABLED',
+      source.FAULT_RUN_SAFE_RUNTIME_ENABLED,
+      false,
+    ),
+    stopScanIntervalMs: strictBoundedInteger(
+      'FAULT_RUN_STOP_SCAN_INTERVAL_MS',
+      source.FAULT_RUN_STOP_SCAN_INTERVAL_MS,
+      1000,
+      250,
+      10_000,
+    ),
+    drainTimeoutMs,
+    recoveryTimeoutMs,
+    shutdownTimeoutMs,
+    workerStopGracePeriodMs,
+  };
+}
+
+const faultRunRuntimeConfig = parseFaultRunRuntimeConfig(process.env);
+
 export const env = {
   // Gateway is the ONLY external service traffic-control-plane talks to
   GATEWAY_BASE_URL: process.env.GATEWAY_BASE_URL || 'http://localhost:18080',
@@ -33,6 +96,14 @@ export const env = {
   BASELINE_OBSERVATION_WINDOW_SEC: boundedInteger(
     process.env.BASELINE_OBSERVATION_WINDOW_SEC, 900, 60, 86_400),
 
+  // Safe runtime remains opt-in until Docker Compose canary and rollback gates are complete.
+  FAULT_RUN_SAFE_RUNTIME_ENABLED: faultRunRuntimeConfig.safeRuntimeEnabled,
+  FAULT_RUN_DRAIN_TIMEOUT_MS: faultRunRuntimeConfig.drainTimeoutMs,
+  FAULT_RUN_RECOVERY_TIMEOUT_MS: faultRunRuntimeConfig.recoveryTimeoutMs,
+  FAULT_RUN_SHUTDOWN_TIMEOUT_MS: faultRunRuntimeConfig.shutdownTimeoutMs,
+  FAULT_RUN_STOP_SCAN_INTERVAL_MS: faultRunRuntimeConfig.stopScanIntervalMs,
+  FAULT_RUN_WORKER_STOP_GRACE_PERIOD_MS: faultRunRuntimeConfig.workerStopGracePeriodMs,
+
   ALERT_CONFIG_DIR: process.env.ALERT_CONFIG_DIR || '../data',
   ALERT_SOURCE_RULES_PATH: process.env.ALERT_SOURCE_RULES_PATH || '../infra/prometheus/rules/alert-rules.yml',
   ALERT_SOURCE_MANAGER_PATH: process.env.ALERT_SOURCE_MANAGER_PATH || '../infra/alertmanager/alertmanager.yml',
@@ -50,4 +121,40 @@ function boundedInteger(value: string | undefined, fallback: number, minimum: nu
   const parsed = Number.parseInt(value ?? '', 10);
   if (!Number.isInteger(parsed)) return fallback;
   return Math.min(Math.max(parsed, minimum), maximum);
+}
+
+function strictBoolean(name: string, value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error(`INVALID_BOOLEAN_ENV:${name}`);
+}
+
+function strictBoundedInteger(
+  name: string,
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  if (value === undefined) return fallback;
+  if (!/^(0|[1-9]\d*)$/.test(value)) throw new Error(`INVALID_INTEGER_ENV:${name}`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`INVALID_INTEGER_ENV:${name}`);
+  }
+  return parsed;
+}
+
+function optionalStrictDurationMs(name: string, value: string | undefined): number | null {
+  if (value === undefined) return null;
+  const match = /^([1-9]\d*)(ms|s|m)$/.exec(value);
+  if (!match) throw new Error(`INVALID_DURATION_ENV:${name}`);
+  const magnitude = Number(match[1]);
+  const multiplier = match[2] === 'ms' ? 1 : match[2] === 's' ? 1000 : 60_000;
+  const milliseconds = magnitude * multiplier;
+  if (!Number.isSafeInteger(milliseconds) || milliseconds > 900_000) {
+    throw new Error(`INVALID_DURATION_ENV:${name}`);
+  }
+  return milliseconds;
 }

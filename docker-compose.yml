@@ -63,6 +63,16 @@ x-healthcheck-defaults: &healthcheck-defaults
   retries: 5
   start_period: 60s
 
+x-fault-run-runtime-env: &fault-run-runtime-env
+  # Keep Web/API and Worker on the same opt-in protocol and timing budget.
+  FAULT_RUN_SAFE_RUNTIME_ENABLED: "${FAULT_RUN_SAFE_RUNTIME_ENABLED:-false}"
+  FAULT_RUN_STOP_SCAN_INTERVAL_MS: "${FAULT_RUN_STOP_SCAN_INTERVAL_MS:-1000}"
+  FAULT_RUN_DRAIN_TIMEOUT_MS: "${FAULT_RUN_DRAIN_TIMEOUT_MS:-30000}"
+  FAULT_RUN_RECOVERY_TIMEOUT_MS: "${FAULT_RUN_RECOVERY_TIMEOUT_MS:-60000}"
+  FAULT_RUN_SHUTDOWN_TIMEOUT_MS: "${FAULT_RUN_SHUTDOWN_TIMEOUT_MS:-90000}"
+  # Used by the Worker to reject a shutdown budget that Docker cannot honor.
+  FAULT_RUN_WORKER_STOP_GRACE_PERIOD: "${FAULT_RUN_WORKER_STOP_GRACE_PERIOD:-105s}"
+
 services:
 
   # ─── Infrastructure ──────────────────────────────────────────────────────────
@@ -501,6 +511,7 @@ services:
       - ./infra/prometheus/rules:/app/infra-source/prometheus-rules:ro
       - ./infra/alertmanager:/app/infra-source/alertmanager:ro
     environment:
+      <<: *fault-run-runtime-env
       NODE_ENV: production
       TZ: Asia/Shanghai
       HOSTNAME: 0.0.0.0
@@ -564,9 +575,11 @@ services:
     container_name: castrel-traffic-control-plane-worker
     <<: *service-defaults
     command: ["pnpm", "worker"]
+    stop_grace_period: ${FAULT_RUN_WORKER_STOP_GRACE_PERIOD:-105s}
     volumes:
       - ./data/traffic-control-plane-worker:/app/data
     environment:
+      <<: *fault-run-runtime-env
       NODE_ENV: production
       TZ: Asia/Shanghai
       GATEWAY_BASE_URL: http://gateway-service:8080

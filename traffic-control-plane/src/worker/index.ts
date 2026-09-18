@@ -1,99 +1,41 @@
-import { getRunnerEngine } from './runner-engine';
-import { getDataWarmupService } from './data-warmup';
-import { env } from '../lib/env';
-import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
-import { getCouponReplenishmentScheduler } from './coupon-replenishment';
-import { getInventoryReplenishmentScheduler } from './inventory-replenishment';
-import { getReportScenarioWorker } from './report-scenario-worker';
-import { getTrafficSurgeExecutor } from './traffic-surge-executor';
-import { getScenarioWorkers } from './scenario-workers';
 import pino from 'pino';
-import { getFaultRunCoordinator } from '../lib/fault-run-coordinator';
-import { deleteExpiredFaultRuns } from '../lib/fault-run-repository';
-import { getRedis } from '../lib/redis';
+import { createWorkerRuntime, type WorkerShutdownReason } from './worker-runtime';
 
 const log = pino({ name: 'worker' });
 
-async function main() {
-  log.info('Starting traffic-control-plane worker...');
-
-  if (!env.CASTREL_INTERNAL_SERVICE_KEY.trim()) {
-    throw new Error('INTERNAL_SERVICE_KEY_REQUIRED');
-  }
-  loadLifecycleAccounts();
-
-  const engine = getRunnerEngine();
-  await engine.loadConfigFromDb();
-  const faultRunCoordinator = getFaultRunCoordinator();
-  await faultRunCoordinator.scheduleActiveRuns();
-  await faultRunCoordinator.recoverExpiredRuns();
-  const couponReplenishmentScheduler = getCouponReplenishmentScheduler();
-  const inventoryReplenishmentScheduler = getInventoryReplenishmentScheduler();
-  const reportScenarioWorker = getReportScenarioWorker();
-  const trafficSurgeExecutor = getTrafficSurgeExecutor();
-  const scenarioWorkers = getScenarioWorkers();
-  const dataWarmupService = getDataWarmupService();
-  await couponReplenishmentScheduler.start();
-  await inventoryReplenishmentScheduler.start();
-  reportScenarioWorker.start();
-  trafficSurgeExecutor.start();
-  scenarioWorkers.start();
-  const faultRunRecoveryTimer = setInterval(() => {
-    void faultRunCoordinator.recoverExpiredRuns().catch((error) => {
-      log.warn({ error }, 'Failed to recover expired Fault Runs');
-    });
-  }, 1000);
-  const faultRunRetentionTimer = setInterval(() => {
-    void runFaultRunRetention().catch((error) => {
-      log.warn({ error }, 'Failed to delete expired Fault Run records');
-    });
-  }, 24 * 60 * 60 * 1000);
-  engine.start();
-
-  dataWarmupService.start();
-  log.info('Data warmup service started; database configuration controls execution');
-
-  log.info('Worker is running. Press Ctrl+C to stop.');
-
-  const shutdown = async () => {
-    log.info('Shutting down worker...');
-    clearInterval(faultRunRecoveryTimer);
-    clearInterval(faultRunRetentionTimer);
-    inventoryReplenishmentScheduler.stop();
-    await reportScenarioWorker.stop();
-    await trafficSurgeExecutor.stop();
-    await scenarioWorkers.stop();
-    couponReplenishmentScheduler.stop();
-    await dataWarmupService.stop();
-    await engine.stop();
-    process.exit(0);
+async function main(): Promise<void> {
+  const runtime = createWorkerRuntime();
+  const shutdown = (reason: WorkerShutdownReason): void => {
+    void runtime.shutdown(reason).then(
+      (exitCode) => {
+        process.exitCode = exitCode;
+        process.exit(exitCode);
+      },
+      (error) => {
+        log.error({ code: shutdownErrorCode(error) }, 'Worker shutdown failed');
+        process.exitCode = 1;
+        process.exit(1);
+      },
+    );
   };
 
-  process.on('SIGINT', () => { void shutdown(); });
-  process.on('SIGTERM', () => { void shutdown(); });
-}
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-const FAULT_RUN_RETENTION_LOCK = 'traffic-control-plane:fault-run-retention:lease';
-
-async function runFaultRunRetention(): Promise<void> {
-  const redis = getRedis();
-  await redis.connect().catch(() => undefined);
-  const owner = `retention-${process.pid}`;
-  const acquired = await redis.set(FAULT_RUN_RETENTION_LOCK, owner, 'EX', 300, 'NX').catch(() => null);
-  if (acquired !== 'OK') return;
   try {
-    await deleteExpiredFaultRuns();
-  } finally {
-    await redis.eval(
-      "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
-      1,
-      FAULT_RUN_RETENTION_LOCK,
-      owner,
-    ).catch(() => undefined);
+    await runtime.start();
+  } catch (error) {
+    log.error({ code: shutdownErrorCode(error) }, 'Worker failed to start');
+    const shutdownExitCode = await runtime.shutdown('STARTUP_FAILURE');
+    process.exitCode = 1;
+    process.exit(Math.max(1, shutdownExitCode));
   }
 }
 
-main().catch((err) => {
-  log.error({ error: err }, 'Worker failed to start');
-  process.exit(1);
-});
+function shutdownErrorCode(error: unknown): string {
+  return error instanceof Error && /^[A-Z][A-Z0-9_.:-]{0,95}$/.test(error.message)
+    ? error.message
+    : 'WORKER_STARTUP_FAILED';
+}
+
+void main();

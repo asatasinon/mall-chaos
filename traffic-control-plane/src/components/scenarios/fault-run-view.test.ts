@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildFaultRunView, summarizeFaultRunEvent } from './fault-run-view';
-import type { FaultRunDetails } from './types';
+import {
+  buildFaultRunView,
+  isManualCleanupAvailable,
+  requiresNotificationServiceRecovery,
+  summarizeFaultRunEvent,
+} from './fault-run-view';
+import {
+  createInitialFaultRunRecoveryProjection,
+  type FaultRunRecoveryProjection,
+} from '@/lib/fault-run-recovery';
+import type { FaultRun, FaultRunDetails } from './types';
 
 const faultRunId = '123e4567-e89b-12d3-a456-426614174000';
 
@@ -23,7 +32,8 @@ test('builds a safe Catalog Hash view from target, worker, recovery, and audit e
       },
       expiresAt: '2026-09-02T07:00:00.000Z',
       createdAt: '2026-09-02T06:59:00.000Z',
-      recoveryResult: null,
+      recovery: { kind: 'ABSENT', projection: null },
+      manualCleanup: 'UNAVAILABLE',
       operatorAuditId: 7,
     },
     events: [
@@ -95,11 +105,10 @@ test('builds a safe Catalog Hash view from target, worker, recovery, and audit e
       operatorId: 3,
       action: 'FAULT_RUN_CREATE',
       target: 'CATALOG_REDIS_LARGE_VALUE',
-      parameterHash: 'hash-only',
       result: 'SUCCESS',
-      correlationId: 'trace-only',
       createdAt: '2026-09-02T06:59:00.000Z',
     },
+    audits: [],
   };
 
   const view = buildFaultRunView(details);
@@ -133,7 +142,8 @@ test('prefers recovery cleanup over an idempotent manual cleanup result', () => 
       parameters: {},
       expiresAt: '2026-09-02T07:00:00.000Z',
       createdAt: '2026-09-02T06:59:00.000Z',
-      recoveryResult: null,
+      recovery: { kind: 'ABSENT', projection: null },
+      manualCleanup: 'UNAVAILABLE',
     },
     events: [
       {
@@ -158,6 +168,7 @@ test('prefers recovery cleanup over an idempotent manual cleanup result', () => 
         createdAt: '2026-09-02T06:59:02.000Z',
       },
     ],
+    audits: [],
   });
 
   assert.equal(view.cleanup?.hashRemoved, true);
@@ -183,3 +194,93 @@ test('uses the caller locale translator and safely falls back for unknown events
   assert.equal(unknown, 'zh:recordedEvent');
   assert.equal(unknown.includes('password'), false);
 });
+
+test('uses the server-derived recovery view for manual cleanup and notification restart actions', () => {
+  const manualCleanup = createManualCleanupProjection();
+  const cleanupRun: FaultRun = {
+    faultRunId,
+    scenario: 'NOTIFICATION_STORAGE_APPEND',
+    targetService: 'notification-service',
+    targetOperation: 'notification-storage',
+    state: 'RECOVERING',
+    parameters: { durationSec: 60 },
+    expiresAt: '2026-09-18T00:10:00.000Z',
+    stoppedAt: null,
+    stopReason: 'MANUAL',
+    recovery: { kind: 'SAFE_RUNTIME_V1', projection: manualCleanup },
+    manualCleanup: 'SAFE_COMMAND',
+    createdAt: '2026-09-18T00:00:00.000Z',
+  };
+  const unavailable = createInitialFaultRunRecoveryProjection({
+    reason: 'SERVICE_UNAVAILABLE',
+    requestedAt: '2026-09-18T00:00:00.000Z',
+    drainDeadlineAt: '2026-09-18T00:00:30.000Z',
+    recoveryDeadlineAt: '2026-09-18T00:01:00.000Z',
+  });
+  const unavailableRun: FaultRun = {
+    ...cleanupRun,
+    scenario: 'NOTIFICATION_HEAP_PRESSURE',
+    targetOperation: 'notification-retention',
+    recovery: { kind: 'SAFE_RUNTIME_V1', projection: unavailable },
+    manualCleanup: 'UNAVAILABLE',
+  };
+
+  assert.equal(isManualCleanupAvailable(cleanupRun), true);
+  assert.equal(isManualCleanupAvailable({
+    ...cleanupRun,
+    manualCleanup: 'UNAVAILABLE',
+  }), false);
+  assert.equal(isManualCleanupAvailable({
+    ...cleanupRun,
+    manualCleanup: 'LEGACY_TERMINAL',
+    state: 'STOPPED',
+    recovery: { kind: 'LEGACY', projection: null },
+  }), true);
+  assert.equal(requiresNotificationServiceRecovery(unavailableRun), true);
+  assert.equal(requiresNotificationServiceRecovery({
+    ...unavailableRun,
+    recovery: { kind: 'UNKNOWN', projection: null, reason: 'INVALID_SHAPE' },
+  }), false);
+});
+
+function createManualCleanupProjection(): FaultRunRecoveryProjection {
+  const initial = createInitialFaultRunRecoveryProjection({
+    reason: 'MANUAL',
+    requestedAt: '2026-09-18T00:00:00.000Z',
+    drainDeadlineAt: '2026-09-18T00:00:30.000Z',
+    recoveryDeadlineAt: '2026-09-18T00:01:00.000Z',
+  });
+  return {
+    ...initial,
+    phase: 'MANUAL_CLEANUP_REQUIRED',
+    outcome: 'MANUAL_CLEANUP_REQUIRED',
+    drain: {
+      status: 'SUCCEEDED',
+      attempt: 1,
+      startedAt: '2026-09-18T00:00:00.000Z',
+      completedAt: '2026-09-18T00:00:01.000Z',
+      participantKinds: ['RUNNER'],
+    },
+    release: {
+      status: 'SUCCEEDED',
+      attempt: 1,
+      startedAt: '2026-09-18T00:00:01.000Z',
+      completedAt: '2026-09-18T00:00:02.000Z',
+    },
+    cleanup: {
+      status: 'MANUAL_REQUIRED',
+      attempt: 0,
+      errorCode: 'MANUAL_CLEANUP_REQUIRED',
+    },
+    residuals: [{
+      kind: 'MANUAL_CLEANUP_PENDING',
+      responsibility: 'OPERATOR',
+      nextAction: 'COMPLETE_MANUAL_CLEANUP',
+    }],
+    lastError: {
+      stage: 'CLEANUP',
+      code: 'MANUAL_CLEANUP_REQUIRED',
+      retryable: false,
+    },
+  };
+}

@@ -6,6 +6,7 @@ import {
   GatewayRequestError,
   getGatewayClient,
 } from '../lib/gateway-client';
+import { isAbortError, throwIfAborted } from '../lib/abort-signal';
 import {
   LifecycleAccount,
   loadLifecycleAccountsWithState,
@@ -17,6 +18,7 @@ import { loadScenarioAccounts } from '../lib/scenario-accounts';
 interface ActiveSession {
   account: LifecycleAccount;
   session: CustomerSession;
+  closed: boolean;
 }
 
 export interface CustomerSessionManagerDependencies {
@@ -51,14 +53,17 @@ export class CustomerSessionManager {
     traceId: string,
     runOptions: SessionRunOptions = {},
   ): Promise<CustomerRequestContext> {
+    throwIfAborted(runOptions.signal);
     if (this.sessions.has(lifecycleId)) {
       throw new Error('LIFECYCLE_SESSION_ALREADY_EXISTS');
     }
     const account = await this.selectAccount();
+    throwIfAborted(runOptions.signal);
     let auth: CustomerAuthResponse;
     try {
-      auth = await this.gateway.login(account.email, account.password, traceId);
+      auth = await this.gateway.login(account.email, account.password, traceId, runOptions.signal);
     } catch (error) {
+      if (runOptions.signal?.aborted || isAbortError(error)) throw error;
       if (error instanceof GatewayRequestError && error.status === 401) {
         throw new Error('LIFECYCLE_LOGIN_INVALID_CREDENTIALS');
       }
@@ -67,6 +72,7 @@ export class CustomerSessionManager {
       }
       throw new Error('LIFECYCLE_LOGIN_FAILED');
     }
+    throwIfAborted(runOptions.signal);
 
     let customerId: number;
     try {
@@ -86,13 +92,15 @@ export class CustomerSessionManager {
       sessionToken: auth.sessionToken,
       expiresAt,
     };
-    this.sessions.set(lifecycleId, { account, session });
+    throwIfAborted(runOptions.signal);
+    this.sessions.set(lifecycleId, { account, session, closed: false });
     return this.contextFor(trafficRunId, lifecycleId, traceId, session, runOptions);
   }
 
-  async refreshSession(lifecycleId: string, traceId: string): Promise<void> {
+  async refreshSession(lifecycleId: string, traceId: string, signal?: AbortSignal): Promise<void> {
+    throwIfAborted(signal);
     const active = this.sessions.get(lifecycleId);
-    if (!active) {
+    if (!active || active.closed) {
       throw new Error('LIFECYCLE_SESSION_NOT_FOUND');
     }
     if (!active.account.enabled) {
@@ -101,9 +109,14 @@ export class CustomerSessionManager {
 
     let auth: CustomerAuthResponse;
     try {
-      auth = await this.gateway.refresh(active.session.sessionToken, traceId);
-    } catch {
+      auth = await this.gateway.refresh(active.session.sessionToken, traceId, signal);
+    } catch (error) {
+      if (signal?.aborted || isAbortError(error)) throw error;
       throw new Error('LIFECYCLE_SESSION_REFRESH_FAILED');
+    }
+    throwIfAborted(signal);
+    if (this.sessions.get(lifecycleId) !== active || active.closed) {
+      throw new Error('LIFECYCLE_SESSION_NOT_FOUND');
     }
     let customerId: number;
     try {
@@ -123,11 +136,16 @@ export class CustomerSessionManager {
     active.session.expiresAt = expiresAt;
   }
 
-  async closeSession(lifecycleId: string, traceId: string): Promise<void> {
+  async closeSession(lifecycleId: string, traceId: string, signal?: AbortSignal): Promise<void> {
     const active = this.sessions.get(lifecycleId);
     if (!active) return;
+    const sessionToken = active.session.sessionToken;
+    active.closed = true;
+    this.sessions.delete(lifecycleId);
+    active.session.accessToken = '';
+    active.session.sessionToken = '';
     try {
-      await this.gateway.logout(active.session.sessionToken, traceId);
+      await this.gateway.logout(sessionToken, traceId, signal);
     } catch {
       // Logout is best effort; the local session must still be discarded.
     } finally {
@@ -167,7 +185,7 @@ export class CustomerSessionManager {
       lifecycleId,
       traceId,
       session,
-      refresh: () => this.refreshSession(lifecycleId, traceId),
+      refresh: (signal) => this.refreshSession(lifecycleId, traceId, signal),
       ...runOptions,
     };
   }

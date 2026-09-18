@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PATTERN='故障注入|故障演练|故障场景|场景码|fault[ -]?injection|fault[ -]?exercise|fault[ -]?scenario|chaos[ -]?scenario|fault[ -]?run|faultRunId|BROWSE_REPORT_SQL|ORDER_REPORT_SQL|BROWSE_SURGE|ORDER_QUERY_SURGE|CATALOG_REDIS_LARGE_VALUE|CART_CATALOG_DEPENDENCY|NOTIFICATION_HEAP_PRESSURE|NOTIFICATION_STORAGE_APPEND|PROMOTION_LOCK_CONTENTION|INVENTORY_TABLE_EXCLUSIVE|INVENTORY_ROW_LOCK|PSP_PROVIDER_OUTCOME'
+PATTERN='故障注入|故障演练|故障场景|场景码|fault[ -]?injection|fault[ -]?exercise|fault[ -]?scenario|chaos[ -]?scenario|fault[ -]?run|faultRunId|fault_run_id|recovery[_-]?result|recovery[_-]?error|BROWSE_REPORT_SQL|ORDER_REPORT_SQL|BROWSE_SURGE|ORDER_QUERY_SURGE|CATALOG_REDIS_LARGE_VALUE|CART_CATALOG_DEPENDENCY|NOTIFICATION_HEAP_PRESSURE|NOTIFICATION_STORAGE_APPEND|PROMOTION_LOCK_CONTENTION|INVENTORY_TABLE_EXCLUSIVE|INVENTORY_ROW_LOCK|PSP_PROVIDER_OUTCOME'
 
 fail() {
   printf 'check-runtime-terminology: %s\n' "$1" >&2

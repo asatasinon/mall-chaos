@@ -307,10 +307,11 @@ export function createInitialFaultRunRecoveryProjection(
   input: CreateInitialFaultRunRecoveryProjectionInput,
 ): FaultRunRecoveryProjection {
   const attempt = input.attempt ?? 1;
+  const serviceUnavailable = input.reason === 'SERVICE_UNAVAILABLE';
   const projection: FaultRunRecoveryProjection = {
     schemaVersion: SAFE_RUNTIME_RECOVERY_SCHEMA_VERSION,
-    phase: 'STOP_REQUESTED',
-    outcome: 'PENDING',
+    phase: serviceUnavailable ? 'PARTIAL_RECOVERY' : 'STOP_REQUESTED',
+    outcome: serviceUnavailable ? 'SERVICE_UNAVAILABLE' : 'PENDING',
     stop: {
       reason: input.reason,
       requestedAt: normalizeInputTimestamp(input.requestedAt),
@@ -325,7 +326,11 @@ export function createInitialFaultRunRecoveryProjection(
     release: { status: 'NOT_STARTED', attempt: 0 },
     cleanup: { status: 'NOT_STARTED', attempt: 0 },
     verification: { status: 'NOT_STARTED', attempt: 0 },
-    residuals: [],
+    residuals: serviceUnavailable ? [{
+      kind: 'SERVICE_RECOVERY_REQUIRED',
+      responsibility: 'SERVICE_OWNER',
+      nextAction: 'WAIT_FOR_SERVICE_RECOVERY',
+    }] : [],
   };
 
   const parsed = parseFaultRunRecoveryProjection(projection);

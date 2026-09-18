@@ -69,11 +69,13 @@ export const SAFE_RUNTIME_RECOVERY_EVENT_TYPES = [
   'RELEASE_COMPLETED',
   'RELEASE_FAILED',
   'RELEASE_SKIPPED',
+  'CLEANUP_SKIPPED',
   'MANUAL_CLEANUP_REQUIRED',
   'MANUAL_CLEANUP_REQUESTED',
   'MANUAL_CLEANUP_COMPLETED',
   'MANUAL_CLEANUP_FAILED',
   'NON_RELEASING_RECORDED',
+  'VERIFY_STARTED',
   'VERIFY_COMPLETED',
   'VERIFY_UNAVAILABLE',
   'VERIFY_FAILED',
@@ -98,11 +100,13 @@ const RECOVERY_EVENT_META: Record<FaultRunRecoveryEventType, {
   RELEASE_COMPLETED: { phase: 'release', status: 'COMPLETED' },
   RELEASE_FAILED: { phase: 'release', status: 'FAILED' },
   RELEASE_SKIPPED: { phase: 'release', status: 'SKIPPED' },
+  CLEANUP_SKIPPED: { phase: 'cleanup', status: 'SKIPPED' },
   MANUAL_CLEANUP_REQUIRED: { phase: 'cleanup', status: 'BLOCKED' },
   MANUAL_CLEANUP_REQUESTED: { phase: 'cleanup', status: 'REQUESTED' },
   MANUAL_CLEANUP_COMPLETED: { phase: 'cleanup', status: 'COMPLETED' },
   MANUAL_CLEANUP_FAILED: { phase: 'cleanup', status: 'FAILED' },
   NON_RELEASING_RECORDED: { phase: 'recovery', status: 'BLOCKED' },
+  VERIFY_STARTED: { phase: 'verification', status: 'STARTED' },
   VERIFY_COMPLETED: { phase: 'verification', status: 'COMPLETED' },
   VERIFY_UNAVAILABLE: { phase: 'verification', status: 'BLOCKED' },
   VERIFY_FAILED: { phase: 'verification', status: 'FAILED' },
@@ -138,6 +142,8 @@ export function normalizeFaultRunSummaryEventPayload(
     copyCounter(source, normalized, 'requests');
     copyCounter(source, normalized, 'successes');
     copyCounter(source, normalized, 'failures');
+    copyCounter(source, normalized, 'timeouts');
+    copyCounter(source, normalized, 'inFlight');
     copyLatency(source, normalized, 'averageLatencyMs');
     copyStableText(source, normalized, 'reason', 'EXPIRED_OR_STOPPED');
   } else if (eventType === 'SCENARIO_WORKER_STARTED') {
@@ -244,6 +250,12 @@ export function normalizeFaultRunRecoveryEventPayload(
     normalized.attempt = attempt;
     normalized.drainDeadlineAt = drainDeadlineAt;
     normalized.recoveryDeadlineAt = recoveryDeadlineAt;
+    if (reason === 'SERVICE_UNAVAILABLE') {
+      normalized.outcome = 'SERVICE_UNAVAILABLE';
+      normalized.residualKind = 'SERVICE_RECOVERY_REQUIRED';
+      normalized.responsibility = 'SERVICE_OWNER';
+      normalized.nextAction = 'WAIT_FOR_SERVICE_RECOVERY';
+    }
     if (reason === 'MANUAL' || source.operatorAuditId !== undefined) {
       copyOperatorAudit(source, normalized, 'FAULT_RUN_STOP');
     }
