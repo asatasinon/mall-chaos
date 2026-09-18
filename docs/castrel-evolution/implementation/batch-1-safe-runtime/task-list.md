@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 进行中；P1-01、P1-02-A 至 P1-02-D、P1-02-F、P1-02-G 已完成代码、测试和静态 Docker 验证；P1-02-E 已完成代码接入与单元覆盖，CART 真实 Docker dispatch/drain 证据仍待获批 canary；P1-09 已完成配置、Compose、日志和回退护栏，目标部署的发布门禁运行时核验待获批；P1-10 已完成代码级恢复、Worker、route、隔离和静态边界覆盖，fresh/historical MySQL compatibility 仍待获批环境；当前仅在 Docker Compose 单 Worker 范围实施和验证 |
-| 版本 | 1.22 |
-| 更新时间 | 2026-09-18 13:11 CST（P1-09-4 deployment ownership confirmed） |
+| 状态 | 进行中；P1-01、P1-02-A 至 P1-02-D、P1-02-F、P1-02-G 已完成代码、测试和静态 Docker 验证；P1-02-E 已完成代码接入与单元覆盖，CART 真实 Docker dispatch/drain 证据仍待获批 canary；P1-09 已完成当前代码的 Docker Compose 单 Worker 发布门禁，P1-10 的 fresh/historical MySQL compatibility 仍待获批环境；当前仅在 Docker Compose 单 Worker 范围实施和验证 |
+| 版本 | 1.23 |
+| 更新时间 | 2026-09-18 15:29 CST（P1-09-4 current-code Docker gate completed） |
 | 路线阶段 | [阶段 1：安全停止和失败传播](../../roadmap/phases/phase-1-safe-runtime.md) |
 | 产品规格 | [product.md](./product.md) |
 | 技术设计 | [tech.md](./tech.md) |
@@ -26,11 +26,11 @@
 
 ## 总体进度
 
-- **总体状态：** 进行中（Docker-only 范围）。P1-01 已完成：本地 Docker/Compose 静态检查有效，远端 Compose 配置有效，控制面健康、Worker 存活且带 healthcheck 的业务服务健康；2026-09-18 的最新只读复核确认远端仍为 `a2df629`，是本地 `fffbdfd` 的祖先，而本地工作树仍包含未部署的 Phase 1 修改。尚未读取远端 Run/数据库状态或发起任何状态变更，相关事实保持 `UNKNOWN`。P1-02 已获批为完整安全停止纵向切片，吸收原 P1-03 至 P1-08 的实现要求；P1-02-A 至 P1-02-D 已完成 recovery contract、持久化命令事务、Worker-only recovery executor、真实本地 drain registry 与可取消 Gateway/session 链路。P1-02-E 已完成 Report、Surge、Scenario 的 runnable admission/registry 接入与单元覆盖，但 `CART_CATALOG_DEPENDENCY` 当前 revision 的真实 Docker dispatch/drain 证据仍待 P1-11 获批 canary。P1-02-F 已完成 Runner strict runnable selection、Run-local participant/permit、Worker startup/recovery ordering、一次性 shutdown latch、warmup lease/resource teardown 和关键失败非零退出；shutdown snapshot 覆盖当时已提交的 `CREATING` 与 `ACTIVE` Run，但不承诺跨进程拒绝 snapshot 后的新创建。P1-02-G 已完成 Worker-owned per-Run cleanup、non-releasing/service-recovery residual、safe API/read model/UI/i18n 和静态验证。P1-09 已完成 strict config、Compose Web/Worker pairing、singleton/grace guard、低敏恢复日志和无破坏性回退文档；发布门禁同时校验应用 strict parser 的 duration grammar、边界和 timeout 顺序，当前代码的目标部署、无未完成 Run 与 Worker 可达依赖的运行时门禁仍待执行。P1-10 已完成不依赖目标环境的代码、route 和静态边界覆盖；fresh/historical MySQL volume compatibility、retention 和未解决 Run 保留仍待获批环境。safe-runtime 开关必须继续保持默认 `false`。不执行 Kubernetes 验证。
-- **总体进度：** 1 / 11 个任务组（55 / 65 个子任务完成；P1-09 运行时发布门禁与 P1-10 MySQL compatibility 待验证）。
-- **当前任务：** P1-09-4：当前代码目标 Docker Compose 单 Worker 的无状态发布门禁；用户将自行提交/部署当前修改，完成后再执行只读核验。P1-10-5 的 fresh/historical MySQL compatibility 同样继续等待获批环境。
-- **当前问题：** P1-ISSUE-001、P1-ISSUE-005 至 P1-ISSUE-008、P1-ISSUE-010 的范围/语义/实现项已解决；P1-ISSUE-002 至 P1-ISSUE-004 仍待当前代码部署或真实 Docker canary 核验，P1-ISSUE-009 记录 cleanup 的跨进程 at-least-once 限制，均不得被视为完整安全停止已具备。
-- **下一步：** 等待用户将当前 Phase 1 源码提交并部署至获批 Docker Compose 单 Worker 环境；完成后执行 P1-09-4 的无状态发布门禁核验，不启用 flag、不触发 Fault Run。随后在获批 fresh/historical MySQL volume 上完成 P1-10-5；P1-ISSUE-002 的 CART 运行证据保留至 P1-11 获批的 Docker-only canary。
+- **总体状态：** 进行中（Docker-only 范围）。P1-01 已完成：本地 Docker/Compose 静态检查有效，远端 Compose 配置有效；2026-09-18 的最新只读复核确认远端与本地均为 `1c574e6`，工作树干净，控制面为 `healthy`、Worker 为 `running`、带 healthcheck 的业务服务健康。远端 Run 快照仅有 `FAILED:8`、`RECOVERED:38`、`STOPPED:6`，`ACTIVE_GUARD_COUNT=0`，safe-runtime 活跃/总计均为 `0`；未发起任何状态变更。P1-02 已获批为完整安全停止纵向切片，吸收原 P1-03 至 P1-08 的实现要求；P1-02-A 至 P1-02-D 已完成 recovery contract、持久化命令事务、Worker-only recovery executor、真实本地 drain registry 与可取消 Gateway/session 链路。P1-02-E 已完成 Report、Surge、Scenario 的 runnable admission/registry 接入与单元覆盖，但 `CART_CATALOG_DEPENDENCY` 当前 revision 的真实 Docker dispatch/drain 证据仍待 P1-11 获批 canary。P1-02-F 已完成 Runner strict runnable selection、Run-local participant/permit、Worker startup/recovery ordering、一次性 shutdown latch、warmup lease/resource teardown 和关键失败非零退出；shutdown snapshot 覆盖当时已提交的 `CREATING` 与 `ACTIVE` Run，但不承诺跨进程拒绝 snapshot 后的新创建。P1-02-G 已完成 Worker-owned per-Run cleanup、non-releasing/service-recovery residual、safe API/read model/UI/i18n 和静态验证。P1-09 已完成 strict config、Compose Web/Worker pairing、singleton/grace guard、低敏恢复日志、无破坏性回退文档及当前代码的只读运行时门禁；Worker 内 MySQL read query 成功、Gateway health 返回 `200`、生命周期账号为 10 个、内部服务密钥已设置。P1-10 已完成不依赖目标环境的代码、route 和静态边界覆盖；fresh/historical MySQL volume compatibility、retention 和未解决 Run 保留仍待获批环境。safe-runtime 开关必须继续保持默认 `false`。不执行 Kubernetes 验证。
+- **总体进度：** 1 / 11 个任务组（56 / 65 个子任务完成；P1-10 MySQL compatibility 待验证，P1-11 canary 未开始）。
+- **当前任务：** P1-10-5：fresh/historical MySQL compatibility、retention 与 unresolved `RECOVERING` 保留验证；完成后再评估是否进入 P1-11 Docker-only canary。
+- **当前问题：** P1-ISSUE-001、P1-ISSUE-003、P1-ISSUE-005 至 P1-ISSUE-008、P1-ISSUE-010 的范围/语义/实现项已解决；P1-ISSUE-002、P1-ISSUE-004 仍待真实 Docker canary 核验，P1-ISSUE-009 记录 cleanup 的跨进程 at-least-once 限制，P1-ISSUE-011 记录远端发布主机缺少 Node 导致 guard 脚本不能原样执行；这些均不得被视为完整安全停止已具备。
+- **下一步：** 在获批的 fresh/historical MySQL volume 环境完成 P1-10-5；然后取得 P1-11 状态性 Docker canary 的明确授权，再执行真实停止/恢复演练。保持 flag=false，不执行 Kubernetes 验证。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
@@ -42,7 +42,7 @@
 | P1-06 | Report、Surge 与专用 Scenario Worker 接入 | 已吸收为 P1-02-E | 追踪 P1-02-E（5 / 6） | P1-02-C、P1-02-D |
 | P1-07 | Runner 受控分支、重启与进程关闭边界 | 已吸收为 P1-02-F | 追踪 P1-02-F（6 / 6） | P1-02-C、P1-02-D |
 | P1-08 | Manual cleanup、non-releasing、Operator API/UI/i18n | 已吸收为 P1-02-G | 追踪 P1-02-G（7 / 7） | P1-02-B 至 P1-02-F |
-| P1-09 | 配置、Docker Compose、可观测性与回退护栏 | 部分完成（目标部署发布门禁待验证） | 4 / 5 | P1-02 |
+| P1-09 | 配置、Docker Compose、可观测性与回退护栏 | 已完成（当前代码 Docker Compose 单 Worker 门禁通过） | 5 / 5 | P1-02 |
 | P1-10 | 测试、兼容性与安全边界验证 | 部分完成（fresh/historical MySQL compatibility 待获批环境） | 5 / 6 | P1-02、P1-09（P1-09-4 运行时门禁待后续核验） |
 | P1-11 | Docker Compose 单 Worker canary、验收与阶段退出 | 未开始 | 0 / 7 | P1-01、P1-09、P1-10 |
 
@@ -191,25 +191,25 @@ graph TD
 
 **目标：** 让新停止协议可默认关闭、成对发布、单 Worker 灰度并可在保留恢复事实的情况下安全回退。
 
-**状态：** 部分完成（P1-09-4 等待当前代码的目标 Docker Compose 部署）；**进度：** 4 / 5；**关联问题：** P1-ISSUE-001、P1-ISSUE-003
+**状态：** 已完成（当前代码 Docker Compose 单 Worker 发布门禁通过）；**进度：** 5 / 5；**关联问题：** P1-ISSUE-001、P1-ISSUE-011
 
 - [x] 在 `env.ts` 以严格解析和交叉校验接入 `FAULT_RUN_SAFE_RUNTIME_ENABLED`、stop scan、drain、recovery 和 shutdown timeout；非法值或 recovery 小于 drain、shutdown 小于 recovery 时启动失败。新增 Compose grace duration 校验，并有默认、非法值和顺序 fixture 覆盖。
 - [x] 同步 Docker Compose Web/Worker 配置和 README；保持默认关闭、Web/Worker 值一致、单 Worker 容器，并使 Compose `stop_grace_period` 使用同一 grace duration 且大于 shutdown budget 和关闭缓冲。Kubernetes 同步与验证延期，不计入本批次完成依据。
 - [x] 为受保护日志和 Run 时间线接入低敏、低基数 phase/outcome/attempt/errorCode 摘要；不新增包含 Run ID、trace ID、路径或参数值的 public metric label。
-- [!] 编制并验证发布门禁：`check-safe-runtime-compose.sh` 已静态验证同镜像、同 flag/timeout、应用 strict parser 的 boolean/integer/duration grammar、timeout 顺序与边界、单 Worker service、非空 worker 账号/内部密钥和 grace budget；最新只读远端复核显示部署仍为 `a2df629`，不是当前含未提交 Phase 1 修改的工作树，不能验证无未完成 safe-runtime Run 或 Worker 对 MySQL/Gateway 的实际可达性。用户将自行提交/部署当前源码后再执行该只读门禁。关联 P1-ISSUE-003。
+- [x] 编制并验证发布门禁：本地 `check-safe-runtime-compose.sh` 已通过；当前代码远端部署 `1c574e6` 只读复核确认 Web/Worker 同镜像 ID、同 flag/timeout、单 Worker service、非空 worker 账号/内部密钥和 grace budget；Worker 内 MySQL 只读查询成功，Gateway health 返回 `200`，无 active/creating/recovering Run。远端主机缺少 Node，脚本未能原样执行，已用 `docker compose config` + 等价只读解析完成目标检查，登记 P1-ISSUE-011。
 - [x] 编制无破坏性回退步骤：先暂停 Operator 创建、处理或保留所有 `safe-runtime.v1` `RECOVERING` Run，再同步关闭 Web/Worker flag 和回退镜像；不得删除 `recovery_result`、事件、Fault Run 或 target 资源。
 
 ## P1-10：测试、兼容性与安全边界验证
 
 **目标：** 通过现有测试、集成和静态验证证明新协议不会产生伪成功、破坏旧 Run 或扩大控制面/消费者边界。
 
-**状态：** 部分完成（fresh/historical MySQL compatibility 待获批环境）；**进度：** 5 / 6；**关联问题：** P1-ISSUE-002、P1-ISSUE-003、P1-ISSUE-004、P1-ISSUE-010
+**状态：** 部分完成（fresh/historical MySQL compatibility 待获批环境）；**进度：** 5 / 6；**关联问题：** P1-ISSUE-002、P1-ISSUE-004、P1-ISSUE-010
 
 - [x] 完成恢复投影、parser、policy、状态转换、request idempotency、创建期取消和 repository 事务的单元/fixture 覆盖，包含历史 JSON、并发和步骤事件顺序。
 - [x] 完成 registry、permit admission、多个 participant、真实 abort、deadline timeout、迟到完成和 `ControlledScenarioWorker` 不无限等待的测试。
 - [x] 完成 stop/cleanup route 的 Operator session、CSRF、confirmation、audit、`202`/`200`/`409` 语义、错误 envelope 和 Web 不调用 release 的测试。
 - [x] 完成 Report、Surge、Scenario 与 Runner 四类路径的 runnable-only、drain、Worker failure、重启、到期、目标不可用和 normal lifecycle 隔离测试。
-- [!] 已通过扩展的 `check-runtime-terminology.sh` 静态检查消费者、Gateway 与目标服务公开面没有新增 `faultRunId`、raw recovery result/error 等内部字段；fresh MySQL 与保留历史 Fault Run 的既有 volume 上的无 DDL 兼容、七天 retention 和未解决 `RECOVERING` Run 保留尚未在获批环境执行，不能以静态/单元结果替代。关联 P1-ISSUE-003、P1-ISSUE-004。
+- [!] 已通过扩展的 `check-runtime-terminology.sh` 静态检查消费者、Gateway 与目标服务公开面没有新增 `faultRunId`、raw recovery result/error 等内部字段；fresh MySQL 与保留历史 Fault Run 的既有 volume 上的无 DDL 兼容、七天 retention 和未解决 `RECOVERING` Run 保留尚未在获批环境执行，不能以静态/单元结果替代。关联 P1-ISSUE-004。
 - [x] 将覆盖纳入现有 `pnpm test:runner`、`pnpm test:i18n`、`pnpm typecheck`、`pnpm lint`、`pnpm build`、`docker compose config --quiet`、`./scripts/check-safe-runtime-compose.sh`、`./scripts/check-runtime-terminology.sh` 和 `git diff --check`，并记录最窄且真实的结果。Kubernetes 相关命令和结论不在当前验证范围。
 
 ## P1-11：Docker Compose 单 Worker canary、验收与阶段退出
@@ -234,7 +234,7 @@ graph TD
 | --- | --- | --- | --- | --- | --- |
 | P1-ISSUE-001 | P1-PLAN / P1-01 | 批次 0 的最终记录保留 Kubernetes runtime 与真实 Prometheus/Loki/Tempo observation adapter limitation；2026-09-17 用户明确 Phase 1 当前不做 Kubernetes 相关验证，只在 Docker Compose 环境实施和验证。 | Kubernetes runtime 不得被 Compose/静态证据替代或标记为已验证；真实 observation adapter 仍不能被当作 verification 成功。但两者不再阻断 Docker-only 安全停止实施和 canary。 | 将 Kubernetes runtime 验证延期，未来在独立获批 namespace、owner 和停止窗口内处理；Docker 范围内只记录真实 Docker 证据。对缺失 observation capability 使用 `UNKNOWN`、`VERIFY_UNAVAILABLE` 或明确 limitation。 | 已解决（Phase 1 范围决策；Kubernetes 验证延期） |
 | P1-ISSUE-002 | P1-PLAN / P1-06 | `tech.md` 将 `CART_CATALOG_DEPENDENCY` 标为缺少真实 dispatch/drain 证据，而批次 0 最终记录包含一次 Compose 运行摘要；两份文档对当前 Catalog revision、事件合同和 drain 结论尚未形成同一可复查事实。 | 在结论统一前，不能将该路径记为已安全排空，也不能用 dummy participant、旧事件或历史 revision 替代当前运行证据。 | 对照当前 Catalog revision、Run ID、`fault_run_events` 和 Worker 汇总合同复核证据；若不满足当前合同，在获批环境执行受控运行并记录真实 drain。随后只更新事实不一致的设计/基线文档，保留历史。 | 待核验 |
-| P1-ISSUE-003 | P1-PLAN / P1-01、P1-02、P1-09 | 新协议要求 Web 与 Worker 使用同一 parser 和一致 flag，且旧镜像不能在存在 `safe-runtime.v1` `RECOVERING` Run 时接管；当前尚无此发布配对的运行证据。 | 版本或配置错配可能使 Web 接受命令而 Worker 不处理，或由旧同步路径错误 release 尚未排空的 Run。 | 已确认默认安全语义：safe-runtime 默认关闭，必须由 Web/Worker 的同一显式开关共同启用。P1-02-F 已使 Worker 以一次性 latch 停止 admission、持久化 shutdown snapshot、收敛 recovery/warmup 并对关键失败返回非零；P1-09 已实现 strict config、同一 Compose 环境锚点、grace budget 和 `check-safe-runtime-compose.sh` 静态门禁。P1-09-4/P1-11 仍须在当前代码的目标部署中核验 Run snapshot、Worker 实际可达性和无破坏性回退。 | 处理中（静态配对护栏已实现，待目标部署运行时核验） |
+| P1-ISSUE-003 | P1-PLAN / P1-01、P1-02、P1-09 | 新协议要求 Web 与 Worker 使用同一 parser 和一致 flag，且旧镜像不能在存在 `safe-runtime.v1` `RECOVERING` Run 时接管；此前尚无此发布配对的运行证据。 | 版本或配置错配可能使 Web 接受命令而 Worker 不处理，或由旧同步路径错误 release 尚未排空的 Run。 | 已确认默认安全语义：safe-runtime 默认关闭，必须由 Web/Worker 的同一显式开关共同启用。P1-02-F 已使 Worker 以一次性 latch 停止 admission、持久化 shutdown snapshot、收敛 recovery/warmup 并对关键失败返回非零；P1-09 已实现 strict config、同一 Compose 环境锚点、grace budget 和 `check-safe-runtime-compose.sh` 静态门禁。当前代码 `1c574e6` 的远端只读复核确认 Web/Worker 同 image ID、单 Worker、flag=false、无 active guard，且 Worker 可读 MySQL、可达 Gateway；P1-11 的真实停止/回退演练仍未执行。 | 已解决（当前代码 Docker Compose 发布门禁通过；canary 仍由 P1-11 管理） |
 | P1-ISSUE-004 | P1-PLAN / P1-02、P1-04、P1-05、P1-08 | Phase 1 不新增伪造 health check，部分 target 的真实 verification 尚未配置；若将控制动作或 abort 请求误当成业务恢复，会违反终态语义。 | `STOPPED`/`RECOVERED` 可能被过早写入，Operator 无法区分验证不可用、release 失败、人工 cleanup 或残留。 | 已确认：无真实 verification adapter 时 policy 使用 `NOT_CONFIGURED`，P1-02-C executor 已持久化 `VERIFY_UNAVAILABLE` 并保留 `RECOVERING`；P1-02-D/F 已使四类 effect owner 的 registry timeout/late-completion、abort 和 Worker shutdown 边界可追溯；P1-02-G 已使 Operator API/UI 将 cleanup、non-releasing、服务不可用和 `VERIFY_UNAVAILABLE` 展示为受控残留，而非终态成功。具备真实固定验证能力后才可显式定义 `REQUIRED`/`BEST_EFFORT`，并以 Docker canary 证明不产生伪成功。 | 处理中（代码路径完成，待真实 Docker canary） |
 | P1-ISSUE-005 | P1-01-2 | 本地 Docker Compose 前置检查确认 Docker Server `29.4.0` 和有效配置但没有本地项目容器。用户随后提供远端 Docker Compose 环境访问与必要时的重启方式；远端配置有效，控制面健康、Worker 存活，部署提交为 `a2df629`。 | 未读取远端 Run/数据库状态，且尚未触发 Fault Run、Worker 重启或其它写操作；静态/容器状态不能替代运行时 stop/drain 事实。 | 可继续在本地实现并在远端重新部署后复核版本配对。任何状态性 Docker canary 前，先记录 active/creating/recovering Run 快照、数据卷边界和本次停止窗口；不使用重置、删卷或强制终态。 | 已解决（远端 Docker 环境与访问边界已确认；状态性 canary 待后续任务） |
 | P1-ISSUE-006 | P1-02 完整纵向切片架构评审 | Web/API 与 standalone Worker 是独立进程；停止命令写入数据库后，Worker 才能在下一次扫描/恢复中关闭本地 Run admission gate。即使所有 effect owner 使用 runnable-only 查询，已读取 `ACTIVE` 的 Worker 仍可能在 Worker 观察命令前进入 setup。 | 若将 HTTP `202 Accepted` 错误宣称为“此刻起绝无新受控工作”，会形成无法由当前单 Worker、无跨进程 gate 架构证明的安全承诺。 | 已确认：`STOP_REQUESTED` 是持久命令接受时间；“禁止新 controlled work”的实际边界是 Worker 持久化 gate-closure 时间线事件。所有 owner 在每个 work permit 前检查 gate，UI 以 `202` 表示 pending 而非即时停止。 | 已解决（语义已确认，待实现与验证） |
@@ -242,6 +242,7 @@ graph TD
 | P1-ISSUE-008 | P1-02-C 复审 / P1-02-G | P1-02-C 的 Worker 已正确停在 `MANUAL_CLEANUP_REQUIRED`，服务不可用也保留为 `RECOVERING + SERVICE_UNAVAILABLE`；但现有 cleanup 与 notification restart route/UI 仍只识别旧终态，无法安全消费这些新投影。 | 在 P1-02-G 完成前，manual cleanup 会停在受控边界，service restart 不能关联 safe Run；因此 safe-runtime 绝不能启用，也不能用旧 Web direct cleanup/restart 绕过该边界。 | 已实现：cleanup route 仅以 `requestFaultRunManualCleanup()` 受理 `202` command，Worker 消费 `CLEANING` 并完成固定 cleanup；restart route/UI 仅对同一 Run 的严格 service-unavailable `RECOVERING` projection 关联 restart，保留 residual，所有结果使用 closed summary 与 key hash。 | 已解决（代码、单元/UI/i18n 和静态验证完成；真实 Docker canary 仍由 P1-11 管理） |
 | P1-ISSUE-009 | P1-02-G | target cleanup 已返回成功但 completion persistence 尚未完成时，Worker 进程可能崩溃；重启后的 Worker 无法从数据库区分这次调用是否已抵达 target。 | 同一 run-scoped cleanup 在跨进程 crash window 中最多可能再调用一次；Phase 1 不能声称 exactly-once target cleanup。 | 同进程 settlement cache 只重试 completion persistence；跨进程恢复依赖 notification storage cleanup 的 run-scoped 幂等删除语义。技术设计已明确为 at-least-once，并在 P1-11 Docker canary 验证 restart/cleanup 重试边界。 | 已接受（Phase 1 已知限制，待 Docker canary 复核） |
 | P1-ISSUE-010 | P1-10：Compose guardrail review | 初版 `check-safe-runtime-compose.sh` 接受 `2h`、`1m30s` 等 Docker duration 形式，而 Worker 的 strict parser 只接受不超过 900 秒的正整数 `ms`、`s` 或 `m`。 | 静态发布门禁可能通过、但 Worker 会因 `INVALID_DURATION_ENV` 启动失败，不能实现其发布前配置有效性的目的。 | 已将 guard 的环境值校验与 Worker parser 的 grammar、最大值和 timeout 顺序对齐；仅为 Docker 正规化后的 `stop_grace_period` 保留组合 duration 解析。已验证默认配置通过，`2h`、`1m30s`、`16m` 和超界 stop scan 均被拒绝。 | 已解决（P1-10 代码与静态回归完成） |
+| P1-ISSUE-011 | P1-09-4：目标环境发布门禁 | 远端发布主机没有 Node.js，`check-safe-runtime-compose.sh` 的原样执行在 `command -v node` 处失败；这不表示 Compose 配置或 Worker runtime 失败。 | 无法在该主机直接执行仓库门禁脚本，发布流程容易误把“工具缺失”与“配置不安全”混淆。 | 本次使用 `docker compose config --quiet`、Python 等价解析和 Worker 容器内的只读 MySQL/Gateway 检查完成相同目标验证；后续可在发布主机安装受支持的 Node.js，或提供不依赖 Node 的容器化 guard。 | 已接受（本次等价只读验证通过；工具链改进延期） |
 
 ## 执行更新记录
 
@@ -283,6 +284,7 @@ graph TD
 | 2026-09-18 11:58 CST | P1-10：代码级测试、兼容性与安全边界验证部分完成 | 1 / 11（55 / 65 子任务） | P1-10：5 / 6 | stop/cleanup handler 的定向测试证明 `202` durable command、`200` replay、`409` conflict、`502` persistence error、CSRF/confirmation 与无 Web direct target dispatch；middleware 覆盖未认证 internal route 的 `401`，notification restart predicate 拒绝 malformed/legacy/伪 recovered projection。已有 recovery/repository、registry、Report/Surge/Scenario/Runner、Worker restart/expiry/target-unavailable/normal-lifecycle 隔离测试纳入完整 `pnpm test:runner`（195 passed）；`pnpm test:i18n`（16 passed）、typecheck、lint、build、Compose config、safe-runtime guard、扩展术语边界检查和 diff 检查均通过。guard 同时拒绝 `2h`、`1m30s`、`16m` grace 和超界 stop scan；未启动/重启 Docker 服务、远端环境或 Fault Run，未运行 Kubernetes 命令。 | 复审发现并解决 P1-ISSUE-010：Compose guard 原先可能接受 Worker 启动时会拒绝的 duration；现已对齐 strict parser grammar、边界和顺序。fresh/historical MySQL volume、retention 和 unresolved `RECOVERING` 保留仍无当前代码的获批环境证据，不能由单元/静态测试替代。 | 在获批、部署当前代码的 Docker Compose 单 Worker 环境执行 P1-09-4 的只读门禁；随后在获批 fresh/historical MySQL volume 上完成 P1-10-5。 |
 | 2026-09-18 12:01 CST | P1-09-4：当前代码目标部署门禁复核 | 1 / 11（55 / 65 子任务） | P1-09：4 / 5（仍阻塞） | 仅通过 SSH 执行远端 `git rev-parse`、`git status`、Compose config 和容器状态读取：远端为干净工作树 `a2df62984548`，Compose 配置有效；本地为 `fffbdfd92475` 且有未提交 Phase 1 修改，远端 revision 是本地 `HEAD` 的祖先。未读取远端 Run/数据库、未读取凭据、未启动/重启服务、未触发 Fault Run 或 Kubernetes 命令。 | P1-ISSUE-003 仍待当前代码的成对发布与运行时证据；旧部署的健康/Compose 状态不能替代当前 parser、guard 或 Worker dependency reachability 的证据。 | 先取得提交与部署当前 Phase 1 修改的明确授权，再重新进行只读 P1-09-4 门禁。 |
 | 2026-09-18 13:11 CST | P1-09-4：部署责任确认 | 1 / 11（55 / 65 子任务） | P1-09：4 / 5（等待用户部署） | 用户确认将自行更新远端部署；本会话不提交、不推送、不构建镜像、不重启或重建远端 Docker Compose 服务。 | P1-ISSUE-003 保持处理中：当前代码尚未形成远端成对发布与 runtime evidence。 | 等待用户部署完成后，以只读方式重跑 P1-09-4 门禁；不启用 flag、不触发 Fault Run。 |
+| 2026-09-18 15:29 CST | P1-09-4：当前代码 Docker Compose 单 Worker 发布门禁完成 | 1 / 11（56 / 65 子任务） | P1-09：5 / 5 | 远端与本地均为 `1c574e6`，远端工作树干净；`docker compose config --quiet` 通过。Web/Worker 均为 `castrel/traffic-control-plane:latest` 且运行 image ID 相同，容器各 1 个；safe-runtime 为 `false`，scan/drain/recovery/shutdown/grace 配置一致，grace 为 `105s`、shutdown 为 `90000ms`。控制面 `healthy`，Worker `running`，带 healthcheck 的业务服务健康。Worker 容器内 MySQL TCP 与只读查询成功，Gateway TCP 成功且 health status 为 `200`，生命周期账号解析出 10 个，内部服务密钥已设置；Run 状态仅为 `FAILED:8`、`RECOVERED:38`、`STOPPED:6`，`ACTIVE_GUARD_COUNT=0`，safe-runtime 活跃/总计均为 `0`。本地 `check-safe-runtime-compose.sh` 通过；远端主机缺少 Node，脚本未原样执行，使用等价只读 Compose 解析完成目标配置检查。全程未重启/重建服务、未写入数据库、未触发 Fault Run、未运行 Kubernetes 命令。 | P1-ISSUE-003 已解决；P1-ISSUE-011 记录远端发布主机缺少 Node 的工具链限制。本次只证明当前部署的配对、依赖可达性和无未完成 Run，不证明 stop/drain/recovery canary 或真实 verification 成功。 | 进入 P1-10-5：fresh/historical MySQL volume、retention 和 unresolved `RECOVERING` 保留验证；P1-11 状态性 canary 仍需明确授权。 |
 
 ## Phase 1 退出标准
 

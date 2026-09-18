@@ -1,6 +1,6 @@
 # 批次 1：Fault Run 安全停止技术设计
 
-> 状态：技术设计 v1.3，P1-02-D 至 P1-02-G、严格 runtime parser、Docker Compose Web/Worker 静态配对、单 Worker/grace 门禁和无破坏性回退文档已实施；仍待当前代码部署后的只读运行时门禁、Docker 单 Worker canary、`CART_CATALOG_DEPENDENCY` dispatch/drain 证据；Kubernetes 验证延期
+> 状态：技术设计 v1.4，P1-02-D 至 P1-02-G、严格 runtime parser、Docker Compose Web/Worker 静态配对、单 Worker/grace 门禁、无破坏性回退文档和当前代码 `1c574e6` 的 Docker Compose 单 Worker 只读发布门禁已实施；仍待 fresh/historical MySQL compatibility、Docker 单 Worker canary、`CART_CATALOG_DEPENDENCY` dispatch/drain 证据；Kubernetes 验证延期
 > 配套产品规格：[product.md](./product.md)
 > 对应路线阶段：[阶段 1：安全停止和失败传播](../../roadmap/phases/phase-1-safe-runtime.md)
 > 前置条件：批次 0 已提供可复查的运行基线；本设计不将尚未核验的基线事实视为已完成能力
@@ -593,7 +593,7 @@ typed projection + unit fixtures
 启用前必须确认：
 
 - Web/API 与 Worker 镜像均包含同一 `safe-runtime.v1` parser 和配置值；
-- 在已部署当前代码且配置所需 Secret 的目标 Compose 环境运行 `./scripts/check-safe-runtime-compose.sh`，确认同镜像、同 flag/timeout、单 Worker service、非空 worker 账号/内部密钥和 grace budget；
+- 在已部署当前代码且配置所需 Secret 的目标 Compose 环境运行 `./scripts/check-safe-runtime-compose.sh`，确认同镜像、同 flag/timeout、单 Worker service、非空 worker 账号/内部密钥和 grace budget；本次目标主机缺少 Node，改以 `docker compose config` 等价解析和 Worker 容器内只读依赖检查完成相同门禁，工具链限制记录为 P1-ISSUE-011；
 - 没有仍依赖旧同步 `stop()` 路径的 active/creating Run；
 - Worker 已启动并可读取 MySQL、Gateway、生命周期账户和现有内部密钥；
 - Worker Deployment/Compose 中只有一个受控 Worker；
