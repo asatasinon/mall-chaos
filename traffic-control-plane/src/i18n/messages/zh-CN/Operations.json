@@ -25,6 +25,7 @@
   "warmupConfigurationInvariant": "目标行数必须等于窗口天数乘以每天行数。",
   "warmupEnabled": "已启用",
   "warmupDisabled": "已停用",
+  "toggleWarmup": "启用或停用预热",
   "windowDays": "窗口天数",
   "rowsPerDay": "每天行数",
   "targetRows": "目标行数",

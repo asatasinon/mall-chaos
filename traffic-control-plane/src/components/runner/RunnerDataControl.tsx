@@ -5,6 +5,7 @@ import { Database, RefreshCw, Trash2, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
 import DatePicker from '@/components/runner/DatePicker';
 import { ModeButton, RunnerMetric, TableSelect } from '@/components/runner/RunnerControls';
 import type { DataWarmupConfigDraft, WarmupJob, WarmupProgressResponse } from '@/components/runner/types';
@@ -117,7 +118,7 @@ export default function DataControlPanel({
         <CardContent className="space-y-3">
           <div className="grid grid-cols-3 gap-2"><RunnerMetric title={t('window')} value={warmup ? commonT('days', { count: warmup.config.windowDays }) : '—'} /><RunnerMetric title={t('defaultPerDay')} value={warmup ? formatNumber(warmup.config.rowsPerDay, locale) : '—'} /><RunnerMetric title={t('target')} value={warmup ? formatNumber(warmup.config.targetRows, locale) : '—'} /></div>
           <div className="space-y-2">
-            {warmup?.tables.map((table) => <div key={table.tableName} className="border-t border-border pt-2"><div className="flex items-center justify-between gap-2 text-xs"><span className="flex min-w-0 items-center gap-2 font-mono"><span className={`status-dot ${table.status === 'ERROR' ? 'status-dot-red' : table.status === 'APPENDING' ? 'status-dot-green' : 'status-dot-yellow'}`} />{table.tableName}</span><Badge variant="outline">{statusLabel(table.status)}</Badge></div><div className="mt-1 grid grid-cols-3 gap-2 text-xs text-muted-foreground"><span>{t('actualRows', { count: formatNumber(table.actualRows, locale) })}</span><span>{t('dayRows', { completed: formatNumber(table.dayCompletedRows, locale), target: formatNumber(table.dayTargetRows, locale), date: table.currentDate })}</span><span className="text-right">{table.guardReason ?? formatBytes(table.tableBytes, locale, t('sizePending'))}</span></div></div>)}
+            {warmup?.tables.map((table) => <div key={table.tableName} className="border-t border-border pt-2"><div className="flex items-center justify-between gap-2 text-xs"><span className="flex min-w-0 items-center gap-2 font-mono"><span className={`status-dot ${table.status === 'ERROR' ? 'status-dot-red' : table.status === 'APPENDING' ? 'status-dot-green' : 'status-dot-yellow'}`} />{table.tableName}</span><Badge variant="outline">{statusLabel(table.status)}</Badge></div><div className="mt-1 grid grid-cols-3 gap-2 text-xs text-muted-foreground"><span>{t('actualRows', { count: formatNumber(table.actualRows, locale) })}</span><span>{t('dayRows', { completed: formatNumber(table.dayCompletedRows, locale), target: formatNumber(table.dayTargetRows, locale), date: table.currentDate })}</span><span className="text-right">{formatBytes(table.tableBytes, locale, t('sizePending'))}</span></div></div>)}
             {!warmup && loading && <p className="text-sm text-muted-foreground">{t('warmupStatusLoading')}</p>}
             {!warmup && !loading && <p className="text-sm text-destructive">{error ?? t('warmupStatusUnavailable')}</p>}
             {warmup && error && <p className="text-xs text-destructive">{error}</p>}
@@ -126,20 +127,26 @@ export default function DataControlPanel({
       </Card>
     </div>
     <Card>
-      <CardHeader className="!flex flex-row items-center justify-between space-y-0 pb-3">
-        <div>
+      <CardHeader className="!flex flex-row items-start justify-between gap-3 space-y-0 pb-3">
+        <div className="min-w-0">
           <CardTitle className="text-sm font-medium">{t('warmupConfiguration')}</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">{t('warmupConfigurationDescription')}</p>
         </div>
-        <Badge variant={configDraft?.enabled ? 'default' : 'outline'}>{configDraft?.enabled ? t('warmupEnabled') : t('warmupDisabled')}</Badge>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            {configDraft?.enabled ? t('warmupEnabled') : t('warmupDisabled')}
+          </span>
+          <Switch
+            checked={configDraft?.enabled ?? false}
+            onCheckedChange={(checked) => onConfigChange('enabled', checked)}
+            disabled={!configDraft || configSaving}
+            aria-label={t('toggleWarmup')}
+          />
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {!configDraft && <p className="text-sm text-muted-foreground">{t('warmupConfigurationLoading')}</p>}
         {configDraft && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-            <input type="checkbox" checked={configDraft.enabled} onChange={(event) => onConfigChange('enabled', event.target.checked)} />
-            <span>{t('warmupEnabled')}</span>
-          </label>
           <label className="space-y-1"><span className="text-xs text-muted-foreground">{t('windowDays')}</span><input type="number" min="1" max="365" value={configDraft.windowDays} onChange={(event) => onConfigChange('windowDays', Number(event.target.value))} className="h-8 w-full rounded-md border border-border bg-input px-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></label>
           <label className="space-y-1"><span className="text-xs text-muted-foreground">{t('rowsPerDay')}</span><input type="number" min="1" max="1000000" value={configDraft.rowsPerDay} onChange={(event) => onConfigChange('rowsPerDay', Number(event.target.value))} className="h-8 w-full rounded-md border border-border bg-input px-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></label>
           <label className="space-y-1"><span className="text-xs text-muted-foreground">{t('targetRows')}</span><input type="number" min="1" max="365000000" value={configDraft.targetRows} onChange={(event) => onConfigChange('targetRows', Number(event.target.value))} className="h-8 w-full rounded-md border border-border bg-input px-2 text-sm outline-none focus:ring-1 focus:ring-ring" /></label>

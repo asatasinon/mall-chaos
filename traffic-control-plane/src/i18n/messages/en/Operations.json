@@ -25,6 +25,7 @@
   "warmupConfigurationInvariant": "Target rows must equal window days multiplied by rows per day.",
   "warmupEnabled": "Enabled",
   "warmupDisabled": "Disabled",
+  "toggleWarmup": "Enable or disable warmup",
   "windowDays": "Window days",
   "rowsPerDay": "Rows per day",
   "targetRows": "Target rows",
