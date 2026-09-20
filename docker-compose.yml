@@ -93,7 +93,7 @@ services:
       - ./infra/mysql/my.cnf:/etc/mysql/conf.d/castrel.cnf:ro
       - ./infra/mysql/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysqladmin ping -h localhost -u\"$$MYSQL_USER\" --silent"]
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql -h 127.0.0.1 -P 3306 --protocol=TCP -u\"$$MYSQL_USER\" -e \"SELECT 1\" >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 10

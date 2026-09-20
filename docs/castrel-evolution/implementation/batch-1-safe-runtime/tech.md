@@ -1,6 +1,6 @@
 # 批次 1：Fault Run 安全停止技术设计
 
-> 状态：技术设计 v1.10，P1-02-D 至 P1-02-G、严格 runtime parser、Docker Compose Web/Worker 静态配对、单 Worker/grace 门禁、无破坏性回退文档、已部署代码 `31bc400` 的 Docker Compose 单 Worker 只读发布门禁及 fresh/historical MySQL compatibility 验证已实施；P1-11-1 启用前复核已完成，主环境 `BROWSE_REPORT_SQL`、隔离 `BROWSE_SURGE` 手工停止、隔离 `CART_CATALOG_DEPENDENCY` dispatch/drain、到期停止、drain timeout、target unavailable、Worker failure、SIGTERM/restart、manual cleanup、non-releasing、正常后台/消费者隔离边界及 safe-runtime 回退保护已记录；历史 Operator 参数 read-model 修复已完成远端 list/detail 复验。旧路径接管未完成 `safe-runtime.v1` Run 的问题已通过 legacy recovery 保护性跳过修复，并在 Docker disposable canary 上复验；Runner 当前数据库配置为 disabled，隔离 Worker 启动异常仍待分类；Kubernetes 验证延期
+> 状态：技术设计 v1.11，P1-02-D 至 P1-02-G、严格 runtime parser、Docker Compose Web/Worker 静态配对、单 Worker/grace 门禁、无破坏性回退文档、已部署代码 `31bc400` 的 Docker Compose 单 Worker 只读发布门禁及 fresh/historical MySQL compatibility 验证已实施；P1-11-1 启用前复核已完成，主环境 `BROWSE_REPORT_SQL`、隔离 `BROWSE_SURGE` 手工停止、隔离 `CART_CATALOG_DEPENDENCY` dispatch/drain、到期停止、drain timeout、target unavailable、Worker failure、SIGTERM/restart、manual cleanup、non-releasing、正常后台/消费者隔离边界及 safe-runtime 回退保护已记录；历史 Operator 参数 read-model 修复已完成远端 list/detail 复验。旧路径接管未完成 `safe-runtime.v1` Run 的问题已通过 legacy recovery 保护性跳过修复，并在 Docker disposable canary 上复验；隔离 Worker 启动异常已分类为 MySQL TCP readiness race，本地 Compose 健康检查已修正但待远端部署复验；Runner 当前数据库配置为 disabled；Kubernetes 验证延期
 > 配套产品规格：[product.md](./product.md)
 > 对应路线阶段：[阶段 1：安全停止和失败传播](../../roadmap/phases/phase-1-safe-runtime.md)
 > 前置条件：批次 0 已提供可复查的运行基线；本设计不将尚未核验的基线事实视为已完成能力
@@ -576,7 +576,7 @@ recovery_error
 - UI 显示绝对 deadline、已观察的 in-flight 数和未解决残留，而不是“保证停止”。
 - 任何新 metric 如后续加入，label 只能使用有限的 `worker`、`phase`、`outcome`、`strategy` 和错误分类，禁止 run ID、trace ID、请求路径、参数值和原始错误。
 - 2026-09-20 主 Compose 只读复核确认 Web/Worker 的 safe-runtime 环境配对且均为 `false`；补给最近完成且无失败计数，Data Warmup 已达到配置目标并持续更新，但数据库 `runner_profile.enabled=0`，因此部署后的 Runner status 为 `running=false`，不能把部署前 lifecycle 记录解释为当前 Runner 持续运行。此前 `BROWSE_SURGE` Run 的 `RECOVERING` 已在旧路径接管后变为 `FAILED/RECOVERY_FAILED/WORKER_DRAIN_INCOMPLETE`，不能把 active guard 消失解释为恢复成功。隔离 `p1-canary-12/13` 的正常 traffic/lifecycle、补给、消费者响应、目标服务日志和 Operator UI/i18n 边界未发现恢复上下文泄露；其 warmup 为 disabled，只能证明 stop 未制造 warmup failure。
-- 两套隔离 canary Worker 最终状态均为 running、exit 0、RestartCount 0，但启动日志分别出现 `5`/`1` 次稳定码 `WORKER_STARTUP_FAILED`；在根因分类前不把最终 health 或 running 状态反推为启动过程无失败，保留为 Docker-only canary limitation。
+- 两套隔离 canary Worker 最终状态均为 running、exit 0、RestartCount 0，但启动日志分别出现 `5`/`1` 次稳定码 `WORKER_STARTUP_FAILED`。时间线显示 `mysqladmin ping -h localhost` 在 MySQL 仅有本地 socket、网络 TCP `3306` 尚未 ready 时提前通过：canary-12 的 Worker 失败重试窗口为 `11:41:47.430Z` 至 `11:42:08.518Z`，MySQL 于 `11:42:08.665Z` 报告 TCP ready，下一次 Worker 启动后加载 DB 配置；canary-13 同样在 MySQL `11:48:10.664Z` 报告 TCP ready 前后完成第二次启动并于 `11:48:10.740Z` 加载配置。后续 Redis `ECONNREFUSED`/`EAI_AGAIN` 出现在 Worker 已成功启动之后，不作为本次 startup failure 根因。根因已归类为 disposable Compose MySQL healthcheck readiness race；`docker-compose.yml` 已在本地改为 `127.0.0.1:3306` TCP `SELECT 1`，待远端部署后重新创建 canary 复验。
 - 旧版本回退边界已发现实际失败：safe-runtime 关闭后 `LegacyFaultRunRecovery` 曾读取带 `safe-runtime.v1` 投影的 `RECOVERING` Run，并在没有 legacy drain participant 时写入 `RECOVERY_FAILED/WORKER_DRAIN_INCOMPLETE`、转为 `FAILED`。本地修复使 legacy `stop()` 和 `scheduleActiveRuns()` 对该投影只读保留；在重新部署并验证前，不能宣称无破坏性回退已通过。
 - 2026-09-20 在远端 `31bc400` 的 Docker Compose 单 Worker 环境复验回退保护：隔离 `p1-canary-13` 既有 `NOTIFICATION_HEAP_PRESSURE` Run `cfee5f78-62cf-4efb-84ca-e126baa19a64` 在启动关闭 flag 的新镜像 Worker 前后均为 `RECOVERING`，事件数保持 `8`，末尾保持 `RECOVERY_BLOCKED`，未新增 `RECOVERY_FAILED` 或 `WORKER_DRAIN_INCOMPLETE`。临时检查容器已清理，原 canary Worker 已恢复，Run/event/database volume 未删除或重置；这只证明旧路径不会接管新投影，不提供 verification adapter 或主环境 Runner 持续运行能力。
 - 首个 Docker canary 已证明在 `verification: NOT_CONFIGURED` 时，`RELEASE_COMPLETED` 之后仍会写 `VERIFY_UNAVAILABLE`/`RECOVERY_BLOCKED` 并保留顶层 `RECOVERING`；这是安全语义，不是可通过 health、abort 或 release acknowledgement 绕过的失败。单 active Run guard 因此继续占用，后续状态性 canary 必须使用隔离 control-plane/数据库环境，或等待真实 verification adapter。
@@ -612,6 +612,7 @@ typed projection + unit fixtures
 启用前必须确认：
 
 - Web/API 与 Worker 镜像均包含同一 `safe-runtime.v1` parser 和配置值；
+- MySQL 健康检查必须验证 `127.0.0.1:3306` TCP 上的只读查询，而不能只使用可能在网络端口 ready 前成功的 `mysqladmin ping -h localhost` socket 检查；当前 Compose 修正待远端部署复验；
 - 在已部署当前代码且配置所需 Secret 的目标 Compose 环境运行 `./scripts/check-safe-runtime-compose.sh`，确认同镜像、同 flag/timeout、单 Worker service、非空 worker 账号/内部密钥和 grace budget；本次目标主机缺少 Node，改以 `docker compose config` 等价解析和 Worker 容器内只读依赖检查完成相同门禁，工具链限制记录为 P1-ISSUE-011；
 - 没有仍依赖旧同步 `stop()` 路径的 active/creating Run；
 - Worker 已启动并可读取 MySQL、Gateway、生命周期账户和现有内部密钥；
