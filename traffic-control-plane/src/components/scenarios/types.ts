@@ -27,6 +27,8 @@ export type FaultRun = {
   targetOperation: string;
   state: string;
   parameters?: Record<string, number | string>;
+  parameterStatus?: 'VALIDATED' | 'LEGACY' | 'UNKNOWN';
+  parameterIssue?: string | null;
   startedAt?: string | null;
   expiresAt: string;
   stoppedAt?: string | null;

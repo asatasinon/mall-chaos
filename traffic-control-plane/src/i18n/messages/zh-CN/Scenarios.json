@@ -47,6 +47,8 @@
   "runContract": "运行契约",
   "submittedCatalogParameters": "已提交的 Catalog 参数",
   "serverValidated": "服务端已校验",
+  "historicalParameters": "历史值（旧格式）",
+  "unknownParameters": "旧参数不可用",
   "duration": "持续时间",
   "fields": "字段数（N）",
   "fieldValueSize": "值大小（S）",

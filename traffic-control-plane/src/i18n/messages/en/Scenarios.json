@@ -47,6 +47,8 @@
   "runContract": "Run contract",
   "submittedCatalogParameters": "Submitted Catalog parameters",
   "serverValidated": "server validated",
+  "historicalParameters": "historical values (legacy)",
+  "unknownParameters": "legacy values unavailable",
   "duration": "Duration",
   "fields": "Fields (N)",
   "fieldValueSize": "Value size (S)",

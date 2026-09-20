@@ -1,11 +1,11 @@
 # 批次 1：Fault Run 安全停止技术设计
 
-> 状态：技术设计 v1.4，P1-02-D 至 P1-02-G、严格 runtime parser、Docker Compose Web/Worker 静态配对、单 Worker/grace 门禁、无破坏性回退文档和当前代码 `1c574e6` 的 Docker Compose 单 Worker 只读发布门禁已实施；仍待 fresh/historical MySQL compatibility、Docker 单 Worker canary、`CART_CATALOG_DEPENDENCY` dispatch/drain 证据；Kubernetes 验证延期
+> 状态：技术设计 v1.8，P1-02-D 至 P1-02-G、严格 runtime parser、Docker Compose Web/Worker 静态配对、单 Worker/grace 门禁、无破坏性回退文档、已部署代码 `1c574e6` 的 Docker Compose 单 Worker 只读发布门禁及 fresh/historical MySQL compatibility 验证已实施；P1-11-1 启用前复核已完成，主环境 `BROWSE_REPORT_SQL`、隔离 `BROWSE_SURGE` 手工停止、隔离 `CART_CATALOG_DEPENDENCY` dispatch/drain、到期停止、drain timeout、target unavailable、Worker failure、SIGTERM/restart、manual cleanup、non-releasing 及正常后台/消费者隔离边界已记录；历史 Operator 参数 read-model 修复已在本地完成但尚未部署复验，隔离 Worker 启动异常仍待分类；Kubernetes 验证延期
 > 配套产品规格：[product.md](./product.md)
 > 对应路线阶段：[阶段 1：安全停止和失败传播](../../roadmap/phases/phase-1-safe-runtime.md)
 > 前置条件：批次 0 已提供可复查的运行基线；本设计不将尚未核验的基线事实视为已完成能力
 > 设计原则：Worker 执行长流程、单 Run 闭合、新旧状态兼容、真实请求取消、总时限、失败不伪装为恢复成功
-> 当前验证范围（2026-09-17）：根据用户决策，本批次仅在 Docker Compose 单 Worker 环境实施和验证；不执行 Kubernetes 配置或运行时核验。文中保留的 Kubernetes 要求仅是后续部署约束，不能计作当前实施、canary 或退出证据。
+> 当前验证范围（2026-09-20）：根据用户决策，本批次仅在 Docker Compose 单 Worker 环境实施和验证；不执行 Kubernetes 配置或运行时核验。文中保留的 Kubernetes 要求仅是后续部署约束，不能计作当前实施、canary 或退出证据。
 
 ## 1. 设计结论
 
@@ -92,14 +92,14 @@ sequenceDiagram
 | 总时限 | safe executor 使用停止命令生成的绝对 drain/recovery deadline，并在 deadline 已过时不开始外部调用。 | 停止请求生成绝对 drain/recovery deadline；每次等待都受剩余时限约束。 |
 | recovery strategy | 当前 `recover()` 无条件调用 `targetAdapter.stop()`。 | 使用集中且可测试的 Catalog policy resolver；`WORKER` 是否 release 由每个 Catalog 定义显式声明，`NON_RELEASING` 严格禁止 release。 |
 | active 查询 | `listActiveFaultRuns()` 返回 `CREATING`、`ACTIVE`、`RECOVERING`，仅保留给兼容读模型和恢复管理。Report、Traffic Surge、Scenario 与 Runner scanner 改用 `listRunnableFaultRuns()` / `loadRunnableFaultRun()`，且额外拒绝已到期 Run。 | runnable 查询语义固定为 `state === 'ACTIVE'`；进程关闭只使用独立的 `listShutdownCandidateFaultRuns()` snapshot，绝不作为效果请求授权。 |
-| 受控场景 Worker | `ScenarioWorkers` 以 runnable 查询加载 Run；safe-runtime 启用时在 session、started event 或请求之前注册 `SCENARIO` participant 并获得 permit。`ControlledScenarioWorker` 和 CART 的 Gateway customer-session dispatch 使用 Run signal；CART 尚无真实运行核验。 | 保留 registry deadline、未合作请求 timeout 与迟到完成事实；CART 必须以 Docker 运行时事件证明实际排空。 |
+| 受控场景 Worker | `ScenarioWorkers` 以 runnable 查询加载 Run；safe-runtime 启用时在 session、started event 或请求之前注册 `SCENARIO` participant 并获得 permit。`ControlledScenarioWorker` 和 CART 的 Gateway customer-session dispatch 使用 Run signal；CART 已由隔离 Docker canary 确认 participant dispatch/drain/release 边界。 | 保留 registry deadline、未合作请求 timeout 与迟到完成事实；CART 的业务请求失败和未配置 verification 仍必须如实保留。 |
 | Report Worker | 每 Run 使用 registry participant/permit、Run abort controller、in-flight tracker 和可取消 interval；login、request、logout 与 local cleanup 都传播 Run signal，停止汇总包含 `timeouts`、`inFlight` 和 stop reason。 | scanner shutdown race 必须在 admission 前拒绝，不以单次 stopped event 推断 drain 成功。 |
 | Traffic Surge | 仅以 runnable 查询启动，safe-runtime 启用时注册 `SURGE` participant、获得 permit 后创建 `ControlledScenarioWorker` 并传入 Run signal。`stop()` 等待 worker request、final event、logout 和 permit completion 的完整 outer lifecycle。 | gate close 不影响其他 surge 或正常流量；deadline 未收敛时由 registry 保留 timeout/late-completion 事实。 |
 | Runner Engine | 对 notification/PSP 受控分支使用 strict `loadRunnableFaultRun()`，额外拒绝已到期或非 Runner-owned Run；受控 lifecycle 注册 `RUNNER` participant、取得 permit 并传递 Run signal。gate close 只取消该 lifecycle，后续 tick 可运行无 context 的正常 lifecycle。 | 单个 Run 不调用全局 `engine.stop()`，也不注册或停止补给、预热和 retention。 |
 | 重启与关闭处理 | `WorkerRuntime` 在 effect scanner 前启动 executor 的 initial recovery scan；executor 扫描持久 `RECOVERING` 与到期 `ACTIVE` Run，并以 `running` map 合并单进程同 Run 工作。关闭时 snapshot 已提交的 `CREATING` 与 `ACTIVE` Run，先写 `WORKER_SHUTDOWN` command 再扫描恢复。 | timer 仅作为 Worker 加速器；数据库状态为事实，Web 不再排期或恢复。snapshot 后才创建的 Run 不受本进程关闭 snapshot 约束，Phase 1 不以此提供跨进程 admission fence。 |
 | 人工 cleanup | per-run cleanup 只允许 `RECOVERED`/`STOPPED`；scenario-wide 路由固定发送 `notification-storage`，不能作为所有允许 cleanup 场景的通用路由。 | `MANUAL_CLEANUP` 必须在显式 recovery phase 中才可执行；scenario-wide cleanup 限定 storage 场景，其他场景只走兼容的 per-run operation。 |
 
-`CART_CATALOG_DEPENDENCY` 已由 P0-13 补齐 Scenario Worker 的受控执行 dispatch 和生命周期代码路径，但尚无真实运行事件可确认请求或 drain。Phase 1 不得为它伪造 drain 或用 `TARGET_ONLY` 描述掩盖运行证据缺口：必须在进入批次 3 严格 Contract gate 前完成运行核验。
+`CART_CATALOG_DEPENDENCY` 已由 P0-13 补齐 Scenario Worker 的受控执行 dispatch 和生命周期代码路径；隔离 Docker canary `9b18c2b7-42ae-4f11-bd86-e27692fe8d13` 已确认真实 participant 注册、停止、排空和必要 target release。该 Run 的 `16` 次业务请求全部失败，且 verification 未配置，因此最终仍为 `RECOVERING`；这只证明 dispatch/drain/release 边界，不是业务成功或 verification 成功。不得用 dummy participant、旧事件或 `TARGET_ONLY` 描述掩盖真实运行事实。
 
 ## 4. 总体架构与模块边界
 
@@ -516,7 +516,8 @@ recovery_error
 - 老版本代码把 `recovery_result` 作为不透明 JSON 读取；新结构是向后兼容的。恢复到老镜像前必须先处理所有 `safe-runtime.v1` 的 `RECOVERING` Run，不能让旧 coordinator 同步 release 一个尚未排空的 Run。
 - 现有 retention 只删除已终态、`recovery_result` 非空且停止超过七天的记录。未解决的 `RECOVERING` Run 不会被自动删除，这正是所需的安全边界。
 - `fault_run_events` 仍随 Fault Run 删除；本批次不把恢复摘要变为长期 Evidence archive，也不改变批次 0 的 baseline retention。
-- 因为没有 DDL，本批次没有 SQL migration。实现仍需对 fresh schema、已有 JSON 为 `null` 的 Run、旧格式 JSON 和 retention 查询覆盖集成测试。
+- 当前历史 volume 的只读复核确认 `fault_runs` 与 `fault_run_events` 均为 InnoDB 且包含实现所需列；本次只读 retention 查询发现 `26` 条已终态候选，未执行删除。随后在隔离 fresh volume 上确认同一 schema 初始化成功，并通过生产 `deleteExpiredFaultRuns()` 验证旧格式 JSON 的过期终态及其 event 被删除，旧 `RECOVERING`、`recovery_result=NULL` 的过期终态和近期终态均保留；临时资源已清理。该验证不覆盖真实 stop/drain/release/verification。
+- 启用前复核发现两条历史 `CATALOG_REDIS_LARGE_VALUE` Run 的旧参数包含 `memberSizeBytes=256`，低于当前 Catalog 的 `1024` 下限；已部署代码 `1c574e6` 的 Operator read model 对列表中的每个 Run 重新执行严格参数校验，因此未过滤列表会返回 `INVALID_PARAMETER:memberSizeBytes`。不得修改历史 Run 或把旧值重新解释为当前合法值；本地工作树已增加 allowlist/类型安全的历史参数保留、`parameterStatus=LEGACY|UNKNOWN` 和稳定 `parameterIssue`，并通过 Operator view、runner、i18n、typecheck、lint、build 与静态门禁；待该修复部署后再完成全量 list/detail 只读复验。
 
 ### 8.4 审计关联
 
@@ -573,6 +574,18 @@ recovery_error
 - `fault_run_events` 是 Operator 详情页的可复查记录；所有关键 phase 转换必须先成功持久化才可继续下一外部操作。
 - UI 显示绝对 deadline、已观察的 in-flight 数和未解决残留，而不是“保证停止”。
 - 任何新 metric 如后续加入，label 只能使用有限的 `worker`、`phase`、`outcome`、`strategy` 和错误分类，禁止 run ID、trace ID、请求路径、参数值和原始错误。
+- 2026-09-20 主 Compose 只读复核显示正常 Runner 仍在产生 lifecycle、补给最近完成且无失败计数，Data Warmup 已达到配置目标并持续更新；当前主库仍有一条 `RECOVERING + VERIFY_UNAVAILABLE` Run 和 active guard，不能把后台活跃度解释为该 Run 已恢复。隔离 `p1-canary-12/13` 的正常 traffic/lifecycle、补给、消费者响应、目标服务日志和 Operator UI/i18n 边界未发现恢复上下文泄露；其 warmup 为 disabled，只能证明 stop 未制造 warmup failure。
+- 两套隔离 canary Worker 最终状态均为 running、exit 0、RestartCount 0，但启动日志分别出现 `5`/`1` 次稳定码 `WORKER_STARTUP_FAILED`；在根因分类前不把最终 health 或 running 状态反推为启动过程无失败，保留为 Docker-only canary limitation。
+- 首个 Docker canary 已证明在 `verification: NOT_CONFIGURED` 时，`RELEASE_COMPLETED` 之后仍会写 `VERIFY_UNAVAILABLE`/`RECOVERY_BLOCKED` 并保留顶层 `RECOVERING`；这是安全语义，不是可通过 health、abort 或 release acknowledgement 绕过的失败。单 active Run guard 因此继续占用，后续状态性 canary 必须使用隔离 control-plane/数据库环境，或等待真实 verification adapter。
+- 隔离 `p1-canary-1` 的 `BROWSE_SURGE` Run `9171b561-c090-4f6e-88b0-55a4f4062f5c` 进一步证明：`DRAIN_COMPLETED` 后，Surge policy 会记录 `RELEASE_SKIPPED` 和 `CLEANUP_SKIPPED`，随后仍因 `VERIFY_UNAVAILABLE` 写入 `RECOVERY_BLOCKED`，最终保持 `RECOVERING + PARTIAL_RECOVERY`；`targetRelease=NOT_APPLICABLE` 不能被误报为 release failure，也不能解除 unresolved guard。
+- 隔离 `p1-canary-3` 的 CART Run `9b18c2b7-42ae-4f11-bd86-e27692fe8d13` 在 `SCENARIO_WORKER_STARTED` 后停止，持久化 `SCENARIO_WORKER_STOPPED`、`SCENARIO_WORKER_DRAINED`、`DRAIN_COMPLETED`、`RELEASE_COMPLETED` 和 `VERIFY_UNAVAILABLE`；14 条 event 的 Worker summary 为 `16 requests/0 successes/16 failures/0 timeouts/0 in-flight`。这证明 registry participant 和真实 abort/drain 事实可见，但不把 target 业务失败折叠为安全排空成功。
+- 隔离 `p1-canary-5` 的 1 秒 `BROWSE_SURGE` Run `ebc1b898-048b-47b8-92a2-3942843b1487` 未发送手工 stop，Worker 自动写入 `STOP_REQUESTED(reason=EXPIRED)`，并复用 `DRAIN_COMPLETED`、`RELEASE_SKIPPED`、`CLEANUP_SKIPPED`、`VERIFY_UNAVAILABLE`、`RECOVERY_BLOCKED` 路径；到期停止同样不产生伪终态。
+- 隔离 `p1-canary-8` 的 `BROWSE_SURGE` Run `00b57588-db90-4b7b-b0fd-1ac0704db293` 在 participant 注册后暂停 Worker，手工 stop 持久化后再恢复 Worker；短 budget 下记录 `DRAIN_TIMED_OUT`，`participants=1`、`accepted=1`、`completed=0`、`aborted=1`、`inFlightAtFinish=0`，最终保留 `RECOVERING` 并继续进入 `VERIFY_UNAVAILABLE`。这证明 timeout 不是通用 `FAILED` 或成功形状。
+- 隔离 `p1-canary-9` 的 CART Run `eef7dd1e-91f7-4965-ac3e-9de035a017c3` 将 Worker 的共享 Gateway 网络与独立 MySQL control 网络分离；断开共享网络后 drain 仍完成，但固定 target release 持久化 `RELEASE_FAILED(errorCode=TARGET_RELEASE_TIMEOUT)`，随后 `RECOVERY_BLOCKED` 保留 `SERVICE_RECOVERY_REQUIRED/WAIT_FOR_SERVICE_RECOVERY` residual。恢复网络后未重试或改写已记录的失败事实，主环境不受影响。
+- 隔离 `p1-canary-10` 的 `BROWSE_SURGE` Run `989b613b-9ae5-4426-be11-31647835fa1a` 在 participant 注册后强制终止 Worker；Run 保持 `ACTIVE`，随后 stop 命令持久化为 `RECOVERING`，重启 Worker 后因进程内 participant 不可恢复而记录 `DRAIN_FAILED(DRAIN_PARTICIPANT_MISSING)`/`RECOVERY_BLOCKED`，没有重新启动 Scenario Worker。Worker failure 的不确定性保留为 `DRAIN_UNCERTAIN/INVESTIGATE_DRAIN`。
+- 隔离 `p1-canary-11` 的 CART Run `37610181-445d-4768-9747-cc67870659b2` 在 participant 注册后向 Worker 发送 `SIGTERM`；Worker 以退出码 `0` 在 Compose grace 内完成 `WORKER_SHUTDOWN`，持久化 `SCENARIO_WORKER_STOPPED`、`SCENARIO_WORKER_DRAINED`、`DRAIN_COMPLETED`、`RELEASE_COMPLETED`、`CLEANUP_SKIPPED`、`VERIFY_UNAVAILABLE` 和 `RECOVERY_BLOCKED`，最终保留 `RECOVERING + PARTIAL_RECOVERY`。重启 Worker 后事件不增加，`SCENARIO_WORKER_STARTED` 计数仍为 `1`，证明 shutdown/restart 不会重新执行受控业务效果；`WORKER_SHUTDOWN` 只表示持久化 stop command，不表示恢复成功。
+- 隔离 `p1-canary-12` 的 `NOTIFICATION_STORAGE_APPEND` Run `ead6bc66-264b-4724-825a-fc6d07b634cd` 在自动恢复中先停在 `MANUAL_CLEANUP_REQUIRED`；Operator 确认前没有 `MANUAL_CLEANUP_REQUESTED`，per-run cleanup 命令返回 `202` 后才记录 `MANUAL_CLEANUP_REQUESTED`/`MANUAL_CLEANUP_COMPLETED`，cleanup 成功后仍因 verification 未配置保持 `RECOVERING + VERIFY_UNAVAILABLE`。这证明 destructive cleanup 不是 stop/release 的隐式副作用。
+- 隔离 `p1-canary-13` 的 `NOTIFICATION_HEAP_PRESSURE` Run `cfee5f78-62cf-4efb-84ca-e126baa19a64` 在 `DRAIN_COMPLETED` 后只记录 `NON_RELEASING_RECORDED` 和 `RECOVERY_BLOCKED`，projection 为 `NON_RELEASING_ACTIVE`、release 为 `NOT_APPLICABLE`，事件中不存在任何 `RELEASE_*`；residual 为 `NON_RELEASING_EFFECT/SERVICE_OWNER/WAIT_FOR_SERVICE_RECOVERY`，active guard 保持。
 
 ### 10.3 灰度顺序
 
@@ -584,6 +597,8 @@ typed projection + unit fixtures
   -> deploy code with flag=false
   -> validate paired Web/Worker image, config, singleton Worker and grace budget
   -> confirm no active legacy Fault Run and Worker dependencies
+  -> resolve or explicitly isolate historical Operator read-model compatibility failures
+  -> deploy and revalidate historical Operator list/detail compatibility
   -> enable Web/API and Worker flag=true together in one non-production environment
   -> manual stop, expiry, timeout and restart exercises
   -> single-environment canary
@@ -598,6 +613,8 @@ typed projection + unit fixtures
 - Worker 已启动并可读取 MySQL、Gateway、生命周期账户和现有内部密钥；
 - Worker Deployment/Compose 中只有一个受控 Worker；
 - 人工 cleanup 和 non-releasing 的 runbook 已按真实 target 行为核验。
+
+当前隔离 canary 工作区使用独立 MySQL named volume、唯一 Web/Worker 容器和临时 Web 端口，并仅通过 external Docker network 连接现有 Gateway、Redis 与 notification broker；隔离库的 `runner_profile` 在 Worker 启动前显式关闭，`DATA_WARMUP_ENABLED=false`，以避免隔离控制面向共享业务流量产生无关 lifecycle 或 warmup 写入。该工作区只能证明各路径的真实 dispatch/drain/recovery 事实，不能解除主环境 unresolved `RECOVERING` Run 的 guard，也不能替代真实 verification adapter。
 
 ### 10.4 回退
 
@@ -638,7 +655,7 @@ typed projection + unit fixtures
 
 1. `fault-run-view.test.ts` 覆盖旧事件、`safe-runtime.v1` 全成功、drain timeout、release failure、manual cleanup、non-releasing、未知 JSON 和多个步骤失败。
 2. `en`/`zh-CN` locale 均覆盖新增 event、phase、outcome、错误和 Operator next-action key。
-3. 使用 fresh MySQL 与含历史 Run 的已有 volume 验证 JSON 兼容、七天 retention 和未解决 `RECOVERING` Run 不被删除。
+3. 已使用 fresh MySQL 与含历史 Run 的已有 volume 验证 JSON/NULL 兼容、七天 retention 和未解决 `RECOVERING` Run 不被删除；真实 stop/drain/release/verification 仍待 Docker canary。
 4. 在 disposable 单 Worker 环境中分别演练 Report、Surge、Scenario 和 Runner 受控分支的手工停止、到期停止、drain timeout、Gateway 不可用、Worker 重启和 `SIGTERM`。
 5. 验证停止一个 Run 不会停止正常 lifecycle、数据预热、库存/优惠券补给；检查消费者响应、Gateway 请求和目标服务日志没有新增控制面恢复字段。
 6. 将新增测试纳入现有 `pnpm test:runner`，并执行控制面 `typecheck`、`lint`、`build`、`test:i18n`、Docker Compose 配置检查、术语检查及 `git diff --check`。Kubernetes 相关验证不在当前范围内。
@@ -656,7 +673,7 @@ typed projection + unit fixtures
 | 7 | manual cleanup、non-releasing policy、UI/i18n | 2、3、5、6 | Operator 能区分自动完成、人工 cleanup、残留和部分恢复。 |
 | 8 | 配置、Docker Compose、README、环境演练 | 1～7 | Docker Compose 单 Worker opt-in canary 和回退步骤已实际核验；Kubernetes 验证延期。 |
 
-`CART_CATALOG_DEPENDENCY` 的真实 dispatch/drain 运行证据缺口作为独立阻断项追踪，不能在步骤 5 中以空 registry participant 闭合。批次 2 可以消费本批次已稳定的 `RECOVERING`/drain 投影，但不能直接复用 registry 作为 owner lease。
+`CART_CATALOG_DEPENDENCY` 的真实 dispatch/drain 证据已在当前 Catalog revision 下完成并与事件合同一致；其业务请求失败和 verification 未配置仍是运行时 limitation，不得改写为成功。批次 2 可以消费本批次已稳定的 `RECOVERING`/drain 投影，但不能直接复用 registry 作为 owner lease。
 
 ## 13. 验收与退出条件
 
@@ -669,6 +686,6 @@ typed projection + unit fixtures
 5. `RECOVERED`/`STOPPED` 只在策略所需步骤和真实验证完成后写入。safe-runtime.v1 的超时、人工 cleanup、残留、部分恢复或服务不可用始终保留可解释的 `RECOVERING` 边界，不能通过现有 `SERVICE_UNAVAILABLE` 提前解除 active-run guard。
 6. Worker 重启、优雅关闭和取消不会把 `RECOVERING` Run 重新变成 `ACTIVE` 或再次发起效果请求；单 Run 停止不影响独立后台生命周期。
 7. 单 Worker canary 已完成手工停止、到期、timeout、target 不可用、Worker 重启和人工 cleanup 演练，且 Operator 时间线、错误 envelope、日志和 UI 没有泄露 raw stack、session、secret 或控制面上下文到消费者路径。
-8. `CART_CATALOG_DEPENDENCY` 的代码 dispatch 已被补齐，但真实 dispatch/drain 仍须明确处理或列为阻断，不作为“已安全排空”的虚假通过项。
+8. `CART_CATALOG_DEPENDENCY` 的真实 dispatch/drain 已在当前 Catalog revision 的 Docker Compose 单 Worker canary 中明确记录；业务失败和未配置 verification 仍必须保留为运行时 limitation，不得作为“已安全排空”或“已恢复”的虚假通过项。
 
 满足这些退出条件后，批次 2 才能在已可靠的单 Run 停止边界上增加 owner lease、heartbeat、fencing 和重协调，而不是把多 Worker 接管建立在不确定的 in-flight 请求之上。

@@ -1,4 +1,5 @@
 import {
+  FaultRunValidationError,
   getScenarioDefinition,
   validateScenarioParameters,
   type FaultRunState,
@@ -75,6 +76,8 @@ export interface FaultRunOperatorRun {
   targetOperation: string;
   state: FaultRunState;
   parameters: Record<string, number | string>;
+  parameterStatus: 'VALIDATED' | 'LEGACY' | 'UNKNOWN';
+  parameterIssue: string | null;
   startedAt: string | null;
   expiresAt: string;
   stoppedAt: string | null;
@@ -122,13 +125,16 @@ export function buildFaultRunOperatorRun(
     throw new Error('FAULT_RUN_STATE_INVALID');
   }
   const recovery = buildFaultRunRecoveryView(run.recoveryResult);
+  const parameterReadModel = readParameters(run);
   return {
     faultRunId: run.faultRunId,
     scenario: definition.scenario,
     targetService: definition.targetService,
     targetOperation: definition.targetOperation,
     state: run.state,
-    parameters: validatedParameters(run),
+    parameters: parameterReadModel.parameters,
+    parameterStatus: parameterReadModel.status,
+    parameterIssue: parameterReadModel.issue,
     startedAt: run.startedAt,
     expiresAt: run.expiresAt,
     stoppedAt: run.stoppedAt,
@@ -205,8 +211,58 @@ export function buildFaultRunOperatorAudit(audit: FaultRunAuditRecord): FaultRun
 
 export { summarizeNotificationRestartResult, type NotificationRestartSummary };
 
-function validatedParameters(run: FaultRunRecord): Record<string, number | string> {
-  return validateScenarioParameters(run.scenario, run.parameters);
+function readParameters(run: FaultRunRecord): {
+  parameters: Record<string, number | string>;
+  status: FaultRunOperatorRun['parameterStatus'];
+  issue: string | null;
+} {
+  try {
+    return {
+      parameters: validateScenarioParameters(run.scenario, run.parameters),
+      status: 'VALIDATED',
+      issue: null,
+    };
+  } catch (error) {
+    if (error instanceof FaultRunValidationError) {
+      return {
+        parameters: sanitizeHistoricalParameters(run),
+        status: 'LEGACY',
+        issue: safeParameterIssue(error.message),
+      };
+    }
+    return {
+      parameters: sanitizeHistoricalParameters(run),
+      status: 'UNKNOWN',
+      issue: 'UNKNOWN_PARAMETER_STATE',
+    };
+  }
+}
+
+function sanitizeHistoricalParameters(run: FaultRunRecord): Record<string, number | string> {
+  const definition = getScenarioDefinition(run.scenario);
+  const allowed = new Map(definition.parameters.map((parameter) => [parameter.name, parameter]));
+  const source = asRecord(run.parameters);
+  const parameters: Record<string, number | string> = {};
+  for (const [name, value] of Object.entries(source)) {
+    const definitionParameter = allowed.get(name);
+    if (!definitionParameter) continue;
+    if (typeof value === 'number' && Number.isFinite(value) && Number.isSafeInteger(value)) {
+      parameters[name] = value;
+      continue;
+    }
+    if (typeof value === 'string'
+      && value.length <= (definitionParameter.maxLength ?? 256)
+      && !/[\u0000-\u001f\u007f]/.test(value)) {
+      parameters[name] = value;
+    }
+  }
+  return parameters;
+}
+
+function safeParameterIssue(value: string): string {
+  return /^[A-Z][A-Z0-9_]{0,127}(?::[A-Za-z][A-Za-z0-9_]{0,127})?$/.test(value)
+    ? value
+    : 'UNKNOWN_PARAMETER_STATE';
 }
 
 function manualCleanupAvailability(

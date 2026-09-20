@@ -61,6 +61,8 @@ test('builds a strict recovery view without server-only identifiers or request-k
 
   assert.equal(view.recovery.kind, 'SAFE_RUNTIME_V1');
   assert.equal(view.targetOperation, 'product-detail-cache');
+  assert.equal(view.parameterStatus, 'VALIDATED');
+  assert.equal(view.parameterIssue, null);
   assert.equal(JSON.stringify(view).includes('create-request-key-must-not-leave-server'), false);
   assert.equal(JSON.stringify(view).includes('trace-must-not-leave-server'), false);
   assert.equal(JSON.stringify(view).includes('target response must not leave server'), false);
@@ -88,6 +90,33 @@ test('does not infer recovery success from malformed or legacy recovery data', (
     reason: 'INVALID_SHAPE',
   });
   assert.deepEqual(legacy.recovery, { kind: 'LEGACY', projection: null });
+});
+
+test('keeps historical parameter values readable without treating them as current catalog validation', () => {
+  const view = buildFaultRunOperatorRun(createRun({
+    parameters: {
+      durationSec: 60,
+      concurrency: 1,
+      requestIntervalMs: 0,
+      memberCount: 2,
+      memberSizeBytes: 256,
+      keyTtlSec: 120,
+    },
+  }));
+
+  assert.equal(view.parameterStatus, 'LEGACY');
+  assert.equal(view.parameterIssue, 'INVALID_PARAMETER:memberSizeBytes');
+  assert.equal(view.parameters.memberSizeBytes, 256);
+
+  const unknownFieldView = buildFaultRunOperatorRun(createRun({
+    parameters: {
+      durationSec: 60,
+      ignoredHistoricalField: 'must not be exposed',
+    },
+  }));
+  assert.equal(unknownFieldView.parameterStatus, 'LEGACY');
+  assert.equal(unknownFieldView.parameterIssue, 'UNKNOWN_PARAMETER:ignoredHistoricalField');
+  assert.equal('ignoredHistoricalField' in unknownFieldView.parameters, false);
 });
 
 test('only exposes allowlisted event facts and audit fields', () => {
