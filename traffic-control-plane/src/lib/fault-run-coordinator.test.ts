@@ -7,7 +7,10 @@ import {
   type FaultRunRecord,
   type RequestFaultRunStopInput,
 } from './fault-run-repository';
-import { parseFaultRunRecoveryProjection } from './fault-run-recovery';
+import {
+  createInitialFaultRunRecoveryProjection,
+  parseFaultRunRecoveryProjection,
+} from './fault-run-recovery';
 import { FaultRunCoordinator, type FaultRunStore, type FaultRunTargetAdapter } from './fault-run-coordinator';
 import { LegacyFaultRunRecovery } from './legacy-fault-run-recovery';
 import type { FaultRunState } from './fault-run-catalog';
@@ -263,6 +266,32 @@ test('legacy recovery does not release a Run whose Worker drain is unregistered'
     workerDrain?: { registered?: boolean; drained?: boolean };
   };
   assert.deepEqual(payload.workerDrain, { registered: false, drained: false });
+});
+
+test('legacy recovery does not take over an unfinished safe-runtime projection', async () => {
+  const store = new MemoryFaultRunStore();
+  const target = new MemoryTargetAdapter();
+  const recovery = new LegacyFaultRunRecovery(target, store);
+  const projection = createInitialFaultRunRecoveryProjection({
+    reason: 'MANUAL',
+    requestedAt: new Date('2026-09-20T00:00:00.000Z'),
+    drainDeadlineAt: new Date('2026-09-20T00:00:30.000Z'),
+    recoveryDeadlineAt: new Date('2026-09-20T00:01:00.000Z'),
+  });
+  store.run = {
+    ...store.run!,
+    state: 'RECOVERING',
+    recoveryResult: projection,
+    stopReason: 'MANUAL',
+  };
+
+  const stopped = await recovery.stop(runId);
+  await recovery.scheduleActiveRuns();
+
+  assert.equal(stopped?.state, 'RECOVERING');
+  assert.equal(store.run?.state, 'RECOVERING');
+  assert.equal(target.stops, 0);
+  assert.deepEqual(store.events, []);
 });
 
 test('coordinator stores a bounded catalog target summary in TARGET_CONFIRMED', async () => {

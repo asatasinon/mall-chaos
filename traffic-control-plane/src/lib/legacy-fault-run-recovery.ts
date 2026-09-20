@@ -4,6 +4,7 @@ import {
   type FaultRunStore,
   type FaultRunTargetAdapter,
 } from './fault-run-coordinator';
+import { parseFaultRunRecoveryProjection } from './fault-run-recovery';
 import type { FaultRunRecord } from './fault-run-repository';
 
 /**
@@ -29,6 +30,7 @@ export class LegacyFaultRunRecovery {
     const existing = await this.store.load(faultRunId);
     if (!existing) return null;
     if (isTerminal(existing.state) || existing.state === 'SERVICE_UNAVAILABLE') return existing;
+    if (isSafeRuntimeRecovery(existing)) return existing;
     if (existing.parameters.durationSec && existing.expiresAt <= new Date().toISOString()) reason = 'EXPIRED';
 
     const current = this.recoveryPromises.get(faultRunId);
@@ -65,6 +67,7 @@ export class LegacyFaultRunRecovery {
           },
         );
       } else if (run.state === 'RECOVERING') {
+        if (isSafeRuntimeRecovery(run)) return;
         await this.stop(run.faultRunId, 'EXPIRED');
       } else if (run.expiresAt <= new Date().toISOString()) {
         await this.stop(run.faultRunId, 'EXPIRED');
@@ -170,6 +173,10 @@ export class LegacyFaultRunRecovery {
 
 function isTerminal(state: FaultRunRecord['state']): boolean {
   return state === 'RECOVERED' || state === 'STOPPED' || state === 'FAILED';
+}
+
+function isSafeRuntimeRecovery(run: FaultRunRecord): boolean {
+  return parseFaultRunRecoveryProjection(run.recoveryResult).kind === 'SAFE_RUNTIME_V1';
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

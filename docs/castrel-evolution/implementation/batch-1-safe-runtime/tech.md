@@ -1,6 +1,6 @@
 # 批次 1：Fault Run 安全停止技术设计
 
-> 状态：技术设计 v1.8，P1-02-D 至 P1-02-G、严格 runtime parser、Docker Compose Web/Worker 静态配对、单 Worker/grace 门禁、无破坏性回退文档、已部署代码 `1c574e6` 的 Docker Compose 单 Worker 只读发布门禁及 fresh/historical MySQL compatibility 验证已实施；P1-11-1 启用前复核已完成，主环境 `BROWSE_REPORT_SQL`、隔离 `BROWSE_SURGE` 手工停止、隔离 `CART_CATALOG_DEPENDENCY` dispatch/drain、到期停止、drain timeout、target unavailable、Worker failure、SIGTERM/restart、manual cleanup、non-releasing 及正常后台/消费者隔离边界已记录；历史 Operator 参数 read-model 修复已在本地完成但尚未部署复验，隔离 Worker 启动异常仍待分类；Kubernetes 验证延期
+> 状态：技术设计 v1.9，P1-02-D 至 P1-02-G、严格 runtime parser、Docker Compose Web/Worker 静态配对、单 Worker/grace 门禁、无破坏性回退文档、已部署代码 `50f9727` 的 Docker Compose 单 Worker 只读发布门禁及 fresh/historical MySQL compatibility 验证已实施；P1-11-1 启用前复核已完成，主环境 `BROWSE_REPORT_SQL`、隔离 `BROWSE_SURGE` 手工停止、隔离 `CART_CATALOG_DEPENDENCY` dispatch/drain、到期停止、drain timeout、target unavailable、Worker failure、SIGTERM/restart、manual cleanup、non-releasing 及正常后台/消费者隔离边界已记录；历史 Operator 参数 read-model 修复已完成远端 list/detail 复验。另发现已部署旧路径在 safe-runtime 关闭后接管未完成 `safe-runtime.v1` Run 并写入 `FAILED`，本地已增加 legacy recovery 保护性跳过和回归测试，待重新部署复验；Runner 当前数据库配置为 disabled，隔离 Worker 启动异常仍待分类；Kubernetes 验证延期
 > 配套产品规格：[product.md](./product.md)
 > 对应路线阶段：[阶段 1：安全停止和失败传播](../../roadmap/phases/phase-1-safe-runtime.md)
 > 前置条件：批次 0 已提供可复查的运行基线；本设计不将尚未核验的基线事实视为已完成能力
@@ -517,7 +517,8 @@ recovery_error
 - 现有 retention 只删除已终态、`recovery_result` 非空且停止超过七天的记录。未解决的 `RECOVERING` Run 不会被自动删除，这正是所需的安全边界。
 - `fault_run_events` 仍随 Fault Run 删除；本批次不把恢复摘要变为长期 Evidence archive，也不改变批次 0 的 baseline retention。
 - 当前历史 volume 的只读复核确认 `fault_runs` 与 `fault_run_events` 均为 InnoDB 且包含实现所需列；本次只读 retention 查询发现 `26` 条已终态候选，未执行删除。随后在隔离 fresh volume 上确认同一 schema 初始化成功，并通过生产 `deleteExpiredFaultRuns()` 验证旧格式 JSON 的过期终态及其 event 被删除，旧 `RECOVERING`、`recovery_result=NULL` 的过期终态和近期终态均保留；临时资源已清理。该验证不覆盖真实 stop/drain/release/verification。
-- 启用前复核发现两条历史 `CATALOG_REDIS_LARGE_VALUE` Run 的旧参数包含 `memberSizeBytes=256`，低于当前 Catalog 的 `1024` 下限；已部署代码 `1c574e6` 的 Operator read model 对列表中的每个 Run 重新执行严格参数校验，因此未过滤列表会返回 `INVALID_PARAMETER:memberSizeBytes`。不得修改历史 Run 或把旧值重新解释为当前合法值；本地工作树已增加 allowlist/类型安全的历史参数保留、`parameterStatus=LEGACY|UNKNOWN` 和稳定 `parameterIssue`，并通过 Operator view、runner、i18n、typecheck、lint、build 与静态门禁；待该修复部署后再完成全量 list/detail 只读复验。
+- 启用前复核发现两条历史 `CATALOG_REDIS_LARGE_VALUE` Run 的旧参数包含 `memberSizeBytes=256`，低于当前 Catalog 的 `1024` 下限；已部署代码 `1c574e6` 的 Operator read model 对列表中的每个 Run 重新执行严格参数校验，因此未过滤列表会返回 `INVALID_PARAMETER:memberSizeBytes`。不得修改历史 Run 或把旧值重新解释为当前 Catalog 合法值；`50f9727` 已包含 allowlist/类型安全的历史参数保留、`parameterStatus=LEGACY|UNKNOWN` 和稳定 `parameterIssue`，并通过远端 authenticated list/detail 只读复验：列表 HTTP 200 返回 27 个 Run，4 个历史 `CATALOG_REDIS_LARGE_VALUE` 中 2 个为 `LEGACY`、2 个为 `VALIDATED`，旧 detail HTTP 200 显示 `LEGACY`，且不暴露 raw recovery、request key hash 或 fencing token。
+- 无破坏性回退复核发现：safe-runtime 关闭后，旧版本 `LegacyFaultRunRecovery` 会把带 `safe-runtime.v1` 投影的 `RECOVERING` Run 当作 legacy Run 处理；由于 Worker-local drain participant 不在 legacy registry 中，Run 会被写入 `RECOVERY_FAILED/WORKER_DRAIN_INCOMPLETE` 并转为 `FAILED`。这不是恢复成功，也不是允许的回退语义。修复要求 legacy `stop()` 和 `scheduleActiveRuns()` 在发现 `safe-runtime.v1` 未完成投影时只读保留 Run，不调用 target release、不写终态；本地新增回归测试并使 `pnpm test:runner` 达到 197 passed，待 Docker Compose 重新部署后复验。
 
 ### 8.4 审计关联
 
@@ -574,8 +575,9 @@ recovery_error
 - `fault_run_events` 是 Operator 详情页的可复查记录；所有关键 phase 转换必须先成功持久化才可继续下一外部操作。
 - UI 显示绝对 deadline、已观察的 in-flight 数和未解决残留，而不是“保证停止”。
 - 任何新 metric 如后续加入，label 只能使用有限的 `worker`、`phase`、`outcome`、`strategy` 和错误分类，禁止 run ID、trace ID、请求路径、参数值和原始错误。
-- 2026-09-20 主 Compose 只读复核显示正常 Runner 仍在产生 lifecycle、补给最近完成且无失败计数，Data Warmup 已达到配置目标并持续更新；当前主库仍有一条 `RECOVERING + VERIFY_UNAVAILABLE` Run 和 active guard，不能把后台活跃度解释为该 Run 已恢复。隔离 `p1-canary-12/13` 的正常 traffic/lifecycle、补给、消费者响应、目标服务日志和 Operator UI/i18n 边界未发现恢复上下文泄露；其 warmup 为 disabled，只能证明 stop 未制造 warmup failure。
+- 2026-09-20 主 Compose 只读复核确认 Web/Worker 的 safe-runtime 环境配对且均为 `false`；补给最近完成且无失败计数，Data Warmup 已达到配置目标并持续更新，但数据库 `runner_profile.enabled=0`，因此部署后的 Runner status 为 `running=false`，不能把部署前 lifecycle 记录解释为当前 Runner 持续运行。此前 `BROWSE_SURGE` Run 的 `RECOVERING` 已在旧路径接管后变为 `FAILED/RECOVERY_FAILED/WORKER_DRAIN_INCOMPLETE`，不能把 active guard 消失解释为恢复成功。隔离 `p1-canary-12/13` 的正常 traffic/lifecycle、补给、消费者响应、目标服务日志和 Operator UI/i18n 边界未发现恢复上下文泄露；其 warmup 为 disabled，只能证明 stop 未制造 warmup failure。
 - 两套隔离 canary Worker 最终状态均为 running、exit 0、RestartCount 0，但启动日志分别出现 `5`/`1` 次稳定码 `WORKER_STARTUP_FAILED`；在根因分类前不把最终 health 或 running 状态反推为启动过程无失败，保留为 Docker-only canary limitation。
+- 旧版本回退边界已发现实际失败：safe-runtime 关闭后 `LegacyFaultRunRecovery` 曾读取带 `safe-runtime.v1` 投影的 `RECOVERING` Run，并在没有 legacy drain participant 时写入 `RECOVERY_FAILED/WORKER_DRAIN_INCOMPLETE`、转为 `FAILED`。本地修复使 legacy `stop()` 和 `scheduleActiveRuns()` 对该投影只读保留；在重新部署并验证前，不能宣称无破坏性回退已通过。
 - 首个 Docker canary 已证明在 `verification: NOT_CONFIGURED` 时，`RELEASE_COMPLETED` 之后仍会写 `VERIFY_UNAVAILABLE`/`RECOVERY_BLOCKED` 并保留顶层 `RECOVERING`；这是安全语义，不是可通过 health、abort 或 release acknowledgement 绕过的失败。单 active Run guard 因此继续占用，后续状态性 canary 必须使用隔离 control-plane/数据库环境，或等待真实 verification adapter。
 - 隔离 `p1-canary-1` 的 `BROWSE_SURGE` Run `9171b561-c090-4f6e-88b0-55a4f4062f5c` 进一步证明：`DRAIN_COMPLETED` 后，Surge policy 会记录 `RELEASE_SKIPPED` 和 `CLEANUP_SKIPPED`，随后仍因 `VERIFY_UNAVAILABLE` 写入 `RECOVERY_BLOCKED`，最终保持 `RECOVERING + PARTIAL_RECOVERY`；`targetRelease=NOT_APPLICABLE` 不能被误报为 release failure，也不能解除 unresolved guard。
 - 隔离 `p1-canary-3` 的 CART Run `9b18c2b7-42ae-4f11-bd86-e27692fe8d13` 在 `SCENARIO_WORKER_STARTED` 后停止，持久化 `SCENARIO_WORKER_STOPPED`、`SCENARIO_WORKER_DRAINED`、`DRAIN_COMPLETED`、`RELEASE_COMPLETED` 和 `VERIFY_UNAVAILABLE`；14 条 event 的 Worker summary 为 `16 requests/0 successes/16 failures/0 timeouts/0 in-flight`。这证明 registry participant 和真实 abort/drain 事实可见，但不把 target 业务失败折叠为安全排空成功。
@@ -599,6 +601,7 @@ typed projection + unit fixtures
   -> confirm no active legacy Fault Run and Worker dependencies
   -> resolve or explicitly isolate historical Operator read-model compatibility failures
   -> deploy and revalidate historical Operator list/detail compatibility
+  -> verify legacy recovery ignores unfinished safe-runtime.v1 projections before rollback
   -> enable Web/API and Worker flag=true together in one non-production environment
   -> manual stop, expiry, timeout and restart exercises
   -> single-environment canary
@@ -622,8 +625,8 @@ typed projection + unit fixtures
 
 1. 先停止接受新 Fault Run，枚举并处理所有 `safe-runtime.v1` 的 `RECOVERING` Run。
 2. 对每个 Run 确认 drain、release、manual cleanup 或非释放残留的真实边界；未完成者保留 `RECOVERING` 和时间线。
-3. 在没有未完成新协议 Run 后，将 Web 和 Worker 的开关一起关闭并回退镜像。
-4. 保留 `recovery_result` JSON 和事件；旧代码必须安全忽略未知字段。
+3. 在没有未完成新协议 Run 后，将 Web 和 Worker 的开关一起关闭并回退镜像；旧版本 legacy recovery 必须在发现 `safe-runtime.v1` 投影时只读跳过，不能调用 legacy drain/release 或写入 `FAILED`。
+4. 保留 `recovery_result` JSON 和事件；旧代码必须安全忽略未知字段，且必须通过 Docker disposable Run 复验该跳过边界。
 5. 不通过删除 `fault_runs`、重置 MySQL volume、删除 target 资源或关闭审计来“修复”失败。
 
 ## 11. 测试设计
