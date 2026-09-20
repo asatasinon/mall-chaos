@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import DatePicker from '@/components/runner/DatePicker';
 import { ModeButton, RunnerMetric, TableSelect } from '@/components/runner/RunnerControls';
-import type { DataWarmupConfigDraft, WarmupJob, WarmupProgressResponse } from '@/components/runner/types';
+import type { DataWarmupConfigDraft, DataWarmupConfigField, WarmupJob, WarmupProgressResponse } from '@/components/runner/types';
 import { formatBytes, formatNumber } from '@/components/runner/utils';
 
 interface DataControlPanelProps {
@@ -37,8 +37,10 @@ interface DataControlPanelProps {
   configDraft: DataWarmupConfigDraft | null;
   configDirty: boolean;
   configSaving: boolean;
+  configToggleSaving: boolean;
   configMessage: string | null;
-  onConfigChange: <K extends keyof DataWarmupConfigDraft>(field: K, value: DataWarmupConfigDraft[K]) => void;
+  onConfigChange: <K extends DataWarmupConfigField>(field: K, value: DataWarmupConfigDraft[K]) => void;
+  onConfigToggle: (enabled: boolean) => void;
   onConfigSave: () => void;
 }
 
@@ -46,6 +48,7 @@ export default function DataControlPanel({
   warmup, jobs, loading, jobsLoading, error, jobsError, operation, tableName, rowsPerDay, dateInput, dates, busy, message,
   onOperationChange, onTableChange, onRowsChange, onDateInputChange, onAddDates, onRemoveDate, onSubmit, onRefresh, onRefreshJobs,
   configDraft, configDirty, configSaving, configMessage, onConfigChange, onConfigSave,
+  configToggleSaving, onConfigToggle,
 }: DataControlPanelProps) {
   const t = useTranslations('Operations');
   const commonT = useTranslations('Common');
@@ -138,8 +141,8 @@ export default function DataControlPanel({
           </span>
           <Switch
             checked={configDraft?.enabled ?? false}
-            onCheckedChange={(checked) => onConfigChange('enabled', checked)}
-            disabled={!configDraft || configSaving}
+            onCheckedChange={onConfigToggle}
+            disabled={!configDraft || configSaving || configToggleSaving}
             aria-label={t('toggleWarmup')}
           />
         </div>
@@ -157,7 +160,7 @@ export default function DataControlPanel({
         </div>}
         {configDraft && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
           <p className="max-w-2xl text-xs text-muted-foreground">{t('warmupConfigurationInvariant')}</p>
-          <Button onClick={onConfigSave} disabled={configSaving || !configDirty}>{configSaving ? <><RefreshCw className="animate-spin" />{t('savingWarmupConfiguration')}</> : t('saveWarmupConfiguration')}</Button>
+          <Button onClick={onConfigSave} disabled={configSaving || configToggleSaving || !configDirty}>{configSaving ? <><RefreshCw className="animate-spin" />{t('savingWarmupConfiguration')}</> : t('saveWarmupConfiguration')}</Button>
         </div>}
         {configMessage && <p className="text-xs text-muted-foreground">{configMessage}</p>}
       </CardContent>

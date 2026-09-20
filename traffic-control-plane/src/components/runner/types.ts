@@ -132,6 +132,7 @@ export interface DataWarmupConfig {
 }
 
 export type DataWarmupConfigDraft = Omit<DataWarmupConfig, 'version' | 'updatedAt'>;
+export type DataWarmupConfigField = Exclude<keyof DataWarmupConfigDraft, 'enabled'>;
 
 export type WarmupJobRequest = {
   operation: 'INJECT' | 'CLEANUP';

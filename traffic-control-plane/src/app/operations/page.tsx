@@ -11,6 +11,7 @@ import { fetchWithAuth } from '@/lib/auth-fetch';
 import { isClientNetworkError } from '@/lib/client-error';
 import type {
   CouponReplenishmentStatus,
+  DataWarmupConfigField,
   InventoryReplenishmentStatus,
   RunnerStatus,
   WarmupCleanupConfirmation,
@@ -72,6 +73,7 @@ export default function OperationsPage() {
   const [warmupConfigDirty, setWarmupConfigDirty] = useState(false);
   const warmupConfigDirtyRef = useRef(false);
   const [warmupConfigSaving, setWarmupConfigSaving] = useState(false);
+  const [warmupConfigToggleSaving, setWarmupConfigToggleSaving] = useState(false);
   const [warmupConfigMessage, setWarmupConfigMessage] = useState<string | null>(null);
   const [warmupConfigConfirmation, setWarmupConfigConfirmation] = useState<DataWarmupConfigDraft | null>(null);
 
@@ -99,8 +101,8 @@ export default function OperationsPage() {
     } catch {}
   }, []);
 
-  const loadWarmupProgress = useCallback(async (showLoading = false) => {
-    if (warmupRequestInFlight.current) return;
+  const loadWarmupProgress = useCallback(async (showLoading = false): Promise<WarmupProgressResponse | null> => {
+    if (warmupRequestInFlight.current) return null;
     warmupRequestInFlight.current = true;
     if (showLoading) setWarmupLoading(true);
     const controller = new AbortController();
@@ -115,11 +117,13 @@ export default function OperationsPage() {
         setWarmupConfigDraft(toWarmupConfigDraft(responseData.config));
       }
       setWarmupError(null);
+      return responseData;
     } catch (error) {
       setWarmupError(error instanceof Error && error.name === 'AbortError'
         ? t('warmupStatusTimedOut')
         : isClientNetworkError(error) ? commonT('networkError')
         : error instanceof Error ? error.message : t('warmupStatusUnavailable'));
+      return null;
     } finally {
       clearTimeout(timeout);
       warmupRequestInFlight.current = false;
@@ -127,7 +131,7 @@ export default function OperationsPage() {
     }
   }, [commonT, t]);
 
-  const updateWarmupConfigDraft = <K extends keyof DataWarmupConfigDraft>(field: K, value: DataWarmupConfigDraft[K]) => {
+  const updateWarmupConfigDraft = <K extends DataWarmupConfigField>(field: K, value: DataWarmupConfigDraft[K]) => {
     warmupConfigDirtyRef.current = true;
     setWarmupConfigDirty(true);
     setWarmupConfigMessage(null);
@@ -158,7 +162,17 @@ export default function OperationsPage() {
       const response = await fetchWithAuth('/internal/traffic/runner/data-warmup/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...draft, version: warmup.config.version, confirmed }),
+        body: JSON.stringify({
+          version: warmup.config.version,
+          windowDays: draft.windowDays,
+          rowsPerDay: draft.rowsPerDay,
+          targetRows: draft.targetRows,
+          batchSize: draft.batchSize,
+          batchIntervalMs: draft.batchIntervalMs,
+          maxConcurrency: draft.maxConcurrency,
+          dbConcurrency: draft.dbConcurrency,
+          confirmed,
+        }),
       });
       const json = await response.json();
       if (json.code !== 0) throw new Error(json.message || t('unableToSaveWarmupConfiguration'));
@@ -177,6 +191,36 @@ export default function OperationsPage() {
       }
     } finally {
       setWarmupConfigSaving(false);
+    }
+  };
+
+  const toggleWarmupEnabled = async (enabled: boolean) => {
+    if (!warmup || warmupConfigToggleSaving) return;
+    setWarmupConfigToggleSaving(true);
+    setWarmupConfigMessage(null);
+    try {
+      const response = await fetchWithAuth('/internal/traffic/runner/data-warmup/enabled', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: warmup.config.version, enabled }),
+      });
+      const json = await response.json();
+      if (json.code !== 0) throw new Error(json.message || t('unableToToggleWarmup'));
+      const saved = json.data as WarmupProgressResponse['config'];
+      setWarmup((current) => current ? { ...current, config: saved } : current);
+      setWarmupConfigDraft((current) => current ? { ...current, enabled: saved.enabled } : current);
+      setWarmupConfigMessage(t('warmupToggleSaved'));
+      await loadWarmupProgress(true);
+    } catch (error) {
+      setWarmupConfigMessage(responseMessage(error, commonT('networkError'), t('unableToToggleWarmup')));
+      if (error instanceof Error && error.message.toLowerCase().includes('conflict')) {
+        const refreshed = await loadWarmupProgress(true);
+        if (refreshed) {
+          setWarmupConfigDraft((current) => current ? { ...current, enabled: refreshed.config.enabled } : current);
+        }
+      }
+    } finally {
+      setWarmupConfigToggleSaving(false);
     }
   };
 
@@ -346,8 +390,10 @@ export default function OperationsPage() {
       configDraft={warmupConfigDraft}
       configDirty={warmupConfigDirty}
       configSaving={warmupConfigSaving}
+      configToggleSaving={warmupConfigToggleSaving}
       configMessage={warmupConfigMessage}
       onConfigChange={updateWarmupConfigDraft}
+      onConfigToggle={(enabled) => void toggleWarmupEnabled(enabled)}
       onConfigSave={() => {
         if (warmupConfigDraft) void saveWarmupConfig(warmupConfigDraft);
       }}

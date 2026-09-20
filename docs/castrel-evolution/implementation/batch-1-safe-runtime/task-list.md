@@ -5,8 +5,8 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | 进行中；P1-01、P1-02（含原 P1-03 至 P1-08）、P1-09、P1-10 和 P1-11 的 Docker-only canary 任务已完成实现、测试与证据回填。主环境首个手工停止、隔离环境 Surge 手工停止、CART dispatch/drain、Report/Runner 到期停止、drain timeout、target unavailable、Worker failure、SIGTERM/restart、manual cleanup、non-releasing、单 Run 前后正常后台/消费者隔离、retention 直接执行以及 safe-runtime 回退保护复验均已记录；历史 Operator 参数兼容修复已在远端 `31bc400` 部署并通过 list/detail 只读复验。当前仍受 verification adapter 未配置限制，不能宣称真实 `STOPPED`/`RECOVERED` 终态能力；仅在 Docker Compose 单 Worker 范围实施和验证 |
-| 版本 | 1.48 |
-| 更新时间 | 2026-09-20 16:48 CST（移除预热表格中的内部 guard 配置文案） |
+| 版本 | 1.49 |
+| 更新时间 | 2026-09-20 17:49 CST（拆分预热启停与参数保存接口） |
 | 路线阶段 | [阶段 1：安全停止和失败传播](../../roadmap/phases/phase-1-safe-runtime.md) |
 | 产品规格 | [product.md](./product.md) |
 | 技术设计 | [tech.md](./tech.md) |
@@ -317,6 +317,8 @@ graph TD
 | 2026-09-20 16:42 CST | P1-02-G follow-up：预热配置启停控件布局调整完成 | 1 / 11（65 / 65 个子任务完成） | P1-02：42 / 42；P1-02-G：7 / 7 | 将 Operator 预热配置中的启用复选框移至配置卡片右上角，改为可访问的 Base UI Switch，并保留现有草稿、脏状态、版本 CAS、保存按钮和影响确认流程；新增中英文 Switch 无障碍文案。控制面 `pnpm typecheck`、`pnpm lint`、`pnpm test:i18n`（16 passed）和 `git diff --check` 均通过。 | 未发现行为或数据协议问题；该调整不改变 warmup worker、safe-runtime 默认关闭或 Docker-only 验证边界。 | 保持现有 Phase 1 退出限制；不执行 Kubernetes 验证。 |
 
 | 2026-09-20 16:48 CST | P1-02-G follow-up：隐藏预热表格内部 guard 配置文案完成 | 1 / 11（65 / 65 个子任务完成） | P1-02：42 / 42；P1-02-G：7 / 7 | 定位到 Worker 停用时写入的 `DATA_WARMUP_ENABLED=false` 会通过 `guardReason` 返回，旧 UI 直接将诊断字段作为表格右侧文案展示；现改为始终展示用户可理解的表大小，保留状态徽标和后端诊断字段，不改变 warmup 状态、配置保存或数据协议。 | 原因是展示层误用内部诊断字段，不是运行时配置异常；不新增问题项。 | 保持现有 Phase 1 退出限制；不执行 Kubernetes 验证。 |
+
+| 2026-09-20 17:49 CST | P1-02-G follow-up：预热启停与参数保存接口拆分完成 | 1 / 11（65 / 65 个子任务完成） | P1-02：42 / 42；P1-02-G：7 / 7 | 新增 `PATCH /internal/traffic/runner/data-warmup/enabled`，仅携带 `version` 与 `enabled`，独立执行 optimistic-lock 更新、Operator audit 和错误返回；原 `PUT /data-warmup/config` 仅保存窗口、行数、批量和并发参数，拒绝通过该接口修改 `enabled`。前端 Switch 直接调用启停接口，参数保存继续使用独立保存按钮，并处理切换中的禁用、版本冲突和状态刷新。 | 未发现协议或数据一致性问题；两条接口继续共享 version CAS，避免启停和参数更新互相覆盖。 | 保持现有 Phase 1 退出限制；不执行 Kubernetes 验证。 |
 
 ## Phase 1 退出标准
 

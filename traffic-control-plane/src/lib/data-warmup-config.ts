@@ -27,7 +27,6 @@ export interface DataWarmupConfig {
 
 export interface DataWarmupConfigUpdate {
   version: number;
-  enabled?: boolean;
   windowDays?: number;
   rowsPerDay?: number;
   targetRows?: number;
@@ -37,9 +36,13 @@ export interface DataWarmupConfigUpdate {
   dbConcurrency?: number;
 }
 
+export interface DataWarmupEnabledUpdate {
+  version: number;
+  enabled: boolean;
+}
+
 const CONFIG_UPDATE_FIELDS = new Set([
   'version',
-  'enabled',
   'windowDays',
   'rowsPerDay',
   'targetRows',
@@ -136,7 +139,7 @@ export async function updateDataWarmupConfig(
   const current = await loadDataWarmupConfig();
   validateDataWarmupConfigUpdate(input, current);
   const next = {
-    enabled: input.enabled ?? current.enabled,
+    enabled: current.enabled,
     windowDays: input.windowDays ?? current.windowDays,
     rowsPerDay: input.rowsPerDay ?? current.rowsPerDay,
     targetRows: input.targetRows ?? current.targetRows,
@@ -168,6 +171,36 @@ export async function updateDataWarmupConfig(
         updatedByOperatorId,
         input.version,
       ],
+    );
+    if (Number((result as { affectedRows?: number }).affectedRows ?? 0) !== 1) {
+      throw new Error('VERSION_CONFLICT');
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  return loadDataWarmupConfig();
+}
+
+export async function updateDataWarmupEnabled(
+  input: DataWarmupEnabledUpdate,
+  updatedByOperatorId: number | null,
+): Promise<DataWarmupConfig> {
+  validateDataWarmupEnabledUpdate(input);
+  await loadDataWarmupConfig();
+
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [result] = await connection.execute(
+      `UPDATE data_warmup_config
+          SET enabled = ?, updated_by_operator_id = ?, version = version + 1
+        WHERE config_id = 1 AND version = ?`,
+      [input.enabled ? 1 : 0, updatedByOperatorId, input.version],
     );
     if (Number((result as { affectedRows?: number }).affectedRows ?? 0) !== 1) {
       throw new Error('VERSION_CONFLICT');
@@ -233,12 +266,11 @@ export function validateDataWarmupConfigUpdate(
 ): void {
   if (Object.keys(input).some((key) => !CONFIG_UPDATE_FIELDS.has(key))
       || !Number.isInteger(input.version)
-      || input.version < 1
-      || (input.enabled !== undefined && typeof input.enabled !== 'boolean')) {
+      || input.version < 1) {
     throw new Error('INVALID_DATA_WARMUP_CONFIGURATION');
   }
   const next = {
-    enabled: input.enabled ?? current.enabled,
+    enabled: current.enabled,
     windowDays: input.windowDays ?? current.windowDays,
     rowsPerDay: input.rowsPerDay ?? current.rowsPerDay,
     targetRows: input.targetRows ?? current.targetRows,
@@ -248,6 +280,12 @@ export function validateDataWarmupConfigUpdate(
     dbConcurrency: input.dbConcurrency ?? current.dbConcurrency,
   };
   validateDataWarmupConfig(next);
+}
+
+export function validateDataWarmupEnabledUpdate(input: DataWarmupEnabledUpdate): void {
+  if (!Number.isInteger(input.version) || input.version < 1 || typeof input.enabled !== 'boolean') {
+    throw new Error('INVALID_DATA_WARMUP_CONFIGURATION');
+  }
 }
 
 export const DATA_WARMUP_CONFIG_STATEMENTS = [CONFIG_TABLE_STATEMENT] as const;
