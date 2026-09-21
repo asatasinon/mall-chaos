@@ -47,7 +47,7 @@ Operator API
 - 当前代码已经有 `FaultRunRecoveryExecutor`、`WorkerRuntime`、`FaultRunDrainRegistry`、`resolveFaultRunRecoveryPolicy()` 和安全运行时 projection。Phase 2 的 Reconciler 必须渐进式接管这些组件，保留既有 recovery projection、policy、deadline、verification limitation 和 normal-task shutdown 语义，不能平行实现第二套恢复状态机。
 - `OBSERVE`、`SHADOW` 和 `TAKEOVER` 都允许**首次** claim；只有 `TAKEOVER` 允许在 lease stale 且动作状态可恢复时执行自动接管。`OBSERVE`/`SHADOW` 对 stale owner 只记录观察或候选决定，不能重新 claim 或启动第二个 driver。
 - execution claim 后的 `drain_state` 表示“已获得 owner”时应为 `OWNED`，不是 `RUNNING`；只有进入停止路径才使用 `DRAINING`、`DRAINED` 或 `DRAIN_TIMEOUT`。stale takeover 不能把 `lease_lost_at` 清空；首次发现失联时应记录数据库检测时间，不能伪造旧 Worker 的精确失联时间。
-- 当前实际已使用 `002-fault-run-baseline.sql`。本批次固定使用下一个全局序号 `003-fault-run-worker-ownership.sql`，fresh-install 对应 `infra/mysql/init/07-fault-run-worker-ownership.sql`；批次 3 的 contract revision migration 必须改用 `004`，不得继续使用 `002`。
+- 当前实际已使用 `002-fault-run-baseline.sql`、`003-data-warmup-config.sql` 和 `004-alert-receipts.sql`。本批次固定使用下一个全局序号 `005-fault-run-worker-ownership.sql`，fresh-install 对应 `infra/mysql/init/09-fault-run-worker-ownership.sql`；批次 3 的 contract revision migration 必须改用 `006`。
 - 当前 `CART_CATALOG_DEPENDENCY` 已有真实 dispatch/drain 的 Phase 1 Docker evidence；Phase 2 仍必须把它接入 owner driver descriptor，不能因为业务请求失败而标记为未 dispatch，也不能用 no-op driver 替代真实路径。
 
 以上修正和设计到任务的追踪关系记录在 [task-list.md](./task-list.md)；在 P2-00 完成前，不进入 owner lease 编码。
@@ -77,7 +77,7 @@ Operator API
 | `GatewayClient.customerRequest()`、支付 PSP 调用链 | customer request 可附加 `X-Operation-Run-*`；支付服务会尝试继续向 PSP 转发这些 header。 | 删除该 public-path context 入口；Gateway 对非 `/internal/**` 请求移除这些 header，支付 PSP client 不再从入站请求复制它们。 |
 | `OperationRunGuard` | 目标服务以 target `fencingToken` 和 lease 保护内部资源。 | 保持不变。Worker owner lease 只在控制平面执行层防止旧进程继续开始新动作。 |
 | `DataWarmupService` | Redis NX、compare-and-expire renew、lease loss 后停止写入。 | 复用“续约失败立即本地停写/停接收”的控制流；不复用 Redis key、lease、owner 或进度表。 |
-| `fault-run-schema.ts` 与 `infra/mysql/init/04-fault-run-schema.sql` | 覆盖初始 Fault Run 表；Phase 1 还通过 `infra/mysql/init/06-fault-run-baseline.sql` 提供 baseline 表。 | ownership 结构使用独立显式 expand migration 和 `infra/mysql/init/07-fault-run-worker-ownership.sql`；新结构不得通过 Web/API 或 Worker 启动时的隐式 DDL/`ALTER` 升级。 |
+| `fault-run-schema.ts` 与 `infra/mysql/init/04-fault-run-schema.sql` | 覆盖初始 Fault Run 表；Phase 1 还通过 `infra/mysql/init/06-fault-run-baseline.sql` 提供 baseline 表。 | ownership 结构使用独立显式 expand migration 和 `infra/mysql/init/09-fault-run-worker-ownership.sql`；新结构不得通过 Web/API 或 Worker 启动时的隐式 DDL/`ALTER` 升级。 |
 
 ### 2.1 范围
 
@@ -110,7 +110,7 @@ Operator API
 2. 所有会产生持续请求的执行器都通过共享的 `ACTIVE` predicate；`CREATING`、`RECOVERING` 不得启动任何流量 driver。
 3. 已明确每个 Catalog 目标操作是否需要 prepare/release。`FaultRunRecoveryStrategy` 不是目标 lifecycle 的唯一推导来源：`WORKER` 场景也可能已有 Gateway prepare，`NON_RELEASING` 则明确禁止正常 release。
 4. 已验证 `CART_CATALOG_DEPENDENCY` 的真实消费者路径 dispatch。Phase 2 应将现有真实 Scenario Worker 路径包装为 owned driver；在此之前不能用 no-op driver 填补“可接管”指标，也不能把业务请求失败解释为未 dispatch。
-5. 批次 2 migration 已在目标环境完成，且 Worker 的 schema verification 通过；迁移序号和 checksum 已与批次 0 的 `002`、批次 3 预留的 `004` 对齐。
+5. 批次 2 migration 已在目标环境完成，且 Worker 的 schema verification 通过；迁移序号和 checksum 已与现有 `002`/`003`/`004`、批次 3 预留的 `006` 对齐。
 
 ## 3. 所有权模型与模块边界
 
@@ -656,7 +656,7 @@ driver registry 可以有静态 `supports()` 分支，但不能复制 Catalog �
 | `traffic-control-plane/src/lib/fault-run-recovery-policy.ts` | 复用既有 `resolveFaultRunRecoveryPolicy()`；只在确有必要时扩展类型，不新增平行 policy map。 |
 | `traffic-control-plane/src/lib/fault-run-schema.ts` | fresh schema 定义和 schema verification；不在业务请求中应用 ownership migration。 |
 | `traffic-control-plane/src/lib/migrations/run.ts` | 显式 migration apply/verify、schema version/checksum 检查和稳定失败码。 |
-| `traffic-control-plane/src/lib/migrations/003-fault-run-worker-ownership.sql` | 当前全局 migration 序列中的 ownership expand migration。 |
+| `traffic-control-plane/src/lib/migrations/005-fault-run-worker-ownership.sql` | 当前全局 migration 序列中的 ownership expand migration。 |
 | `traffic-control-plane/src/lib/fault-run-repository.ts` | 在新模式 create transaction 中写 execution/action 初始记录；以 optional join 返回 execution projection；保留 legacy record 的空投影。 |
 | `traffic-control-plane/src/lib/fault-run-coordinator.ts` | 移除 `timers`、`recoveryPromises`、`runDrains` 的跨进程职责，保留 command/state-policy facade。 |
 | `traffic-control-plane/src/lib/env.ts` | 严格解析 reconciliation mode、TTL、heartbeat、scan interval 和 owner identity prefix。 |
@@ -671,7 +671,7 @@ driver registry 可以有静态 `supports()` 分支，但不能复制 Catalog �
 | `traffic-control-plane/src/i18n/messages/{en,zh-CN}/FaultRuns.json` | 所有新状态、事件和不确定性提示的双语文案。 |
 | `gateway-service/.../InternalDispatchAuthenticationGlobalFilter.java` | 在非 internal 路由剥离 `X-Operation-Run-*`，并保持 internal allowlist/auth 语义。 |
 | `payment-service/.../PspClient.java`、`PaymentService.java` | 删除 customer request context 的提取和向 PSP 的 operation header 复制。 |
-| `infra/mysql/init/07-fault-run-worker-ownership.sql`、`docker-compose.yml`、`k8s/services/traffic-control-plane/worker-deployment.yaml`、`k8s/kustomization.yaml` | fresh schema、默认配置、Worker identity、Recreate/grace period 和 migration Job 编排。 |
+| `infra/mysql/init/09-fault-run-worker-ownership.sql`、`docker-compose.yml`、`k8s/services/traffic-control-plane/worker-deployment.yaml`、`k8s/kustomization.yaml` | fresh schema、默认配置、Worker identity、Recreate/grace period 和 migration Job 编排。 |
 | `traffic-control-plane/src/lib/*test.ts`、`traffic-control-plane/src/worker/*test.ts`、Gateway/Payment Java 测试 | 覆盖本设计第 11 节的数据库竞争、driver、协议、迁移和部署边界。 |
 
 `OperationRunGuard`、`OperationRunContext`、Gateway fixed operation registry 和业务目标 controller 不接收 `ownerEpoch`，因此不应为 owner lease 改造而修改它们的公共/内部协议。
@@ -758,12 +758,12 @@ UI 只显示受限枚举、时间和摘要，不显示原始异常、HTTP body�
 
 ### 10.1 Expand/contract migration
 
-本批次新增结构必须通过显式 migration 应用，不能通过启动时 `ALTER TABLE`、lazy backfill 或“重建 MySQL volume”修复。本批次固定使用全局序号 `003`；批次 0 已占用 `002`，批次 3 的 contract revision migration 必须使用 `004`。
+本批次新增结构必须通过显式 migration 应用，不能通过启动时 `ALTER TABLE`、lazy backfill 或“重建 MySQL volume”修复。本批次固定使用全局序号 `005`；现有 `002`、`003`、`004` 已分别由 baseline、warmup config、alert receipts 占用，批次 3 的 contract revision migration 必须使用 `006`。
 
 1. 增加受控的 migration runner 与 `traffic_control_plane_schema_migrations` 元数据表，记录 migration ID、checksum、执行时间和执行者。
 2. runner 先验证当前 `fault_runs`/`fault_run_events` 基线完整；部分创建或 checksum 不一致时失败，不继续猜测升级。
-3. 应用 `traffic-control-plane/src/lib/migrations/003-fault-run-worker-ownership.sql`，创建 `fault_run_executions`、`fault_run_actions`、索引和约束。DDL 由显式 CLI/Job 执行，不能在普通 Route Handler/Worker 流量下发生。
-4. 同时更新 `traffic-control-plane/src/lib/fault-run-schema.ts` 与 `infra/mysql/init/07-fault-run-worker-ownership.sql`，确保新 MySQL volume 的完整 schema 与迁移后 schema 一致。
+3. 应用 `traffic-control-plane/src/lib/migrations/005-fault-run-worker-ownership.sql`，创建 `fault_run_executions`、`fault_run_actions`、索引和约束。DDL 由显式 CLI/Job 执行，不能在普通 Route Handler/Worker 流量下发生。
+4. 同时更新 `traffic-control-plane/src/lib/fault-run-schema.ts` 与 `infra/mysql/init/09-fault-run-worker-ownership.sql`，确保新 MySQL volume 的完整 schema 与迁移后 schema 一致。
 5. 对仍在 retention 内的历史 Run 不回填 owner、heartbeat、动作历史或 target 结果。新代码在读取时返回 `execution: null` / `LEGACY_UNOWNED` 投影。
 6. 在 `OFF` 模式可保持旧代码兼容。任何非 `OFF` Worker 在 owner migration 未应用时必须 fail fast，使用稳定错误 `FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED`。
 7. 只有确认所有旧 Worker 已停止、无新路径 active Run 且不再需要旧 scanner 后，后续批次才可 contract/remove 旧进程内协调逻辑；本批次不删除列、表、事件或旧状态。
@@ -775,8 +775,8 @@ MySQL DDL 会隐式提交，因此 migration runner 不能声称整个多条 DDL
 | 文件/区域 | 设计变更 |
 | --- | --- |
 | `traffic-control-plane/src/lib/fault-run-schema.ts` | fresh schema 对齐 execution/action 表；普通运行路径改为 schema verification，不应用 ownership migration。 |
-| `traffic-control-plane/src/lib/migrations/003-fault-run-worker-ownership.sql` | 控制面显式 expand migration。 |
-| `infra/mysql/init/07-fault-run-worker-ownership.sql` | 新卷 ownership schema，与 `06-fault-run-baseline.sql` 顺序一致。 |
+| `traffic-control-plane/src/lib/migrations/005-fault-run-worker-ownership.sql` | 控制面显式 expand migration。 |
+| `infra/mysql/init/09-fault-run-worker-ownership.sql` | 新卷 ownership schema，与 `07` warmup config、`08` alert receipts 顺序一致。 |
 | `traffic-control-plane/src/lib/migrations/run.ts` | 显式 apply/verify、checksum 和稳定错误语义。 |
 | `traffic-control-plane/package.json` | 新增受控 `db:migrate` 与 `db:verify` 脚本；不把 migration 放入 `dev`、`worker` 或 Route Handler。 |
 | `docker-compose.yml` | Worker 注入 owner/reconcile 配置，默认 `OFF` 且仍只有一个 Worker 服务。 |
@@ -886,7 +886,7 @@ MySQL DDL 会隐式提交，因此 migration runner 不能声称整个多条 DDL
 | `CART_CATALOG_DEPENDENCY` 缺少可验证 dispatch | catalog 存在不等于真实流量 driver 存在。 | 只保留真实 target lifecycle；补真实业务入口前不计为可自动接管 driver。 |
 | 当前 recovery strategy 与实际 adapter 行为不完全一致 | “全部 drain 后 release”会错误处理 non-releasing/manual cleanup。 | 复用并测试既有 `resolveFaultRunRecoveryPolicy()`；批次 3 再将 driver/target capability 纳入 Contract validation。 |
 | 当前 public header 传播 | `X-Operation-Run-*` 可能进入消费者链路并被支付服务向 PSP 复制。 | 在本批次的 runner split 中删除传播，并以 Gateway strip 和 Payment 改造形成防御纵深。 |
-| migration 编号冲突 | 批次 0 已实际使用 `002-fault-run-baseline.sql`，批次 3 技术设计曾预留 `002-fault-run-contract-revision.sql`。 | 本批次固定 `003-fault-run-worker-ownership.sql`；批次 3 在实施前改为 `004`，禁止两个批次共享序号。 |
+| migration 编号冲突 | `002`、`003`、`004` 已分别被 baseline、warmup config、alert receipts 占用，批次 3 技术设计曾预留 `002`。 | 本批次固定 `005-fault-run-worker-ownership.sql`；批次 3 在实施前改为 `006`，禁止两个批次共享序号。 |
 | rollout 期间旧/新代码并存 | 旧 scanner 不认识 execution/action 事实，可能与新 reconciler 共同驱动。 | active Run 清零或人工收敛后再切换；Kubernetes 使用 Recreate，回退前停用新 path。 |
 
 这些阻断项不是临时豁免。任何一个未解决时，都不得将 `TAKEOVER` 作为默认行为，也不得把重协调结果标记为安全成功。

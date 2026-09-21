@@ -4,7 +4,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 未开始；设计复核已完成，文档级修正已落实 |
+| 状态 | P2-00 已完成；P2-01 进行中 |
 | 版本 | 1.0 |
 | 更新时间 | 2026-09-20 CST |
 | 路线阶段 | [阶段 2：Worker 所有权和状态重协调](../../roadmap/phases/phase-2-reconciliation.md) |
@@ -33,7 +33,7 @@
 2. `drain_state` 的 owner 持有态统一为 `OWNED`，不把 owner claim 伪装成 drain 已开始。
 3. stale takeover 不清空 `lease_lost_at`；只能记录新 Worker 在 MySQL 中检测到过期的时间，不能伪造旧 Worker 的精确失联时间。
 4. 复用 Phase 1 已存在的 `FaultRunRecoveryExecutor`、`WorkerRuntime`、`FaultRunDrainRegistry` 和 `resolveFaultRunRecoveryPolicy()`，不新建平行 recovery/policy 状态机。
-5. 迁移序号固定为 `003`；批次 3 的 contract revision migration 改为 `004`。Phase 1 已实际占用 `002`。
+5. 迁移序号固定为 `005`；批次 3 的 contract revision migration 改为 `006`。当前仓库已实际占用 `002`、`003`、`004`。
 6. Phase 2 的“旧 owner fencing”区分为内部控制动作的本地拒绝，以及公开消费者请求只能通过停止接收、取消和 drain 收敛的现实边界。
 
 ### 1.2 当前覆盖判断
@@ -66,15 +66,15 @@
 
 ## 3. 总体进度
 
-- **总体状态：** 未开始；设计复核完成，实施门禁待完成。
-- **总体进度：** 0 / 11 个任务组，0 / 75 个实施子任务。
-- **当前任务：** P2-00 设计与进入门禁。
-- **下一步：** 先完成 P2-00，再进入显式 migration 和 execution repository；不直接启用 Reconciler。
+- **总体状态：** P2-00 已完成，P2-01 进行中；仍保持 `OFF`，不启用 `TAKEOVER`。
+- **总体进度：** 1 / 11 个任务组，11 / 75 个实施子任务。
+- **当前任务：** P2-01 显式 migration、fresh schema 和 legacy 兼容。
+- **下一步：** 完成 `005` migration runner/schema verification 后，再进入 execution lease repository；不直接启用 Reconciler。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
-| P2-00 | 设计修正、Phase 1 接入和实施门禁 | 未开始 | 0 / 6 | Phase 1 任务清单 |
-| P2-01 | Migration、fresh schema 和 legacy 兼容 | 未开始 | 0 / 6 | P2-00 |
+| P2-00 | 设计修正、Phase 1 接入和实施门禁 | 已完成 | 6 / 6 | Phase 1 任务清单 |
+| P2-01 | Migration、fresh schema 和 legacy 兼容 | 进行中 | 5 / 6 | P2-00 |
 | P2-02 | Execution lease repository 和 owner 条件写入 | 未开始 | 0 / 8 | P2-01 |
 | P2-03 | Durable action journal 和动作幂等 | 未开始 | 0 / 7 | P2-01、P2-02 |
 | P2-04 | Reconciler、owner fence 和 shutdown | 未开始 | 0 / 8 | P2-02、P2-03 |
@@ -115,23 +115,23 @@ graph TD
 
 **目标：** 消除设计与当前实现、后续批次和阶段验收之间的歧义，不在旧 scanner 与新 Reconciler 并行驱动的状态下编码。
 
-- [ ] 复核 Phase 1 退出证据：`FaultRunRecoveryExecutor`、`WorkerRuntime`、`FaultRunDrainRegistry`、`resolveFaultRunRecoveryPolicy()`、四类 driver 的 drain 和 normal-task isolation 均可被 Phase 2 复用。
-- [ ] 固化四种 mode：`OFF` 为 legacy compatibility；`OBSERVE`/`SHADOW`/`TAKEOVER` 均允许首次 claim；仅 `TAKEOVER` 自动处理 stale owner。
-- [ ] 固化内部控制动作与公开 consumer request 的 fencing 差异，并使 phase/product/tech/task 文档使用一致措辞。
-- [ ] 固化 `003`/`004` migration reservation；检查所有 roadmap/implementation 文档不再把 `002` 用于 Phase 2 或 Phase 3。
-- [ ] 定义 legacy Run projection：没有 execution row 时返回 `execution: null` 和 `LEGACY_UNOWNED`，不回填 owner、heartbeat、action 或 target outcome。
-- [ ] 形成 P2-ISSUE 清单和实施/回退窗口；在 schema gate、旧 scanner 禁用和新 path 可回退前，不进入 `TAKEOVER`。
+- [x] 复核 Phase 1 退出证据：`FaultRunRecoveryExecutor`、`WorkerRuntime`、`FaultRunDrainRegistry`、`resolveFaultRunRecoveryPolicy()`、四类 driver 的 drain 和 normal-task isolation 均可被 Phase 2 复用。
+- [x] 固化四种 mode：`OFF` 为 legacy compatibility；`OBSERVE`/`SHADOW`/`TAKEOVER` 均允许首次 claim；仅 `TAKEOVER` 自动处理 stale owner。
+- [x] 固化内部控制动作与公开 consumer request 的 fencing 差异，并使 phase/product/tech/task 文档使用一致措辞。
+- [x] 固化 `005`/`006` migration reservation；检查所有 roadmap/implementation 文档不再把已占用序号用于 Phase 2 或 Phase 3。
+- [x] 定义 legacy Run projection：没有 execution row 时返回 `execution: null` 和 `LEGACY_UNOWNED`，不回填 owner、heartbeat、action 或 target outcome。
+- [x] 形成 P2-ISSUE 清单和实施/回退窗口；在 schema gate、旧 scanner 禁用和新 path 可回退前，不进入 `TAKEOVER`。
 
 ### P2-01：Migration、fresh schema 和 legacy 兼容
 
 **目标：** 以 expand/contract 方式部署 owner/action 结构，禁止 Worker/Web/API 启动时隐式升级数据库。
 
-- [ ] 新增 `traffic_control_plane_schema_migrations`（migration id、checksum、appliedAt、appliedBy）和 MySQL advisory lock；重复执行、checksum 不一致、部分对象和并发 Job 都必须明确失败。
-- [ ] 新增 `traffic-control-plane/src/lib/migrations/003-fault-run-worker-ownership.sql`，创建 `fault_run_executions`、`fault_run_actions`、索引和约束；不修改既有 Fault Run 状态约束。
-- [ ] 新增 `infra/mysql/init/07-fault-run-worker-ownership.sql`，与 `003` 的对象、约束、默认值保持 parity；fresh install 不依赖运行时 migration。
+- [x] 新增 `traffic_control_plane_schema_migrations`（migration id、checksum、appliedAt、appliedBy）和 MySQL advisory lock；重复执行、checksum 不一致、部分对象和并发 Job 都必须明确失败。
+- [x] 新增 `traffic-control-plane/src/lib/migrations/005-fault-run-worker-ownership.sql`，创建 `fault_run_executions`、`fault_run_actions`、索引和约束；不修改既有 Fault Run 状态约束。
+- [x] 新增 `infra/mysql/init/09-fault-run-worker-ownership.sql`，与 `005` 的对象、约束、默认值保持 parity；fresh install 不依赖运行时 migration。
 - [ ] Worker non-`OFF` 启动前执行 schema verification；migration 未应用时 fail fast 为 `FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED`，`OFF` 保持 legacy compatibility。
-- [ ] 历史 Run 不回填 owner/action；list/detail/retention 对无 execution row 的 legacy Run 保持安全可读。
-- [ ] 复核 retention、FK cascade、manual cleanup 未完成、`RECOVERING`、`SERVICE_UNAVAILABLE` 和 active guard 的保留边界。
+- [x] 历史 Run 不回填 owner/action；现有 list/detail/retention 查询不读取新表，legacy Run 保持安全可读。
+- [x] 复核 retention、FK cascade、manual cleanup 未完成、`RECOVERING`、`SERVICE_UNAVAILABLE` 和 active guard 的保留边界。
 
 ### P2-02：Execution lease repository 和 owner 条件写入
 
@@ -260,7 +260,7 @@ graph TD
 | P2-ISSUE-001 | 设计复核 | `OBSERVE/SHADOW` 的首次 claim 与 stale takeover 曾混淆。 | 可能导致 observe/shadow 不启动初始 Run，或错误接管 stale owner。 | 首次 claim 三种新模式均允许；stale 自动接管仅 `TAKEOVER`。 | 已解决（文档修正） |
 | P2-ISSUE-002 | 设计复核 | `drain_state` claim 后写成 `RUNNING`，与 drain 语义混淆；`lease_lost_at` 会被 takeover 清空。 | UI/审计可能把 owner 获得误报为 drain 已开始，并丢失失联证据。 | 使用 `OWNED`；stale takeover 保留/记录 MySQL 检测时间。 | 已解决（文档修正） |
 | P2-ISSUE-003 | 设计复核 | Phase 1 已有 recovery executor/policy/runtime，但原设计未明确增量接入。 | 实现可能产生两套 recovery projection、deadline、cleanup 和 shutdown 语义。 | P2-00 固定复用并由 Reconciler 渐进接管，不复制状态机。 | 已解决（文档修正） |
-| P2-ISSUE-004 | 设计复核 | Phase 0 已实际占用 migration `002`，Phase 3 文档曾重复预留 `002`。 | migration 顺序和部署回退不可审计。 | Phase 2 固定 `003`，Phase 3 改用 `004`。 | 已解决（文档修正） |
+| P2-ISSUE-004 | P2-00 | `002`、`003`、`004` 已分别被 baseline、warmup config、alert receipts 占用，原设计使用了冲突的 `003`。 | migration 顺序和部署回退不可审计。 | Phase 2 固定 `005`，Phase 3 改用 `006`。 | 已解决（仓库核对后修正） |
 | P2-ISSUE-005 | 实施前 | prepare/release 没有通用 readback，`DISPATCHING` crash 无法判断 target 是否生效。 | 自动重试可能造成重复真实副作用。 | stale action 固定 `OUTCOME_UNKNOWN`/人工介入；不自动重发。 | 待实施 |
 | P2-ISSUE-006 | 实施前 | 公开 consumer request 已发出后不能依赖 target fencing 立即拒绝。 | takeover 期间可能有请求重叠，不能承诺零重叠。 | local fence、停止接收、AbortSignal、bounded drain；UI 明示不确定性。 | 待实施 |
 | P2-ISSUE-007 | 实施前 | 旧 scanner 与新 Reconciler 并存会产生双驱动。 | 同一 Run 可能被两个本地 driver 同时执行。 | 以 mode gate 禁用旧 scanner；完成 active Run 收敛后再启用新 path。 | 待实施 |
@@ -270,3 +270,5 @@ graph TD
 | 时间 | 任务 | 事实与证据 | 限制/下一步 |
 | --- | --- | --- | --- |
 | 2026-09-20 CST | 设计复核 | 完成 Phase 2 product/phase/tech 与 Phase 1 实现、任务清单、migration 文件、RecoveryExecutor/WorkerRuntime/RecoveryPolicy 对照；确认原设计没有 Phase 2 task list。 | 已补充本清单并修正 tech/phase/Phase 3 migration 引用；实施仍未开始。 |
+| 2026-09-21 CST | P2-00：设计与进入门禁完成 | 复核当前 migration 目录和 fresh-install init，确认 `002`/`003`/`004` 已被 baseline/warmup/alert receipts 占用；将 ownership migration 修正为 `005`/`09`，Phase 3 修正为 `006`。确认 Phase 1 recovery/drain/policy 组件可作为 P2 Reconciler 的增量基础。 | P2-00 完成；P2-01 开始实现显式 migration、schema verification 和 legacy projection。保持 mode=`OFF`，不执行 takeover。 |
+| 2026-09-21 CST | P2-01：migration foundation 实现 | 新增 `005-fault-run-worker-ownership.sql`、fresh-install `09`、migration history/checksum/advisory-lock runner、`db:migrate`/`db:verify` CLI、ownership table verification helper；ownership SQL 与 fresh-init SQL parity 通过，migration unit tests、typecheck 和 lint 通过。 | 尚未在实际 MySQL volume 执行 apply；non-`OFF` Worker startup gate 将在后续 Reconciler wiring 中接入。P2-01 保持 5/6。 |

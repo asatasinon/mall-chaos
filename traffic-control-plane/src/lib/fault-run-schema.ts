@@ -1,5 +1,10 @@
 import { getPool } from './db';
 
+export const FAULT_RUN_OWNERSHIP_TABLES = [
+  'fault_run_executions',
+  'fault_run_actions',
+] as const;
+
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS fault_run_sequence (
     id TINYINT NOT NULL PRIMARY KEY,
@@ -61,6 +66,24 @@ export function ensureFaultRunSchema(): Promise<void> {
     });
   }
   return schemaPromise;
+}
+
+export async function verifyFaultRunOwnershipSchema(): Promise<void> {
+  const [rows] = await getPool().query(
+    `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = DATABASE()
+         AND table_name IN (${FAULT_RUN_OWNERSHIP_TABLES.map(() => '?').join(', ')})`,
+    [...FAULT_RUN_OWNERSHIP_TABLES],
+  );
+  const found = new Set(
+    Array.isArray(rows)
+      ? (rows as Record<string, unknown>[]).map((row) => String(row.table_name))
+      : [],
+  );
+  const missing = FAULT_RUN_OWNERSHIP_TABLES.filter((table) => !found.has(table));
+  if (missing.length > 0) {
+    throw new Error(`FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED:${missing.join(',')}`);
+  }
 }
 
 export { SCHEMA_STATEMENTS };
