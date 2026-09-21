@@ -35,7 +35,7 @@ Owner fencing 只能约束带内部运行上下文的控制操作；对于经公
 Worker 启动和周期扫描以数据库状态为事实来源：
 
 ```text
-CREATING   -> 检查 prepare，继续或 FAILED
+CREATING   -> 检查 prepare，继续、FAILED 或人工介入
 ACTIVE     -> 检查 owner，启动或接管
 RECOVERING -> 停止新任务，继续 drain/release/cleanup
 过期状态    -> 进入 recovery，写明确事件
@@ -46,7 +46,7 @@ timer 只做及时执行加速，不能是唯一状态来源。
 ## 验收
 
 - 两个 Worker 竞争同一 Fault Run 时只有一个获得 owner。
-- 旧 owner 的请求在 fencing 失效后被拒绝。
+- 旧 owner 的新内部控制动作在 owner fence 失效后被本地拒绝；经公开消费者 API 已发出的请求不能依赖目标侧 fencing 自动拒绝，只能通过停止接收、请求取消和 drain 收敛。
 - Worker 失联后可接管或明确标记人工处理。
 - 重启不会重复 prepare、release 或跳过 cleanup。
 - 单副本默认行为保持不变。

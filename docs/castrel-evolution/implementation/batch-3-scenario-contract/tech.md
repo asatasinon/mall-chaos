@@ -538,7 +538,7 @@ ALTER TABLE fault_runs
 
 本仓库当前的 schema bootstrap 只创建不存在的表，不能为既有 volume 增加列；`infra/mysql/init` 也只在全新 MySQL data directory 初始化时运行。Phase 3 必须采用以下 expand 方案：
 
-1. 新增顺序迁移 `traffic-control-plane/src/lib/migrations/002-fault-run-contract-revision.sql` 与 `infra/mysql/migrations/002-fault-run-contract-revision.sql`。
+1. 新增顺序迁移 `traffic-control-plane/src/lib/migrations/004-fault-run-contract-revision.sql` 与对应的 fresh-install init SQL；`002` 已由 baseline 占用，`003` 由 Worker ownership 占用。
 2. 新增 control-plane migration runner，例如 `pnpm db:migrate`，使用专用 migration-history 表和 MySQL advisory lock。DDL 前检查已应用 migration；成功/失败必须可见、可重试且不吞掉错误。
 3. 更新 fresh-install 的 `fault-run-schema.ts`、`src/lib/migrations/001-fault-runs.sql` 与 `infra/mysql/init/04-fault-run-schema.sql`，使新库直接拥有列。
 4. Compose 增加一次性 migration service 或明确的发布前命令；Kubernetes 增加在 Web/Worker deployment 前完成的 Job。runtime application 启动不负责未受控的 schema `ALTER`。

@@ -1,7 +1,8 @@
 # 批次 2：Worker 所有权与状态重协调技术设计
 
-> 状态：技术设计 v1（待实施评审）<br>
+> 状态：技术设计 v1.1（复核后待实施评审）<br>
 > 配套产品规格：[product.md](./product.md)<br>
+> 实施任务：[task-list.md](./task-list.md)<br>
 > 对应路线阶段：[阶段 2：Worker 所有权和状态重协调](../../roadmap/phases/phase-2-reconciliation.md)<br>
 > 前置条件：批次 1 的 run-specific drain、总超时和恢复结果已在报表、流量和专用 Worker 中可验证<br>
 > 设计原则：MySQL 状态事实、单运行单 owner、动作结果不臆测、控制面/业务面隔离、单副本默认、增量迁移
@@ -39,7 +40,19 @@ Operator API
 5. 不在本批次新增 `FaultRunState`。无法自动确认的运行继续保持 `CREATING` 或 `RECOVERING`，并在 execution projection 中明确写入 `MANUAL_INTERVENTION_REQUIRED`。现有 `active_run_guard` 因而仍会阻止创建新运行，不会把未知目标状态伪装成 `FAILED`、`RECOVERED` 或可忽略的终态。
 6. 默认部署仍为一个 Worker。自动接管只在显式 opt-in 的测试环境开启；生产/默认路径先使用 observe 和 shadow 模式积累事实。多个 Worker 同时存在时，数据库 lease 是最终仲裁者，而不是 Kubernetes 副本数或 Compose 的容器名。
 
-### 1.1 备选方案与选择
+### 1.1 复核结论与实施前修正
+
+本设计的总体架构合理，可以满足阶段 2 的 owner、heartbeat、接管、旧 owner fence 和单副本灰度目标；但不能脱离当前批次 1 实现直接照抄落地。实施任务必须先完成以下修正：
+
+- 当前代码已经有 `FaultRunRecoveryExecutor`、`WorkerRuntime`、`FaultRunDrainRegistry`、`resolveFaultRunRecoveryPolicy()` 和安全运行时 projection。Phase 2 的 Reconciler 必须渐进式接管这些组件，保留既有 recovery projection、policy、deadline、verification limitation 和 normal-task shutdown 语义，不能平行实现第二套恢复状态机。
+- `OBSERVE`、`SHADOW` 和 `TAKEOVER` 都允许**首次** claim；只有 `TAKEOVER` 允许在 lease stale 且动作状态可恢复时执行自动接管。`OBSERVE`/`SHADOW` 对 stale owner 只记录观察或候选决定，不能重新 claim 或启动第二个 driver。
+- execution claim 后的 `drain_state` 表示“已获得 owner”时应为 `OWNED`，不是 `RUNNING`；只有进入停止路径才使用 `DRAINING`、`DRAINED` 或 `DRAIN_TIMEOUT`。stale takeover 不能把 `lease_lost_at` 清空；首次发现失联时应记录数据库检测时间，不能伪造旧 Worker 的精确失联时间。
+- 当前实际已使用 `002-fault-run-baseline.sql`。本批次固定使用下一个全局序号 `003-fault-run-worker-ownership.sql`，fresh-install 对应 `infra/mysql/init/07-fault-run-worker-ownership.sql`；批次 3 的 contract revision migration 必须改用 `004`，不得继续使用 `002`。
+- 当前 `CART_CATALOG_DEPENDENCY` 已有真实 dispatch/drain 的 Phase 1 Docker evidence；Phase 2 仍必须把它接入 owner driver descriptor，不能因为业务请求失败而标记为未 dispatch，也不能用 no-op driver 替代真实路径。
+
+以上修正和设计到任务的追踪关系记录在 [task-list.md](./task-list.md)；在 P2-00 完成前，不进入 owner lease 编码。
+
+### 1.2 备选方案与选择
 
 | 方案 | 优点 | 不采用或限制原因 |
 | --- | --- | --- |
@@ -55,15 +68,16 @@ Operator API
 | 事实来源 | 当前行为 | 批次 2 的处理 |
 | --- | --- | --- |
 | `fault_runs`、`fault_run_sequence` | 已有全局活动运行唯一约束和每 Run `fencing_token`。 | 保留其业务职责；新增 execution/action 表，不复用 `fencing_token` 作为 `owner_epoch`。 |
-| `fault-run-coordinator.ts` | `timers`、`recoveryPromises`、`runDrains` 都是 Web/Worker 进程内 Map；创建时 Web/API 会直接 prepare。 | Coordinator 收敛为无进程所有权的 command/state-policy facade；定时与 drain 的实际执行移入 Worker reconciler。 |
-| `worker/index.ts` | 启动时调用 `scheduleActiveRuns()`、`recoverExpiredRuns()`，然后启动多个各自扫描活动 Run 的执行器。 | 由 reconciler 成为 Fault Run 唯一 scanner；正常 Runner、预热、补给和 retention 仍分别启动。 |
-| `ReportScenarioWorker`、`TrafficSurgeExecutor` | 各自以 `listActiveFaultRuns()` 扫描，且未统一限制 `state === 'ACTIVE'`；报表缺少 run-specific drain 注册。 | 改为仅由 reconciler 调用的 owned driver，启动前和每个新 batch 前检查 owner fence。批次 1 的 drain 是启用接管的硬前置。 |
+| `fault-run-coordinator.ts` | Phase 1 已移除原有 timer/drain Map，safe-runtime 下 Web/API 已持久化 stop intent；legacy/new create path 仍可能由 Coordinator 直接 prepare。 | 保持 Phase 1 command/recovery compatibility；新 mode 下 Coordinator 只做 admission/state policy，prepare/release/cleanup 和 owner drain 移入 Worker Reconciler。 |
+| `worker/worker-runtime.ts`（由 `worker/index.ts` 启动） | safe-runtime 开启时启动 `FaultRunRecoveryExecutor`，关闭时启动 legacy recovery，并分别启动各类 effect worker。 | 由 Reconciler 渐进接管 safe-runtime recovery/ownership；`worker-runtime.ts` 仍负责 normal Runner、预热、补给和 retention 的独立生命周期。 |
+| `ReportScenarioWorker`、`TrafficSurgeExecutor` | Phase 1 已具备 runnable-only admission、取消和 drain 边界，但仍由各自 timer/scanner 独立发现 Fault Run。 | 保留 Phase 1 drain contract，改为仅由 Reconciler 调用的 owned driver；启动前和每个新 batch 前检查 owner fence。 |
 | `ScenarioWorkers`、`ControlledScenarioWorker` | 专用 Worker 已支持 `AbortSignal` 和部分 drain 注册，但仍会自行扫描数据库。 | 保留可取消请求与统计逻辑；移除自行 ownership 判断，把 stop/drain handle 交给 reconciler。 |
+| `FaultRunRecoveryExecutor`、`WorkerRuntime` | Phase 1 已负责 safe-runtime recovery projection、deadline、verification limitation 和 shutdown 顺序。 | Reconciler 复用其持久化和 drain contract，逐步取代其 Fault Run ownership/recovery scan；不得同时启动两个恢复执行器。 |
 | `RunnerEngine` | 每个 tick 读取活动 Fault Run，并把 `faultRunContext` 带入普通 customer lifecycle。 | 拆出 Fault Run 专用 driver；正常客户 Runner 不再读取/驱动 Fault Run，也不携带内部运行 context。 |
 | `GatewayClient.customerRequest()`、支付 PSP 调用链 | customer request 可附加 `X-Operation-Run-*`；支付服务会尝试继续向 PSP 转发这些 header。 | 删除该 public-path context 入口；Gateway 对非 `/internal/**` 请求移除这些 header，支付 PSP client 不再从入站请求复制它们。 |
 | `OperationRunGuard` | 目标服务以 target `fencingToken` 和 lease 保护内部资源。 | 保持不变。Worker owner lease 只在控制平面执行层防止旧进程继续开始新动作。 |
 | `DataWarmupService` | Redis NX、compare-and-expire renew、lease loss 后停止写入。 | 复用“续约失败立即本地停写/停接收”的控制流；不复用 Redis key、lease、owner 或进度表。 |
-| `fault-run-schema.ts` 与 `infra/mysql/init/04-fault-run-schema.sql` | 只覆盖初始 Fault Run 表；应用运行时会执行 `CREATE TABLE IF NOT EXISTS`。 | 为既有卷提供显式 expand migration；新结构不得通过 Web/API 或 Worker 启动时的隐式 DDL/`ALTER` 升级。 |
+| `fault-run-schema.ts` 与 `infra/mysql/init/04-fault-run-schema.sql` | 覆盖初始 Fault Run 表；Phase 1 还通过 `infra/mysql/init/06-fault-run-baseline.sql` 提供 baseline 表。 | ownership 结构使用独立显式 expand migration 和 `infra/mysql/init/07-fault-run-worker-ownership.sql`；新结构不得通过 Web/API 或 Worker 启动时的隐式 DDL/`ALTER` 升级。 |
 
 ### 2.1 范围
 
@@ -95,8 +109,8 @@ Operator API
 1. 批次 1 已使 `ReportScenarioWorker`、`TrafficSurgeExecutor` 和 `ScenarioWorkers` 都具备 run-specific 的停止接收、`AbortSignal`、drain deadline 与终态汇总事件。
 2. 所有会产生持续请求的执行器都通过共享的 `ACTIVE` predicate；`CREATING`、`RECOVERING` 不得启动任何流量 driver。
 3. 已明确每个 Catalog 目标操作是否需要 prepare/release。`FaultRunRecoveryStrategy` 不是目标 lifecycle 的唯一推导来源：`WORKER` 场景也可能已有 Gateway prepare，`NON_RELEASING` 则明确禁止正常 release。
-4. 已验证 `CART_CATALOG_DEPENDENCY` 的真实消费者路径 dispatch。当前没有独立的控制面 driver 时，它只能由真实业务流量触发，不能用 no-op driver 填补“可接管”指标。
-5. 批次 2 migration 已在目标环境完成，且 Worker 的 schema verification 通过。
+4. 已验证 `CART_CATALOG_DEPENDENCY` 的真实消费者路径 dispatch。Phase 2 应将现有真实 Scenario Worker 路径包装为 owned driver；在此之前不能用 no-op driver 填补“可接管”指标，也不能把业务请求失败解释为未 dispatch。
+5. 批次 2 migration 已在目标环境完成，且 Worker 的 schema verification 通过；迁移序号和 checksum 已与批次 0 的 `002`、批次 3 预留的 `004` 对齐。
 
 ## 3. 所有权模型与模块边界
 
@@ -201,7 +215,7 @@ CREATE TABLE fault_run_executions (
     'RECOVERY_PENDING', 'MANUAL_INTERVENTION_REQUIRED'
   )),
   CHECK (drain_state IN (
-    'IDLE', 'RUNNING', 'DRAINING', 'DRAINED',
+    'IDLE', 'OWNED', 'DRAINING', 'DRAINED',
     'DRAIN_TIMEOUT', 'LEASE_LOST', 'NOT_APPLICABLE'
   ))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -246,6 +260,7 @@ CREATE TABLE fault_run_actions (
   CONSTRAINT fk_fault_run_action_run
     FOREIGN KEY (fault_run_id) REFERENCES fault_runs(fault_run_id) ON DELETE CASCADE,
   UNIQUE KEY uq_fault_run_action_attempt (fault_run_id, action_type, attempt_no),
+  UNIQUE KEY uq_fault_run_action_request (fault_run_id, action_type, request_idempotency_key),
   INDEX idx_fault_run_action_pending (action_state, requested_at),
   INDEX idx_fault_run_action_run_type (fault_run_id, action_type, attempt_no),
   CHECK (action_type IN ('PREPARE', 'RELEASE', 'CLEANUP')),
@@ -260,7 +275,7 @@ CREATE TABLE fault_run_actions (
 动作规则：
 
 1. 对自动 `PREPARE` 和 `RELEASE`，每个 Run 只能有 `attempt_no = 1`。同一逻辑动作不得由 Worker restart 自动生成第二个 attempt。
-2. `CLEANUP` 只由已确认的 Operator 请求创建，且只对 Catalog 允许、已达到对应终态的 Run 生效。它不是 reconciler 自动恢复的一部分。
+2. `CLEANUP` 只由已确认的 Operator 请求创建，且只对 Catalog 允许、已达到对应终态的 Run 生效；`OPTIONAL_PER_RUN` 和 `OPERATOR_CONFIRMED` 都必须经过该入口，但前者不是恢复完成的必需步骤。它不是 reconciler 自动恢复的一部分。
 3. `REQUESTED -> DISPATCHING` 使用 owner+epoch 条件更新，并在 Gateway 请求前提交。若 owner 在 dispatch 期间崩溃，新 owner 只能把 stale `DISPATCHING` 标为 `OUTCOME_UNKNOWN`，不能猜测请求是否到达 target。
 4. 只有明确收到并校验成功的目标响应才写 `CONFIRMED`。受控 4xx/业务拒绝可写 `DEFINITIVE_FAILURE`；超时、连接断开、进程崩溃、响应损坏和不能确定的异常必须写 `OUTCOME_UNKNOWN`。
 5. 对未知的 `PREPARE`、`RELEASE`，reconciler 设置 `MANUAL_INTERVENTION_REQUIRED` 并停止自动 dispatch。用户需要先通过真实目标/资源检查确定状态，不能通过重试掩盖不确定性。
@@ -317,10 +332,13 @@ SET execution.owner_id = ?,
     execution.lease_acquired_at = CURRENT_TIMESTAMP(3),
     execution.lease_expires_at = DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL ? MICROSECOND),
     execution.last_heartbeat_at = CURRENT_TIMESTAMP(3),
-    execution.lease_lost_at = NULL,
+    execution.lease_lost_at = CASE
+      WHEN execution.owner_id IS NULL THEN execution.lease_lost_at
+      ELSE CURRENT_TIMESTAMP(3)
+    END,
     execution.reconciled_at = CURRENT_TIMESTAMP(3),
     execution.reconciliation_state = ?,
-    execution.drain_state = 'RUNNING',
+    execution.drain_state = 'OWNED',
     execution.last_action = ?,
     execution.last_action_at = CURRENT_TIMESTAMP(3),
     execution.last_error_code = NULL
@@ -333,11 +351,13 @@ WHERE execution.fault_run_id = ?
 
 `?` 中的 TTL 为微秒值，且必须来自已校验的配置。对于 terminal cleanup，状态 predicate 改为 `RECOVERED`/`STOPPED` 并额外要求对应 cleanup action 仍为 `REQUESTED`。`affectedRows === 1` 是唯一可启动 driver 或 dispatch action 的成功信号；`0` 表示其他 owner 有效、状态已变化、模式不匹配或记录不再可执行。
 
-首次 claim 与接管由 claim 前的 `owner_epoch` 判断：
+首次 claim 与接管由 claim 前的 `owner_epoch` 判断。所有三种新模式都允许首次 claim；模式只决定 stale owner 的处理：
 
 - `owner_epoch = 0`：写 `OWNER_LEASE_ACQUIRED`，reason 为 `INITIAL`；
 - `owner_epoch > 0`：先写 `RECONCILIATION_DECISION`，再写 `OWNER_TAKEOVER_COMPLETED`；
 - `OBSERVE` 或 `SHADOW` 遇到过期 owner 时不执行 claim。它们只写入低频 `TAKEOVER_PENDING`/decision 事实，且不启动新 driver。
+
+`lease_lost_at` 表示最近一次由旧 owner 或新 owner 在 MySQL 中确认的失联/过期检测时间。若旧 owner 在数据库不可用时消失，接管 Worker 只能写入自己的检测时间，不能回填旧进程实际失联时间；正常首次 claim 和优雅 relinquish 不写入该字段。
 
 ### 5.3 Heartbeat 与 local fence
 
@@ -382,6 +402,8 @@ heartbeat 不逐次写 `fault_run_events`，以免把高频 liveness 变成事�
 - `PREPARE`、`RELEASE`、`CLEANUP` 的 claim/confirmation；
 - owner 执行的 `fault_runs` 状态转换和运行事件；
 - 优雅 shutdown 的 relinquish。
+
+`fault_runs` 的 owner-scoped 状态更新与对应事件插入必须在同一个 MySQL transaction 中完成，并且只有状态更新 `affectedRows = 1` 时才允许插入事件；不能先写事件再猜测状态转换是否成功。
 
 一个已完成 drain 的优雅 shutdown 可以释放当前 claim：
 
@@ -459,14 +481,14 @@ stateDiagram-v2
 
 ### 6.4 恢复策略与动作选择
 
-现有 `FaultRunRecoveryStrategy` 描述恢复边界，但不能单独推导所有 target action。实现必须提供一个控制面内部 `FaultRunLifecyclePolicy`，针对已验证的目标 capability 输出：
+现有 `FaultRunRecoveryStrategy` 描述恢复边界，但不能单独推导所有 target action。实现必须复用当前 Catalog 的 `resolveFaultRunRecoveryPolicy()` 和 Phase 1 已验证的 drain/cleanup/verification policy；不能新建第二份可变 `scenario -> policy` 映射。若 Reconciler 需要更窄的运行计划，只能由 resolved policy、driver descriptor 和 Gateway target capability 临时派生：
 
 ```ts
 type FaultRunLifecyclePlan = {
   requiresPrepare: boolean;
   requiresRelease: boolean;
   requiresOwnedTrafficDriver: boolean;
-  cleanup: 'NONE' | 'OPERATOR_CONFIRMED';
+  cleanup: 'NONE' | 'OPTIONAL_PER_RUN' | 'OPERATOR_CONFIRMED';
   nonReleasing: boolean;
 };
 ```
@@ -480,7 +502,7 @@ type FaultRunLifecyclePlan = {
 | `MANUAL_CLEANUP` | 停止 append/traffic、执行允许的 release，写 `MANUAL_CLEANUP_REQUIRED` 边界；只在 Operator confirmation 后创建 cleanup action。 | 不自动删除运行级资源，也不把 release 当 cleanup 完成。 |
 | `NON_RELEASING` | 停止新的业务请求并记录残留 effect；不发 normal target release。 | 不承诺堆、服务健康或资源已自动恢复。 |
 
-本 policy 只能复用 Catalog 的既有 scenario/target/operation/strategy，不得在 API route、SQL 或业务服务中复制一份可变场景事实。批次 3 会将这类 capability descriptor 纳入 Contract validation。
+该临时计划只能复用 Catalog 的既有 scenario/target/operation/strategy，不得在 API route、SQL 或业务服务中复制一份可变场景事实。批次 3 会将 driver/target capability descriptor 纳入 Contract validation。
 
 ## 7. 详细流程
 
@@ -510,7 +532,7 @@ type FaultRunLifecyclePlan = {
 1. `POST /internal/fault-runs/{faultRunId}/stop` 只持久化停止意图。它以当前状态条件更新为 `RECOVERING`，写 `RECOVERY_STARTED`/`STOP_REQUESTED` 和 Operator audit，成功时返回 `202` 与当前 projection。
 2. 相同 stop idempotency key 不重复创建 recovery action；对终态 Run 返回已有结果。
 3. 有效 owner 观察到 `RECOVERING` 后，先把 execution 写为 `DRAINING` 并记录 deadline，随后 fence/abort 自己的 driver。
-4. drain 成功后，reconciler 按 `FaultRunLifecyclePolicy` 创建并 claim `RELEASE` action，或写 manual-cleanup/non-releasing 的明确边界。
+4. drain 成功后，reconciler 按 `resolveFaultRunRecoveryPolicy()` 的结果创建并 claim `RELEASE` action，或写 manual-cleanup/non-releasing 的明确边界。
 5. release 的安全响应确认后，owner-scoped transition 写入 `STOPPED`（手工）或 `RECOVERED`（到期）及受限 `recovery_result`。
 6. drain timeout、未知 release 结果或 owner-scoped 写入拒绝时，不写成功终态，而是保留 `RECOVERING` 并标记 `MANUAL_INTERVENTION_REQUIRED`。
 
@@ -631,10 +653,10 @@ driver registry 可以有静态 `supports()` 分支，但不能复制 Catalog �
 | `traffic-control-plane/src/lib/fault-run-execution-repository.ts` | execution row 的 create/load、claim、heartbeat、owner-scoped transition、relinquish 和 Operator-safe projection。 |
 | `traffic-control-plane/src/lib/fault-run-action-repository.ts` | action intent、attempt、`DISPATCHING` claim、确认、unknown 和受限 summary。 |
 | `traffic-control-plane/src/lib/fault-run-owner-fence.ts` | 每个本地 owner 的 AbortController、epoch assertion 和关闭原因；不导出 Gateway DTO。 |
-| `traffic-control-plane/src/lib/fault-run-lifecycle-policy.ts` | 将 Catalog 恢复策略与已验证的 target/driver capability 解析为 prepare/release/cleanup plan。 |
+| `traffic-control-plane/src/lib/fault-run-recovery-policy.ts` | 复用既有 `resolveFaultRunRecoveryPolicy()`；只在确有必要时扩展类型，不新增平行 policy map。 |
 | `traffic-control-plane/src/lib/fault-run-schema.ts` | fresh schema 定义和 schema verification；不在业务请求中应用 ownership migration。 |
 | `traffic-control-plane/src/lib/migrations/run.ts` | 显式 migration apply/verify、schema version/checksum 检查和稳定失败码。 |
-| `traffic-control-plane/src/lib/migrations/00N-fault-run-worker-ownership.sql` | 已保留序号下的 expand migration。 |
+| `traffic-control-plane/src/lib/migrations/003-fault-run-worker-ownership.sql` | 当前全局 migration 序列中的 ownership expand migration。 |
 | `traffic-control-plane/src/lib/fault-run-repository.ts` | 在新模式 create transaction 中写 execution/action 初始记录；以 optional join 返回 execution projection；保留 legacy record 的空投影。 |
 | `traffic-control-plane/src/lib/fault-run-coordinator.ts` | 移除 `timers`、`recoveryPromises`、`runDrains` 的跨进程职责，保留 command/state-policy facade。 |
 | `traffic-control-plane/src/lib/env.ts` | 严格解析 reconciliation mode、TTL、heartbeat、scan interval 和 owner identity prefix。 |
@@ -642,14 +664,14 @@ driver registry 可以有静态 `supports()` 分支，但不能复制 Catalog �
 | `traffic-control-plane/src/worker/fault-run-driver.ts` | `WorkerOwnerFence`、driver、handle、drain result 和安全 event writer 的共享类型。 |
 | `traffic-control-plane/src/worker/runner-backed-fault-run-driver.ts` | 从普通 Runner 中分离通知/PSP 的 Fault Run 真实业务执行。 |
 | `traffic-control-plane/src/worker/target-lifecycle-driver.ts` | 无持续 traffic 时的 prepare/release/cleanup 执行边界。 |
-| `traffic-control-plane/src/worker/index.ts` | 新模式下先启动/停止 reconciler；不再同时启动旧 Fault Run scanners；独立任务仍各自启动。 |
+| `traffic-control-plane/src/worker/{index.ts,worker-runtime.ts}` | 新模式下先启动/停止 reconciler；不再同时启动旧 Fault Run scanners；独立任务仍各自启动。 |
 | `traffic-control-plane/src/worker/{report-scenario-worker,traffic-surge-executor,scenario-workers,controlled-scenario-worker,runner-engine,traffic-action-orchestrator,customer-session-manager}.ts` | 迁移为 owner-aware driver 或普通 Runner；删除自行 scan 与 consumer-path context 传播。 |
 | `traffic-control-plane/src/app/internal/fault-runs/**` | create/stop/cleanup 从同步 target 调用变为 intent/action；detail/list 返回安全 execution projection。 |
 | `traffic-control-plane/src/components/scenarios/{types.ts,fault-run-view.ts}`、`LocalizedScenarioControlSections.tsx` | 严格解析与渲染 owner、lease、drain、action 和人工介入信息。 |
 | `traffic-control-plane/src/i18n/messages/{en,zh-CN}/FaultRuns.json` | 所有新状态、事件和不确定性提示的双语文案。 |
 | `gateway-service/.../InternalDispatchAuthenticationGlobalFilter.java` | 在非 internal 路由剥离 `X-Operation-Run-*`，并保持 internal allowlist/auth 语义。 |
 | `payment-service/.../PspClient.java`、`PaymentService.java` | 删除 customer request context 的提取和向 PSP 的 operation header 复制。 |
-| `infra/mysql/init/04-fault-run-schema.sql`、`docker-compose.yml`、`k8s/services/traffic-control-plane/worker-deployment.yaml`、`k8s/kustomization.yaml` | fresh schema、默认配置、Worker identity、Recreate/grace period 和 migration Job 编排。 |
+| `infra/mysql/init/07-fault-run-worker-ownership.sql`、`docker-compose.yml`、`k8s/services/traffic-control-plane/worker-deployment.yaml`、`k8s/kustomization.yaml` | fresh schema、默认配置、Worker identity、Recreate/grace period 和 migration Job 编排。 |
 | `traffic-control-plane/src/lib/*test.ts`、`traffic-control-plane/src/worker/*test.ts`、Gateway/Payment Java 测试 | 覆盖本设计第 11 节的数据库竞争、driver、协议、迁移和部署边界。 |
 
 `OperationRunGuard`、`OperationRunContext`、Gateway fixed operation registry 和业务目标 controller 不接收 `ownerEpoch`，因此不应为 owner lease 改造而修改它们的公共/内部协议。
@@ -736,12 +758,12 @@ UI 只显示受限枚举、时间和摘要，不显示原始异常、HTTP body�
 
 ### 10.1 Expand/contract migration
 
-本批次新增结构必须通过显式 migration 应用，不能通过启动时 `ALTER TABLE`、lazy backfill 或“重建 MySQL volume”修复。migration 文件名中的 `00N` 表示合并时的下一个已保留顺序号；当前文档不抢占未来批次可能使用的编号。
+本批次新增结构必须通过显式 migration 应用，不能通过启动时 `ALTER TABLE`、lazy backfill 或“重建 MySQL volume”修复。本批次固定使用全局序号 `003`；批次 0 已占用 `002`，批次 3 的 contract revision migration 必须使用 `004`。
 
 1. 增加受控的 migration runner 与 `traffic_control_plane_schema_migrations` 元数据表，记录 migration ID、checksum、执行时间和执行者。
 2. runner 先验证当前 `fault_runs`/`fault_run_events` 基线完整；部分创建或 checksum 不一致时失败，不继续猜测升级。
-3. 应用 `00N-fault-run-worker-ownership.sql`，创建 `fault_run_executions`、`fault_run_actions`、索引和约束。DDL 由显式 CLI/Job 执行，不能在普通 Route Handler/Worker 流量下发生。
-4. 同时更新 `traffic-control-plane/src/lib/fault-run-schema.ts` 与 `infra/mysql/init/04-fault-run-schema.sql`，确保新 MySQL volume 的完整 schema 与迁移后 schema 一致。
+3. 应用 `traffic-control-plane/src/lib/migrations/003-fault-run-worker-ownership.sql`，创建 `fault_run_executions`、`fault_run_actions`、索引和约束。DDL 由显式 CLI/Job 执行，不能在普通 Route Handler/Worker 流量下发生。
+4. 同时更新 `traffic-control-plane/src/lib/fault-run-schema.ts` 与 `infra/mysql/init/07-fault-run-worker-ownership.sql`，确保新 MySQL volume 的完整 schema 与迁移后 schema 一致。
 5. 对仍在 retention 内的历史 Run 不回填 owner、heartbeat、动作历史或 target 结果。新代码在读取时返回 `execution: null` / `LEGACY_UNOWNED` 投影。
 6. 在 `OFF` 模式可保持旧代码兼容。任何非 `OFF` Worker 在 owner migration 未应用时必须 fail fast，使用稳定错误 `FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED`。
 7. 只有确认所有旧 Worker 已停止、无新路径 active Run 且不再需要旧 scanner 后，后续批次才可 contract/remove 旧进程内协调逻辑；本批次不删除列、表、事件或旧状态。
@@ -753,8 +775,8 @@ MySQL DDL 会隐式提交，因此 migration runner 不能声称整个多条 DDL
 | 文件/区域 | 设计变更 |
 | --- | --- |
 | `traffic-control-plane/src/lib/fault-run-schema.ts` | fresh schema 对齐 execution/action 表；普通运行路径改为 schema verification，不应用 ownership migration。 |
-| `traffic-control-plane/src/lib/migrations/00N-fault-run-worker-ownership.sql` | 控制面显式 expand migration。 |
-| `infra/mysql/init/04-fault-run-schema.sql` | 新卷完整 schema，同步新增表/命名约束。 |
+| `traffic-control-plane/src/lib/migrations/003-fault-run-worker-ownership.sql` | 控制面显式 expand migration。 |
+| `infra/mysql/init/07-fault-run-worker-ownership.sql` | 新卷 ownership schema，与 `06-fault-run-baseline.sql` 顺序一致。 |
 | `traffic-control-plane/src/lib/migrations/run.ts` | 显式 apply/verify、checksum 和稳定错误语义。 |
 | `traffic-control-plane/package.json` | 新增受控 `db:migrate` 与 `db:verify` 脚本；不把 migration 放入 `dev`、`worker` 或 Route Handler。 |
 | `docker-compose.yml` | Worker 注入 owner/reconcile 配置，默认 `OFF` 且仍只有一个 Worker 服务。 |
@@ -862,9 +884,9 @@ MySQL DDL 会隐式提交，因此 migration runner 不能声称整个多条 DDL
 | 批次 1 尚未完全落地 | 没有完整 drain 的 Worker 接管会放大旧/新请求重叠。 | 先完成并验证 report、surge、scenario 的 drain；不能用 lease 代替 drain。 |
 | prepare/release 无通用 readback | crash 后无法从网络异常判断 target 是否已经收到动作。 | `DISPATCHING` stale 一律 unknown/人工介入；除非新增并验证通用、幂等的 target status 协议，否则不自动重发。 |
 | `CART_CATALOG_DEPENDENCY` 缺少可验证 dispatch | catalog 存在不等于真实流量 driver 存在。 | 只保留真实 target lifecycle；补真实业务入口前不计为可自动接管 driver。 |
-| 当前 recovery strategy 与实际 adapter 行为不完全一致 | “全部 drain 后 release”会错误处理 non-releasing/manual cleanup。 | 引入并测试 `FaultRunLifecyclePolicy`；批次 3 再将其纳入 Contract validation。 |
+| 当前 recovery strategy 与实际 adapter 行为不完全一致 | “全部 drain 后 release”会错误处理 non-releasing/manual cleanup。 | 复用并测试既有 `resolveFaultRunRecoveryPolicy()`；批次 3 再将 driver/target capability 纳入 Contract validation。 |
 | 当前 public header 传播 | `X-Operation-Run-*` 可能进入消费者链路并被支付服务向 PSP 复制。 | 在本批次的 runner split 中删除传播，并以 Gateway strip 和 Payment 改造形成防御纵深。 |
-| migration 编号冲突 | 其他批次设计文档已预留过未落地编号。 | 合并前保留下一个序号，使用 `00N` 占位，禁止两个分支各自创建同编号 migration。 |
+| migration 编号冲突 | 批次 0 已实际使用 `002-fault-run-baseline.sql`，批次 3 技术设计曾预留 `002-fault-run-contract-revision.sql`。 | 本批次固定 `003-fault-run-worker-ownership.sql`；批次 3 在实施前改为 `004`，禁止两个批次共享序号。 |
 | rollout 期间旧/新代码并存 | 旧 scanner 不认识 execution/action 事实，可能与新 reconciler 共同驱动。 | active Run 清零或人工收敛后再切换；Kubernetes 使用 Recreate，回退前停用新 path。 |
 
 这些阻断项不是临时豁免。任何一个未解决时，都不得将 `TAKEOVER` 作为默认行为，也不得把重协调结果标记为安全成功。
