@@ -77,7 +77,8 @@ export async function verifyFaultRunOwnershipSchema(): Promise<void> {
   );
   const found = new Set(
     Array.isArray(rows)
-      ? (rows as Record<string, unknown>[]).map((row) => String(row.table_name))
+      ? (rows as Record<string, unknown>[]).map((row) =>
+        String(row.table_name ?? row.TABLE_NAME))
       : [],
   );
   const missing = FAULT_RUN_OWNERSHIP_TABLES.filter((table) => !found.has(table));

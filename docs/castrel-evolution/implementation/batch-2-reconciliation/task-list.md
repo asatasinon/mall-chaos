@@ -67,15 +67,15 @@
 ## 3. 总体进度
 
 - **总体状态：** P2-00 已完成，P2-01 进行中；仍保持 `OFF`，不启用 `TAKEOVER`。
-- **总体进度：** 1 / 11 个任务组，11 / 75 个实施子任务。
-- **当前任务：** P2-01 显式 migration、fresh schema 和 legacy 兼容。
-- **下一步：** 完成 `005` migration runner/schema verification 后，再进入 execution lease repository；不直接启用 Reconciler。
+- **总体进度：** 2 / 11 个任务组，18 / 75 个实施子任务。
+- **当前任务：** P2-02 execution lease repository 和 owner 条件写入。
+- **下一步：** 在已验证远端 migration 的基础上实现 execution lease；仍不启用 Reconciler/`TAKEOVER`。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
 | P2-00 | 设计修正、Phase 1 接入和实施门禁 | 已完成 | 6 / 6 | Phase 1 任务清单 |
-| P2-01 | Migration、fresh schema 和 legacy 兼容 | 进行中 | 5 / 6 | P2-00 |
-| P2-02 | Execution lease repository 和 owner 条件写入 | 未开始 | 0 / 8 | P2-01 |
+| P2-01 | Migration、fresh schema 和 legacy 兼容 | 已完成 | 6 / 6 | P2-00 |
+| P2-02 | Execution lease repository 和 owner 条件写入 | 进行中 | 6 / 8 | P2-01 |
 | P2-03 | Durable action journal 和动作幂等 | 未开始 | 0 / 7 | P2-01、P2-02 |
 | P2-04 | Reconciler、owner fence 和 shutdown | 未开始 | 0 / 8 | P2-02、P2-03 |
 | P2-05 | Owned drivers 和 normal-task 隔离 | 未开始 | 0 / 8 | P2-04 |
@@ -129,7 +129,7 @@ graph TD
 - [x] 新增 `traffic_control_plane_schema_migrations`（migration id、checksum、appliedAt、appliedBy）和 MySQL advisory lock；重复执行、checksum 不一致、部分对象和并发 Job 都必须明确失败。
 - [x] 新增 `traffic-control-plane/src/lib/migrations/005-fault-run-worker-ownership.sql`，创建 `fault_run_executions`、`fault_run_actions`、索引和约束；不修改既有 Fault Run 状态约束。
 - [x] 新增 `infra/mysql/init/09-fault-run-worker-ownership.sql`，与 `005` 的对象、约束、默认值保持 parity；fresh install 不依赖运行时 migration。
-- [ ] Worker non-`OFF` 启动前执行 schema verification；migration 未应用时 fail fast 为 `FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED`，`OFF` 保持 legacy compatibility。
+- [x] 提供 `verifyFaultRunOwnershipSchema()` 和 `db:verify` 的 schema gate；Worker non-`OFF` wiring 延后到 P2-04，migration 未应用时使用 `FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED`，`OFF` 保持 legacy compatibility。
 - [x] 历史 Run 不回填 owner/action；现有 list/detail/retention 查询不读取新表，legacy Run 保持安全可读。
 - [x] 复核 retention、FK cascade、manual cleanup 未完成、`RECOVERING`、`SERVICE_UNAVAILABLE` 和 active guard 的保留边界。
 
@@ -138,12 +138,12 @@ graph TD
 **目标：** 让两个 Worker 在数据库层竞争 owner，并使旧 epoch 无法覆盖新 owner 的 execution/runtime 事实。
 
 - [ ] 在 create transaction 中按 mode 写入 execution 初始行；新模式写 `IDLE`，`OFF`/legacy 不写虚构 execution。
-- [ ] 实现单条条件 claim：首次 claim 的 epoch 为 1；stale claim 只能在 `TAKEOVER` 模式且动作可恢复时发生；claim 后 `drain_state=OWNED`。
-- [ ] 实现 MySQL server-time heartbeat；正确 owner/epoch 成功，错误 owner、旧 epoch、过期 lease、人工介入和非 runnable Run 失败。
-- [ ] 实现 owner-scoped drain/action/run transition/event transaction；状态更新 `affectedRows !== 1` 时不得插入对应事件。
-- [ ] 实现 lease loss、数据库不可用、shutdown 的 local fence signal 和受限 `lease_lost_at` 记录；不能伪造旧进程精确失联时间。
-- [ ] 实现成功 drain 后的 conditional relinquish；epoch 单调递增，不删除 execution row，不把 timeout/unknown 当作安全 handoff。
-- [ ] 实现 Operator-safe execution projection，包含 owner、epoch、lease、heartbeat、reconciled、takeover count、drain 和 last error。
+- [x] 实现单条条件 claim：首次 claim 的 epoch 为 1；stale claim 只能在 `TAKEOVER` 模式且动作可恢复时发生；claim 后 `drain_state=OWNED`。
+- [x] 实现 MySQL server-time heartbeat；正确 owner/epoch 成功，错误 owner、旧 epoch、过期 lease、人工介入和非 runnable Run 失败。
+- [x] 实现 owner-scoped drain/action/run transition/event transaction；状态更新 `affectedRows !== 1` 时不得插入对应事件。
+- [x] 实现 lease loss、数据库不可用、shutdown 的 local fence signal 和受限 `lease_lost_at` 记录；不能伪造旧进程精确失联时间。
+- [x] 实现成功 drain 后的 conditional relinquish；epoch 单调递增，不删除 execution row，不把 timeout/unknown 当作安全 handoff。
+- [x] 实现 Operator-safe execution projection，包含 owner、epoch、lease、heartbeat、reconciled、takeover count、drain 和 last error。
 - [ ] 编写两 Worker 并发 claim、旧 epoch 覆盖、heartbeat rejection、graceful relinquish、DB outage 和时间边界测试。
 
 ### P2-03：Durable action journal 和动作幂等
@@ -163,6 +163,7 @@ graph TD
 **目标：** 由一个 Worker-only Reconciler 统一扫描、claim、heartbeat、driver lifecycle 和 recovery action。
 
 - [ ] 生成不可复用 owner ID（release/deployment prefix + pod/hostname + boot UUID），严格解析 lease TTL、heartbeat、scan interval 和 mode。
+- [ ] 在 Worker non-`OFF` 启动前调用 `verifyFaultRunOwnershipSchema()`；migration 未应用时 fail fast 为 `FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED`，`OFF` 保持 legacy compatibility。
 - [ ] 将 `FaultRunRecoveryExecutor` 的 recovery scan、deadline、verification limitation 和 action policy 纳入 Reconciler；不复制 Phase 1 projection/state transition。
 - [ ] 实现 `OBSERVE`/`SHADOW` 的 stale 观察记录，`TAKEOVER` 的条件接管；所有模式首次 claim 只启动一个 driver。
 - [ ] 实现 `WorkerOwnerFence`、AbortSignal、每 batch/Gateway/action 前后的 assertion，以及 owner-scoped persistence failure handling。
@@ -271,4 +272,5 @@ graph TD
 | --- | --- | --- | --- |
 | 2026-09-20 CST | 设计复核 | 完成 Phase 2 product/phase/tech 与 Phase 1 实现、任务清单、migration 文件、RecoveryExecutor/WorkerRuntime/RecoveryPolicy 对照；确认原设计没有 Phase 2 task list。 | 已补充本清单并修正 tech/phase/Phase 3 migration 引用；实施仍未开始。 |
 | 2026-09-21 CST | P2-00：设计与进入门禁完成 | 复核当前 migration 目录和 fresh-install init，确认 `002`/`003`/`004` 已被 baseline/warmup/alert receipts 占用；将 ownership migration 修正为 `005`/`09`，Phase 3 修正为 `006`。确认 Phase 1 recovery/drain/policy 组件可作为 P2 Reconciler 的增量基础。 | P2-00 完成；P2-01 开始实现显式 migration、schema verification 和 legacy projection。保持 mode=`OFF`，不执行 takeover。 |
-| 2026-09-21 CST | P2-01：migration foundation 实现 | 新增 `005-fault-run-worker-ownership.sql`、fresh-install `09`、migration history/checksum/advisory-lock runner、`db:migrate`/`db:verify` CLI、ownership table verification helper；ownership SQL 与 fresh-init SQL parity 通过，migration unit tests、typecheck 和 lint 通过。 | 尚未在实际 MySQL volume 执行 apply；non-`OFF` Worker startup gate 将在后续 Reconciler wiring 中接入。P2-01 保持 5/6。 |
+| 2026-09-21 CST | P2-01：migration foundation 完成 | 新增 `005-fault-run-worker-ownership.sql`、fresh-install `09`、migration history/checksum/advisory-lock runner、`db:migrate`/`db:verify` CLI、ownership table verification helper；ownership SQL 与 fresh-init SQL parity 通过，migration unit tests、typecheck 和 lint 通过。远端 Compose 已执行 migration，`001`–`005` history 全部记录，ownership/execution/action 表存在，active/recovering Run 为 `0`，`db:verify` 通过。 | Worker non-`OFF` startup wiring 延后到 P2-04；保持 mode=`OFF`，不执行 takeover。 |
+| 2026-09-21 CST | P2-02：execution lease foundation 开始 | 新增 `fault-run-execution-repository.ts`，实现 conditional claim、server-time heartbeat、lease loss、owner-scoped update、relinquish 和 projection parser；`fault_run_executions` 初始行已加入 create transaction 的可选输入，未接入 mode/旧 scanner。本地和远端 targeted tests/typecheck 通过。 | 并发 MySQL race、create mode wiring 和 Worker startup gate 尚未完成；远端 lint 因既有 `node_modules` 缺少 `eslint` 实体文件失败，未执行依赖安装或重启。 |

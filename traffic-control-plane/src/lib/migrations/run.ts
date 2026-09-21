@@ -186,7 +186,8 @@ async function verifyRequiredTables(
   );
   const found = new Set(
     Array.isArray(rows)
-      ? (rows as Record<string, unknown>[]).map((row) => String(row.table_name))
+      ? (rows as Record<string, unknown>[]).map((row) =>
+        String(row.table_name ?? row.TABLE_NAME))
       : [],
   );
   const missing = REQUIRED_TABLES.filter((table) => !found.has(table));

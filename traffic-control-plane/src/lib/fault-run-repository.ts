@@ -32,6 +32,10 @@ import {
   type FaultRunResolvedRecoveryPolicy,
 } from './fault-run-recovery-policy';
 import { insertOperatorAudit } from './operator-audit';
+import {
+  createFaultRunExecution,
+  type FaultRunExecutionMode,
+} from './fault-run-execution-repository';
 
 export interface FaultRunRecord {
   faultRunId: string;
@@ -100,6 +104,7 @@ export interface CreateFaultRunInput {
   idempotencyKey: string;
   expiresAt: Date;
   traceId: string;
+  executionMode?: FaultRunExecutionMode;
 }
 
 export const FAULT_RUN_COMMAND_IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
@@ -257,6 +262,9 @@ export async function createFaultRun(
       expiresAt: input.expiresAt.toISOString(),
       fencingToken,
     });
+    if (input.executionMode !== undefined) {
+      await createFaultRunExecution(connection, faultRunId, input.executionMode);
+    }
     await connection.commit();
   } catch (error) {
     await connection.rollback();
