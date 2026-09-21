@@ -3,8 +3,9 @@ import test from 'node:test';
 import type { GatewayClient } from '../lib/gateway-client';
 import type { LifecycleAccount } from '../lib/lifecycle-accounts';
 import type { FaultRunRecord } from '../lib/fault-run-repository';
+import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
 import { FaultRunDrainRegistry } from './fault-run-drain-registry';
-import { ReportScenarioWorker } from './report-scenario-worker';
+import { ReportScenarioFaultRunDriver, ReportScenarioWorker } from './report-scenario-worker';
 
 const account: LifecycleAccount = {
   label: 'alice',
@@ -190,4 +191,19 @@ test('report worker forwards its Run signal through login, request, and local se
     averageLatencyMs: 0,
     reason: 'RUN_STOPPED',
   });
+});
+
+test('report owned driver only supports report scenarios', () => {
+  const driver = new ReportScenarioFaultRunDriver(new ReportScenarioWorker({
+    gateway: {} as GatewayClient,
+    listRunnableRuns: async () => [],
+    appendEvent: async () => undefined,
+    loadAccounts: () => [account],
+    safeRuntimeEnabled: false,
+  }));
+  assert.equal(driver.supports(createRun('BROWSE_REPORT_SQL')), true);
+  assert.equal(driver.supports(createRun('ORDER_REPORT_SQL')), true);
+  assert.equal(driver.supports(createRun('BROWSE_SURGE')), false);
+  const fence = new FaultRunOwnerFence(createRun('BROWSE_REPORT_SQL').faultRunId, 'worker-a', 1);
+  assert.equal(fence.isLocallyCurrent(), true);
 });

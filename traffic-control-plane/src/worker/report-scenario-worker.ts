@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import pino from 'pino';
 import { forwardAbortSignal, throwIfAborted } from '../lib/abort-signal';
+import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
+import type { OwnedFaultRunDriver, OwnedRunHandle } from './fault-run-driver';
 import {
   getGatewayClient,
   type CustomerRequestContext,
@@ -69,6 +71,21 @@ export class ReportScenarioWorker {
     this.blockedRunIds.clear();
     for (const controller of this.controllers.values()) controller.abort('CONTROL_PLANE_STOP');
     await Promise.allSettled([...this.running.values()]);
+  }
+
+  async startOwned(run: FaultRunRecord, fence: FaultRunOwnerFence): Promise<OwnedRunHandle> {
+    const task = this.execute(run, fence.signal);
+    return {
+      stop: async () => {
+        fence.lose('OWNER_DRAIN');
+        try {
+          await task;
+          return { drained: true };
+        } catch {
+          return { drained: false, errorCode: 'REPORT_WORKER_FAILED' };
+        }
+      },
+    };
   }
 
   private async scan(): Promise<void> {
@@ -215,6 +232,20 @@ export class ReportScenarioWorker {
         }),
       ).catch(() => undefined);
     }
+  }
+}
+
+export class ReportScenarioFaultRunDriver implements OwnedFaultRunDriver {
+  readonly name = 'REPORT_SCENARIO_WORKER';
+
+  constructor(private readonly worker: ReportScenarioWorker = new ReportScenarioWorker()) {}
+
+  supports(run: FaultRunRecord): boolean {
+    return run.scenario === 'BROWSE_REPORT_SQL' || run.scenario === 'ORDER_REPORT_SQL';
+  }
+
+  start(input: { run: FaultRunRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle> {
+    return this.worker.startOwned(input.run, input.fence);
   }
 }
 
