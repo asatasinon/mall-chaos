@@ -3,8 +3,9 @@ import test from 'node:test';
 import type { GatewayClient } from '../lib/gateway-client';
 import type { LifecycleAccount } from '../lib/lifecycle-accounts';
 import type { FaultRunRecord } from '../lib/fault-run-repository';
+import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
 import { FaultRunDrainRegistry } from './fault-run-drain-registry';
-import { TrafficSurgeExecutor } from './traffic-surge-executor';
+import { TrafficSurgeExecutor, TrafficSurgeFaultRunDriver } from './traffic-surge-executor';
 
 function createRun(scenario: FaultRunRecord['scenario']): FaultRunRecord {
   return {
@@ -50,6 +51,21 @@ async function waitFor(assertion: () => boolean): Promise<void> {
     if (assertion()) return;
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
   }
+
+  test('surge owned driver only supports surge scenarios', () => {
+    const driver = new TrafficSurgeFaultRunDriver(new TrafficSurgeExecutor({
+      gateway: {} as GatewayClient,
+      listRunnableRuns: async () => [],
+      appendEvent: async () => undefined,
+      loadAccounts: () => [account],
+      safeRuntimeEnabled: false,
+    }));
+    assert.equal(driver.supports(createRun('BROWSE_SURGE')), true);
+    assert.equal(driver.supports(createRun('ORDER_QUERY_SURGE')), true);
+    assert.equal(driver.supports(createRun('BROWSE_REPORT_SQL')), false);
+    assert.equal(new FaultRunOwnerFence(createRun('BROWSE_SURGE').faultRunId, 'worker-a', 1)
+      .isLocallyCurrent(), true);
+  });
   assert.fail('Timed out waiting for surge worker state');
 }
 

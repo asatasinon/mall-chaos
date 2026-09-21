@@ -67,7 +67,7 @@
 ## 3. 总体进度
 
 - **总体状态：** P2-00 已完成，P2-01 进行中；仍保持 `OFF`，不启用 `TAKEOVER`。
-- **总体进度：** 4 / 11 个任务组，31 / 75 个实施子任务。
+- **总体进度：** 4 / 11 个任务组，35 / 75 个实施子任务。
 - **当前任务：** P2-04 Reconciler、owner fence 和 shutdown。
 - **下一步：** 在已完成配置和安全启动 gate 的基础上实现数据库 Reconciler；仍不默认启用 `TAKEOVER`。
 
@@ -78,7 +78,7 @@
 | P2-02 | Execution lease repository 和 owner 条件写入 | 已完成 | 8 / 8 | P2-01 |
 | P2-03 | Durable action journal 和动作幂等 | 已完成 | 7 / 7 | P2-01、P2-02 |
 | P2-04 | Reconciler、owner fence 和 shutdown | 进行中 | 4 / 8 | P2-02、P2-03 |
-| P2-05 | Owned drivers 和 normal-task 隔离 | 未开始 | 0 / 8 | P2-04 |
+| P2-05 | Owned drivers 和 normal-task 隔离 | 进行中（driver prework） | 4 / 8 | P2-04 |
 | P2-06 | Consumer/Gateway/PSP 协议边界 | 未开始 | 0 / 5 | P2-05 |
 | P2-07 | Command/API/UI/event projection | 未开始 | 0 / 7 | P2-03、P2-04 |
 | P2-08 | 配置、部署、灰度和回退 | 未开始 | 0 / 6 | P2-04、P2-07 |
@@ -176,10 +176,10 @@ graph TD
 
 **目标：** 将当前各自扫描的执行器改为由 Reconciler 显式启动的 owned driver，并保持真实业务路径。
 
-- [ ] 定义 `OwnedFaultRunDriver`、`OwnedRunHandle`、`WorkerOwnerFence`、drain result 和安全 event writer；不把 ownerEpoch 放进 Gateway DTO。
-- [ ] 将 `ReportScenarioWorker` 改为 owned report driver：只在 `ACTIVE + owned` 下创建 session、发请求、汇总和 drain。
-- [ ] 将 `TrafficSurgeExecutor` 改为 owned surge driver：在 session setup、每批请求、关闭 session 前检查 fence。
-- [ ] 将 `ScenarioWorkers`/`ControlledScenarioWorker` 改为 owned resource driver：复用 Phase 1 drain registry、CART 真实 dispatch 和 target summary，不再自行决定 owner。
+- [x] 定义 `OwnedFaultRunDriver`、`OwnedRunHandle`、`WorkerOwnerFence`、drain result 和安全 event writer；不把 ownerEpoch 放进 Gateway DTO。
+- [x] 将 `ReportScenarioWorker` 改为 owned report driver：只在 `ACTIVE + owned` 下创建 session、发请求、汇总和 drain。
+- [x] 将 `TrafficSurgeExecutor` 改为 owned surge driver：在 session setup、每批请求、关闭 session 前检查 fence。
+- [x] 将 `ScenarioWorkers`/`ControlledScenarioWorker` 改为 owned resource driver：复用 Phase 1 drain registry、CART 真实 dispatch 和 target summary，不再自行决定 owner。
 - [ ] 将 Runner-backed Fault Run 分离出 `RunnerEngine`；notification heap/storage/PSP 继续走真实业务或固定 internal Gateway operation，普通 customer lifecycle 不被 Run owner 统治。
 - [ ] 复核每个 Catalog 场景的 driver descriptor、`ACTIVE` gate、prepare/release、drain owner 和 `CART_CATALOG_DEPENDENCY` 真实路径；无 no-op effect。
 - [ ] owner loss 时停止新 batch、取消可取消请求、关闭 session、等待 bounded drain；不承诺撤回已发出的公开请求。
@@ -289,3 +289,4 @@ graph TD
 | 2026-09-21 CST | P2-03：阶段关闭 | 用户更新后的远端 revision `fa18375` 执行 `test:action-journal` 通过；P2-03 action intent、幂等、owner claim、unknown outcome 和 cleanup policy 设计完成。 | 进入 P2-04；不启用 `TAKEOVER`，先实现 owner fence 和安全启动 gate。 |
 | 2026-09-21 CST | P2-04：配置、owner fence 和安全启动 gate 开始 | 新增严格 reconciliation mode/lease 配置、owner ID/fence primitive；`WorkerRuntime` 在非 `OFF` 且 Reconciler 尚未就绪时先校验 ownership schema，再 fail-fast，避免 legacy scanners 误启动；targeted tests、typecheck 和 lint 通过。 | Reconciler scan/heartbeat/driver wiring 尚未实现，P2-04 保持 1/8。 |
 | 2026-09-21 CST | P2-04：Reconciler core foundation | 新增 `OwnedFaultRunDriver`/`OwnedRunHandle`、数据库候选 Reconciler、首次 claim、`OBSERVE`/`SHADOW` stale handling、`TAKEOVER` conditional claim、heartbeat loss、bounded drain/relinquish 和 Reconciler unit tests；targeted tests、typecheck 和 lint 通过。 | 尚未接入真实 Report/Surge/Scenario/Runner drivers，也未替换 WorkerRuntime 旧 scanner；P2-04 保持 4/8。 |
+| 2026-09-21 CST | P2-05：Report/Surge/Scenario driver prework | 为 Report、Surge、Scenario Worker 增加 `OwnedFaultRunDriver` adapter 和 `startOwned` bounded drain 接口；复用真实 Gateway/customer/session/target summary 路径，不创建 no-op effect；相关 worker tests、typecheck 和 lint 通过。 | 尚未由 Reconciler registry 启动，旧 scanner 仍保留；Runner-backed driver 和 WorkerRuntime wiring 后续处理。 |

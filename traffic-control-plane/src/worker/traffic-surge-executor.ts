@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { forwardAbortSignal, throwIfAborted } from '../lib/abort-signal';
+import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
 import {
   appendFaultRunEvent,
   listRunnableFaultRuns,
@@ -14,6 +15,7 @@ import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
 import { env } from '../lib/env';
 import { CustomerSessionManager } from './customer-session-manager';
 import { ControlledScenarioWorker } from './controlled-scenario-worker';
+import type { OwnedFaultRunDriver, OwnedRunHandle } from './fault-run-driver';
 import {
   getFaultRunDrainRegistry,
   type FaultRunDrainParticipant,
@@ -68,6 +70,79 @@ export class TrafficSurgeExecutor {
     await Promise.allSettled(activeWorkers.map(({ promise }) => promise));
   }
 
+  async startOwned(run: FaultRunRecord, fence: FaultRunOwnerFence): Promise<OwnedRunHandle> {
+    const target = getTrafficScenarioTarget(run.scenario);
+    const concurrency = boundedInteger(run.parameters.concurrency, 1, undefined, 1);
+    const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
+    const pageSize = boundedInteger(run.parameters.pageSize, 1, TRAFFIC_SURGE_MAX_PAGE_SIZE, 20);
+    const controller = new AbortController();
+    const removeFenceAbortListener = forwardAbortSignal(fence.signal, controller);
+    let session: CustomerRequestContext | null = null;
+    let sessionManager: CustomerSessionManager | null = null;
+    let setupFailed = false;
+    const request = async (signal: AbortSignal) => {
+      throwIfAborted(signal);
+      if (run.scenario === 'BROWSE_SURGE') {
+        await this.gateway.get(
+          target.path,
+          { page: '0', size: String(pageSize), sort: 'latest' },
+          { traceId: run.traceId ?? undefined, signal },
+        );
+      } else if (session) {
+        await this.gateway.customerGet(
+          target.path,
+          { page: '0', size: String(pageSize) },
+          session,
+          signal,
+        );
+      }
+    };
+    const worker = new ControlledScenarioWorker(
+      run,
+      { concurrency, requestIntervalMs, request, signal: controller.signal },
+    );
+    const task = (async () => {
+      try {
+        throwIfAborted(controller.signal);
+        if (run.scenario === 'ORDER_QUERY_SURGE') {
+          const account = this.loadAccounts()
+            .find((candidate) => candidate.enabled && candidate.expectedCustomerId !== 19);
+          if (!account) throw new Error('SURGE_CUSTOMER_ACCOUNT_UNAVAILABLE');
+          sessionManager = new CustomerSessionManager({ gateway: this.gateway, accounts: [account] });
+          session = await sessionManager.openSession(
+            run.faultRunId,
+            randomUUID(),
+            run.traceId ?? randomUUID(),
+            { signal: controller.signal },
+          );
+        }
+        await worker.start();
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setupFailed = true;
+          await appendWorkerFailure(this.appendEvent, run, error);
+        }
+      }
+    })();
+    return {
+      stop: async ({ reason }) => {
+        controller.abort(reason);
+        const stats = await worker.stop(reason);
+        await task;
+        if (session && sessionManager) {
+          await sessionManager.closeSession(session.lifecycleId, session.traceId, controller.signal)
+            .catch(() => undefined);
+        }
+        removeFenceAbortListener();
+        return {
+          drained: !setupFailed && stats.inFlight === 0,
+          inFlight: stats.inFlight,
+          ...(setupFailed ? { errorCode: 'SURGE_WORKER_SETUP_FAILED' } : {}),
+        };
+      },
+    };
+  }
+
   private async scan(): Promise<void> {
     const active = await this.listRunnableRuns();
     if (this.stopping) return;
@@ -78,6 +153,7 @@ export class TrafficSurgeExecutor {
     for (const runId of this.blockedRunIds) {
       if (!activeIds.has(runId)) this.blockedRunIds.delete(runId);
     }
+
     for (const [runId, current] of this.workers) {
       if (!activeIds.has(runId)) void current.worker.stop('RUN_STOPPED');
     }
@@ -191,6 +267,20 @@ export class TrafficSurgeExecutor {
       }
     })();
     this.workers.set(run.faultRunId, { worker, promise });
+  }
+}
+
+export class TrafficSurgeFaultRunDriver implements OwnedFaultRunDriver {
+  readonly name = 'TRAFFIC_SURGE_EXECUTOR';
+
+  constructor(private readonly executor: TrafficSurgeExecutor = new TrafficSurgeExecutor()) {}
+
+  supports(run: FaultRunRecord): boolean {
+    return run.scenario === 'BROWSE_SURGE' || run.scenario === 'ORDER_QUERY_SURGE';
+  }
+
+  start(input: { run: FaultRunRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle> {
+    return this.executor.startOwned(input.run, input.fence);
   }
 }
 

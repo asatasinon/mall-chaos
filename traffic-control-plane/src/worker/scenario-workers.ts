@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import pino from 'pino';
 import { forwardAbortSignal, throwIfAborted } from '../lib/abort-signal';
+import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
 import {
   CustomerRequestContext,
   GatewayClient,
@@ -25,6 +26,7 @@ import {
   ScenarioRequestResult,
   ScenarioRequestTimeoutError,
 } from './controlled-scenario-worker';
+import type { OwnedFaultRunDriver, OwnedRunHandle } from './fault-run-driver';
 import {
   getFaultRunDrainRegistry,
   type FaultRunDrainParticipant,
@@ -134,6 +136,106 @@ export class ScenarioWorkers {
     ]);
   }
 
+  async startOwned(run: FaultRunRecord, fence: FaultRunOwnerFence): Promise<OwnedRunHandle> {
+    throwIfAborted(fence.signal);
+    const concurrency = boundedInteger(run.parameters.concurrency, 1, 32, 1);
+    const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
+    let targetSummary: FaultRunTargetSummary | null = null;
+    if (run.scenario === 'CATALOG_REDIS_LARGE_VALUE') {
+      targetSummary = await this.loadTargetSummary(run.faultRunId);
+      if (!isUsableTargetSummary(targetSummary)) {
+        throw new Error('TARGET_SUMMARY_UNAVAILABLE');
+      }
+    }
+
+    let customerSession: CustomerRequestContext | null = null;
+    let customerLifecycleId: string | null = null;
+    let cartSku: string | null = null;
+    if (run.scenario === 'CART_CATALOG_DEPENDENCY') {
+      customerLifecycleId = randomUUID();
+      customerSession = await this.sessions.openSession(
+        run.faultRunId,
+        customerLifecycleId,
+        run.traceId ?? randomUUID().replace(/-/g, ''),
+        { signal: fence.signal, faultRunContext: createFaultRunContext(run) },
+      );
+      cartSku = await selectCartProduct(this.gateway, customerSession, fence.signal);
+    }
+
+    const closeCustomerSession = async () => {
+      if (customerLifecycleId && customerSession) {
+        await this.sessions.closeSession(
+          customerLifecycleId,
+          customerSession.traceId,
+          fence.signal,
+        ).catch(() => undefined);
+      }
+    };
+    const memberSkus = targetSummary?.memberSkus ?? [];
+    let memberIndex = 0;
+    const request = async (signal: AbortSignal): Promise<ScenarioRequestResult> => {
+      throwIfAborted(signal);
+      if (run.scenario === 'CATALOG_REDIS_LARGE_VALUE') {
+        const sku = memberSkus[memberIndex++ % memberSkus.length];
+        return readCatalogProductDetail(
+          this.gateway, sku, signal, env.PRODUCT_DETAIL_REQUEST_TIMEOUT_MS);
+      }
+      if (run.scenario === 'CART_CATALOG_DEPENDENCY') {
+        if (!customerSession || !cartSku) throw new Error('CART_WORKER_NOT_READY');
+        const response = await this.gateway.customerPost<CustomerApiResponse<CartData>>(
+          '/api/cart/items',
+          {
+            sku: cartSku,
+            quantity: 1,
+            operationId: `fault-run-${run.faultRunId}-${randomUUID()}`,
+          },
+          customerSession,
+          signal,
+        );
+        if (response?.code !== 200 || !response.data) throw new Error('CART_ADD_ITEM_FAILED');
+        return {};
+      }
+      const observationPath = run.scenario === 'INVENTORY_TABLE_EXCLUSIVE'
+        ? '/internal/gateway/inventory/availability'
+        : run.scenario === 'INVENTORY_ROW_LOCK'
+          ? '/internal/gateway/inventory/reservations/summary'
+          : '/internal/gateway/promotion/consistency';
+      await this.gateway.postInternal(observationPath, {
+        runId: run.faultRunId,
+        expiresAt: run.expiresAt,
+        fencingToken: run.fencingToken,
+        idempotencyKey: run.idempotencyKey,
+      }, run.traceId ?? undefined, signal);
+      return {};
+    };
+
+    if (targetSummary) {
+      await this.appendEvent(run.faultRunId, 'SCENARIO_WORKER_TARGET', {
+        layout: targetSummary.layout,
+        memberCount: targetSummary.memberCount,
+        memberSizeBytes: targetSummary.memberSizeBytes,
+        probeSku: targetSummary.probeSku,
+      });
+    }
+    const worker = new ControlledScenarioWorker(
+      run,
+      { concurrency, requestIntervalMs, request, signal: fence.signal },
+      this.appendEvent,
+    );
+    const task = worker.start().finally(closeCustomerSession);
+    return {
+      stop: async ({ reason }) => {
+        fence.lose(reason);
+        const stats = await worker.stop(reason);
+        await task.catch(() => undefined);
+        return {
+          drained: stats.inFlight === 0,
+          inFlight: stats.inFlight,
+        };
+      },
+    };
+  }
+
   private async scan(): Promise<void> {
     let active: FaultRunRecord[];
     try {
@@ -142,6 +244,7 @@ export class ScenarioWorkers {
       log.warn({ error }, 'Fault Run scan failed');
       return;
     }
+
     if (this.stopping) return;
     const eligible = active.filter((run) =>
       run.state === 'ACTIVE'
@@ -346,6 +449,24 @@ export class ScenarioWorkers {
     })();
     this.workers.set(run.faultRunId, { worker, promise });
     await promise;
+  }
+}
+
+export class ScenarioFaultRunDriver implements OwnedFaultRunDriver {
+  readonly name = 'SCENARIO_WORKERS';
+
+  constructor(private readonly workers: ScenarioWorkers = new ScenarioWorkers()) {}
+
+  supports(run: FaultRunRecord): boolean {
+    return run.scenario === 'CATALOG_REDIS_LARGE_VALUE'
+      || run.scenario === 'PROMOTION_LOCK_CONTENTION'
+      || run.scenario === 'INVENTORY_TABLE_EXCLUSIVE'
+      || run.scenario === 'INVENTORY_ROW_LOCK'
+      || run.scenario === 'CART_CATALOG_DEPENDENCY';
+  }
+
+  start(input: { run: FaultRunRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle> {
+    return this.workers.startOwned(input.run, input.fence);
   }
 }
 
