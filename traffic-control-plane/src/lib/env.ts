@@ -1,5 +1,9 @@
 // Environment configuration for traffic-control-plane
 
+import type { FaultRunExecutionMode } from './fault-run-execution-repository';
+
+export type FaultRunReconciliationMode = 'OFF' | FaultRunExecutionMode;
+
 export interface FaultRunRuntimeConfig {
   safeRuntimeEnabled: boolean;
   stopScanIntervalMs: number;
@@ -7,6 +11,11 @@ export interface FaultRunRuntimeConfig {
   recoveryTimeoutMs: number;
   shutdownTimeoutMs: number;
   workerStopGracePeriodMs: number | null;
+  reconciliationMode: FaultRunReconciliationMode;
+  ownerLeaseTtlMs: number;
+  ownerHeartbeatMs: number;
+  reconcileIntervalMs: number;
+  ownerIdPrefix: string;
 }
 
 export function parseFaultRunRuntimeConfig(
@@ -40,6 +49,23 @@ export function parseFaultRunRuntimeConfig(
   if (workerStopGracePeriodMs !== null && workerStopGracePeriodMs <= shutdownTimeoutMs) {
     throw new Error('FAULT_RUN_WORKER_STOP_GRACE_PERIOD_TOO_SHORT');
   }
+  const ownerLeaseTtlMs = strictBoundedInteger(
+    'FAULT_RUN_OWNER_LEASE_TTL_MS',
+    source.FAULT_RUN_OWNER_LEASE_TTL_MS,
+    30_000,
+    15_000,
+    120_000,
+  );
+  const ownerHeartbeatMs = strictBoundedInteger(
+    'FAULT_RUN_OWNER_HEARTBEAT_MS',
+    source.FAULT_RUN_OWNER_HEARTBEAT_MS,
+    10_000,
+    250,
+    60_000,
+  );
+  if (ownerHeartbeatMs * 2 >= ownerLeaseTtlMs) {
+    throw new Error('FAULT_RUN_OWNER_HEARTBEAT_TOO_LONG');
+  }
 
   return {
     safeRuntimeEnabled: strictBoolean(
@@ -58,7 +84,28 @@ export function parseFaultRunRuntimeConfig(
     recoveryTimeoutMs,
     shutdownTimeoutMs,
     workerStopGracePeriodMs,
+    reconciliationMode: parseFaultRunReconciliationMode(source.FAULT_RUN_RECONCILIATION_MODE),
+    ownerLeaseTtlMs,
+    ownerHeartbeatMs,
+    reconcileIntervalMs: strictBoundedInteger(
+      'FAULT_RUN_RECONCILE_INTERVAL_MS',
+      source.FAULT_RUN_RECONCILE_INTERVAL_MS,
+      1000,
+      250,
+      5000,
+    ),
+    ownerIdPrefix: strictOwnerIdPrefix(source.FAULT_RUN_OWNER_ID_PREFIX),
   };
+}
+
+export function parseFaultRunReconciliationMode(
+  value: string | undefined,
+): FaultRunReconciliationMode {
+  if (value === undefined) return 'OFF';
+  if (value === 'OFF' || value === 'OBSERVE' || value === 'SHADOW' || value === 'TAKEOVER') {
+    return value;
+  }
+  throw new Error('INVALID_ENUM_ENV:FAULT_RUN_RECONCILIATION_MODE');
 }
 
 const faultRunRuntimeConfig = parseFaultRunRuntimeConfig(process.env);
@@ -103,6 +150,11 @@ export const env = {
   FAULT_RUN_SHUTDOWN_TIMEOUT_MS: faultRunRuntimeConfig.shutdownTimeoutMs,
   FAULT_RUN_STOP_SCAN_INTERVAL_MS: faultRunRuntimeConfig.stopScanIntervalMs,
   FAULT_RUN_WORKER_STOP_GRACE_PERIOD_MS: faultRunRuntimeConfig.workerStopGracePeriodMs,
+  FAULT_RUN_RECONCILIATION_MODE: faultRunRuntimeConfig.reconciliationMode,
+  FAULT_RUN_OWNER_LEASE_TTL_MS: faultRunRuntimeConfig.ownerLeaseTtlMs,
+  FAULT_RUN_OWNER_HEARTBEAT_MS: faultRunRuntimeConfig.ownerHeartbeatMs,
+  FAULT_RUN_RECONCILE_INTERVAL_MS: faultRunRuntimeConfig.reconcileIntervalMs,
+  FAULT_RUN_OWNER_ID_PREFIX: faultRunRuntimeConfig.ownerIdPrefix,
 
   ALERT_CONFIG_DIR: process.env.ALERT_CONFIG_DIR || '../data',
   ALERT_SOURCE_RULES_PATH: process.env.ALERT_SOURCE_RULES_PATH || '../infra/prometheus/rules/alert-rules.yml',
@@ -157,4 +209,12 @@ function optionalStrictDurationMs(name: string, value: string | undefined): numb
     throw new Error(`INVALID_DURATION_ENV:${name}`);
   }
   return milliseconds;
+}
+
+function strictOwnerIdPrefix(value: string | undefined): string {
+  const prefix = value === undefined ? 'traffic-control-plane-worker' : value;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$/.test(prefix)) {
+    throw new Error('INVALID_OWNER_ID_PREFIX');
+  }
+  return prefix;
 }

@@ -175,6 +175,25 @@ test('starts recovery before effect scanners and tears down effect work before r
   assert.ok(calls.indexOf('mysql.close') < calls.indexOf('redis.close'));
 });
 
+test('fails closed before legacy scanners when reconciliation mode is non-OFF', async () => {
+  const calls: string[] = [];
+  let verified = false;
+  const runtime = new WorkerRuntime(createDependencies(calls, {
+    reconciliationMode: 'OBSERVE',
+    verifyOwnershipSchema: async () => {
+      verified = true;
+    },
+  }));
+
+  await assert.rejects(
+    () => runtime.start(),
+    /FAULT_RUN_RECONCILIATION_NOT_READY/,
+  );
+  assert.equal(verified, true);
+  assert.equal(calls.includes('recovery.start'), false);
+  assert.equal(calls.includes('report.start'), false);
+});
+
 test('coalesces shutdown requests and prevents later startup stages', async () => {
   const calls: string[] = [];
   const configuration = deferred();

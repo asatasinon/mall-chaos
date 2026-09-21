@@ -10,6 +10,7 @@ import {
   requestFaultRunStop,
   type FaultRunRecord,
 } from '../lib/fault-run-repository';
+import { verifyFaultRunOwnershipSchema } from '../lib/fault-run-schema';
 import { getLegacyFaultRunRecovery } from '../lib/legacy-fault-run-recovery';
 import {
   getFaultRunRecoveryExecutor,
@@ -62,6 +63,8 @@ interface LegacyRecoveryComponent {
 
 export interface WorkerRuntimeDependencies {
   safeRuntimeEnabled: boolean;
+  reconciliationMode?: 'OFF' | 'OBSERVE' | 'SHADOW' | 'TAKEOVER';
+  verifyOwnershipSchema?: typeof verifyFaultRunOwnershipSchema;
   drainTimeoutMs: number;
   recoveryTimeoutMs: number;
   shutdownTimeoutMs: number;
@@ -111,6 +114,11 @@ export class WorkerRuntime {
 
     await dependencies.runner.loadConfigFromDb();
     if (this.isShuttingDown()) return;
+
+    if (dependencies.reconciliationMode && dependencies.reconciliationMode !== 'OFF') {
+      await (dependencies.verifyOwnershipSchema ?? verifyFaultRunOwnershipSchema)();
+      throw new Error('FAULT_RUN_RECONCILIATION_NOT_READY');
+    }
 
     if (dependencies.safeRuntimeEnabled) {
       this.started.recovery = true;
@@ -303,6 +311,8 @@ export class WorkerRuntime {
 export function createWorkerRuntime(): WorkerRuntime {
   return new WorkerRuntime({
     safeRuntimeEnabled: env.FAULT_RUN_SAFE_RUNTIME_ENABLED,
+    reconciliationMode: env.FAULT_RUN_RECONCILIATION_MODE,
+    verifyOwnershipSchema: verifyFaultRunOwnershipSchema,
     drainTimeoutMs: env.FAULT_RUN_DRAIN_TIMEOUT_MS,
     recoveryTimeoutMs: env.FAULT_RUN_RECOVERY_TIMEOUT_MS,
     shutdownTimeoutMs: env.FAULT_RUN_SHUTDOWN_TIMEOUT_MS,

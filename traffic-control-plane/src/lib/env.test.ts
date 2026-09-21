@@ -10,6 +10,11 @@ test('uses safe-runtime defaults without requiring Docker-specific grace configu
     recoveryTimeoutMs: 60_000,
     shutdownTimeoutMs: 90_000,
     workerStopGracePeriodMs: null,
+    reconciliationMode: 'OFF',
+    ownerLeaseTtlMs: 30_000,
+    ownerHeartbeatMs: 10_000,
+    reconcileIntervalMs: 1000,
+    ownerIdPrefix: 'traffic-control-plane-worker',
   });
 });
 
@@ -73,5 +78,39 @@ test('requires the Compose Worker grace period to exceed its shutdown budget', (
     recoveryTimeoutMs: 60_000,
     shutdownTimeoutMs: 90_000,
     workerStopGracePeriodMs: 105_000,
+    reconciliationMode: 'OFF',
+    ownerLeaseTtlMs: 30_000,
+    ownerHeartbeatMs: 10_000,
+    reconcileIntervalMs: 1000,
+    ownerIdPrefix: 'traffic-control-plane-worker',
   });
+});
+
+test('parses reconciliation mode and validates owner lease timing', () => {
+  assert.equal(parseFaultRunRuntimeConfig({
+    FAULT_RUN_RECONCILIATION_MODE: 'SHADOW',
+    FAULT_RUN_OWNER_LEASE_TTL_MS: '30000',
+    FAULT_RUN_OWNER_HEARTBEAT_MS: '10000',
+    FAULT_RUN_RECONCILE_INTERVAL_MS: '500',
+    FAULT_RUN_OWNER_ID_PREFIX: 'worker.release',
+  }).reconciliationMode, 'SHADOW');
+  assert.throws(
+    () => parseFaultRunRuntimeConfig({
+      FAULT_RUN_RECONCILIATION_MODE: 'READY',
+    }),
+    /INVALID_ENUM_ENV:FAULT_RUN_RECONCILIATION_MODE/,
+  );
+  assert.throws(
+    () => parseFaultRunRuntimeConfig({
+      FAULT_RUN_OWNER_LEASE_TTL_MS: '30000',
+      FAULT_RUN_OWNER_HEARTBEAT_MS: '15000',
+    }),
+    /FAULT_RUN_OWNER_HEARTBEAT_TOO_LONG/,
+  );
+  assert.throws(
+    () => parseFaultRunRuntimeConfig({
+      FAULT_RUN_OWNER_ID_PREFIX: 'worker id with spaces',
+    }),
+    /INVALID_OWNER_ID_PREFIX/,
+  );
 });
