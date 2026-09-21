@@ -67,7 +67,7 @@
 ## 3. 总体进度
 
 - **总体状态：** P2-00 已完成，P2-01 进行中；仍保持 `OFF`，不启用 `TAKEOVER`。
-- **总体进度：** 4 / 11 个任务组，28 / 75 个实施子任务。
+- **总体进度：** 4 / 11 个任务组，30 / 75 个实施子任务。
 - **当前任务：** P2-04 Reconciler、owner fence 和 shutdown。
 - **下一步：** 在已完成配置和安全启动 gate 的基础上实现数据库 Reconciler；仍不默认启用 `TAKEOVER`。
 
@@ -77,7 +77,7 @@
 | P2-01 | Migration、fresh schema 和 legacy 兼容 | 已完成 | 6 / 6 | P2-00 |
 | P2-02 | Execution lease repository 和 owner 条件写入 | 已完成 | 8 / 8 | P2-01 |
 | P2-03 | Durable action journal 和动作幂等 | 已完成 | 7 / 7 | P2-01、P2-02 |
-| P2-04 | Reconciler、owner fence 和 shutdown | 进行中 | 1 / 8 | P2-02、P2-03 |
+| P2-04 | Reconciler、owner fence 和 shutdown | 进行中 | 3 / 8 | P2-02、P2-03 |
 | P2-05 | Owned drivers 和 normal-task 隔离 | 未开始 | 0 / 8 | P2-04 |
 | P2-06 | Consumer/Gateway/PSP 协议边界 | 未开始 | 0 / 5 | P2-05 |
 | P2-07 | Command/API/UI/event projection | 未开始 | 0 / 7 | P2-03、P2-04 |
@@ -165,8 +165,8 @@ graph TD
 - [x] 生成不可复用 owner ID（release/deployment prefix + pod/hostname + boot UUID），严格解析 lease TTL、heartbeat、scan interval 和 mode。
 - [ ] 在 Worker non-`OFF` 启动前调用 `verifyFaultRunOwnershipSchema()`；migration 未应用时 fail fast 为 `FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED`，`OFF` 保持 legacy compatibility。
 - [ ] 将 `FaultRunRecoveryExecutor` 的 recovery scan、deadline、verification limitation 和 action policy 纳入 Reconciler；不复制 Phase 1 projection/state transition。
-- [ ] 实现 `OBSERVE`/`SHADOW` 的 stale 观察记录，`TAKEOVER` 的条件接管；所有模式首次 claim 只启动一个 driver。
-- [ ] 实现 `WorkerOwnerFence`、AbortSignal、每 batch/Gateway/action 前后的 assertion，以及 owner-scoped persistence failure handling。
+- [x] 实现 `OBSERVE`/`SHADOW` 的 stale 观察记录，`TAKEOVER` 的条件接管；所有模式首次 claim 只启动一个 driver。
+- [x] 实现 `WorkerOwnerFence`、AbortSignal 和 owner-scoped persistence failure handling primitive；每 batch/Gateway/action 的具体 driver assertion 在 P2-05 接入。
 - [ ] 使数据库、`fault_runs`、action journal 和 execution row 成为唯一事实；timer 只能唤醒 scan，不能独立改变状态。
 - [ ] 实现到期、stop request、`RECOVERING`、manual cleanup、non-releasing 和 service unavailable 的决策表。
 - [ ] 在 `WorkerRuntime` 中按顺序启动/停止 Reconciler；禁用旧 Fault Run scanner，保留 Runner/warmup/replenishment/retention 独立生命周期。
@@ -288,3 +288,4 @@ graph TD
 | 2026-09-21 CST | P2-03：远端 action journal 数据库行为验证 | 远端一次性操作验证 duplicate request 唯一约束、owner A claim、owner B 拒绝、lease expired 后 stale dispatch 转 `OUTCOME_UNKNOWN/OWNER_LEASE_EXPIRED`，fixture 已清理。 | 远端 revision 尚未包含 `test:action-journal` harness；完整 crash/迟到 response 测试仍待用户部署最新代码后执行。 |
 | 2026-09-21 CST | P2-03：阶段关闭 | 用户更新后的远端 revision `fa18375` 执行 `test:action-journal` 通过；P2-03 action intent、幂等、owner claim、unknown outcome 和 cleanup policy 设计完成。 | 进入 P2-04；不启用 `TAKEOVER`，先实现 owner fence 和安全启动 gate。 |
 | 2026-09-21 CST | P2-04：配置、owner fence 和安全启动 gate 开始 | 新增严格 reconciliation mode/lease 配置、owner ID/fence primitive；`WorkerRuntime` 在非 `OFF` 且 Reconciler 尚未就绪时先校验 ownership schema，再 fail-fast，避免 legacy scanners 误启动；targeted tests、typecheck 和 lint 通过。 | Reconciler scan/heartbeat/driver wiring 尚未实现，P2-04 保持 1/8。 |
+| 2026-09-21 CST | P2-04：Reconciler core foundation | 新增 `OwnedFaultRunDriver`/`OwnedRunHandle`、数据库候选 Reconciler、首次 claim、`OBSERVE`/`SHADOW` stale handling、`TAKEOVER` conditional claim、heartbeat loss、bounded drain/relinquish 和 Reconciler unit tests；targeted tests、typecheck 和 lint 通过。 | 尚未接入真实 Report/Surge/Scenario/Runner drivers，也未替换 WorkerRuntime 旧 scanner；P2-04 保持 3/8。 |

@@ -383,6 +383,23 @@ export async function listActiveFaultRuns(): Promise<FaultRunRecord[]> {
   return asRecords(rows).map(toFaultRun);
 }
 
+export async function listFaultRunReconciliationCandidates(): Promise<FaultRunRecord[]> {
+  await ensureFaultRunSchema();
+  const [rows] = await getPool().query(
+    `SELECT run.*
+       FROM fault_runs run
+       JOIN fault_run_executions execution
+         ON execution.fault_run_id = run.fault_run_id
+      WHERE run.state IN ('CREATING', 'ACTIVE', 'RECOVERING')
+        AND (
+          execution.owner_id IS NULL
+          OR execution.lease_expires_at <= CURRENT_TIMESTAMP(3)
+        )
+      ORDER BY run.expires_at, run.created_at, run.fault_run_id`,
+  );
+  return asRecords(rows).map(toFaultRun);
+}
+
 export async function listRunnableFaultRuns(): Promise<FaultRunRecord[]> {
   await ensureFaultRunSchema();
   const [rows] = await getPool().query(
