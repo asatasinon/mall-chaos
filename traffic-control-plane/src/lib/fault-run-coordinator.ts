@@ -19,6 +19,7 @@ import {
   validateScenarioParameters,
 } from './fault-run-catalog';
 import { env } from './env';
+import type { FaultRunExecutionMode } from './fault-run-execution-repository';
 
 export interface FaultRunTargetAdapter {
   start(run: FaultRunRecord): Promise<unknown>;
@@ -94,6 +95,7 @@ export interface CreateFaultRunCommand {
   parameters: unknown;
   idempotencyKey: string;
   traceId: string;
+  executionMode?: FaultRunExecutionMode;
 }
 
 export interface FaultRunCoordinatorOptions {
@@ -132,6 +134,7 @@ export class FaultRunCoordinator {
       idempotencyKey: command.idempotencyKey,
       expiresAt: new Date(Date.now() + durationSec * 1000),
       traceId: command.traceId,
+      executionMode: command.executionMode,
     };
     const result = await this.store.create(input);
     if (!result.created) return result;
