@@ -52,6 +52,7 @@ function execution(overrides: Partial<FaultRunExecutionRecord> = {}): FaultRunEx
 function driver(started: string[], stopped: string[]): OwnedFaultRunDriver {
   return {
     name: 'test-driver',
+    drainOwner: 'REPORT_SCENARIO_WORKER',
     supports: () => true,
     start: async () => {
       started.push(run.faultRunId);
@@ -180,6 +181,7 @@ test('heartbeat loss fences and drains the owned driver', async () => {
     appendEvent: async () => undefined,
     drivers: [{
       name: 'heartbeat-test-driver',
+      drainOwner: 'REPORT_SCENARIO_WORKER',
       supports: () => true,
       start: async () => ({
         stop: async () => {

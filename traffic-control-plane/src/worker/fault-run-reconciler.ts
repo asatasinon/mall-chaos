@@ -12,6 +12,10 @@ import {
 import { appendFaultRunEvent, listFaultRunReconciliationCandidates, type FaultRunRecord } from '../lib/fault-run-repository';
 import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
 import type { OwnedFaultRunDriver, OwnedRunDrainResult, OwnedRunHandle, OwnedRunStopReason } from './fault-run-driver';
+import {
+  faultRunDrainParticipantForOwner,
+  type FaultRunDrainRegistry,
+} from './fault-run-drain-registry';
 
 const log = pino({ name: 'fault-run-reconciler' });
 
@@ -24,6 +28,7 @@ export interface FaultRunReconcilerDependencies {
   updateExecution: typeof updateOwnedFaultRunExecution;
   relinquishExecution: typeof relinquishFaultRunExecution;
   appendEvent: typeof appendFaultRunEvent;
+  drainRegistry?: Pick<FaultRunDrainRegistry, 'register'>;
   drivers: readonly OwnedFaultRunDriver[];
   now: () => Date;
   logger: Pick<typeof log, 'warn' | 'info'>;
@@ -43,6 +48,9 @@ interface OwnedRun {
   fence: FaultRunOwnerFence;
   handle: OwnedRunHandle;
   driver: OwnedFaultRunDriver;
+  unregisterDrain: (() => void) | null;
+  settledResolve: () => void;
+  stopPromise: Promise<OwnedRunDrainResult> | null;
 }
 
 export class FaultRunReconciler {
@@ -150,7 +158,31 @@ export class FaultRunReconciler {
     );
     try {
       const handle = await driver.start({ run, fence });
-      this.owned.set(run.faultRunId, { run, execution: claimed, fence, handle, driver });
+      let settledResolve!: () => void;
+      const settled = new Promise<void>((resolve) => {
+        settledResolve = resolve;
+      });
+      const owned: OwnedRun = {
+        run,
+        execution: claimed,
+        fence,
+        handle,
+        driver,
+        unregisterDrain: null,
+        settledResolve,
+        stopPromise: null,
+      };
+      if (this.dependencies.drainRegistry) {
+        owned.unregisterDrain = this.dependencies.drainRegistry.register(
+          run.faultRunId,
+          {
+            kind: faultRunDrainParticipantForOwner(driver.drainOwner),
+            requestStop: () => this.stopOwned(owned, 'MANUAL').then(() => undefined),
+            settled: () => settled,
+          },
+        );
+      }
+      this.owned.set(run.faultRunId, owned);
       await this.dependencies.appendEvent(run.faultRunId, initial
         ? 'OWNER_LEASE_ACQUIRED'
         : 'OWNER_TAKEOVER_COMPLETED', {
@@ -193,42 +225,45 @@ export class FaultRunReconciler {
   }
 
   private async stopOwned(owned: OwnedRun, reason: OwnedRunStopReason): Promise<OwnedRunDrainResult> {
-    if (!this.owned.has(owned.run.faultRunId)) {
-      return { drained: true };
-    }
-    owned.fence.lose(reason);
-    let result: OwnedRunDrainResult;
-    try {
-      result = await owned.handle.stop({ reason, signal: owned.fence.signal });
-    } catch {
-      result = { drained: false, errorCode: 'DRIVER_DRAIN_FAILED' };
-    }
-    this.owned.delete(owned.run.faultRunId);
-    if (result.drained) {
-      await this.dependencies.updateExecution({
-        faultRunId: owned.run.faultRunId,
-        ownerId: owned.fence.ownerId,
-        ownerEpoch: owned.fence.ownerEpoch,
-        drainState: 'DRAINED',
-        lastAction: 'OWNER_DRAIN_COMPLETED',
-        lastErrorCode: null,
-      }).catch(() => false);
-      await this.dependencies.relinquishExecution({
-        faultRunId: owned.run.faultRunId,
-        ownerId: owned.fence.ownerId,
-        ownerEpoch: owned.fence.ownerEpoch,
-      }).catch(() => false);
-    } else {
-      await this.dependencies.updateExecution({
-        faultRunId: owned.run.faultRunId,
-        ownerId: owned.fence.ownerId,
-        ownerEpoch: owned.fence.ownerEpoch,
-        drainState: 'DRAIN_TIMEOUT',
-        lastAction: 'OWNER_DRAIN_TIMEOUT',
-        lastErrorCode: result.errorCode ?? 'DRIVER_DRAIN_FAILED',
-      }).catch(() => false);
-    }
-    return result;
+    if (owned.stopPromise) return owned.stopPromise;
+    owned.stopPromise = (async () => {
+      owned.fence.lose(reason);
+      let result: OwnedRunDrainResult;
+      try {
+        result = await owned.handle.stop({ reason, signal: owned.fence.signal });
+      } catch {
+        result = { drained: false, errorCode: 'DRIVER_DRAIN_FAILED' };
+      }
+      this.owned.delete(owned.run.faultRunId);
+      owned.unregisterDrain?.();
+      owned.settledResolve();
+      if (result.drained) {
+        await this.dependencies.updateExecution({
+          faultRunId: owned.run.faultRunId,
+          ownerId: owned.fence.ownerId,
+          ownerEpoch: owned.fence.ownerEpoch,
+          drainState: 'DRAINED',
+          lastAction: 'OWNER_DRAIN_COMPLETED',
+          lastErrorCode: null,
+        }).catch(() => false);
+        await this.dependencies.relinquishExecution({
+          faultRunId: owned.run.faultRunId,
+          ownerId: owned.fence.ownerId,
+          ownerEpoch: owned.fence.ownerEpoch,
+        }).catch(() => false);
+      } else {
+        await this.dependencies.updateExecution({
+          faultRunId: owned.run.faultRunId,
+          ownerId: owned.fence.ownerId,
+          ownerEpoch: owned.fence.ownerEpoch,
+          drainState: 'DRAIN_TIMEOUT',
+          lastAction: 'OWNER_DRAIN_TIMEOUT',
+          lastErrorCode: result.errorCode ?? 'DRIVER_DRAIN_FAILED',
+        }).catch(() => false);
+      }
+      return result;
+    })();
+    return owned.stopPromise;
   }
 }
 

@@ -272,6 +272,7 @@ export class TrafficSurgeExecutor {
 
 export class TrafficSurgeFaultRunDriver implements OwnedFaultRunDriver {
   readonly name = 'TRAFFIC_SURGE_EXECUTOR';
+  readonly drainOwner = 'TRAFFIC_SURGE_EXECUTOR' as const;
 
   constructor(private readonly executor: TrafficSurgeExecutor = new TrafficSurgeExecutor()) {}
 

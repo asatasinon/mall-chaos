@@ -17,6 +17,7 @@ interface RunnerBackedDriverDependencies {
 
 export class RunnerBackedFaultRunDriver implements OwnedFaultRunDriver {
   readonly name = 'RUNNER_ENGINE';
+  readonly drainOwner = 'RUNNER_ENGINE' as const;
   private readonly loadConfig: RunnerBackedDriverDependencies['loadConfig'];
   private readonly orchestrator: RunnerBackedDriverDependencies['orchestrator'];
   private readonly appendEvent: RunnerBackedDriverDependencies['appendEvent'];

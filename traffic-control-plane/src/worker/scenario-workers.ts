@@ -454,6 +454,7 @@ export class ScenarioWorkers {
 
 export class ScenarioFaultRunDriver implements OwnedFaultRunDriver {
   readonly name = 'SCENARIO_WORKERS';
+  readonly drainOwner = 'SCENARIO_WORKERS' as const;
 
   constructor(private readonly workers: ScenarioWorkers = new ScenarioWorkers()) {}
 

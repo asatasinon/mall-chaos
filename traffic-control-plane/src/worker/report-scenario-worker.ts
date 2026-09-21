@@ -237,6 +237,7 @@ export class ReportScenarioWorker {
 
 export class ReportScenarioFaultRunDriver implements OwnedFaultRunDriver {
   readonly name = 'REPORT_SCENARIO_WORKER';
+  readonly drainOwner = 'REPORT_SCENARIO_WORKER' as const;
 
   constructor(private readonly worker: ReportScenarioWorker = new ReportScenarioWorker()) {}
 
