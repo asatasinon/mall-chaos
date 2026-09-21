@@ -42,6 +42,7 @@ export interface RunnerEngineDependencies {
   orchestrator: Pick<TrafficActionOrchestrator, 'executeLifecycle' | 'executeStorageGrowth'>;
   drainRegistry: Pick<FaultRunDrainRegistry, 'register' | 'tryAcquire'>;
   safeRuntimeEnabled: boolean;
+  faultRunExecutionEnabled?: boolean;
   now: () => number;
   createTrafficRunId: () => string;
 }
@@ -63,6 +64,7 @@ export class RunnerEngine {
   private readonly orchestrator: RunnerEngineDependencies['orchestrator'];
   private readonly drainRegistry: RunnerEngineDependencies['drainRegistry'];
   private readonly safeRuntimeEnabled: boolean;
+  private readonly faultRunExecutionEnabled: boolean;
   private readonly now: () => number;
   private readonly createTrafficRunId: () => string;
   private config: RunnerConfig;
@@ -111,6 +113,8 @@ export class RunnerEngine {
     this.orchestrator = dependencies.orchestrator ?? new TrafficActionOrchestrator();
     this.drainRegistry = dependencies.drainRegistry ?? getFaultRunDrainRegistry();
     this.safeRuntimeEnabled = dependencies.safeRuntimeEnabled ?? env.FAULT_RUN_SAFE_RUNTIME_ENABLED;
+    this.faultRunExecutionEnabled = dependencies.faultRunExecutionEnabled
+      ?? env.FAULT_RUN_RECONCILIATION_MODE === 'OFF';
     this.now = dependencies.now ?? Date.now;
     this.createTrafficRunId = dependencies.createTrafficRunId ?? uuidv4;
     this.config = {
@@ -266,7 +270,9 @@ export class RunnerEngine {
     const trafficRunId = this.trafficRunId;
     if (this.trafficRunPersistence) await this.trafficRunPersistence;
     if (!this.isCurrentTrafficRun(trafficRunId, generation)) return;
-    const runnableFaultRun = await this.loadRunnableRun();
+    const runnableFaultRun = this.faultRunExecutionEnabled
+      ? await this.loadRunnableRun()
+      : null;
     if (!this.isCurrentTrafficRun(trafficRunId, generation)) return;
     const runnerFaultRun = runnableFaultRun
       && runnableFaultRun.state === 'ACTIVE'
