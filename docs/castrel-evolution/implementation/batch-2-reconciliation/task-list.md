@@ -67,7 +67,7 @@
 ## 3. 总体进度
 
 - **总体状态：** P2-00 已完成，P2-01 进行中；仍保持 `OFF`，不启用 `TAKEOVER`。
-- **总体进度：** 2 / 11 个任务组，24 / 75 个实施子任务。
+- **总体进度：** 2 / 11 个任务组，25 / 75 个实施子任务。
 - **当前任务：** P2-03 durable action journal 和动作幂等。
 - **下一步：** 实现 prepare/release/cleanup action boundary；仍不启用 Reconciler/`TAKEOVER`。
 
@@ -76,7 +76,7 @@
 | P2-00 | 设计修正、Phase 1 接入和实施门禁 | 已完成 | 6 / 6 | Phase 1 任务清单 |
 | P2-01 | Migration、fresh schema 和 legacy 兼容 | 已完成 | 6 / 6 | P2-00 |
 | P2-02 | Execution lease repository 和 owner 条件写入 | 已完成 | 8 / 8 | P2-01 |
-| P2-03 | Durable action journal 和动作幂等 | 进行中 | 4 / 7 | P2-01、P2-02 |
+| P2-03 | Durable action journal 和动作幂等 | 进行中 | 5 / 7 | P2-01、P2-02 |
 | P2-04 | Reconciler、owner fence 和 shutdown | 未开始 | 0 / 8 | P2-02、P2-03 |
 | P2-05 | Owned drivers 和 normal-task 隔离 | 未开始 | 0 / 8 | P2-04 |
 | P2-06 | Consumer/Gateway/PSP 协议边界 | 未开始 | 0 / 5 | P2-05 |
@@ -154,7 +154,7 @@ graph TD
 - [x] 实现 `REQUESTED -> DISPATCHING` 的 owner+epoch claim；提交 action boundary 后才调用 Gateway。
 - [x] 实现受限 target response sanitizer；仅明确成功写 `CONFIRMED`，明确拒绝写 `DEFINITIVE_FAILURE`，timeout/transport/crash/invalid response 写 `OUTCOME_UNKNOWN`。
 - [x] stale `DISPATCHING` 恢复为 `OUTCOME_UNKNOWN` 并进入人工介入；不自动生成第二个 attempt 或重发外部动作。
-- [ ] cleanup 只允许已确认 Operator command、Catalog policy 允许且 Run 状态满足的 per-run action；未知 cleanup 不自动重试。
+- [x] cleanup 只允许已确认 Operator command、Catalog policy 允许且 Run 状态满足的 per-run action；未知 cleanup 不自动重试；`MANUAL_CLEANUP_REQUESTED` 与 action intent 在同一事务中写入。
 - [ ] 区分 `NONE`、`OPTIONAL_PER_RUN` 和 `OPERATOR_CONFIRMED`：可选 per-run cleanup 不阻塞停止完成，但不得由 reconciler 自动执行。
 - [ ] 覆盖 prepare/release/cleanup crash window、重复 command、不同 key conflict、迟到 response、retention 和 action projection 测试。
 
@@ -281,3 +281,4 @@ graph TD
 | 2026-09-21 CST | P2-02：lease expiry boundary 验证完成 | 远端一次性 fixture 将 owner A 的 lease 设置为已过期，owner B 条件 claim 成功，epoch 从 `1` 递增到 `2`，fixture 已清理。 | 仅剩 DB outage 行为测试；不通过停止 MySQL 或破坏网络模拟，避免影响远端环境。 |
 | 2026-09-21 CST | P2-02：阶段关闭 | `test:execution-lease` 在用户更新后的远端 revision 通过；本地完整回归通过。P2-02 的 owner claim/heartbeat/relinquish/epoch/time boundary 证据齐全。 | 远端完整 `test:runner` 的既有 `runner-engine.test.ts` 取消超时用例失败，单文件重跑仍复现；不归因于本次 lease 代码，登记为 P2-ISSUE-008，full regression gate 留给后续处理。 |
 | 2026-09-21 CST | P2-03：action journal foundation 开始 | 新增 action intent、owner-scoped dispatch claim、confirm/definitive failure/unknown outcome、stale dispatch unknown 和低基数 summary sanitizer；targeted tests、typecheck 和 lint 通过。 | 仍需接入 create/stop/cleanup command、执行 crash/idempotency/unknown 测试和 Reconciler dispatch；不执行远端代码同步。 |
+| 2026-09-21 CST | P2-03：manual cleanup action 接入 | `requestFaultRunManualCleanup()` 在存在 execution row 的新模式 Run 中，将 `CLEANUP` action intent 与 Operator audit、recovery projection 和 `MANUAL_CLEANUP_REQUESTED` 事件放入同一事务；legacy Run 在缺少 ownership 表/row 时保持兼容。 | 仍需处理 `OPTIONAL_PER_RUN` policy、create/stop action 设计和 crash/idempotency integration tests。 |

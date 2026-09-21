@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import type { PoolConnection } from 'mysql2/promise';
 import { getPool } from './db';
 import {
   normalizeFaultRunRecoveryEventPayload,
@@ -36,6 +37,7 @@ import {
   createFaultRunExecution,
   type FaultRunExecutionMode,
 } from './fault-run-execution-repository';
+import { insertFaultRunAction } from './fault-run-action-repository';
 
 export interface FaultRunRecord {
   faultRunId: string;
@@ -671,6 +673,12 @@ export async function requestFaultRunManualCleanup(
       result: 'SUCCESS',
       correlationId: input.audit.correlationId,
     });
+    const actionId = await insertManualCleanupActionIfOwned(
+      connection,
+      run.faultRunId,
+      requestKeyHash,
+      auditId,
+    );
     const serializedProjection = serializeFaultRunRecoveryProjection(parsed.projection);
     await connection.query(
       `UPDATE fault_runs
@@ -682,6 +690,7 @@ export async function requestFaultRunManualCleanup(
       attempt: parsed.projection.stop.attempt,
       cleanupAttempt: parsed.projection.cleanup.attempt,
       operatorAuditId: auditId,
+      ...(actionId === null ? {} : { actionId }),
     });
     await connection.commit();
     transactionComplete = true;
@@ -699,6 +708,34 @@ export async function requestFaultRunManualCleanup(
     throw error;
   } finally {
     connection.release();
+  }
+
+  async function insertManualCleanupActionIfOwned(
+    connection: PoolConnection,
+    faultRunId: string,
+    requestKeyHash: string,
+    operatorAuditId: number,
+  ): Promise<string | null> {
+    try {
+      const [rows] = await connection.query(
+        `SELECT fault_run_id
+           FROM fault_run_executions
+          WHERE fault_run_id = ?
+          FOR UPDATE`,
+        [faultRunId],
+      );
+      if (asRecords(rows).length === 0) return null;
+      return insertFaultRunAction(connection, {
+        faultRunId,
+        actionType: 'CLEANUP',
+        requestedBy: 'OPERATOR',
+        requestIdempotencyKey: requestKeyHash,
+        operatorAuditId,
+      });
+    } catch (error) {
+      if (isMissingTableError(error)) return null;
+      throw error;
+    }
   }
   return result;
 }
@@ -1512,6 +1549,11 @@ function toIso(value: unknown): string {
 function isDuplicateEntry(error: unknown): boolean {
   return typeof error === 'object' && error !== null
     && 'code' in error && (error as { code?: string }).code === 'ER_DUP_ENTRY';
+}
+
+function isMissingTableError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null
+    && 'code' in error && (error as { code?: string }).code === 'ER_NO_SUCH_TABLE';
 }
 
 function stableJson(value: unknown): string {
