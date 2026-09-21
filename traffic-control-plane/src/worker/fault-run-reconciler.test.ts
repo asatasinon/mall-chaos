@@ -149,3 +149,61 @@ test('shadow mode records stale takeover without claiming or starting a driver',
   assert.deepEqual(updates, ['TAKEOVER_SHADOW_PLANNED']);
   assert.deepEqual(reconciler.getOwnedRunIds(), []);
 });
+
+test('heartbeat loss fences and drains the owned driver', async () => {
+  let heartbeatCalls = 0;
+  let markedLost = 0;
+  let stopped = 0;
+  let current = execution();
+  const reconciler = new FaultRunReconciler({
+    listCandidates: async () => [run],
+    loadExecution: async () => current,
+    claimExecution: async (input) => {
+      current = execution({
+        ownerId: input.ownerId,
+        ownerEpoch: 1,
+        reconciliationState: 'OWNED',
+        drainState: 'OWNED',
+      });
+      return current;
+    },
+    heartbeatExecution: async () => {
+      heartbeatCalls++;
+      return false;
+    },
+    markLeaseLost: async () => {
+      markedLost++;
+      return true;
+    },
+    updateExecution: async () => true,
+    relinquishExecution: async () => true,
+    appendEvent: async () => undefined,
+    drivers: [{
+      name: 'heartbeat-test-driver',
+      supports: () => true,
+      start: async () => ({
+        stop: async () => {
+          stopped++;
+          return { drained: true };
+        },
+      }),
+    }],
+    now: () => new Date('2026-09-21T01:00:00.000Z'),
+    logger: { warn: () => undefined, info: () => undefined },
+  }, {
+    mode: 'TAKEOVER',
+    ownerId: 'worker-a',
+    leaseTtlMs: 30_000,
+    heartbeatMs: 5,
+    reconcileIntervalMs: 1000,
+  });
+
+  await reconciler.start();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await reconciler.stop();
+
+  assert.equal(heartbeatCalls > 0, true);
+  assert.equal(markedLost, 1);
+  assert.equal(stopped, 1);
+  assert.deepEqual(reconciler.getOwnedRunIds(), []);
+});
