@@ -89,6 +89,7 @@ test('requires the Compose Worker grace period to exceed its shutdown budget', (
 test('parses reconciliation mode and validates owner lease timing', () => {
   assert.equal(parseFaultRunRuntimeConfig({
     FAULT_RUN_RECONCILIATION_MODE: 'SHADOW',
+    FAULT_RUN_SAFE_RUNTIME_ENABLED: 'true',
     FAULT_RUN_OWNER_LEASE_TTL_MS: '30000',
     FAULT_RUN_OWNER_HEARTBEAT_MS: '10000',
     FAULT_RUN_RECONCILE_INTERVAL_MS: '500',
@@ -112,5 +113,12 @@ test('parses reconciliation mode and validates owner lease timing', () => {
       FAULT_RUN_OWNER_ID_PREFIX: 'worker id with spaces',
     }),
     /INVALID_OWNER_ID_PREFIX/,
+  );
+  assert.throws(
+    () => parseFaultRunRuntimeConfig({
+      FAULT_RUN_RECONCILIATION_MODE: 'OBSERVE',
+      FAULT_RUN_SAFE_RUNTIME_ENABLED: 'false',
+    }),
+    /FAULT_RUN_RECONCILIATION_REQUIRES_SAFE_RUNTIME/,
   );
 });

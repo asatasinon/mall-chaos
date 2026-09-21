@@ -117,6 +117,7 @@ export class FaultRunReconciler {
   }
 
   private async reconcileCandidate(run: FaultRunRecord): Promise<void> {
+    if (run.state !== 'ACTIVE') return;
     const execution = await this.dependencies.loadExecution(run.faultRunId);
     if (!execution) return;
     const stale = execution.ownerId !== null

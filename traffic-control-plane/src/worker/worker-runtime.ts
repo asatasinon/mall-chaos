@@ -5,12 +5,23 @@ import { closeRedis, getRedis } from '../lib/redis';
 import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
 import {
   FaultRunCommandError,
+  appendFaultRunEvent,
   deleteExpiredFaultRuns,
+  listFaultRunReconciliationCandidates,
   listShutdownCandidateFaultRuns,
   requestFaultRunStop,
   type FaultRunRecord,
 } from '../lib/fault-run-repository';
 import { verifyFaultRunOwnershipSchema } from '../lib/fault-run-schema';
+import {
+  claimFaultRunExecution,
+  heartbeatFaultRunExecution,
+  loadFaultRunExecution,
+  markFaultRunExecutionLeaseLost,
+  relinquishFaultRunExecution,
+  updateOwnedFaultRunExecution,
+} from '../lib/fault-run-execution-repository';
+import { createWorkerOwnerId } from '../lib/fault-run-owner-fence';
 import { getLegacyFaultRunRecovery } from '../lib/legacy-fault-run-recovery';
 import {
   getFaultRunRecoveryExecutor,
@@ -23,6 +34,9 @@ import { getInventoryReplenishmentScheduler } from './inventory-replenishment';
 import { getReportScenarioWorker } from './report-scenario-worker';
 import { getTrafficSurgeExecutor } from './traffic-surge-executor';
 import { getScenarioWorkers } from './scenario-workers';
+import { getFaultRunDrivers } from './fault-run-driver-registry';
+import { FaultRunReconciler } from './fault-run-reconciler';
+import { getFaultRunDrainRegistry } from './fault-run-drain-registry';
 
 const log = pino({ name: 'worker' });
 const FAULT_RUN_RETENTION_LOCK = 'traffic-control-plane:fault-run-retention:lease';
@@ -56,6 +70,11 @@ interface RecoveryExecutorComponent {
   stop(): Promise<FaultRunRecoveryExecutorStopResult>;
 }
 
+interface ReconcilerComponent {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}
+
 interface LegacyRecoveryComponent {
   scheduleActiveRuns(): Promise<void>;
   recoverExpiredRuns(): Promise<void>;
@@ -65,6 +84,7 @@ export interface WorkerRuntimeDependencies {
   safeRuntimeEnabled: boolean;
   reconciliationMode?: 'OFF' | 'OBSERVE' | 'SHADOW' | 'TAKEOVER';
   verifyOwnershipSchema?: typeof verifyFaultRunOwnershipSchema;
+  reconciler?: ReconcilerComponent;
   drainTimeoutMs: number;
   recoveryTimeoutMs: number;
   shutdownTimeoutMs: number;
@@ -91,6 +111,7 @@ export interface WorkerRuntimeDependencies {
 export class WorkerRuntime {
   private readonly started = {
     recovery: false,
+    reconciler: false,
     coupon: false,
     inventory: false,
     report: false,
@@ -115,12 +136,20 @@ export class WorkerRuntime {
     await dependencies.runner.loadConfigFromDb();
     if (this.isShuttingDown()) return;
 
-    if (dependencies.reconciliationMode && dependencies.reconciliationMode !== 'OFF') {
-      await (dependencies.verifyOwnershipSchema ?? verifyFaultRunOwnershipSchema)();
-      throw new Error('FAULT_RUN_RECONCILIATION_NOT_READY');
+    const useReconciler = dependencies.reconciliationMode !== undefined
+      && dependencies.reconciliationMode !== 'OFF';
+    if (useReconciler && !dependencies.safeRuntimeEnabled) {
+      throw new Error('FAULT_RUN_RECONCILIATION_REQUIRES_SAFE_RUNTIME');
     }
-
-    if (dependencies.safeRuntimeEnabled) {
+    if (useReconciler) {
+      await (dependencies.verifyOwnershipSchema ?? verifyFaultRunOwnershipSchema)();
+      if (!dependencies.reconciler) throw new Error('FAULT_RUN_RECONCILER_NOT_CONFIGURED');
+      this.started.recovery = true;
+      await dependencies.recoveryExecutor.start();
+      this.started.reconciler = true;
+      await dependencies.reconciler!.start();
+    }
+    if (!useReconciler && dependencies.safeRuntimeEnabled) {
       this.started.recovery = true;
       await dependencies.recoveryExecutor.start();
     } else {
@@ -129,12 +158,14 @@ export class WorkerRuntime {
     }
     if (this.isShuttingDown()) return;
 
-    this.started.report = true;
-    dependencies.reportWorker.start();
-    this.started.surge = true;
-    dependencies.surgeExecutor.start();
-    this.started.scenarios = true;
-    dependencies.scenarioWorkers.start();
+    if (!useReconciler) {
+      this.started.report = true;
+      dependencies.reportWorker.start();
+      this.started.surge = true;
+      dependencies.surgeExecutor.start();
+      this.started.scenarios = true;
+      dependencies.scenarioWorkers.start();
+    }
     this.started.runner = true;
     dependencies.runner.start();
     if (this.isShuttingDown()) return;
@@ -202,6 +233,9 @@ export class WorkerRuntime {
     if (this.dependencies.safeRuntimeEnabled && this.started.recovery) {
       await stopStep('shutdown-stop-commands', () => this.requestShutdownStops(), true);
       await stopStep('recovery-scan', () => this.dependencies.recoveryExecutor.scan(), true);
+      if (this.started.reconciler) {
+        await stopStep('fault-run-reconciler', () => this.dependencies.reconciler!.stop(), true);
+      }
       await stopStep('recovery-executor', async () => {
         const result = await this.dependencies.recoveryExecutor.stop();
         if (result.failedRunIds.length > 0) {
@@ -309,10 +343,31 @@ export class WorkerRuntime {
 }
 
 export function createWorkerRuntime(): WorkerRuntime {
+  const reconciler = new FaultRunReconciler({
+    listCandidates: listFaultRunReconciliationCandidates,
+    loadExecution: loadFaultRunExecution,
+    claimExecution: claimFaultRunExecution,
+    heartbeatExecution: heartbeatFaultRunExecution,
+    markLeaseLost: markFaultRunExecutionLeaseLost,
+    updateExecution: updateOwnedFaultRunExecution,
+    relinquishExecution: relinquishFaultRunExecution,
+    appendEvent: appendFaultRunEvent,
+    drainRegistry: getFaultRunDrainRegistry(),
+    drivers: getFaultRunDrivers(),
+    now: () => new Date(),
+    logger: log,
+  }, {
+    mode: env.FAULT_RUN_RECONCILIATION_MODE,
+    ownerId: createWorkerOwnerId(env.FAULT_RUN_OWNER_ID_PREFIX),
+    leaseTtlMs: env.FAULT_RUN_OWNER_LEASE_TTL_MS,
+    heartbeatMs: env.FAULT_RUN_OWNER_HEARTBEAT_MS,
+    reconcileIntervalMs: env.FAULT_RUN_RECONCILE_INTERVAL_MS,
+  });
   return new WorkerRuntime({
     safeRuntimeEnabled: env.FAULT_RUN_SAFE_RUNTIME_ENABLED,
     reconciliationMode: env.FAULT_RUN_RECONCILIATION_MODE,
     verifyOwnershipSchema: verifyFaultRunOwnershipSchema,
+    reconciler,
     drainTimeoutMs: env.FAULT_RUN_DRAIN_TIMEOUT_MS,
     recoveryTimeoutMs: env.FAULT_RUN_RECOVERY_TIMEOUT_MS,
     shutdownTimeoutMs: env.FAULT_RUN_SHUTDOWN_TIMEOUT_MS,

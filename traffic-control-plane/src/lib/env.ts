@@ -21,6 +21,15 @@ export interface FaultRunRuntimeConfig {
 export function parseFaultRunRuntimeConfig(
   source: Record<string, string | undefined>,
 ): FaultRunRuntimeConfig {
+  const safeRuntimeEnabled = strictBoolean(
+    'FAULT_RUN_SAFE_RUNTIME_ENABLED',
+    source.FAULT_RUN_SAFE_RUNTIME_ENABLED,
+    false,
+  );
+  const reconciliationMode = parseFaultRunReconciliationMode(source.FAULT_RUN_RECONCILIATION_MODE);
+  if (reconciliationMode !== 'OFF' && !safeRuntimeEnabled) {
+    throw new Error('FAULT_RUN_RECONCILIATION_REQUIRES_SAFE_RUNTIME');
+  }
   const drainTimeoutMs = strictBoundedInteger(
     'FAULT_RUN_DRAIN_TIMEOUT_MS',
     source.FAULT_RUN_DRAIN_TIMEOUT_MS,
@@ -68,11 +77,7 @@ export function parseFaultRunRuntimeConfig(
   }
 
   return {
-    safeRuntimeEnabled: strictBoolean(
-      'FAULT_RUN_SAFE_RUNTIME_ENABLED',
-      source.FAULT_RUN_SAFE_RUNTIME_ENABLED,
-      false,
-    ),
+    safeRuntimeEnabled,
     stopScanIntervalMs: strictBoundedInteger(
       'FAULT_RUN_STOP_SCAN_INTERVAL_MS',
       source.FAULT_RUN_STOP_SCAN_INTERVAL_MS,
@@ -84,7 +89,7 @@ export function parseFaultRunRuntimeConfig(
     recoveryTimeoutMs,
     shutdownTimeoutMs,
     workerStopGracePeriodMs,
-    reconciliationMode: parseFaultRunReconciliationMode(source.FAULT_RUN_RECONCILIATION_MODE),
+    reconciliationMode,
     ownerLeaseTtlMs,
     ownerHeartbeatMs,
     reconcileIntervalMs: strictBoundedInteger(

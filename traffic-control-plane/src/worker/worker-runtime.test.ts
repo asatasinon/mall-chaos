@@ -187,11 +187,40 @@ test('fails closed before legacy scanners when reconciliation mode is non-OFF', 
 
   await assert.rejects(
     () => runtime.start(),
-    /FAULT_RUN_RECONCILIATION_NOT_READY/,
+    /FAULT_RUN_RECONCILER_NOT_CONFIGURED/,
   );
   assert.equal(verified, true);
   assert.equal(calls.includes('recovery.start'), false);
   assert.equal(calls.includes('report.start'), false);
+});
+
+test('runs Reconciler mode without starting legacy Fault Run scanners', async () => {
+  const calls: string[] = [];
+  let verified = false;
+  const runtime = new WorkerRuntime(createDependencies(calls, {
+    reconciliationMode: 'OBSERVE',
+    verifyOwnershipSchema: async () => {
+      verified = true;
+    },
+    reconciler: {
+      start: async () => {
+        calls.push('reconciler.start');
+      },
+      stop: async () => {
+        calls.push('reconciler.stop');
+      },
+    },
+  }));
+
+  await runtime.start();
+  assert.equal(verified, true);
+  assert.equal(calls.includes('reconciler.start'), true);
+  assert.equal(calls.includes('report.start'), false);
+  assert.equal(calls.includes('surge.start'), false);
+  assert.equal(calls.includes('scenario.start'), false);
+  assert.equal(calls.includes('runner.start'), true);
+  assert.equal(await runtime.shutdown('SIGTERM'), 0);
+  assert.equal(calls.includes('reconciler.stop'), true);
 });
 
 test('coalesces shutdown requests and prevents later startup stages', async () => {
