@@ -284,6 +284,16 @@ CREATE TABLE fault_run_actions (
 
 `result_summary_json` 只保存已验证的低基数摘要，例如 `released`、`hashRemoved`、`markerRemoved` 或已存在的受限 target summary。它不保存原始 Gateway/target response。
 
+### 4.2.1 Command 与 action 的边界
+
+`STOP` 不是 `fault_run_actions.action_type`，而是控制面持久化的 recovery command，继续由 `fault_runs.state`、safe-runtime recovery projection 和 `STOP_REQUESTED` 事件表达。这样 Operator stop 的幂等、deadline 和审计不会与目标动作状态混在一起。
+
+- `PREPARE`：只有需要 Gateway target lifecycle 的新模式 Run 才创建；本地 Worker target 不创建虚假的 prepare action。
+- `RELEASE`：由拥有 owner 的 Reconciler 在 drain 完成后按 resolved recovery policy 创建和 claim；stop request 本身不提前创建 release action。
+- `CLEANUP`：由已确认的 Operator cleanup command 创建；`OPTIONAL_PER_RUN` 不阻塞停止完成，`OPERATOR_CONFIRMED` 是恢复流程的明确人工边界。
+
+因此，create/stop/cleanup 的幂等来源分别是：Fault Run create idempotency key、recovery command request key、以及 action request key；三者不能互相替代。
+
 ### 4.3 运行态与动作态的关系
 
 | `fault_runs.state` | execution/action 的允许状态 | reconciler 行为 |

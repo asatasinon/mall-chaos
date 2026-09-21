@@ -613,6 +613,61 @@ export async function requestFaultRunManualCleanup(
       transactionComplete = true;
       return null;
     }
+    const policy = resolveFaultRunRecoveryPolicy(getScenarioDefinition(run.scenario));
+    const recovery = parseFaultRunRecoveryProjection(run.recoveryResult);
+    if (policy.cleanup === 'OPTIONAL_PER_RUN') {
+      if (!isTerminalFaultRunState(run.state)) {
+        throw new FaultRunCommandError('CLEANUP_STATE_INVALID');
+      }
+      const existingAction = await insertManualCleanupActionIfOwned(
+        connection,
+        run.faultRunId,
+        requestKeyHash,
+        null,
+      );
+      if (!existingAction.owned) {
+        throw new FaultRunCommandError('CLEANUP_STATE_INVALID');
+      }
+      if (!existingAction.created) {
+        await connection.commit();
+        transactionComplete = true;
+        return {
+          disposition: 'REPLAYED',
+          run,
+          recovery,
+        };
+      }
+      const auditId = await insertOperatorAudit(connection, {
+        operatorId: input.audit.operatorId,
+        action: 'FAULT_RUN_CLEANUP',
+        target: run.scenario,
+        parameters: {
+          faultRunId: run.faultRunId,
+          command: 'MANUAL_CLEANUP',
+          requestKeyHash,
+        },
+        result: 'SUCCESS',
+        correlationId: input.audit.correlationId,
+      });
+      await connection.query(
+        `UPDATE fault_run_actions
+            SET operator_audit_id = ?
+          WHERE action_id = ?`,
+        [auditId, existingAction.actionId],
+      );
+      await insertRecoveryEvent(connection, run.faultRunId, 'MANUAL_CLEANUP_REQUESTED', {
+        operatorAuditId: auditId,
+        actionId: existingAction.actionId,
+        cleanupAttempt: 1,
+      });
+      await connection.commit();
+      transactionComplete = true;
+      return {
+        disposition: 'ACCEPTED',
+        run,
+        recovery,
+      };
+    }
     if (isTerminalFaultRunState(run.state)) {
       await connection.commit();
       transactionComplete = true;
@@ -626,11 +681,9 @@ export async function requestFaultRunManualCleanup(
       throw new FaultRunCommandError('CLEANUP_STATE_INVALID');
     }
 
-    const recovery = parseFaultRunRecoveryProjection(run.recoveryResult);
     if (recovery.kind !== 'SAFE_RUNTIME_V1') {
       throw new FaultRunCommandError('CLEANUP_STATE_INVALID');
     }
-    const policy = resolveFaultRunRecoveryPolicy(getScenarioDefinition(run.scenario));
     if (policy.cleanup !== 'OPERATOR_CONFIRMED') {
       throw new FaultRunCommandError('CLEANUP_NOT_ALLOWED');
     }
@@ -673,7 +726,7 @@ export async function requestFaultRunManualCleanup(
       result: 'SUCCESS',
       correlationId: input.audit.correlationId,
     });
-    const actionId = await insertManualCleanupActionIfOwned(
+    const action = await insertManualCleanupActionIfOwned(
       connection,
       run.faultRunId,
       requestKeyHash,
@@ -690,7 +743,7 @@ export async function requestFaultRunManualCleanup(
       attempt: parsed.projection.stop.attempt,
       cleanupAttempt: parsed.projection.cleanup.attempt,
       operatorAuditId: auditId,
-      ...(actionId === null ? {} : { actionId }),
+      ...(action.actionId === null ? {} : { actionId: action.actionId }),
     });
     await connection.commit();
     transactionComplete = true;
@@ -714,8 +767,8 @@ export async function requestFaultRunManualCleanup(
     connection: PoolConnection,
     faultRunId: string,
     requestKeyHash: string,
-    operatorAuditId: number,
-  ): Promise<string | null> {
+    operatorAuditId: number | null,
+  ): Promise<{ actionId: string | null; created: boolean; owned: boolean }> {
     try {
       const [rows] = await connection.query(
         `SELECT fault_run_id
@@ -724,16 +777,29 @@ export async function requestFaultRunManualCleanup(
           FOR UPDATE`,
         [faultRunId],
       );
-      if (asRecords(rows).length === 0) return null;
-      return insertFaultRunAction(connection, {
+      if (asRecords(rows).length === 0) {
+        return { actionId: null, created: false, owned: false };
+      }
+      const [existingRows] = await connection.query(
+        `SELECT action_id
+           FROM fault_run_actions
+          WHERE fault_run_id = ? AND action_type = 'CLEANUP'
+            AND request_idempotency_key = ?
+          FOR UPDATE`,
+        [faultRunId, requestKeyHash],
+      );
+      const existing = asRecords(existingRows)[0];
+      if (existing) return { actionId: String(existing.action_id), created: false, owned: true };
+      const actionId = await insertFaultRunAction(connection, {
         faultRunId,
         actionType: 'CLEANUP',
         requestedBy: 'OPERATOR',
         requestIdempotencyKey: requestKeyHash,
         operatorAuditId,
       });
+      return { actionId, created: true, owned: true };
     } catch (error) {
-      if (isMissingTableError(error)) return null;
+      if (isMissingTableError(error)) return { actionId: null, created: false, owned: false };
       throw error;
     }
   }
