@@ -257,7 +257,10 @@ export async function relinquishFaultRunExecution(input: {
         SET owner_id = NULL,
             lease_expires_at = CURRENT_TIMESTAMP(3),
             reconciliation_state = 'IDLE',
-            drain_state = 'DRAINED',
+            drain_state = CASE
+              WHEN drain_state = 'NOT_APPLICABLE' THEN 'NOT_APPLICABLE'
+              ELSE 'DRAINED'
+            END,
             last_action = 'OWNER_RELINQUISHED',
             last_action_at = CURRENT_TIMESTAMP(3)
       WHERE fault_run_id = ?
