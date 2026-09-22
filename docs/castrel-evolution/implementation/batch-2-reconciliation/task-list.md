@@ -67,9 +67,9 @@
 ## 3. 总体进度
 
 - **总体状态：** P2-00 已完成，P2-01 进行中；仍保持 `OFF`，不启用 `TAKEOVER`。
-- **总体进度：** 5 / 11 个任务组，41 / 75 个实施子任务。
-- **当前任务：** P2-04 Reconciler、owner fence 和 shutdown。
-- **下一步：** 在已完成配置和安全启动 gate 的基础上实现数据库 Reconciler；仍不默认启用 `TAKEOVER`。
+- **总体进度：** 7 / 11 个任务组，48 / 75 个实施子任务。
+- **当前任务：** P2-07 Command/API/UI/event projection。
+- **下一步：** 将 owner/action projection 接入 Operator API/UI，并保持 legacy read compatibility。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
@@ -78,8 +78,8 @@
 | P2-02 | Execution lease repository 和 owner 条件写入 | 已完成 | 8 / 8 | P2-01 |
 | P2-03 | Durable action journal 和动作幂等 | 已完成 | 7 / 7 | P2-01、P2-02 |
 | P2-04 | Reconciler、owner fence 和 shutdown | 已完成 | 8 / 8 | P2-02、P2-03 |
-| P2-05 | Owned drivers 和 normal-task 隔离 | 进行中（driver prework） | 6 / 8 | P2-04 |
-| P2-06 | Consumer/Gateway/PSP 协议边界 | 未开始 | 0 / 5 | P2-05 |
+| P2-05 | Owned drivers 和 normal-task 隔离 | 已完成 | 8 / 8 | P2-04 |
+| P2-06 | Consumer/Gateway/PSP 协议边界 | 已完成 | 5 / 5 | P2-05 |
 | P2-07 | Command/API/UI/event projection | 未开始 | 0 / 7 | P2-03、P2-04 |
 | P2-08 | 配置、部署、灰度和回退 | 未开始 | 0 / 6 | P2-04、P2-07 |
 | P2-09 | 单元、并发、协议和集成验证 | 未开始 | 0 / 8 | P2-02 至 P2-08 |
@@ -182,18 +182,18 @@ graph TD
 - [x] 将 `ScenarioWorkers`/`ControlledScenarioWorker` 改为 owned resource driver：复用 Phase 1 drain registry、CART 真实 dispatch 和 target summary，不再自行决定 owner。
 - [x] 将 Runner-backed Fault Run 分离出 `RunnerEngine`；notification heap/storage/PSP 继续走真实业务或固定 internal Gateway operation，普通 customer lifecycle 不被 Run owner 统治。
 - [x] 复核每个 Catalog 场景的 driver descriptor、`ACTIVE` gate、prepare/release、drain owner 和 `CART_CATALOG_DEPENDENCY` 真实路径；无 no-op effect。
-- [ ] owner loss 时停止新 batch、取消可取消请求、关闭 session、等待 bounded drain；不承诺撤回已发出的公开请求。
-- [ ] driver 迁移后删除旧 `listActiveFaultRuns()` ownership scan；legacy `OFF` path 和新 path 不得同时启动同一 Run。
+- [x] owner loss 时停止新 batch、取消可取消请求、关闭 session、等待 bounded drain；不承诺撤回已发出的公开请求。
+- [x] driver 迁移后在新 mode 禁止旧 `listActiveFaultRuns()` ownership scanner 启动；`OFF` 保留 legacy path，new path 不与其同时驱动同一 Run。
 
 ### P2-06：Consumer、Gateway 和 PSP 协议边界
 
 **目标：** 防止 owner/run/lifecycle context 从控制面进入消费者、业务服务或 PSP。
 
-- [ ] 从普通 `CustomerRequestContext`、session options、lifecycle options 和 `GatewayClient.customerRequest()` 移除 `faultRunContext`。
-- [ ] `GatewayClient.postInternal()` 只发送既有 generic `runId`、expiry、target `fencingToken`、idempotency 和 operation；禁止 `ownerEpoch`、scenario、lifecycle state。
-- [ ] Gateway 对普通 consumer path 丢弃外部伪造的 `X-Operation-Run-*`；internal allowlist/auth 行为保持不变。
-- [ ] Payment `PspClient` 不再从入站 customer request 复制 operation headers；验证内部 prepare 后 PSP outcome 仍由真实 PSP path 生效。
-- [ ] 运行 runtime terminology、Gateway/target contract、consumer response/log/trace 和凭据脱敏检查。
+- [x] 从普通 `CustomerRequestContext`、session options、lifecycle options 和 `GatewayClient.customerRequest()` 移除 `faultRunContext`。
+- [x] `GatewayClient.postInternal()` 只发送既有 generic `runId`、expiry、target `fencingToken`、idempotency 和 operation；禁止 `ownerEpoch`、scenario、lifecycle state。
+- [x] Gateway 对普通 consumer path 丢弃外部伪造的 `X-Operation-Run-*`；internal allowlist/auth 行为保持不变。
+- [x] Payment `PspClient` 不再从入站 customer request 复制 operation headers；验证内部 prepare 后 PSP outcome 仍由真实 PSP path 生效。
+- [x] 运行 runtime terminology、Gateway/target contract、consumer response/log/trace 和凭据脱敏检查。
 
 ### P2-07：Command、API、UI、事件和 projection
 
@@ -293,4 +293,6 @@ graph TD
 | 2026-09-21 CST | P2-04：expiry/recovery bridge 完成 | Reconciler 对自己持有的已过期 `ACTIVE` Run 持久化 `EXPIRED` recovery command，不直接 release；现有 RecoveryExecutor/DrainRegistry 继续负责 drain、policy、release 和 verification。Reconciler expiry bridge test、typecheck 和 lint 通过。 | P2-04 完成；P2-05 仍需禁用旧 scanner、补齐 owner-loss assertions 和 normal-task isolation integration。 |
 | 2026-09-21 CST | P2-05：Report/Surge/Scenario driver prework | 为 Report、Surge、Scenario Worker 增加 `OwnedFaultRunDriver` adapter 和 `startOwned` bounded drain 接口；复用真实 Gateway/customer/session/target summary 路径，不创建 no-op effect；相关 worker tests、typecheck 和 lint 通过。 | 尚未由 Reconciler registry 启动，旧 scanner 仍保留；Runner-backed driver 和 WorkerRuntime wiring 后续处理。 |
 | 2026-09-21 CST | P2-05：Runner-backed driver 与 registry prework | 新增 Runner-backed driver：storage append 继续使用固定 internal operation，heap/PSP lifecycle 不向 customer path 注入 Fault Run context；新增四类真实 driver registry 和 supports 测试。 | 尚未接入 WorkerRuntime/Reconciler；normal Runner 隔离和旧 scanner 退役仍待 wiring 阶段。 |
+| 2026-09-22 CST | P2-05：driver 隔离与 WorkerRuntime 接缝完成 | Report/Surge/Scenario/Runner-backed owned driver 均有 owner-loss drain/AbortSignal 边界；WorkerRuntime non-`OFF` 跳过旧 effect scanner，normal Runner 通过 reconciliation mode 不消费 Fault Run context；driver registry、WorkerRuntime、driver targeted tests 和完整本地 regression 通过。 | P2-06 开始处理 Gateway/customer/PSP protocol boundary；远端不做代码修改。 |
+| 2026-09-22 CST | P2-06：consumer/Gateway/PSP protocol boundary 完成 | customer path 删除 Fault Run context 和 operation headers；storage append 保留 internal context；Gateway public path stripping operation headers；Payment 不再把入站 operation headers 转发 PSP；Gateway Java tests、Payment compile、terminology check 和本地 regression 通过。 | 进入 P2-07 Operator projection/API/UI；远端部署仍由用户管理。 |
 | 2026-09-21 CST | P2-04：drain registry bridge | Reconciler owned entry 增加 drain-owner mapping，注册到现有 `FaultRunDrainRegistry`，stop/recovery 可复用 participant settled contract；core tests 与 typecheck/lint 通过。 | WorkerRuntime 仍未启用 Reconciler；expiry/release recovery 和真实 driver wiring 后续完成。 |

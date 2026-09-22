@@ -72,4 +72,27 @@ class InternalDispatchAuthenticationGlobalFilterTest {
         assertThat(forwarded.get().getRequest().getHeaders().getFirst("X-Internal-Service-Key"))
                 .isNull();
     }
+
+    @Test
+    void removesOperationRunHeadersFromPublicConsumerRoutes() {
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/orders")
+                .header("X-Operation-Run-Id", "123e4567-e89b-12d3-a456-426614174000")
+                .header("X-Operation-Run-Expires-At", "2026-09-21T10:00:00Z")
+                .header("X-Operation-Run-Fencing-Token", "9")
+                .header("X-Operation-Run-Idempotency-Key", "consumer-key-001")
+                .build());
+        var forwarded = new AtomicReference<org.springframework.web.server.ServerWebExchange>();
+        GatewayFilterChain chain = request -> {
+            forwarded.set(request);
+            return Mono.empty();
+        };
+
+        new InternalDispatchAuthenticationGlobalFilter("internal-secret")
+                .filter(exchange, chain)
+                .block();
+
+        assertThat(forwarded.get()).isNotNull();
+        assertThat(forwarded.get().getRequest().getHeaders().getFirst("X-Operation-Run-Id")).isNull();
+        assertThat(forwarded.get().getRequest().getHeaders().getFirst("X-Operation-Run-Fencing-Token")).isNull();
+    }
 }

@@ -106,7 +106,6 @@ interface StepValue<T> {
 
 export interface LifecycleExecutionOptions {
   signal?: AbortSignal;
-  faultRunContext?: FaultRunContext;
   productDetailTimeoutMs?: number;
 }
 
@@ -241,7 +240,6 @@ export class TrafficActionOrchestrator {
     try {
       context = await this.sessions.openSession(trafficRunId, lifecycleId, traceId, {
         signal: options.signal,
-        faultRunContext: options.faultRunContext,
       });
       customerId = context.session.customerId;
       this.currentCustomerId = customerId;

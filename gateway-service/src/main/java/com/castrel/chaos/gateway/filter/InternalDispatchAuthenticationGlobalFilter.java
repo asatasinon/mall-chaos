@@ -43,7 +43,7 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         if (!INTERNAL_PATHS.contains(exchange.getRequest().getURI().getPath())) {
-            return chain.filter(exchange);
+            return chain.filter(removeOperationRunHeaders(exchange));
         }
 
         HttpHeaders headers = exchange.getRequest().getHeaders();
@@ -97,6 +97,17 @@ public class InternalDispatchAuthenticationGlobalFilter implements GlobalFilter,
     private Mono<Void> reject(ServerWebExchange exchange, HttpStatus status) {
         exchange.getResponse().setStatusCode(status);
         return exchange.getResponse().setComplete();
+    }
+
+    private ServerWebExchange removeOperationRunHeaders(ServerWebExchange exchange) {
+        return exchange.mutate()
+                .request(request -> request.headers(headers -> {
+                    headers.remove("X-Operation-Run-Id");
+                    headers.remove("X-Operation-Run-Expires-At");
+                    headers.remove("X-Operation-Run-Fencing-Token");
+                    headers.remove("X-Operation-Run-Idempotency-Key");
+                }))
+                .build();
     }
 
     @Override

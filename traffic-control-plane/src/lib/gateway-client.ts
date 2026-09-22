@@ -1,6 +1,5 @@
 import { env } from './env';
 import { withTrace } from './trace';
-import type { FaultRunContext } from './fault-run-context';
 import { isAbortError, throwIfAborted } from './abort-signal';
 
 /**
@@ -257,12 +256,6 @@ export class GatewayClient {
       headers: {
         ...(isGet ? {} : { 'Content-Type': 'application/json' }),
         Authorization: `Bearer ${context.session.accessToken}`,
-        ...(context.faultRunContext ? {
-          'X-Operation-Run-Id': context.faultRunContext.faultRunId,
-          'X-Operation-Run-Expires-At': context.faultRunContext.expiresAt,
-          'X-Operation-Run-Fencing-Token': String(context.faultRunContext.fencingToken),
-          'X-Operation-Run-Idempotency-Key': context.faultRunContext.idempotencyKey,
-        } : {}),
       },
       signal: effectiveSignal,
       ...(!isGet && payload !== undefined ? { body: JSON.stringify(payload) } : {}),
@@ -341,7 +334,6 @@ export interface CustomerRequestContext {
   session: CustomerSession;
   refresh: (signal?: AbortSignal) => Promise<void>;
   signal?: AbortSignal;
-  faultRunContext?: FaultRunContext;
 }
 
 interface ApiEnvelope<T> {

@@ -153,7 +153,7 @@ public class PaymentService {
         attemptCounter.increment();
         try {
             PspClient.Authorization authorization = pspClient.authorize(
-                    payment.getPaymentNo(), payment.getOrderId(), payment.getAmount(), currentRunId());
+                    payment.getPaymentNo(), payment.getOrderId(), payment.getAmount());
             if ("AUTHORIZED".equals(authorization.status())) {
                 payment.setStatus("SUCCESS");
                 payment.setResultCode("SUCCESS");
@@ -172,13 +172,6 @@ public class PaymentService {
         result.setOrderNo(orderNo);
         deliverPaymentResult(result, orderNo);
         return result;
-    }
-
-    private String currentRunId() {
-        org.springframework.web.context.request.ServletRequestAttributes attributes =
-                (org.springframework.web.context.request.ServletRequestAttributes)
-                        org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
-        return attributes == null ? null : attributes.getRequest().getHeader("X-Operation-Run-Id");
     }
 
     private void deliverPaymentResult(PaymentDTO payment, String orderNo) {

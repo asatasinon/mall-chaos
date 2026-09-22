@@ -294,7 +294,9 @@ export class RunnerEngine {
       : null;
     if (runnerFaultRun && this.safeRuntimeEnabled && !admission) return;
 
-    const runnerFaultContext = runnerFaultRun ? createFaultRunContext(runnerFaultRun) : undefined;
+    const runnerFaultContext = runnerFaultRun?.scenario === 'NOTIFICATION_STORAGE_APPEND'
+      ? createFaultRunContext(runnerFaultRun)
+      : undefined;
     this.lifecycleAbortController = lifecycleAbortController;
     this.lifecycleStartedCount++;
     this.lastLifecycleStartedAt = t0;
@@ -313,7 +315,6 @@ export class RunnerEngine {
           couponUsageRatio: this.config.couponUsageRatio,
         }, {
           signal: lifecycleAbortController.signal,
-          ...(runnerFaultContext ? { faultRunContext: runnerFaultContext } : {}),
         });
       if (runnerFaultRun?.scenario === 'NOTIFICATION_STORAGE_APPEND'
           && result.resultCode === 'STORAGE_APPEND_COMPLETE') {

@@ -17,7 +17,6 @@ import {
   type FaultRunTargetSummary,
 } from '../lib/fault-run-repository';
 import { getLegacyFaultRunRecovery } from '../lib/legacy-fault-run-recovery';
-import { createFaultRunContext } from '../lib/fault-run-context';
 import { normalizeFaultRunSummaryEventPayload } from '../lib/fault-run-event-contract';
 import { CustomerSessionManager } from './customer-session-manager';
 import {
@@ -75,7 +74,7 @@ interface CustomerSessionManagerLike {
     trafficRunId: string,
     lifecycleId: string,
     traceId: string,
-    options?: { signal?: AbortSignal; faultRunContext?: ReturnType<typeof createFaultRunContext> },
+    options?: { signal?: AbortSignal },
   ): Promise<CustomerRequestContext>;
   closeSession(lifecycleId: string, traceId: string, signal?: AbortSignal): Promise<void>;
 }
@@ -157,7 +156,7 @@ export class ScenarioWorkers {
         run.faultRunId,
         customerLifecycleId,
         run.traceId ?? randomUUID().replace(/-/g, ''),
-        { signal: fence.signal, faultRunContext: createFaultRunContext(run) },
+        { signal: fence.signal },
       );
       cartSku = await selectCartProduct(this.gateway, customerSession, fence.signal);
     }
@@ -332,10 +331,7 @@ export class ScenarioWorkers {
           run.faultRunId,
           customerLifecycleId,
           run.traceId ?? randomUUID().replace(/-/g, ''),
-          {
-            signal: runController.signal,
-            faultRunContext: createFaultRunContext(run),
-          },
+          { signal: runController.signal },
         );
         cartSku = await selectCartProduct(this.gateway, customerSession, runController.signal);
       }

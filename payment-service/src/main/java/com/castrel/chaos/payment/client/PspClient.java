@@ -35,23 +35,12 @@ public class PspClient {
         this.serviceKey = serviceKey;
     }
 
-    public Authorization authorize(String paymentNo, Long orderId, BigDecimal amount, String runId) {
+    public Authorization authorize(String paymentNo, Long orderId, BigDecimal amount) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         if (serviceKey != null && !serviceKey.isBlank()) headers.set("X-Internal-Service-Key", serviceKey);
         String traceId = TraceContext.getTraceId();
         if (traceId != null) headers.set(TraceContext.TRACE_ID_HEADER, traceId);
-        if (runId != null && !runId.isBlank()) {
-            headers.set("X-Operation-Run-Id", runId);
-            org.springframework.web.context.request.ServletRequestAttributes attributes =
-                    (org.springframework.web.context.request.ServletRequestAttributes)
-                            org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
-            if (attributes != null) {
-                copyHeader(attributes, headers, "X-Operation-Run-Expires-At");
-                copyHeader(attributes, headers, "X-Operation-Run-Fencing-Token");
-                copyHeader(attributes, headers, "X-Operation-Run-Idempotency-Key");
-            }
-        }
         try {
             Map<?, ?> response = client.exchange(
                     pspUrl + "/api/psp/authorize", HttpMethod.POST,
@@ -67,12 +56,6 @@ public class PspClient {
         } catch (RestClientException exception) {
             throw new PspUnavailableException("Provider request failed", exception);
         }
-    }
-
-    private void copyHeader(org.springframework.web.context.request.ServletRequestAttributes attributes,
-                            HttpHeaders headers, String name) {
-        String value = attributes.getRequest().getHeader(name);
-        if (value != null && !value.isBlank()) headers.set(name, value);
     }
 
     public record Authorization(String status, String code) {

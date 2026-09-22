@@ -77,7 +77,7 @@ interface Harness {
   registry: FaultRunDrainRegistry;
   setRun: (run: FaultRunRecord | null) => void;
   setRunLoader: (loader: () => Promise<FaultRunRecord | null>) => void;
-  lifecycleOptions: Array<{ signal?: AbortSignal; faultRunId?: string }>;
+  lifecycleOptions: Array<{ signal?: AbortSignal }>;
   storageOptions: Array<{ signal?: AbortSignal; faultRunId: string }>;
   events: string[];
 }
@@ -98,7 +98,6 @@ function createHarness(
     executeLifecycle: async (trafficRunId, config, options = {}) => {
       lifecycleOptions.push({
         signal: options.signal,
-        faultRunId: options.faultRunContext?.faultRunId,
       });
       return executeLifecycle(trafficRunId, config, options);
     },
@@ -140,7 +139,7 @@ function createHarness(
   };
 }
 
-test('runner only attaches a controlled context to a future ACTIVE Runner scenario', async () => {
+test('runner does not attach Fault Run context to customer lifecycle requests', async () => {
   const harness = createHarness();
   harness.engine.start();
   try {
@@ -155,16 +154,12 @@ test('runner only attaches a controlled context to a future ACTIVE Runner scenar
     }
 
     assert.equal(harness.lifecycleOptions.length, 4);
-    assert.deepEqual(
-      harness.lifecycleOptions.map((options) => options.faultRunId),
-      [undefined, undefined, undefined, undefined],
-    );
 
     const activeRunnerRun = createRun({ scenario: 'PSP_PROVIDER_OUTCOME' });
     harness.setRun(activeRunnerRun);
     await harness.engine.tick();
 
-    assert.equal(harness.lifecycleOptions.at(-1)?.faultRunId, activeRunnerRun.faultRunId);
+    assert.equal('faultRunContext' in (harness.lifecycleOptions.at(-1) ?? {}), false);
     assert.deepEqual(harness.events, ['RUNNER_LIFECYCLE_SUMMARY']);
   } finally {
     await harness.engine.stop();
@@ -253,7 +248,7 @@ test('runner gate closure aborts only the admitted controlled lifecycle and allo
     harness.setRun(null);
     await harness.engine.tick();
     assert.equal(harness.lifecycleOptions.length, 2);
-    assert.equal(harness.lifecycleOptions[1]?.faultRunId, undefined);
+    assert.equal('faultRunContext' in (harness.lifecycleOptions[1] ?? {}), false);
 
     const drain = await harness.registry.drain({
       run,

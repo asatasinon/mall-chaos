@@ -12,7 +12,6 @@ import {
   loadLifecycleAccountsWithState,
   validateLoginIdentity,
 } from '../lib/lifecycle-accounts';
-import type { FaultRunContext } from '../lib/fault-run-context';
 import { loadScenarioAccounts } from '../lib/scenario-accounts';
 
 interface ActiveSession {
@@ -30,7 +29,6 @@ export interface CustomerSessionManagerDependencies {
 
 export interface SessionRunOptions {
   signal?: AbortSignal;
-  faultRunContext?: FaultRunContext;
 }
 
 export class CustomerSessionManager {
