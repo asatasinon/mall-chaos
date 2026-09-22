@@ -167,6 +167,13 @@ export class FaultRunReconciler {
           : 'TAKEOVER_OBSERVED',
         lastErrorCode: null,
       });
+      await this.dependencies.appendEvent(run.faultRunId, 'RECONCILIATION_DECISION', {
+        decision: 'TAKEOVER',
+        reason: this.options.mode === 'SHADOW'
+          ? 'TAKEOVER_SHADOW_PLANNED'
+          : 'TAKEOVER_OBSERVED',
+        ownerEpoch: execution.ownerEpoch,
+      });
       return;
     }
 
@@ -229,6 +236,10 @@ export class FaultRunReconciler {
         ownerEpoch: claimed.ownerEpoch,
         errorCode: 'DRIVER_START_FAILED',
       }).catch(() => false);
+      await this.dependencies.appendEvent(run.faultRunId, 'OWNER_LEASE_LOST', {
+        ownerEpoch: claimed.ownerEpoch,
+        reason: 'DRIVER_START_FAILED',
+      }).catch(() => undefined);
       throw error;
     }
   }
@@ -250,6 +261,10 @@ export class FaultRunReconciler {
           ownerEpoch: owned.fence.ownerEpoch,
           errorCode: 'HEARTBEAT_REJECTED',
         }).catch(() => false);
+        await this.dependencies.appendEvent(owned.run.faultRunId, 'OWNER_LEASE_LOST', {
+          ownerEpoch: owned.fence.ownerEpoch,
+          reason: 'HEARTBEAT_REJECTED',
+        }).catch(() => undefined);
         await this.stopOwned(owned, 'OWNER_LOST');
       }
     }
@@ -268,6 +283,16 @@ export class FaultRunReconciler {
       this.owned.delete(owned.run.faultRunId);
       owned.unregisterDrain?.();
       owned.settledResolve();
+      await this.dependencies.appendEvent(
+        owned.run.faultRunId,
+        result.drained ? 'OWNER_DRAIN_COMPLETED' : 'OWNER_DRAIN_TIMEOUT',
+        {
+          ownerEpoch: owned.fence.ownerEpoch,
+          reason,
+          drained: result.drained,
+          ...(result.inFlight === undefined ? {} : { remaining: result.inFlight }),
+        },
+      ).catch(() => undefined);
       if (result.drained) {
         await this.dependencies.updateExecution({
           faultRunId: owned.run.faultRunId,
