@@ -35,7 +35,10 @@ import {
 import { insertOperatorAudit } from './operator-audit';
 import {
   createFaultRunExecution,
+  listFaultRunExecutions,
+  loadFaultRunExecution,
   type FaultRunExecutionMode,
+  type FaultRunExecutionRecord,
 } from './fault-run-execution-repository';
 import { insertFaultRunAction } from './fault-run-action-repository';
 
@@ -58,6 +61,7 @@ export interface FaultRunRecord {
   traceId: string | null;
   createdAt: string;
   updatedAt: string;
+  execution?: FaultRunExecutionRecord | null;
 }
 
 export interface FaultRunEventRecord {
@@ -296,14 +300,14 @@ export async function loadFaultRun(faultRunId: string): Promise<FaultRunRecord |
   await ensureFaultRunSchema();
   const [rows] = await getPool().query('SELECT * FROM fault_runs WHERE fault_run_id = ?', [faultRunId]);
   const row = asRecords(rows)[0];
-  return row ? toFaultRun(row) : null;
+  return row ? attachExecution(toFaultRun(row)) : null;
 }
 
 export async function loadFaultRunByIdempotencyKey(key: string): Promise<FaultRunRecord | null> {
   await ensureFaultRunSchema();
   const [rows] = await getPool().query('SELECT * FROM fault_runs WHERE idempotency_key = ?', [key]);
   const row = asRecords(rows)[0];
-  return row ? toFaultRun(row) : null;
+  return row ? attachExecution(toFaultRun(row)) : null;
 }
 
 export async function loadActiveFaultRun(): Promise<FaultRunRecord | null> {
@@ -359,7 +363,7 @@ export async function listFaultRuns(filters: {
      ORDER BY created_at DESC, fault_run_id DESC LIMIT ${limit}`,
     values,
   );
-  return asRecords(rows).map(toFaultRun);
+  return attachExecutions(asRecords(rows).map(toFaultRun));
 }
 
 export async function listExpiredActiveFaultRuns(now = new Date()): Promise<FaultRunRecord[]> {
@@ -1646,4 +1650,32 @@ function stableJson(value: unknown): string {
       `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`).join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+async function attachExecution(run: FaultRunRecord): Promise<FaultRunRecord> {
+  try {
+    return { ...run, execution: await loadFaultRunExecution(run.faultRunId) };
+  } catch (error) {
+    if (isOwnershipSchemaMissing(error)) return { ...run, execution: null };
+    throw error;
+  }
+}
+
+async function attachExecutions(runs: FaultRunRecord[]): Promise<FaultRunRecord[]> {
+  if (runs.length === 0) return runs;
+  try {
+    const executions = await listFaultRunExecutions(runs.map((run) => run.faultRunId));
+    return runs.map((run) => ({
+      ...run,
+      execution: executions.get(run.faultRunId) ?? null,
+    }));
+  } catch (error) {
+    if (isOwnershipSchemaMissing(error)) return runs.map((run) => ({ ...run, execution: null }));
+    throw error;
+  }
+}
+
+function isOwnershipSchemaMissing(error: unknown): boolean {
+  return error instanceof Error
+    && error.message.startsWith('FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED');
 }

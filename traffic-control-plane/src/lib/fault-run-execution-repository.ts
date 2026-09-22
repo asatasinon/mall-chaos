@@ -90,6 +90,28 @@ export async function loadFaultRunExecution(
   return row ? toExecutionRecord(row) : null;
 }
 
+export async function listFaultRunExecutions(
+  faultRunIds: readonly string[],
+): Promise<Map<string, FaultRunExecutionRecord>> {
+  if (faultRunIds.length === 0) return new Map();
+  await verifyFaultRunOwnershipSchema();
+  const [rows] = await getPool().query(
+    `SELECT fault_run_id, execution_mode, owner_id, owner_epoch,
+            lease_acquired_at, lease_expires_at, last_heartbeat_at, lease_lost_at,
+            reconciled_at, reconciliation_state, drain_state, drain_deadline_at,
+            last_action, last_action_at, last_error_code, created_at, updated_at
+       FROM fault_run_executions
+      WHERE fault_run_id IN (${faultRunIds.map(() => '?').join(', ')})`,
+    [...faultRunIds],
+  );
+  return new Map(
+    asRecords(rows).map((row) => {
+      const record = toExecutionRecord(row);
+      return [record.faultRunId, record] as const;
+    }),
+  );
+}
+
 export async function claimFaultRunExecution(
   input: ClaimFaultRunExecutionInput,
 ): Promise<FaultRunExecutionRecord | null> {

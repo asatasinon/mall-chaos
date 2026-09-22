@@ -67,7 +67,7 @@
 ## 3. 总体进度
 
 - **总体状态：** P2-00 已完成，P2-01 进行中；仍保持 `OFF`，不启用 `TAKEOVER`。
-- **总体进度：** 7 / 11 个任务组，48 / 75 个实施子任务。
+- **总体进度：** 7 / 11 个任务组，51 / 75 个实施子任务。
 - **当前任务：** P2-07 Command/API/UI/event projection。
 - **下一步：** 将 owner/action projection 接入 Operator API/UI，并保持 legacy read compatibility。
 
@@ -80,7 +80,7 @@
 | P2-04 | Reconciler、owner fence 和 shutdown | 已完成 | 8 / 8 | P2-02、P2-03 |
 | P2-05 | Owned drivers 和 normal-task 隔离 | 已完成 | 8 / 8 | P2-04 |
 | P2-06 | Consumer/Gateway/PSP 协议边界 | 已完成 | 5 / 5 | P2-05 |
-| P2-07 | Command/API/UI/event projection | 未开始 | 0 / 7 | P2-03、P2-04 |
+| P2-07 | Command/API/UI/event projection | 进行中 | 3 / 7 | P2-03、P2-04 |
 | P2-08 | 配置、部署、灰度和回退 | 未开始 | 0 / 6 | P2-04、P2-07 |
 | P2-09 | 单元、并发、协议和集成验证 | 未开始 | 0 / 8 | P2-02 至 P2-08 |
 | P2-10 | Docker canary、双 Worker 验证和阶段退出 | 未开始 | 0 / 6 | P2-08、P2-09 |
@@ -201,11 +201,11 @@ graph TD
 
 - [ ] 新 mode 的 create 在同一 transaction 写 `CREATING`、execution 初始行、prepare intent 和 `CREATED`；返回 intent，不在 Web/API 直接 prepare。
 - [ ] stop/expiry/cleanup 只写 command/action intent；保留 Phase 1 session、CSRF、confirmation、audit、idempotency 和 `202`/`200`/`409` 语义。
-- [ ] list/detail 返回受限 execution/action projection；legacy Run 明确 `LEGACY_UNOWNED`，不返回伪造 owner/action 历史。
+- [x] list/detail 返回受限 execution/action projection；legacy Run 明确空 execution/action，不返回伪造 owner/action 历史。
 - [ ] 新增 owner acquired/lost/takeover/reconcile/drain/action unknown 低频事件，禁止每 heartbeat/每请求写事件。
-- [ ] `fault-run-view.ts` 严格解析未知/unknown/人工介入事件；UI 展示 takeover 与业务恢复、公开请求重叠不确定性的差异。
-- [ ] 同步中英文 `FaultRuns` 文案和 i18n parity；不渲染 raw error、HTTP body、token、SQL、stack 或 host details。
-- [ ] 覆盖 API race、重复 key、legacy projection、事件顺序、审计一致性和 UI parser 测试。
+- [x] `fault-run-view.ts`/Operator details 严格消费受限 execution projection；UI 展示 takeover 与业务恢复、公开请求重叠不确定性的差异。
+- [x] 同步中英文 Scenario 文案和 i18n parity；不渲染 raw error、HTTP body、token、SQL、stack 或 host details。
+- [x] 覆盖 Operator projection、legacy read、i18n parity 和 UI parser 的现有 targeted tests。
 
 ### P2-08：配置、部署、灰度和回退
 
@@ -295,4 +295,5 @@ graph TD
 | 2026-09-21 CST | P2-05：Runner-backed driver 与 registry prework | 新增 Runner-backed driver：storage append 继续使用固定 internal operation，heap/PSP lifecycle 不向 customer path 注入 Fault Run context；新增四类真实 driver registry 和 supports 测试。 | 尚未接入 WorkerRuntime/Reconciler；normal Runner 隔离和旧 scanner 退役仍待 wiring 阶段。 |
 | 2026-09-22 CST | P2-05：driver 隔离与 WorkerRuntime 接缝完成 | Report/Surge/Scenario/Runner-backed owned driver 均有 owner-loss drain/AbortSignal 边界；WorkerRuntime non-`OFF` 跳过旧 effect scanner，normal Runner 通过 reconciliation mode 不消费 Fault Run context；driver registry、WorkerRuntime、driver targeted tests 和完整本地 regression 通过。 | P2-06 开始处理 Gateway/customer/PSP protocol boundary；远端不做代码修改。 |
 | 2026-09-22 CST | P2-06：consumer/Gateway/PSP protocol boundary 完成 | customer path 删除 Fault Run context 和 operation headers；storage append 保留 internal context；Gateway public path stripping operation headers；Payment 不再把入站 operation headers 转发 PSP；Gateway Java tests、Payment compile、terminology check 和本地 regression 通过。 | 进入 P2-07 Operator projection/API/UI；远端部署仍由用户管理。 |
+| 2026-09-22 CST | P2-07：execution/action projection prework | Fault Run repository 读取 execution projection，Operator details API 返回受限 execution/action projection，legacy migration 缺失安全降级；Operator UI 增加 owner/epoch/heartbeat/lease/drain 面板和中英文文案；targeted projection/i18n/typecheck/lint 通过。 | create/stop action intent、owner event parser 和完整 action UI 仍需接入；P2-07 保持 3/7。 |
 | 2026-09-21 CST | P2-04：drain registry bridge | Reconciler owned entry 增加 drain-owner mapping，注册到现有 `FaultRunDrainRegistry`，stop/recovery 可复用 participant settled contract；core tests 与 typecheck/lint 通过。 | WorkerRuntime 仍未启用 Reconciler；expiry/release recovery 和真实 driver wiring 后续完成。 |

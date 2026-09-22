@@ -38,6 +38,39 @@ export type FaultRun = {
   createdAt: string;
   updatedAt?: string;
   operatorAuditId?: number | null;
+  execution?: FaultRunExecution | null;
+};
+
+export type FaultRunExecution = {
+  mode: 'OBSERVE' | 'SHADOW' | 'TAKEOVER';
+  ownerId: string | null;
+  ownerEpoch: number;
+  leaseAcquiredAt: string | null;
+  leaseExpiresAt: string | null;
+  lastHeartbeatAt: string | null;
+  leaseLostAt: string | null;
+  reconciledAt: string | null;
+  takeoverCount: number;
+  reconciliationState: string;
+  drainState: string;
+  drainDeadlineAt: string | null;
+  lastAction: string | null;
+  lastErrorCode: string | null;
+};
+
+export type FaultRunAction = {
+  actionId: string;
+  actionType: 'PREPARE' | 'RELEASE' | 'CLEANUP';
+  attemptNo: number;
+  actionState: string;
+  requestedBy: 'OPERATOR' | 'RECONCILER';
+  dispatchOwnerId: string | null;
+  dispatchOwnerEpoch: number | null;
+  requestedAt: string;
+  dispatchStartedAt: string | null;
+  completedAt: string | null;
+  resultSummary: Record<string, boolean | number | string> | null;
+  errorCode: string | null;
 };
 
 export type Event = { id: number; eventType: string; payload: Record<string, unknown>; createdAt: string };
@@ -98,5 +131,6 @@ export type FaultRunDetails = {
   events: Event[];
   audit?: FaultRunAudit | null;
   audits: FaultRunAudit[];
+  actions?: FaultRunAction[];
 };
 import type { FaultRunRecoveryView } from '@/lib/fault-run-operator-view';

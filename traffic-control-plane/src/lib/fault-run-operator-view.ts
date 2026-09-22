@@ -26,6 +26,8 @@ import type {
   FaultRunRecord,
   FaultRunTargetSummary,
 } from './fault-run-repository';
+import type { FaultRunActionRecord } from './fault-run-action-repository';
+import type { FaultRunExecutionRecord } from './fault-run-execution-repository';
 
 const CACHE_RESULT_KEYS = [
   'CACHE_HIT',
@@ -87,6 +89,39 @@ export interface FaultRunOperatorRun {
   createdAt: string;
   updatedAt: string;
   operatorAuditId: number | null;
+  execution: FaultRunExecutionView | null;
+}
+
+export interface FaultRunExecutionView {
+  mode: FaultRunExecutionRecord['executionMode'];
+  ownerId: string | null;
+  ownerEpoch: number;
+  leaseAcquiredAt: string | null;
+  leaseExpiresAt: string | null;
+  lastHeartbeatAt: string | null;
+  leaseLostAt: string | null;
+  reconciledAt: string | null;
+  takeoverCount: number;
+  reconciliationState: FaultRunExecutionRecord['reconciliationState'];
+  drainState: FaultRunExecutionRecord['drainState'];
+  drainDeadlineAt: string | null;
+  lastAction: string | null;
+  lastErrorCode: string | null;
+}
+
+export interface FaultRunOperatorAction {
+  actionId: string;
+  actionType: FaultRunActionRecord['actionType'];
+  attemptNo: number;
+  actionState: FaultRunActionRecord['actionState'];
+  requestedBy: FaultRunActionRecord['requestedBy'];
+  dispatchOwnerId: string | null;
+  dispatchOwnerEpoch: number | null;
+  requestedAt: string;
+  dispatchStartedAt: string | null;
+  completedAt: string | null;
+  resultSummary: Record<string, boolean | number | string> | null;
+  errorCode: string | null;
 }
 
 export interface FaultRunOperatorViewOptions {
@@ -114,6 +149,7 @@ export interface FaultRunOperatorDetails {
   events: FaultRunOperatorEvent[];
   audit: FaultRunOperatorAudit | null;
   audits: FaultRunOperatorAudit[];
+  actions: FaultRunOperatorAction[];
 }
 
 export function buildFaultRunOperatorRun(
@@ -144,6 +180,7 @@ export function buildFaultRunOperatorRun(
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
     operatorAuditId: run.operatorAuditId,
+    execution: buildFaultRunExecutionView(run.execution),
   };
 }
 
@@ -177,12 +214,58 @@ export function buildFaultRunOperatorDetails(
   audit: FaultRunAuditRecord | null,
   audits: FaultRunAuditRecord[],
   options: FaultRunOperatorViewOptions = { safeRuntimeEnabled: false },
+  actions: FaultRunActionRecord[] = [],
 ): FaultRunOperatorDetails {
   return {
     run: buildFaultRunOperatorRun(run, options),
     events: events.map((event) => buildFaultRunOperatorEvent(run, event)),
     audit: audit ? buildFaultRunOperatorAudit(audit) : null,
     audits: audits.map(buildFaultRunOperatorAudit),
+    actions: actions.map(buildFaultRunOperatorAction),
+  };
+}
+
+export function buildFaultRunExecutionView(
+  execution: FaultRunExecutionRecord | null | undefined,
+): FaultRunExecutionView | null {
+  if (!execution) return null;
+  return {
+    mode: execution.executionMode,
+    ownerId: execution.ownerId,
+    ownerEpoch: execution.ownerEpoch,
+    leaseAcquiredAt: execution.leaseAcquiredAt,
+    leaseExpiresAt: execution.leaseExpiresAt,
+    lastHeartbeatAt: execution.lastHeartbeatAt,
+    leaseLostAt: execution.leaseLostAt,
+    reconciledAt: execution.reconciledAt,
+    takeoverCount: Math.max(execution.ownerEpoch - 1, 0),
+    reconciliationState: execution.reconciliationState,
+    drainState: execution.drainState,
+    drainDeadlineAt: execution.drainDeadlineAt,
+    lastAction: execution.lastAction,
+    lastErrorCode: execution.lastErrorCode,
+  };
+}
+
+export function buildFaultRunOperatorAction(
+  action: FaultRunActionRecord,
+): FaultRunOperatorAction {
+  return {
+    actionId: action.actionId,
+    actionType: action.actionType,
+    attemptNo: action.attemptNo,
+    actionState: action.actionState,
+    requestedBy: action.requestedBy,
+    dispatchOwnerId: action.dispatchOwnerId,
+    dispatchOwnerEpoch: action.dispatchOwnerEpoch,
+    requestedAt: action.requestedAt,
+    dispatchStartedAt: action.dispatchStartedAt,
+    completedAt: action.completedAt,
+    resultSummary: action.resultSummary && typeof action.resultSummary === 'object'
+      && !Array.isArray(action.resultSummary)
+      ? action.resultSummary as Record<string, boolean | number | string>
+      : null,
+    errorCode: action.errorCode,
   };
 }
 
