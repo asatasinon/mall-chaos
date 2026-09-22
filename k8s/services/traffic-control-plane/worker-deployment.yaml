@@ -5,6 +5,8 @@ metadata:
   namespace: castrel
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: traffic-control-plane-worker
@@ -13,6 +15,7 @@ spec:
       labels:
         app: traffic-control-plane-worker
     spec:
+      terminationGracePeriodSeconds: 105
       containers:
         - name: traffic-control-plane-worker
           image: castrel/traffic-control-plane:latest
@@ -36,6 +39,14 @@ spec:
               value: "Asia/Shanghai"
             - name: MYSQL_POOL_CONNECTION_LIMIT
               value: "5"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
           resources:
             requests:
               memory: "256Mi"

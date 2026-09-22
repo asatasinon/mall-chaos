@@ -67,7 +67,7 @@
 ## 3. 总体进度
 
 - **总体状态：** P2-00 已完成，P2-01 进行中；仍保持 `OFF`，不启用 `TAKEOVER`。
-- **总体进度：** 7 / 11 个任务组，51 / 75 个实施子任务。
+- **总体进度：** 7 / 11 个任务组，52 / 75 个实施子任务。
 - **当前任务：** P2-07 Command/API/UI/event projection。
 - **下一步：** 将 owner/action projection 接入 Operator API/UI，并保持 legacy read compatibility。
 
@@ -81,7 +81,7 @@
 | P2-05 | Owned drivers 和 normal-task 隔离 | 已完成 | 8 / 8 | P2-04 |
 | P2-06 | Consumer/Gateway/PSP 协议边界 | 已完成 | 5 / 5 | P2-05 |
 | P2-07 | Command/API/UI/event projection | 进行中 | 3 / 7 | P2-03、P2-04 |
-| P2-08 | 配置、部署、灰度和回退 | 未开始 | 0 / 6 | P2-04、P2-07 |
+| P2-08 | 配置、部署、灰度和回退 | 进行中 | 1 / 6 | P2-04、P2-07 |
 | P2-09 | 单元、并发、协议和集成验证 | 未开始 | 0 / 8 | P2-02 至 P2-08 |
 | P2-10 | Docker canary、双 Worker 验证和阶段退出 | 未开始 | 0 / 6 | P2-08、P2-09 |
 
@@ -212,7 +212,7 @@ graph TD
 **目标：** 默认单副本、默认关闭、可观察、可停止、可回退。
 
 - [ ] 在 `env.ts` 严格接入 mode、TTL、heartbeat、reconcile interval、owner identity 和 schema gate；非法值 fail fast，heartbeat 必须小于 TTL/2。
-- [ ] Compose 默认 `OFF`、单 Worker、Web/Worker mode 配对；migration service/命令先于 Worker rollout。
+- [x] Compose 默认 `OFF`、单 Worker、Web/Worker mode 配对；migration service/命令先于 Worker rollout。
 - [ ] Kubernetes 保持 `replicas: 1`，使用 Recreate、Downward API、足够 termination grace 和 migration Job；不把配置静态渲染当成 runtime 验证。
 - [ ] 按 `OFF -> OBSERVE -> SHADOW -> TAKEOVER(test-only) -> single-replica canary` 记录每个晋级条件和 rollback stop window。
 - [ ] 回退先停止新 claim、处理 active `CREATING/RECOVERING`、保留 execution/action 表和事件，再切回 `OFF`；unknown action 先人工核验。
@@ -298,4 +298,5 @@ graph TD
 | 2026-09-22 CST | P2-07：execution/action projection prework | Fault Run repository 读取 execution projection，Operator details API 返回受限 execution/action projection，legacy migration 缺失安全降级；Operator UI 增加 owner/epoch/heartbeat/lease/drain 面板和中英文文案；targeted projection/i18n/typecheck/lint 通过。 | create/stop action intent、owner event parser 和完整 action UI 仍需接入；P2-07 保持 3/7。 |
 | 2026-09-22 CST | P2-07：action timeline 与 owner event summaries | Operator details 增加低基数 action journal 面板；`fault-run-view` 增加 owner/takeover/drain/action unknown 事件摘要；中英文 i18n parity、`test:i18n`、projection tests、typecheck 和 lint 通过。 | 仍需 create/stop command projection、owner event 写入完整性和 API race integration tests。 |
 | 2026-09-22 CST | P2-07：projection security tests | 新增 execution/action bounded projection fixture，验证 owner epoch/takeover 和 action unknown 可展示，同时 request key、raw payload 不会进入 Operator details；targeted tests、i18n、typecheck 和 lint 通过。 | 仍需 create/stop command projection、action event writer 完整覆盖和 API race integration tests。 |
+| 2026-09-22 CST | P2-08：默认部署参数 prework | Compose/Web/Worker 和 Kubernetes ConfigMap 统一加入 reconciliation mode/lease/heartbeat/interval/owner prefix，默认 `OFF`；Kubernetes Worker 保持单副本、Recreate 和 105s termination grace；`docker compose config`、`kubectl kustomize` 通过。 | migration Job、灰度/回退 runbook 和 runtime canary 尚未完成；未执行远端部署。 |
 | 2026-09-21 CST | P2-04：drain registry bridge | Reconciler owned entry 增加 drain-owner mapping，注册到现有 `FaultRunDrainRegistry`，stop/recovery 可复用 participant settled contract；core tests 与 typecheck/lint 通过。 | WorkerRuntime 仍未启用 Reconciler；expiry/release recovery 和真实 driver wiring 后续完成。 |
