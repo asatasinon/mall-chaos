@@ -204,3 +204,56 @@ test('only exposes allowlisted event facts and audit fields', () => {
     createdAt: requestedAt,
   });
 });
+
+test('exposes bounded execution and action projections without raw action payloads', () => {
+  const details = buildFaultRunOperatorDetails(
+    createRun({
+      execution: {
+        faultRunId,
+        executionMode: 'TAKEOVER',
+        ownerId: 'worker-a',
+        ownerEpoch: 2,
+        leaseAcquiredAt: requestedAt,
+        leaseExpiresAt: recoveryAt,
+        lastHeartbeatAt: requestedAt,
+        leaseLostAt: null,
+        reconciledAt: requestedAt,
+        reconciliationState: 'TAKEN_OVER',
+        drainState: 'OWNED',
+        drainDeadlineAt: null,
+        lastAction: 'OWNER_TAKEOVER_COMPLETED',
+        lastActionAt: requestedAt,
+        lastErrorCode: null,
+        createdAt: requestedAt,
+        updatedAt: requestedAt,
+      },
+    }),
+    [],
+    null,
+    [],
+    { safeRuntimeEnabled: true },
+    [{
+      actionId: '123e4567-e89b-12d3-a456-426614174001',
+      faultRunId,
+      actionType: 'RELEASE',
+      attemptNo: 1,
+      actionState: 'OUTCOME_UNKNOWN',
+      requestedBy: 'RECONCILER',
+      requestIdempotencyKey: 'release-key-must-not-leave-server',
+      operatorAuditId: null,
+      dispatchOwnerId: 'worker-a',
+      dispatchOwnerEpoch: 2,
+      requestedAt,
+      dispatchStartedAt: requestedAt,
+      completedAt: null,
+      resultSummary: null,
+      errorCode: 'OWNER_LEASE_EXPIRED',
+      createdAt: requestedAt,
+      updatedAt: requestedAt,
+    }],
+  );
+
+  assert.equal(details.run.execution?.takeoverCount, 1);
+  assert.equal(details.actions[0]?.actionState, 'OUTCOME_UNKNOWN');
+  assert.equal(JSON.stringify(details).includes('release-key-must-not-leave-server'), false);
+});
