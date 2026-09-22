@@ -106,6 +106,28 @@ export function summarizeFaultRunEvent(event: Event, translate: FaultRunTranslat
       return cleanupSummary(readCleanup(payload.result), translate);
     case 'MANUAL_CLEANUP_FAILED':
       return translate('cleanupFailed');
+    case 'OWNER_LEASE_ACQUIRED':
+      return translate('ownerLeaseAcquired', { epoch: formatInteger(payload.ownerEpoch) });
+    case 'OWNER_LEASE_LOST':
+      return translate('ownerLeaseLost');
+    case 'OWNER_TAKEOVER_COMPLETED':
+      return translate('ownerTakeoverCompleted', { epoch: formatInteger(payload.ownerEpoch) });
+    case 'RECONCILIATION_DECISION':
+      return translate('reconciliationDecision');
+    case 'OWNER_DRAIN_STARTED':
+      return translate('ownerDrainStarted');
+    case 'OWNER_DRAIN_COMPLETED':
+      return translate('ownerDrainCompleted');
+    case 'OWNER_DRAIN_TIMEOUT':
+      return translate('ownerDrainTimeout');
+    case 'ACTION_REQUESTED':
+      return translate('actionRequested');
+    case 'ACTION_CONFIRMED':
+      return translate('actionConfirmed');
+    case 'ACTION_OUTCOME_UNKNOWN':
+      return translate('actionOutcomeUnknown');
+    case 'MANUAL_INTERVENTION_REQUIRED':
+      return translate('manualInterventionRequired');
     case 'STOP_REQUESTED':
       return translate('stopRequested');
     case 'DRAIN_STARTED':

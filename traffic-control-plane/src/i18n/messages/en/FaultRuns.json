@@ -53,4 +53,15 @@
   "recoveryBlocked": "Recovery remains incomplete",
   "notificationRestartCompleted": "Notification restart completed",
   "notificationRestartFailed": "Notification restart failed"
+  ,"ownerLeaseAcquired": "Worker owner acquired at epoch {epoch}"
+  ,"ownerLeaseLost": "Worker owner lease was lost"
+  ,"ownerTakeoverCompleted": "Worker takeover completed at epoch {epoch}"
+  ,"reconciliationDecision": "Reconciliation decision recorded"
+  ,"ownerDrainStarted": "Owned driver drain started"
+  ,"ownerDrainCompleted": "Owned driver drain completed"
+  ,"ownerDrainTimeout": "Owned driver drain timed out"
+  ,"actionRequested": "Protected action requested"
+  ,"actionConfirmed": "Protected action confirmed"
+  ,"actionOutcomeUnknown": "Protected action outcome is unknown"
+  ,"manualInterventionRequired": "Manual intervention is required"
 }

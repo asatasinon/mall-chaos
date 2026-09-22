@@ -53,4 +53,15 @@
   "recoveryBlocked": "恢复尚未完成",
   "notificationRestartCompleted": "通知服务重启已完成",
   "notificationRestartFailed": "通知服务重启失败"
+  ,"ownerLeaseAcquired": "Worker 已获取 epoch {epoch} 的所有权"
+  ,"ownerLeaseLost": "Worker 所有权租约已丢失"
+  ,"ownerTakeoverCompleted": "Worker 已完成 epoch {epoch} 的接管"
+  ,"reconciliationDecision": "已记录重协调决定"
+  ,"ownerDrainStarted": "已开始排空 owned driver"
+  ,"ownerDrainCompleted": "owned driver 已排空"
+  ,"ownerDrainTimeout": "owned driver 排空超时"
+  ,"actionRequested": "已请求受保护动作"
+  ,"actionConfirmed": "已确认受保护动作"
+  ,"actionOutcomeUnknown": "受保护动作结果未知"
+  ,"manualInterventionRequired": "需要人工介入"
 }

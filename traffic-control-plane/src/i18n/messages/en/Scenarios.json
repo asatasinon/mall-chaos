@@ -89,6 +89,8 @@
   "lastAction": "Last action",
   "noOwner": "No owner",
   "ownerOverlapWarning": "Requests already sent by a previous owner may still be in flight.",
+  "actionJournal": "Action journal",
+  "requestedBy": "Requested by",
   "scenarioTarget": "Start {label} against its fixed target. The server will validate the submitted parameters before activation.",
   "catalogHashTarget": "Create one Catalog-owned Redis Hash with the submitted field count and value size. The server will re-check SKU availability, budget, TTL, and the fixed target.",
   "stopActiveRun": "Stop active run?",
