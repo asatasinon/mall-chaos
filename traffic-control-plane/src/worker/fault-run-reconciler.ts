@@ -9,7 +9,14 @@ import {
   updateOwnedFaultRunExecution,
   type FaultRunExecutionRecord,
 } from '../lib/fault-run-execution-repository';
-import { appendFaultRunEvent, listFaultRunReconciliationCandidates, type FaultRunRecord } from '../lib/fault-run-repository';
+import {
+  appendFaultRunEvent,
+  loadFaultRun,
+  listFaultRunReconciliationCandidates,
+  requestFaultRunStop,
+  type FaultRunRecord,
+  type RequestFaultRunStopInput,
+} from '../lib/fault-run-repository';
 import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
 import type { OwnedFaultRunDriver, OwnedRunDrainResult, OwnedRunHandle, OwnedRunStopReason } from './fault-run-driver';
 import {
@@ -21,6 +28,8 @@ const log = pino({ name: 'fault-run-reconciler' });
 
 export interface FaultRunReconcilerDependencies {
   listCandidates: () => Promise<FaultRunRecord[]>;
+  loadRun?: typeof loadFaultRun;
+  requestStop?: typeof requestFaultRunStop;
   loadExecution: (faultRunId: string) => Promise<FaultRunExecutionRecord | null>;
   claimExecution: typeof claimFaultRunExecution;
   heartbeatExecution: typeof heartbeatFaultRunExecution;
@@ -40,6 +49,8 @@ export interface FaultRunReconcilerOptions {
   leaseTtlMs: number;
   heartbeatMs: number;
   reconcileIntervalMs: number;
+  drainTimeoutMs?: number;
+  recoveryTimeoutMs?: number;
 }
 
 interface OwnedRun {
@@ -109,11 +120,30 @@ export class FaultRunReconciler {
   }
 
   private async scanInternal(): Promise<void> {
+    await this.reconcileOwnedLifecycle();
     const candidates = await this.dependencies.listCandidates();
     for (const run of candidates) {
       if (this.stopping || this.owned.has(run.faultRunId)) continue;
       await this.reconcileCandidate(run);
     }
+  }
+
+  private async reconcileOwnedLifecycle(): Promise<void> {
+      if (!this.dependencies.loadRun || !this.dependencies.requestStop) return;
+      for (const owned of [...this.owned.values()]) {
+        const run = await this.dependencies.loadRun(owned.run.faultRunId);
+        if (!run || run.state !== 'ACTIVE' || Date.parse(run.expiresAt) > this.dependencies.now().getTime()) {
+          continue;
+        }
+        const input: RequestFaultRunStopInput = {
+          faultRunId: run.faultRunId,
+          reason: 'EXPIRED',
+          drainTimeoutMs: this.options.drainTimeoutMs ?? 30_000,
+          recoveryTimeoutMs: this.options.recoveryTimeoutMs ?? 60_000,
+          now: this.dependencies.now(),
+        };
+        await this.dependencies.requestStop(input);
+      }
   }
 
   private async reconcileCandidate(run: FaultRunRecord): Promise<void> {
@@ -279,6 +309,15 @@ function validateOptions(options: FaultRunReconcilerOptions): void {
   }
   if (!Number.isSafeInteger(options.reconcileIntervalMs) || options.reconcileIntervalMs < 1) {
     throw new Error('INVALID_RECONCILE_INTERVAL');
+  }
+  if (options.drainTimeoutMs !== undefined
+    && (!Number.isSafeInteger(options.drainTimeoutMs) || options.drainTimeoutMs < 1)) {
+    throw new Error('INVALID_DRAIN_TIMEOUT');
+  }
+  if (options.recoveryTimeoutMs !== undefined
+    && (!Number.isSafeInteger(options.recoveryTimeoutMs)
+      || options.recoveryTimeoutMs < (options.drainTimeoutMs ?? 1))) {
+    throw new Error('INVALID_RECOVERY_TIMEOUT');
   }
   if (options.ownerId.length === 0) throw new Error('INVALID_OWNER_ID');
 }

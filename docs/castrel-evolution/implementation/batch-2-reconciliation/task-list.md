@@ -67,7 +67,7 @@
 ## 3. 总体进度
 
 - **总体状态：** P2-00 已完成，P2-01 进行中；仍保持 `OFF`，不启用 `TAKEOVER`。
-- **总体进度：** 4 / 11 个任务组，40 / 75 个实施子任务。
+- **总体进度：** 5 / 11 个任务组，41 / 75 个实施子任务。
 - **当前任务：** P2-04 Reconciler、owner fence 和 shutdown。
 - **下一步：** 在已完成配置和安全启动 gate 的基础上实现数据库 Reconciler；仍不默认启用 `TAKEOVER`。
 
@@ -77,7 +77,7 @@
 | P2-01 | Migration、fresh schema 和 legacy 兼容 | 已完成 | 6 / 6 | P2-00 |
 | P2-02 | Execution lease repository 和 owner 条件写入 | 已完成 | 8 / 8 | P2-01 |
 | P2-03 | Durable action journal 和动作幂等 | 已完成 | 7 / 7 | P2-01、P2-02 |
-| P2-04 | Reconciler、owner fence 和 shutdown | 进行中 | 7 / 8 | P2-02、P2-03 |
+| P2-04 | Reconciler、owner fence 和 shutdown | 已完成 | 8 / 8 | P2-02、P2-03 |
 | P2-05 | Owned drivers 和 normal-task 隔离 | 进行中（driver prework） | 6 / 8 | P2-04 |
 | P2-06 | Consumer/Gateway/PSP 协议边界 | 未开始 | 0 / 5 | P2-05 |
 | P2-07 | Command/API/UI/event projection | 未开始 | 0 / 7 | P2-03、P2-04 |
@@ -163,12 +163,12 @@ graph TD
 **目标：** 由一个 Worker-only Reconciler 统一扫描、claim、heartbeat、driver lifecycle 和 recovery action。
 
 - [x] 生成不可复用 owner ID（release/deployment prefix + pod/hostname + boot UUID），严格解析 lease TTL、heartbeat、scan interval 和 mode。
-- [ ] 在 Worker non-`OFF` 启动前调用 `verifyFaultRunOwnershipSchema()`；migration 未应用时 fail fast 为 `FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED`，`OFF` 保持 legacy compatibility。
+- [x] 在 Worker non-`OFF` 启动前调用 `verifyFaultRunOwnershipSchema()`；migration 未应用时 fail fast 为 `FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED`，`OFF` 保持 legacy compatibility。
 - [x] 将 `FaultRunRecoveryExecutor` 的 recovery scan、deadline、verification limitation 和 action policy 纳入 Reconciler mode 的 WorkerRuntime lifecycle；不复制 Phase 1 projection/state transition。
 - [x] 实现 `OBSERVE`/`SHADOW` 的 stale 观察记录，`TAKEOVER` 的条件接管；所有模式首次 claim 只启动一个 driver。
 - [x] 实现 `WorkerOwnerFence`、AbortSignal 和 owner-scoped persistence failure handling primitive；每 batch/Gateway/action 的具体 driver assertion 在 P2-05 接入。
 - [x] 使数据库、`fault_runs`、action journal 和 execution row 成为唯一事实；timer 只能唤醒 scan，不能独立改变状态。
-- [ ] 实现到期、stop request、`RECOVERING`、manual cleanup、non-releasing 和 service unavailable 的决策表。
+- [x] 实现到期、stop request、`RECOVERING`、manual cleanup、non-releasing 和 service unavailable 的决策表；owned expired Run 只持久化 recovery stop command，由现有 RecoveryExecutor 负责 drain/release。
 - [x] 在 `WorkerRuntime` 中按顺序启动/停止 Reconciler；禁用旧 Fault Run scanner，保留 Runner/warmup/replenishment/retention 独立生命周期。
 - [x] 覆盖 Reconciler core 的 initial claim、SHADOW stale、heartbeat loss、driver drain 和 owned-map cleanup；crash、SIGTERM、network partition、DB transient failure、双 Worker stale owner 和 shutdown timeout integration 留在后续 wiring。
 
@@ -290,6 +290,7 @@ graph TD
 | 2026-09-21 CST | P2-04：配置、owner fence 和安全启动 gate 开始 | 新增严格 reconciliation mode/lease 配置、owner ID/fence primitive；`WorkerRuntime` 在非 `OFF` 且 Reconciler 尚未就绪时先校验 ownership schema，再 fail-fast，避免 legacy scanners 误启动；targeted tests、typecheck 和 lint 通过。 | Reconciler scan/heartbeat/driver wiring 尚未实现，P2-04 保持 1/8。 |
 | 2026-09-21 CST | P2-04：Reconciler core foundation | 新增 `OwnedFaultRunDriver`/`OwnedRunHandle`、数据库候选 Reconciler、首次 claim、`OBSERVE`/`SHADOW` stale handling、`TAKEOVER` conditional claim、heartbeat loss、bounded drain/relinquish 和 Reconciler unit tests；targeted tests、typecheck 和 lint 通过。 | 尚未接入真实 Report/Surge/Scenario/Runner drivers，也未替换 WorkerRuntime 旧 scanner；P2-04 保持 4/8。 |
 | 2026-09-21 CST | P2-04：WorkerRuntime wiring | WorkerRuntime 在非 `OFF` mode 下校验 schema、启动 recovery executor + Reconciler、跳过旧 Report/Surge/Scenario scanner、保留 normal Runner/warmup/replenishment/retention lifecycle，并按 shutdown 顺序停止 Reconciler；WorkerRuntime/Reconciler tests、typecheck 和 lint 通过。 | 仍需完善 Reconciler expiry/stop 到 release action 的完整决策和 integration tests；P2-04 保持 7/8。 |
+| 2026-09-21 CST | P2-04：expiry/recovery bridge 完成 | Reconciler 对自己持有的已过期 `ACTIVE` Run 持久化 `EXPIRED` recovery command，不直接 release；现有 RecoveryExecutor/DrainRegistry 继续负责 drain、policy、release 和 verification。Reconciler expiry bridge test、typecheck 和 lint 通过。 | P2-04 完成；P2-05 仍需禁用旧 scanner、补齐 owner-loss assertions 和 normal-task isolation integration。 |
 | 2026-09-21 CST | P2-05：Report/Surge/Scenario driver prework | 为 Report、Surge、Scenario Worker 增加 `OwnedFaultRunDriver` adapter 和 `startOwned` bounded drain 接口；复用真实 Gateway/customer/session/target summary 路径，不创建 no-op effect；相关 worker tests、typecheck 和 lint 通过。 | 尚未由 Reconciler registry 启动，旧 scanner 仍保留；Runner-backed driver 和 WorkerRuntime wiring 后续处理。 |
 | 2026-09-21 CST | P2-05：Runner-backed driver 与 registry prework | 新增 Runner-backed driver：storage append 继续使用固定 internal operation，heap/PSP lifecycle 不向 customer path 注入 Fault Run context；新增四类真实 driver registry 和 supports 测试。 | 尚未接入 WorkerRuntime/Reconciler；normal Runner 隔离和旧 scanner 退役仍待 wiring 阶段。 |
 | 2026-09-21 CST | P2-04：drain registry bridge | Reconciler owned entry 增加 drain-owner mapping，注册到现有 `FaultRunDrainRegistry`，stop/recovery 可复用 participant settled contract；core tests 与 typecheck/lint 通过。 | WorkerRuntime 仍未启用 Reconciler；expiry/release recovery 和真实 driver wiring 后续完成。 |

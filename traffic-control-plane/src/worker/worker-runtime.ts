@@ -7,6 +7,7 @@ import {
   FaultRunCommandError,
   appendFaultRunEvent,
   deleteExpiredFaultRuns,
+  loadFaultRun,
   listFaultRunReconciliationCandidates,
   listShutdownCandidateFaultRuns,
   requestFaultRunStop,
@@ -345,6 +346,8 @@ export class WorkerRuntime {
 export function createWorkerRuntime(): WorkerRuntime {
   const reconciler = new FaultRunReconciler({
     listCandidates: listFaultRunReconciliationCandidates,
+    loadRun: loadFaultRun,
+    requestStop: requestFaultRunStop,
     loadExecution: loadFaultRunExecution,
     claimExecution: claimFaultRunExecution,
     heartbeatExecution: heartbeatFaultRunExecution,
@@ -362,6 +365,8 @@ export function createWorkerRuntime(): WorkerRuntime {
     leaseTtlMs: env.FAULT_RUN_OWNER_LEASE_TTL_MS,
     heartbeatMs: env.FAULT_RUN_OWNER_HEARTBEAT_MS,
     reconcileIntervalMs: env.FAULT_RUN_RECONCILE_INTERVAL_MS,
+    drainTimeoutMs: env.FAULT_RUN_DRAIN_TIMEOUT_MS,
+    recoveryTimeoutMs: env.FAULT_RUN_RECOVERY_TIMEOUT_MS,
   });
   return new WorkerRuntime({
     safeRuntimeEnabled: env.FAULT_RUN_SAFE_RUNTIME_ENABLED,

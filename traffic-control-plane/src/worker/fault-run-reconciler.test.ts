@@ -209,3 +209,50 @@ test('heartbeat loss fences and drains the owned driver', async () => {
   assert.equal(stopped, 1);
   assert.deepEqual(reconciler.getOwnedRunIds(), []);
 });
+
+test('owned expired runs persist an expiry recovery command instead of releasing directly', async () => {
+  let current = execution();
+  let requested = 0;
+  const reconciler = new FaultRunReconciler({
+    listCandidates: async () => [run],
+    loadRun: async () => ({ ...run, expiresAt: '2026-09-21T00:59:00.000Z' }),
+    requestStop: async (input) => {
+      requested++;
+      assert.equal(input.reason, 'EXPIRED');
+      assert.equal(input.drainTimeoutMs, 30_000);
+      return null;
+    },
+    loadExecution: async () => current,
+    claimExecution: async (input) => {
+      current = execution({
+        ownerId: input.ownerId,
+        ownerEpoch: 1,
+        reconciliationState: 'OWNED',
+        drainState: 'OWNED',
+      });
+      return current;
+    },
+    heartbeatExecution: async () => true,
+    markLeaseLost: async () => true,
+    updateExecution: async () => true,
+    relinquishExecution: async () => true,
+    appendEvent: async () => undefined,
+    drivers: [driver([], [])],
+    now: () => new Date('2026-09-21T01:00:00.000Z'),
+    logger: { warn: () => undefined, info: () => undefined },
+  }, {
+    mode: 'TAKEOVER',
+    ownerId: 'worker-a',
+    leaseTtlMs: 30_000,
+    heartbeatMs: 5_000,
+    reconcileIntervalMs: 1_000,
+    drainTimeoutMs: 30_000,
+    recoveryTimeoutMs: 60_000,
+  });
+
+  await reconciler.scan();
+  await reconciler.scan();
+
+  assert.equal(requested, 1);
+  await reconciler.stop();
+});
