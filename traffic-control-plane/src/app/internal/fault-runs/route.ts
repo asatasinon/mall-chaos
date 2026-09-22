@@ -64,7 +64,15 @@ export async function POST(request: NextRequest) {
     getScenarioDefinition(scenario);
     const parameters = validateScenarioParameters(scenario, body.parameters);
     const traceId = getOrCreateTraceId(request.headers);
-    const result = await getFaultRunCoordinator().create({ scenario, parameters, idempotencyKey, traceId });
+    const result = await getFaultRunCoordinator().create({
+      scenario,
+      parameters,
+      idempotencyKey,
+      traceId,
+      ...(env.FAULT_RUN_RECONCILIATION_MODE === 'OFF'
+        ? {}
+        : { executionMode: env.FAULT_RUN_RECONCILIATION_MODE }),
+    });
     const auditId = await recordOperatorAudit({
       request,
       action: 'FAULT_RUN_CREATE',
