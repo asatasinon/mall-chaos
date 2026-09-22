@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: traffic-control-plane-migrate
+  namespace: castrel
+  labels:
+    app: traffic-control-plane-migrate
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: traffic-control-plane-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: traffic-control-plane-migrate
+          image: castrel/traffic-control-plane:latest
+          imagePullPolicy: IfNotPresent
+          command: ["node", "node_modules/tsx/dist/cli.mjs", "src/lib/migrations/cli.ts", "apply"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: db-secret
+          env:
+            - name: MYSQL_HOST
+              value: "mysql"
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_DATABASE
+              value: "castrel"
+            - name: MYSQL_POOL_CONNECTION_LIMIT
+              value: "3"
+            - name: NODE_ENV
+              value: "production"

@@ -34,6 +34,7 @@ resources:
   - services/traffic-control-plane/restart-broker.yaml
   - services/traffic-control-plane/deployment.yaml
   - services/traffic-control-plane/worker-deployment.yaml
+  - jobs/traffic-control-plane-migrate.yaml
   - services/promotion/deployment.yaml
   - services/risk/deployment.yaml
   - services/fulfillment/deployment.yaml
