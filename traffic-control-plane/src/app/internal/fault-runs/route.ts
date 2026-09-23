@@ -19,7 +19,8 @@ import {
 } from '@/lib/fault-run-repository';
 import { getOrCreateTraceId } from '@/lib/trace';
 import { recordOperatorAudit } from '@/lib/operator-audit';
-import { buildFaultRunOperatorRun } from '@/lib/fault-run-operator-view';
+import { buildFaultRunOperatorAction, buildFaultRunOperatorRun } from '@/lib/fault-run-operator-view';
+import { verifyFaultRunOwnershipSchema } from '@/lib/fault-run-schema';
 
 export async function GET(request: NextRequest) {
   const state = request.nextUrl.searchParams.get('state') || undefined;
@@ -63,6 +64,9 @@ export async function POST(request: NextRequest) {
   try {
     getScenarioDefinition(scenario);
     const parameters = validateScenarioParameters(scenario, body.parameters);
+    if (env.FAULT_RUN_RECONCILIATION_MODE !== 'OFF') {
+      await verifyFaultRunOwnershipSchema();
+    }
     const traceId = getOrCreateTraceId(request.headers);
     const result = await getFaultRunCoordinator().create({
       scenario,
@@ -82,9 +86,12 @@ export async function POST(request: NextRequest) {
       correlationId: traceId,
     });
     await attachOperatorAudit(result.run.faultRunId, auditId);
-    return jsonOk(buildFaultRunOperatorRun(result.run, {
+    const projection = buildFaultRunOperatorRun(result.run, {
       safeRuntimeEnabled: env.FAULT_RUN_SAFE_RUNTIME_ENABLED,
-    }), result.created ? 201 : 200);
+    });
+    return jsonOk(result.run.execution
+      ? { ...projection, action: result.action ? buildFaultRunOperatorAction(result.action) : null }
+      : projection, result.created ? 201 : 200);
   } catch (error) {
     const message = errorMessage(error);
     await recordOperatorAudit({
@@ -109,6 +116,9 @@ export async function POST(request: NextRequest) {
       );
     }
     if (error instanceof IdempotencyKeyReuseError) return jsonError(409, message, 409);
+    if (message.startsWith('FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED')) {
+      return jsonError(503, 'Fault Run ownership schema is not ready', 503);
+    }
     if (message === 'FAULT_RUN_TARGET_START_FAILED') return jsonError(502, 'Fault Run target could not be started', 502);
     return jsonError(500, 'Failed to create Fault Run', 500);
   }

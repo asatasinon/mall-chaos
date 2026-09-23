@@ -60,6 +60,7 @@ function canonicalDefinition(definition: FaultRunScenarioDefinition): Record<str
     recoveryStrategy: definition.recoveryStrategy,
     scenario: definition.scenario,
     targetOperation: definition.targetOperation,
+    targetPrepare: definition.targetPrepare,
     targetService: definition.targetService,
   };
 }

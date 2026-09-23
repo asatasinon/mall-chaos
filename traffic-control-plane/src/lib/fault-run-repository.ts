@@ -40,7 +40,12 @@ import {
   type FaultRunExecutionMode,
   type FaultRunExecutionRecord,
 } from './fault-run-execution-repository';
-import { insertFaultRunAction } from './fault-run-action-repository';
+import {
+  insertFaultRunAction,
+  listFaultRunActions,
+  sanitizeFaultRunActionSummary,
+  type FaultRunActionRecord,
+} from './fault-run-action-repository';
 
 export interface FaultRunRecord {
   faultRunId: string;
@@ -111,6 +116,12 @@ export interface CreateFaultRunInput {
   expiresAt: Date;
   traceId: string;
   executionMode?: FaultRunExecutionMode;
+}
+
+export interface CreatedFaultRun {
+  run: FaultRunRecord;
+  created: boolean;
+  action?: FaultRunActionRecord | null;
 }
 
 export const FAULT_RUN_COMMAND_IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
@@ -215,11 +226,13 @@ export class IdempotencyKeyReuseError extends Error {
 
 export async function createFaultRun(
   input: CreateFaultRunInput,
-): Promise<{ run: FaultRunRecord; created: boolean }> {
+): Promise<CreatedFaultRun> {
   await ensureFaultRunSchema();
   const pool = getPool();
   const connection = await pool.getConnection();
   const faultRunId = randomUUID();
+  let existingRunId: string | null = null;
+  let duplicateError: unknown = null;
   try {
     await connection.beginTransaction();
     const [existingRows] = await connection.query(
@@ -228,72 +241,219 @@ export async function createFaultRun(
     );
     const existing = asRecords(existingRows)[0];
     if (existing) {
-      await connection.rollback();
       const existingRun = toFaultRun(existing);
-        if (existingRun.scenario !== input.scenario
-          || stableJson(existingRun.parameters) !== stableJson(input.parameters)) {
+      if (existingRun.scenario !== input.scenario
+        || stableJson(existingRun.parameters) !== stableJson(input.parameters)) {
         throw new IdempotencyKeyReuseError();
       }
-      return { run: existingRun, created: false };
-    }
-
-    await connection.query(
-      'UPDATE fault_run_sequence SET last_token = last_token + 1 WHERE id = 1',
-    );
-    const [tokenRows] = await connection.query(
-      'SELECT last_token FROM fault_run_sequence WHERE id = 1 FOR UPDATE',
-    );
-    const fencingToken = Number(asRecords(tokenRows)[0]?.last_token);
-    await connection.query(
-      `INSERT INTO fault_runs
-        (fault_run_id, scenario, target_service, target_operation, state, parameters_json,
-         idempotency_key, fencing_token, expires_at, trace_id)
-       VALUES (?, ?, ?, ?, 'CREATING', ?, ?, ?, ?, ?)`,
-      [
-        faultRunId,
-        input.scenario,
-        input.targetService,
-        input.targetOperation,
-        JSON.stringify(input.parameters),
-        input.idempotencyKey,
+      existingRunId = existingRun.faultRunId;
+      await connection.rollback();
+    } else {
+      await connection.query(
+        'UPDATE fault_run_sequence SET last_token = last_token + 1 WHERE id = 1',
+      );
+      const [tokenRows] = await connection.query(
+        'SELECT last_token FROM fault_run_sequence WHERE id = 1 FOR UPDATE',
+      );
+      const fencingToken = Number(asRecords(tokenRows)[0]?.last_token);
+      await connection.query(
+        `INSERT INTO fault_runs
+          (fault_run_id, scenario, target_service, target_operation, state, parameters_json,
+           idempotency_key, fencing_token, expires_at, trace_id)
+         VALUES (?, ?, ?, ?, 'CREATING', ?, ?, ?, ?, ?)`,
+        [
+          faultRunId,
+          input.scenario,
+          input.targetService,
+          input.targetOperation,
+          JSON.stringify(input.parameters),
+          input.idempotencyKey,
+          fencingToken,
+          input.expiresAt,
+          input.traceId,
+        ],
+      );
+      await insertEvent(connection, faultRunId, 'CREATED', {
+        scenario: input.scenario,
+        targetService: input.targetService,
+        targetOperation: input.targetOperation,
+        expiresAt: input.expiresAt.toISOString(),
         fencingToken,
-        input.expiresAt,
-        input.traceId,
-      ],
-    );
-    await insertEvent(connection, faultRunId, 'CREATED', {
-      scenario: input.scenario,
-      targetService: input.targetService,
-      targetOperation: input.targetOperation,
-      expiresAt: input.expiresAt.toISOString(),
-      fencingToken,
-    });
-    if (input.executionMode !== undefined) {
-      await createFaultRunExecution(connection, faultRunId, input.executionMode);
+      });
+      if (input.executionMode !== undefined) {
+        await createFaultRunExecution(connection, faultRunId, input.executionMode);
+        if (getScenarioDefinition(input.scenario).targetPrepare === 'REQUIRED') {
+          await insertFaultRunAction(connection, {
+            faultRunId,
+            actionType: 'PREPARE',
+            requestedBy: 'RECONCILER',
+            requestIdempotencyKey: `prepare-${faultRunId}`,
+          });
+        }
+      }
+      await connection.commit();
     }
-    await connection.commit();
   } catch (error) {
     await connection.rollback();
-    if (isDuplicateEntry(error)) {
-      const existingRun = await loadFaultRunByIdempotencyKey(input.idempotencyKey);
-      if (existingRun) {
-        if (existingRun.scenario !== input.scenario
-          || stableJson(existingRun.parameters) !== stableJson(input.parameters)) {
-          throw new IdempotencyKeyReuseError();
-        }
-        return { run: existingRun, created: false };
-      }
-      const activeRun = await loadActiveFaultRun();
-      if (activeRun) throw new ActiveFaultRunError(activeRun);
-    }
-    throw error;
+    if (isDuplicateEntry(error)) duplicateError = error;
+    else throw error;
   } finally {
     connection.release();
   }
 
+  if (existingRunId) return loadCreatedFaultRun(existingRunId, false);
+  if (duplicateError) {
+    const existingRun = await loadFaultRunByIdempotencyKey(input.idempotencyKey);
+    if (existingRun) {
+      if (existingRun.scenario !== input.scenario
+        || stableJson(existingRun.parameters) !== stableJson(input.parameters)) {
+        throw new IdempotencyKeyReuseError();
+      }
+      return loadCreatedFaultRun(existingRun.faultRunId, false);
+    }
+    const activeRun = await loadActiveFaultRun();
+    if (activeRun) throw new ActiveFaultRunError(activeRun);
+    throw duplicateError;
+  }
+  return loadCreatedFaultRun(faultRunId, true);
+}
+
+async function loadCreatedFaultRun(faultRunId: string, created: boolean): Promise<CreatedFaultRun> {
   const run = await loadFaultRun(faultRunId);
   if (!run) throw new Error('FAULT_RUN_CREATE_READBACK_FAILED');
-  return { run, created: true };
+  const action = run.execution && getScenarioDefinition(run.scenario).targetPrepare === 'REQUIRED'
+    ? (await listFaultRunActions(faultRunId)).find((candidate) => candidate.actionType === 'PREPARE') ?? null
+    : null;
+  return { run, created, action };
+}
+
+export async function activateOwnedCreatingRun(input: {
+  faultRunId: string;
+  ownerId: string;
+  ownerEpoch: number;
+  prepareActionId?: string;
+  targetSummary?: FaultRunTargetSummary;
+}): Promise<FaultRunRecord | null> {
+  await ensureFaultRunSchema();
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    if (input.prepareActionId) {
+      const [confirmed] = await connection.query(
+        `UPDATE fault_run_actions action
+         JOIN fault_run_executions execution ON execution.fault_run_id = action.fault_run_id
+         JOIN fault_runs run ON run.fault_run_id = action.fault_run_id
+         SET action.action_state = 'CONFIRMED',
+             action.completed_at = CURRENT_TIMESTAMP(3),
+             action.result_summary_json = ?
+         WHERE action.action_id = ? AND action.fault_run_id = ?
+           AND action.action_type = 'PREPARE' AND action.action_state = 'DISPATCHING'
+           AND action.dispatch_owner_id = ? AND action.dispatch_owner_epoch = ?
+           AND execution.owner_id = ? AND execution.owner_epoch = ?
+           AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)
+           AND run.state = 'CREATING' AND run.expires_at > CURRENT_TIMESTAMP(3)`,
+        [JSON.stringify(sanitizeFaultRunActionSummary({ accepted: true })),
+          input.prepareActionId, input.faultRunId, input.ownerId, input.ownerEpoch,
+          input.ownerId, input.ownerEpoch],
+      );
+      if (Number((confirmed as { affectedRows?: number }).affectedRows) !== 1) {
+        await connection.rollback();
+        return null;
+      }
+
+    }
+    const [activated] = await connection.query(
+      `UPDATE fault_runs run
+       JOIN fault_run_executions execution ON execution.fault_run_id = run.fault_run_id
+       SET run.state = 'ACTIVE', run.started_at = CURRENT_TIMESTAMP(3)
+       WHERE run.fault_run_id = ? AND run.state = 'CREATING'
+         AND run.expires_at > CURRENT_TIMESTAMP(3)
+         AND execution.owner_id = ? AND execution.owner_epoch = ?
+         AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)
+         AND execution.reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'
+         AND ${input.prepareActionId
+    ? `EXISTS (SELECT 1 FROM fault_run_actions action
+       WHERE action.action_id = ? AND action.fault_run_id = run.fault_run_id
+         AND action.action_state = 'CONFIRMED')`
+    : `NOT EXISTS (SELECT 1 FROM fault_run_actions action
+       WHERE action.fault_run_id = run.fault_run_id AND action.action_type = 'PREPARE')`}`,
+      input.prepareActionId
+        ? [input.faultRunId, input.ownerId, input.ownerEpoch, input.prepareActionId]
+        : [input.faultRunId, input.ownerId, input.ownerEpoch],
+    );
+    if (Number((activated as { affectedRows?: number }).affectedRows) !== 1) {
+      await connection.rollback();
+      return null;
+    }
+    await insertEvent(connection, input.faultRunId, 'TARGET_CONFIRMED', {
+      targetService: (await loadLockedFaultRun(connection, input.faultRunId))!.targetService,
+      ...(input.prepareActionId ? {} : { preparation: 'NOT_APPLICABLE' }),
+      ...(input.targetSummary ? { targetSummary: input.targetSummary } : {}),
+    });
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+  return loadFaultRun(input.faultRunId);
+}
+
+export async function rejectOwnedPrepare(input: {
+  faultRunId: string;
+  actionId: string;
+  ownerId: string;
+  ownerEpoch: number;
+}): Promise<boolean> {
+  await ensureFaultRunSchema();
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rejected] = await connection.query(
+      `UPDATE fault_run_actions action
+       JOIN fault_run_executions execution ON execution.fault_run_id = action.fault_run_id
+       JOIN fault_runs run ON run.fault_run_id = action.fault_run_id
+       SET action.action_state = 'DEFINITIVE_FAILURE',
+           action.completed_at = CURRENT_TIMESTAMP(3),
+           action.error_code = 'PREPARE_REJECTED'
+       WHERE action.action_id = ? AND action.fault_run_id = ?
+         AND action.action_type = 'PREPARE' AND action.action_state = 'DISPATCHING'
+         AND action.dispatch_owner_id = ? AND action.dispatch_owner_epoch = ?
+         AND execution.owner_id = ? AND execution.owner_epoch = ?
+         AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)
+         AND run.state = 'CREATING'`,
+      [input.actionId, input.faultRunId, input.ownerId, input.ownerEpoch, input.ownerId, input.ownerEpoch],
+    );
+    if (Number((rejected as { affectedRows?: number }).affectedRows) !== 1) {
+      await connection.rollback();
+      return false;
+    }
+    const [failed] = await connection.query(
+      `UPDATE fault_runs run
+       JOIN fault_run_executions execution ON execution.fault_run_id = run.fault_run_id
+       SET run.state = 'FAILED', run.stopped_at = CURRENT_TIMESTAMP(3),
+           run.recovery_error = 'PREPARE_REJECTED',
+           run.recovery_result = ?
+       WHERE run.fault_run_id = ? AND run.state = 'CREATING'
+         AND execution.owner_id = ? AND execution.owner_epoch = ?
+         AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)`,
+      [JSON.stringify({ prepare: 'REJECTED_BEFORE_DISPATCH' }),
+        input.faultRunId, input.ownerId, input.ownerEpoch],
+    );
+    if (Number((failed as { affectedRows?: number }).affectedRows) !== 1) {
+      await connection.rollback();
+      return false;
+    }
+    await insertEvent(connection, input.faultRunId, 'CREATE_FAILED', { errorCode: 'PREPARE_REJECTED' });
+    await connection.commit();
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 export async function loadFaultRun(faultRunId: string): Promise<FaultRunRecord | null> {
@@ -582,6 +742,9 @@ export async function requestFaultRunStop(
         correlationId: input.audit.correlationId,
       })
       : null;
+    if (run.state === 'CREATING') {
+      await cancelRequestedPrepareAction(connection, run.faultRunId);
+    }
     const serializedProjection = serializeFaultRunRecoveryProjection(plan.projection);
     await connection.query(
       `UPDATE fault_runs
@@ -1636,6 +1799,28 @@ function toIso(value: unknown): string {
 function isDuplicateEntry(error: unknown): boolean {
   return typeof error === 'object' && error !== null
     && 'code' in error && (error as { code?: string }).code === 'ER_DUP_ENTRY';
+}
+
+async function cancelRequestedPrepareAction(
+  connection: PoolConnection,
+  faultRunId: string,
+): Promise<void> {
+  try {
+    await connection.query(
+      `UPDATE fault_run_actions
+          SET action_state = 'CANCELLED',
+              completed_at = CURRENT_TIMESTAMP(3),
+              error_code = 'PREPARE_CANCELLED_BEFORE_DISPATCH'
+        WHERE fault_run_id = ?
+          AND action_type = 'PREPARE'
+          AND action_state = 'REQUESTED'
+          AND dispatch_owner_id IS NULL
+          AND dispatch_owner_epoch IS NULL`,
+      [faultRunId],
+    );
+  } catch (error) {
+    if (!isMissingTableError(error)) throw error;
+  }
 }
 
 function isMissingTableError(error: unknown): boolean {

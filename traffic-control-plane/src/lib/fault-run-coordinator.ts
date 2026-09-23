@@ -8,6 +8,7 @@ import {
   requestFaultRunStop,
   transitionFaultRun,
   type CreateFaultRunInput,
+  type CreatedFaultRun,
   type FaultRunCommandResult,
   type FaultRunRecord,
   type FaultRunTargetSummary,
@@ -22,14 +23,14 @@ import { env } from './env';
 import type { FaultRunExecutionMode } from './fault-run-execution-repository';
 
 export interface FaultRunTargetAdapter {
-  start(run: FaultRunRecord): Promise<unknown>;
+  start(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown>;
   stop(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown>;
   cleanup(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown>;
   compensate(run: FaultRunRecord, signal?: AbortSignal): Promise<void>;
 }
 
 export interface FaultRunStore {
-  create(input: CreateFaultRunInput): Promise<{ run: FaultRunRecord; created: boolean }>;
+  create(input: CreateFaultRunInput): Promise<CreatedFaultRun>;
   load(faultRunId: string): Promise<FaultRunRecord | null>;
   listActive(): Promise<FaultRunRecord[]>;
   listExpired(now?: Date): Promise<FaultRunRecord[]>;
@@ -56,16 +57,20 @@ export class SqlFaultRunStore implements FaultRunStore {
 }
 
 export class GatewayFaultRunTargetAdapter implements FaultRunTargetAdapter {
-  async start(run: FaultRunRecord): Promise<unknown> {
-    if (run.scenario === 'BROWSE_SURGE' || run.scenario === 'ORDER_QUERY_SURGE') {
+  async start(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown> {
+    if (getScenarioDefinition(run.scenario).targetPrepare === 'NOT_APPLICABLE') {
       return { accepted: true, target: 'worker' };
     }
     return getGatewayClient().postInternal(
-      '/internal/gateway/operations/prepare', toGatewayPayload(run), run.traceId ?? undefined);
+      '/internal/gateway/operations/prepare',
+      toGatewayPayload(run),
+      run.traceId ?? undefined,
+      signal,
+    );
   }
 
   async stop(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown> {
-    if (run.scenario === 'BROWSE_SURGE' || run.scenario === 'ORDER_QUERY_SURGE') {
+    if (getScenarioDefinition(run.scenario).recoveryPolicy.targetRelease === 'NOT_APPLICABLE') {
       return { stopped: true, target: 'worker' };
     }
     return getGatewayClient().postInternal(
@@ -119,7 +124,7 @@ export class FaultRunCoordinator {
     this.recoveryTimeoutMs = options.recoveryTimeoutMs ?? env.FAULT_RUN_RECOVERY_TIMEOUT_MS;
   }
 
-  async create(command: CreateFaultRunCommand): Promise<{ run: FaultRunRecord; created: boolean }> {
+  async create(command: CreateFaultRunCommand): Promise<CreatedFaultRun> {
     const definition = getScenarioDefinition(command.scenario);
     const parameters = validateScenarioParameters(command.scenario, command.parameters);
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(command.idempotencyKey)) {
@@ -138,6 +143,7 @@ export class FaultRunCoordinator {
     };
     const result = await this.store.create(input);
     if (!result.created) return result;
+    if (command.executionMode !== undefined) return result;
 
     let targetResponse: unknown;
     try {
@@ -309,7 +315,7 @@ function sanitizeServiceRecoverySummary(value: unknown): {
   };
 }
 
-function sanitizeTargetSummary(run: FaultRunRecord, response: unknown): FaultRunTargetSummary | undefined {
+export function sanitizeTargetSummary(run: FaultRunRecord, response: unknown): FaultRunTargetSummary | undefined {
   if (run.scenario !== 'CATALOG_REDIS_LARGE_VALUE') return undefined;
   const envelope = asRecord(response);
   const firstData = asRecord(envelope.data);

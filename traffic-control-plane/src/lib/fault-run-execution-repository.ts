@@ -140,7 +140,13 @@ export async function claimFaultRunExecution(
        WHERE execution.fault_run_id = ?
          AND execution.execution_mode = ?
          AND (execution.owner_id IS NULL
-              OR execution.lease_expires_at <= CURRENT_TIMESTAMP(3))
+              OR (execution.execution_mode = 'TAKEOVER'
+                  AND execution.lease_expires_at <= CURRENT_TIMESTAMP(3)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM fault_run_actions action
+                    WHERE action.fault_run_id = execution.fault_run_id
+                      AND action.action_state IN ('DISPATCHING', 'OUTCOME_UNKNOWN')
+                  )))
          AND execution.reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'
          AND run.state IN ('CREATING', 'ACTIVE', 'RECOVERING')`,
       [
@@ -262,7 +268,8 @@ export async function updateOwnedFaultRunExecution(
   const [result] = await getPool().query(
     `UPDATE fault_run_executions
         SET ${fields.join(', ')}
-      WHERE fault_run_id = ? AND owner_id = ? AND owner_epoch = ?`,
+      WHERE fault_run_id = ? AND owner_id = ? AND owner_epoch = ?
+        AND lease_expires_at > CURRENT_TIMESTAMP(3)`,
     values,
   );
   return affectedRows(result) === 1;
@@ -288,6 +295,7 @@ export async function relinquishFaultRunExecution(input: {
       WHERE fault_run_id = ?
         AND owner_id = ?
         AND owner_epoch = ?
+        AND lease_expires_at > CURRENT_TIMESTAMP(3)
         AND drain_state IN ('DRAINED', 'NOT_APPLICABLE')`,
     [input.faultRunId, input.ownerId, input.ownerEpoch],
   );

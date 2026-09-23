@@ -1,19 +1,28 @@
-import pino from 'pino';
+import type { Logger } from 'pino';
 import type { FaultRunReconciliationMode } from '../lib/env';
+import { getScenarioDefinition } from '../lib/fault-run-catalog';
+import { GatewayFaultRunTargetAdapter, sanitizeTargetSummary } from '../lib/fault-run-coordinator';
+import {
+  claimFaultRunAction,
+  listFaultRunActions,
+  markPrepareOutcomeUnknown,
+  markStaleFaultRunActionUnknown,
+} from '../lib/fault-run-action-repository';
 import {
   claimFaultRunExecution,
   heartbeatFaultRunExecution,
-  loadFaultRunExecution,
   markFaultRunExecutionLeaseLost,
   relinquishFaultRunExecution,
   updateOwnedFaultRunExecution,
   type FaultRunExecutionRecord,
 } from '../lib/fault-run-execution-repository';
 import {
+  activateOwnedCreatingRun,
   appendFaultRunEvent,
+  extractFaultRunTargetSummary,
   loadFaultRun,
-  listFaultRunReconciliationCandidates,
   requestFaultRunStop,
+  rejectOwnedPrepare,
   type FaultRunRecord,
   type RequestFaultRunStopInput,
 } from '../lib/fault-run-repository';
@@ -23,8 +32,6 @@ import {
   faultRunDrainParticipantForOwner,
   type FaultRunDrainRegistry,
 } from './fault-run-drain-registry';
-
-const log = pino({ name: 'fault-run-reconciler' });
 
 export interface FaultRunReconcilerDependencies {
   listCandidates: () => Promise<FaultRunRecord[]>;
@@ -37,10 +44,17 @@ export interface FaultRunReconcilerDependencies {
   updateExecution: typeof updateOwnedFaultRunExecution;
   relinquishExecution: typeof relinquishFaultRunExecution;
   appendEvent: typeof appendFaultRunEvent;
+  listActions?: typeof listFaultRunActions;
+  claimAction?: typeof claimFaultRunAction;
+  markStaleActionUnknown?: typeof markStaleFaultRunActionUnknown;
+  markPrepareUnknown?: typeof markPrepareOutcomeUnknown;
+  activateCreating?: typeof activateOwnedCreatingRun;
+  rejectPrepare?: typeof rejectOwnedPrepare;
+  prepare?: (run: FaultRunRecord, signal?: AbortSignal) => Promise<unknown>;
   drainRegistry?: Pick<FaultRunDrainRegistry, 'register'>;
   drivers: readonly OwnedFaultRunDriver[];
   now: () => Date;
-  logger: Pick<typeof log, 'warn' | 'info'>;
+  logger: Pick<Logger, 'warn' | 'info'>;
 }
 
 export interface FaultRunReconcilerOptions {
@@ -64,11 +78,19 @@ interface OwnedRun {
   stopPromise: Promise<OwnedRunDrainResult> | null;
 }
 
+interface StartingRun {
+  run: FaultRunRecord;
+  fence: FaultRunOwnerFence;
+  phase: 'PREPARING' | 'STARTING';
+}
+
 export class FaultRunReconciler {
   private readonly owned = new Map<string, OwnedRun>();
+  private readonly starting = new Map<string, StartingRun>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private scanPromise: Promise<void> | null = null;
+  private quiescePromise: Promise<void> | null = null;
   private stopping = false;
 
   constructor(
@@ -79,10 +101,8 @@ export class FaultRunReconciler {
   }
 
   async start(): Promise<void> {
-    if (this.options.mode === 'OFF' || this.timer) return;
+    if (this.options.mode === 'OFF' || this.timer || this.quiescePromise) return;
     this.stopping = false;
-    await this.scan();
-    if (this.stopping) return;
     this.timer = setInterval(() => {
       void this.scan().catch((error) => {
         this.dependencies.logger.warn({ code: errorCode(error) }, 'Fault Run reconciliation scan failed');
@@ -93,17 +113,68 @@ export class FaultRunReconciler {
         this.dependencies.logger.warn({ code: errorCode(error) }, 'Fault Run owner heartbeat failed');
       });
     }, this.options.heartbeatMs);
+    try {
+      await this.scan();
+    } catch (error) {
+      this.stopping = true;
+      for (const starting of this.starting.values()) {
+        if (starting.phase === 'PREPARING') starting.fence.lose('RECONCILER_START_FAILED');
+      }
+      if (this.timer) clearInterval(this.timer);
+      if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+      this.timer = null;
+      this.heartbeatTimer = null;
+      throw error;
+    }
+    if (this.stopping) return;
     this.dependencies.logger.info('Fault Run reconciler started');
   }
 
+  async quiesce(): Promise<void> {
+    if (!this.quiescePromise) this.quiescePromise = this.quiesceInternal();
+    return this.quiescePromise;
+  }
+
   async stop(): Promise<void> {
-    this.stopping = true;
-    if (this.timer) clearInterval(this.timer);
+    let quiesceFailed = false;
+    let quiesceError: unknown;
+    try {
+      await this.quiesce();
+    } catch (error) {
+      quiesceFailed = true;
+      quiesceError = error;
+    }
+    for (const starting of this.starting.values()) starting.fence.lose('PROCESS_SHUTDOWN');
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-    this.timer = null;
     this.heartbeatTimer = null;
     await Promise.all([...this.owned.values()].map((owned) =>
       this.stopOwned(owned, 'PROCESS_SHUTDOWN')));
+    if (quiesceFailed) throw quiesceError;
+  }
+
+  private async quiesceInternal(): Promise<void> {
+    this.stopping = true;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    for (const starting of this.starting.values()) {
+      if (starting.phase === 'PREPARING') starting.fence.lose('PROCESS_SHUTDOWN');
+    }
+    const scan = this.scanPromise;
+    if (!scan) return;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await Promise.race([
+        scan,
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error('RECONCILER_QUIESCE_TIMEOUT')),
+            Math.min(this.options.leaseTtlMs, this.options.recoveryTimeoutMs ?? this.options.leaseTtlMs),
+          );
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
   }
 
   async scan(): Promise<void> {
@@ -147,29 +218,59 @@ export class FaultRunReconciler {
   }
 
   private async reconcileCandidate(run: FaultRunRecord): Promise<void> {
-    if (run.state !== 'ACTIVE') return;
+    if (run.state !== 'ACTIVE' && run.state !== 'CREATING') return;
     const execution = await this.dependencies.loadExecution(run.faultRunId);
     if (!execution) return;
+    const now = this.dependencies.now().getTime();
+    if (Date.parse(run.expiresAt) <= now) {
+      if (this.dependencies.requestStop) {
+        await this.dependencies.requestStop({
+          faultRunId: run.faultRunId,
+          reason: 'EXPIRED',
+          drainTimeoutMs: this.options.drainTimeoutMs ?? 30_000,
+          recoveryTimeoutMs: this.options.recoveryTimeoutMs ?? 60_000,
+          now: this.dependencies.now(),
+        });
+      }
+      return;
+    }
     const stale = execution.ownerId !== null
       && execution.leaseExpiresAt !== null
-      && Date.parse(execution.leaseExpiresAt) <= this.dependencies.now().getTime();
+      && Date.parse(execution.leaseExpiresAt) <= now;
     const initial = execution.ownerEpoch === 0 && execution.ownerId === null;
     if (!initial && !stale) return;
 
-    if (stale && this.options.mode !== 'TAKEOVER') {
+    if (run.state === 'CREATING' && stale) {
+      const actions = await (this.dependencies.listActions ?? listFaultRunActions)(run.faultRunId);
+      const dispatching = actions.find((action) =>
+        action.actionType === 'PREPARE' && action.actionState === 'DISPATCHING');
+      if (dispatching) {
+        await (this.dependencies.markStaleActionUnknown ?? markStaleFaultRunActionUnknown)({
+          actionId: dispatching.actionId,
+          dispatchOwnerId: dispatching.dispatchOwnerId!,
+          dispatchOwnerEpoch: dispatching.dispatchOwnerEpoch!,
+          errorCode: 'OWNER_LEASE_EXPIRED',
+        });
+        return;
+      }
+      if (actions.some((action) =>
+        action.actionType === 'PREPARE' && action.actionState !== 'REQUESTED')) return;
+    }
+
+    if (stale && execution.executionMode !== 'TAKEOVER') {
       await this.dependencies.updateExecution({
         faultRunId: run.faultRunId,
         ownerId: execution.ownerId!,
         ownerEpoch: execution.ownerEpoch,
         reconciliationState: 'TAKEOVER_PENDING',
-        lastAction: this.options.mode === 'SHADOW'
+        lastAction: execution.executionMode === 'SHADOW'
           ? 'TAKEOVER_SHADOW_PLANNED'
           : 'TAKEOVER_OBSERVED',
         lastErrorCode: null,
       });
       await this.dependencies.appendEvent(run.faultRunId, 'RECONCILIATION_DECISION', {
         decision: 'TAKEOVER',
-        reason: this.options.mode === 'SHADOW'
+        reason: execution.executionMode === 'SHADOW'
           ? 'TAKEOVER_SHADOW_PLANNED'
           : 'TAKEOVER_OBSERVED',
         ownerEpoch: execution.ownerEpoch,
@@ -188,14 +289,46 @@ export class FaultRunReconciler {
       lastAction: initial ? 'OWNER_LEASE_ACQUIRED' : 'OWNER_TAKEOVER_COMPLETED',
     });
     if (!claimed) return;
+    if (this.stopping) return;
+    if (!claimed.leaseExpiresAt
+      || Date.parse(claimed.leaseExpiresAt) <= this.dependencies.now().getTime()) return;
 
     const fence = new FaultRunOwnerFence(
       run.faultRunId,
       this.options.ownerId,
       claimed.ownerEpoch,
     );
+    const starting: StartingRun = {
+      run,
+      fence,
+      phase: run.state === 'CREATING' ? 'PREPARING' : 'STARTING',
+    };
+    this.starting.set(run.faultRunId, starting);
     try {
+      if (run.state === 'CREATING') {
+        const activated = await this.prepareCreating(run, claimed, fence);
+        if (!activated || activated.state !== 'ACTIVE'
+          || !fence.isLocallyCurrent()
+          || Date.parse(activated.expiresAt) <= this.dependencies.now().getTime()) return;
+        run = activated;
+        starting.run = run;
+        starting.phase = 'STARTING';
+      }
+      if (!fence.isLocallyCurrent()
+        || Date.parse(run.expiresAt) <= this.dependencies.now().getTime()
+        || Date.parse(claimed.leaseExpiresAt) <= this.dependencies.now().getTime()) return;
       const handle = await driver.start({ run, fence });
+      if (!fence.isLocallyCurrent()) {
+        try {
+          await handle.stop({ reason: 'OWNER_LOST', signal: fence.signal });
+        } catch (error) {
+          this.dependencies.logger.warn({
+            faultRunId: run.faultRunId,
+            code: errorCode(error),
+          }, 'Fault Run driver did not stop after owner loss');
+        }
+        return;
+      }
       let settledResolve!: () => void;
       const settled = new Promise<void>((resolve) => {
         settledResolve = resolve;
@@ -220,52 +353,160 @@ export class FaultRunReconciler {
           },
         );
       }
+
+      this.starting.delete(run.faultRunId);
       this.owned.set(run.faultRunId, owned);
-      await this.dependencies.appendEvent(run.faultRunId, initial
-        ? 'OWNER_LEASE_ACQUIRED'
-        : 'OWNER_TAKEOVER_COMPLETED', {
-        ownerEpoch: claimed.ownerEpoch,
-        reason: initial ? 'INITIAL' : 'TAKEOVER',
-        driver: driver.name,
-      });
+      try {
+        await this.dependencies.appendEvent(run.faultRunId, initial
+          ? 'OWNER_LEASE_ACQUIRED'
+          : 'OWNER_TAKEOVER_COMPLETED', {
+          ownerEpoch: claimed.ownerEpoch,
+          reason: initial ? 'INITIAL' : 'TAKEOVER',
+          driver: driver.name,
+        });
+      } catch (error) {
+        await this.stopOwned(owned, 'OWNER_LOST');
+        throw error;
+      }
     } catch (error) {
-      fence.lose('DRIVER_START_FAILED');
-      await this.dependencies.markLeaseLost({
-        faultRunId: run.faultRunId,
-        ownerId: this.options.ownerId,
-        ownerEpoch: claimed.ownerEpoch,
-        errorCode: 'DRIVER_START_FAILED',
-      }).catch(() => false);
-      await this.dependencies.appendEvent(run.faultRunId, 'OWNER_LEASE_LOST', {
-        ownerEpoch: claimed.ownerEpoch,
-        reason: 'DRIVER_START_FAILED',
-      }).catch(() => undefined);
+      if (fence.isLocallyCurrent()) {
+        fence.lose('DRIVER_START_FAILED');
+        await this.dependencies.markLeaseLost({
+          faultRunId: run.faultRunId,
+          ownerId: this.options.ownerId,
+          ownerEpoch: claimed.ownerEpoch,
+          errorCode: 'DRIVER_START_FAILED',
+        }).catch(() => false);
+        await this.dependencies.appendEvent(run.faultRunId, 'OWNER_LEASE_LOST', {
+          ownerEpoch: claimed.ownerEpoch,
+          reason: 'DRIVER_START_FAILED',
+        }).catch(() => undefined);
+      }
       throw error;
+    } finally {
+      this.starting.delete(run.faultRunId);
     }
   }
 
+  private async prepareCreating(
+    run: FaultRunRecord,
+    execution: FaultRunExecutionRecord,
+    fence: FaultRunOwnerFence,
+  ): Promise<FaultRunRecord | null> {
+    if (!fence.isLocallyCurrent()) return null;
+    const owner = {
+      faultRunId: run.faultRunId,
+      ownerId: execution.ownerId!,
+      ownerEpoch: execution.ownerEpoch,
+    };
+    const definition = getScenarioDefinition(run.scenario);
+    const activate = this.dependencies.activateCreating ?? activateOwnedCreatingRun;
+    if (definition.targetPrepare === 'NOT_APPLICABLE') {
+      return fence.isLocallyCurrent() ? activate(owner) : null;
+    }
+    const actions = await (this.dependencies.listActions ?? listFaultRunActions)(run.faultRunId);
+    if (!fence.isLocallyCurrent()) return null;
+    const action = actions.find((candidate) => candidate.actionType === 'PREPARE');
+    if (!action || action.actionState !== 'REQUESTED') return null;
+    const claimed = await (this.dependencies.claimAction ?? claimFaultRunAction)({
+      actionId: action.actionId,
+      ownerId: owner.ownerId,
+      ownerEpoch: owner.ownerEpoch,
+    });
+    if (!claimed) return null;
+    const unknown = async () => {
+      await (this.dependencies.markPrepareUnknown ?? markPrepareOutcomeUnknown)({
+        actionId: claimed.actionId,
+        ownerId: owner.ownerId,
+        ownerEpoch: owner.ownerEpoch,
+        errorCode: 'PREPARE_OUTCOME_UNKNOWN',
+      });
+    };
+    let response: unknown;
+    try {
+      if (!fence.isLocallyCurrent()) {
+        await unknown();
+        return null;
+      }
+      response = await (this.dependencies.prepare
+        ? this.dependencies.prepare(run, fence.signal)
+        : new GatewayFaultRunTargetAdapter().start(run, fence.signal));
+    } catch {
+      await unknown();
+      return null;
+    }
+    if (!fence.isLocallyCurrent()) {
+      await unknown();
+      return null;
+    }
+    const outcome = classifyPrepareResponse(run, response);
+    if (outcome === 'REJECTED') {
+      const rejected = await (this.dependencies.rejectPrepare ?? rejectOwnedPrepare)({
+        ...owner,
+        actionId: claimed.actionId,
+      });
+      if (!rejected) await unknown();
+      return null;
+    }
+    if (outcome !== 'CONFIRMED') {
+      await unknown();
+      return null;
+    }
+    const candidateSummary = sanitizeTargetSummary(run, response);
+    const targetSummary = run.scenario === 'CATALOG_REDIS_LARGE_VALUE'
+      ? extractFaultRunTargetSummary(run.faultRunId, { targetSummary: candidateSummary })
+      : null;
+    if (run.scenario === 'CATALOG_REDIS_LARGE_VALUE' && !targetSummary) {
+      await unknown();
+      return null;
+    }
+    try {
+      const activated = await activate({
+        ...owner,
+        prepareActionId: claimed.actionId,
+        ...(targetSummary ? { targetSummary } : {}),
+      });
+      if (activated) return activated;
+    } catch {
+      // The dispatch may already have taken effect; only a fenced journal update can settle it.
+    }
+    await unknown();
+    return null;
+  }
+
   private async heartbeatOwned(): Promise<void> {
-    for (const owned of [...this.owned.values()]) {
-      if (this.stopping || !owned.fence.isLocallyCurrent()) continue;
-      const renewed = await this.dependencies.heartbeatExecution({
+    const owners = [
+      ...[...this.starting.values()].map((starting) => ({
+        faultRunId: starting.run.faultRunId,
+        fence: starting.fence,
+      })),
+      ...[...this.owned.values()].map((owned) => ({
         faultRunId: owned.run.faultRunId,
-        ownerId: owned.fence.ownerId,
-        ownerEpoch: owned.fence.ownerEpoch,
+        fence: owned.fence,
+      })),
+    ];
+    for (const owner of owners) {
+      if (!owner.fence.isLocallyCurrent()) continue;
+      const renewed = await this.dependencies.heartbeatExecution({
+        faultRunId: owner.faultRunId,
+        ownerId: owner.fence.ownerId,
+        ownerEpoch: owner.fence.ownerEpoch,
         leaseTtlMs: this.options.leaseTtlMs,
       }).catch(() => false);
       if (!renewed) {
-        owned.fence.lose('HEARTBEAT_REJECTED');
+        owner.fence.lose('HEARTBEAT_REJECTED');
         await this.dependencies.markLeaseLost({
-          faultRunId: owned.run.faultRunId,
-          ownerId: owned.fence.ownerId,
-          ownerEpoch: owned.fence.ownerEpoch,
+          faultRunId: owner.faultRunId,
+          ownerId: owner.fence.ownerId,
+          ownerEpoch: owner.fence.ownerEpoch,
           errorCode: 'HEARTBEAT_REJECTED',
         }).catch(() => false);
-        await this.dependencies.appendEvent(owned.run.faultRunId, 'OWNER_LEASE_LOST', {
-          ownerEpoch: owned.fence.ownerEpoch,
+        await this.dependencies.appendEvent(owner.faultRunId, 'OWNER_LEASE_LOST', {
+          ownerEpoch: owner.fence.ownerEpoch,
           reason: 'HEARTBEAT_REJECTED',
         }).catch(() => undefined);
-        await this.stopOwned(owned, 'OWNER_LOST');
+        const owned = this.owned.get(owner.faultRunId);
+        if (owned) await this.stopOwned(owned, 'OWNER_LOST');
       }
     }
   }
@@ -321,6 +562,27 @@ export class FaultRunReconciler {
     })();
     return owned.stopPromise;
   }
+}
+
+export function classifyPrepareResponse(
+  run: FaultRunRecord,
+  response: unknown,
+): 'CONFIRMED' | 'REJECTED' | 'UNKNOWN' {
+  const gateway = asObject(response);
+  if (gateway.code === 400 && gateway.data === null) return 'REJECTED';
+  if (gateway.code !== 200) return 'UNKNOWN';
+  const target = asObject(gateway.data);
+  if (target.code !== 200) return 'UNKNOWN';
+  const data = asObject(target.data);
+  if (data.accepted !== true
+    || (data.operation !== undefined && data.operation !== run.targetOperation)
+    || (data.runId !== undefined && data.runId !== run.faultRunId)) return 'UNKNOWN';
+  return 'CONFIRMED';
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : {};
 }
 
 function validateOptions(options: FaultRunReconcilerOptions): void {

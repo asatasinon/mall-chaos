@@ -68,6 +68,7 @@ export interface FaultRunScenarioDefinition {
   scenario: FaultRunScenario;
   targetService: string;
   targetOperation: string;
+  targetPrepare: 'REQUIRED' | 'NOT_APPLICABLE';
   maxDurationSec: number;
   recoveryStrategy: FaultRunRecoveryStrategy;
   recoveryPolicy: FaultRunRecoveryPolicy;
@@ -150,6 +151,7 @@ function validateParameterNumber(parameter: FaultRunParameterDefinition, supplie
 const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   BROWSE_REPORT_SQL: {
     scenario: 'BROWSE_REPORT_SQL',
+    targetPrepare: 'REQUIRED',
     targetService: 'catalog-service',
     targetOperation: 'products-browse-report',
     maxDurationSec: 3600,
@@ -165,6 +167,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   ORDER_REPORT_SQL: {
     scenario: 'ORDER_REPORT_SQL',
+    targetPrepare: 'REQUIRED',
     targetService: 'order-service',
     targetOperation: 'orders-query-report',
     maxDurationSec: 3600,
@@ -180,6 +183,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   BROWSE_SURGE: {
     scenario: 'BROWSE_SURGE',
+    targetPrepare: 'NOT_APPLICABLE',
     targetService: 'catalog-service',
     targetOperation: 'browse-api-worker',
     maxDurationSec: 1800,
@@ -196,6 +200,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   ORDER_QUERY_SURGE: {
     scenario: 'ORDER_QUERY_SURGE',
+    targetPrepare: 'NOT_APPLICABLE',
     targetService: 'order-service',
     targetOperation: 'order-query-worker',
     maxDurationSec: 1800,
@@ -212,6 +217,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   CATALOG_REDIS_LARGE_VALUE: {
     scenario: 'CATALOG_REDIS_LARGE_VALUE',
+    targetPrepare: 'REQUIRED',
     targetService: 'catalog-service',
     targetOperation: 'product-detail-cache',
     maxDurationSec: 1800,
@@ -230,6 +236,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   CART_CATALOG_DEPENDENCY: {
     scenario: 'CART_CATALOG_DEPENDENCY',
+    targetPrepare: 'REQUIRED',
     targetService: 'catalog-service',
     targetOperation: 'cart-product-validation',
     maxDurationSec: 900,
@@ -245,6 +252,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   NOTIFICATION_HEAP_PRESSURE: {
     scenario: 'NOTIFICATION_HEAP_PRESSURE',
+    targetPrepare: 'REQUIRED',
     targetService: 'notification-service',
     targetOperation: 'notification-retention',
     maxDurationSec: 3600,
@@ -261,6 +269,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   NOTIFICATION_STORAGE_APPEND: {
     scenario: 'NOTIFICATION_STORAGE_APPEND',
+    targetPrepare: 'REQUIRED',
     targetService: 'notification-service',
     targetOperation: 'notification-storage',
     maxDurationSec: 3600,
@@ -279,6 +288,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   PROMOTION_LOCK_CONTENTION: {
     scenario: 'PROMOTION_LOCK_CONTENTION',
+    targetPrepare: 'REQUIRED',
     targetService: 'promotion-service',
     targetOperation: 'coupon-reservation-consistency',
     maxDurationSec: 1800,
@@ -294,6 +304,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   INVENTORY_TABLE_EXCLUSIVE: {
     scenario: 'INVENTORY_TABLE_EXCLUSIVE',
+    targetPrepare: 'REQUIRED',
     targetService: 'inventory-service',
     targetOperation: 'inventory-availability-report',
     maxDurationSec: 1800,
@@ -309,6 +320,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   INVENTORY_ROW_LOCK: {
     scenario: 'INVENTORY_ROW_LOCK',
+    targetPrepare: 'REQUIRED',
     targetService: 'inventory-service',
     targetOperation: 'inventory-reservation-summary',
     maxDurationSec: 1800,
@@ -324,6 +336,7 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
   },
   PSP_PROVIDER_OUTCOME: {
     scenario: 'PSP_PROVIDER_OUTCOME',
+    targetPrepare: 'REQUIRED',
     targetService: 'psp-simulator',
     targetOperation: 'provider-outcome',
     maxDurationSec: 1800,

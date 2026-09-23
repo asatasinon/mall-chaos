@@ -35,7 +35,7 @@ Operator API
 
 1. `fault_runs` 继续保存 Fault Run 的业务生命周期、固定 target、参数和目标侧 `fencing_token`；新增一对一的 `fault_run_executions` 保存高频 heartbeat、owner epoch、drain 和重协调事实。这样 heartbeat 不会频繁改写业务状态行。
 2. 新增 `fault_run_actions`，为 `PREPARE`、`RELEASE` 和 Operator 已确认的 `CLEANUP` 保存持久化的动作意图、dispatch 边界和可确认结果。外部调用在动作进入 `DISPATCHING` 并提交后才发生；崩溃后没有可证实结果的动作一律标记 `OUTCOME_UNKNOWN`，绝不隐式重发。
-3. Web/API 在新路径中只做 admission、停止/清理意图、CSRF、Operator audit 和查询；它不再通过本进程的 `FaultRunCoordinator` 直接执行 prepare、release、cleanup 或 Worker drain。拥有有效 lease 的 Worker 才能执行这些动作，且所有业务 HTTP 仍经 Gateway。
+3. Web/API 在新路径中只做 admission、停止/清理意图、CSRF、Operator audit 和查询；create 前只验证 ownership schema，不应用 migration，也不通过本进程的 `FaultRunCoordinator` 直接执行 prepare、release、cleanup 或 Worker drain。拥有有效 lease 的 Worker 才能执行这些动作，且所有业务 HTTP 仍经 Gateway。
 4. `ownerEpoch` 仅用于控制面本地 fence 和带 owner 条件的数据库更新。它**绝不**加入 `FaultRunContext`、Gateway body/header、目标服务、消费者请求、日志标签或 trace 属性。目标侧 `fencingToken` 保持既有职责和数值，不随 Worker 接管改变。
 5. 不在本批次新增 `FaultRunState`。无法自动确认的运行继续保持 `CREATING` 或 `RECOVERING`，并在 execution projection 中明确写入 `MANUAL_INTERVENTION_REQUIRED`。现有 `active_run_guard` 因而仍会阻止创建新运行，不会把未知目标状态伪装成 `FAILED`、`RECOVERED` 或可忽略的终态。
 6. 默认部署仍为一个 Worker。自动接管只在显式 opt-in 的测试环境开启；生产/默认路径先使用 observe 和 shadow 模式积累事实。多个 Worker 同时存在时，数据库 lease 是最终仲裁者，而不是 Kubernetes 副本数或 Compose 的容器名。
@@ -518,7 +518,7 @@ type FaultRunLifecyclePlan = {
 
 ### 7.1 创建
 
-1. Operator 调用既有 `POST /internal/fault-runs`，继续经过 session、CSRF、确认、参数验证、幂等键与 audit。
+1. Operator 调用既有 `POST /internal/fault-runs`，继续经过 session、CSRF、确认、参数验证、幂等键与 audit；新模式先验证 ownership schema，migration 缺失时 fail closed，不执行隐式 DDL。
 2. 当 `FAULT_RUN_RECONCILIATION_MODE=OFF` 时，保留旧协调路径作为回退兼容行为。
 3. 当模式为 `OBSERVE`、`SHADOW` 或 `TAKEOVER` 时，repository 在一个 MySQL transaction 内写入：
    - `fault_runs` 的 `CREATING` 行和既有 `CREATED` 事件；
@@ -539,7 +539,7 @@ type FaultRunLifecyclePlan = {
 
 ### 7.3 手工停止和到期
 
-1. `POST /internal/fault-runs/{faultRunId}/stop` 只持久化停止意图。它以当前状态条件更新为 `RECOVERING`，写 `RECOVERY_STARTED`/`STOP_REQUESTED` 和 Operator audit，成功时返回 `202` 与当前 projection。
+1. `POST /internal/fault-runs/{faultRunId}/stop` 只持久化停止意图。它以当前状态条件更新为 `RECOVERING`，写 `RECOVERY_STARTED`/`STOP_REQUESTED` 和 Operator audit，成功时返回 `202` 与当前 projection；若 Run 仍为 `CREATING`，同一事务取消 `REQUESTED`、尚未 dispatch 的 `PREPARE`，但不更改 `DISPATCHING` action。
 2. 相同 stop idempotency key 不重复创建 recovery action；对终态 Run 返回已有结果。
 3. 有效 owner 观察到 `RECOVERING` 后，先把 execution 写为 `DRAINING` 并记录 deadline，随后 fence/abort 自己的 driver。
 4. drain 成功后，reconciler 按 `resolveFaultRunRecoveryPolicy()` 的结果创建并 claim `RELEASE` action，或写 manual-cleanup/non-releasing 的明确边界。
@@ -564,11 +564,12 @@ type FaultRunLifecyclePlan = {
 
 Worker 收到 `SIGINT`/`SIGTERM` 时按以下顺序执行：
 
-1. 停止 reconciler 的新 scan/claim。
-2. 对当前拥有的 Run 触发 local fence，停止接受新请求。
-3. 在批次 1 总 deadline 内 drain owned handles；各 driver 写 owner-scoped summary。
-4. 仅在 drain 成功且当前 epoch 仍有效时 conditional relinquish。
-5. 再停止普通 Runner、预热、补给和 retention；它们保持各自既有关闭语义，不能被 Fault Run lease loss 误停。
+1. 停止普通 effect workers；新 reconciliation mode 下这些旧 Fault Run scanners 不会启动。
+2. 对所有 `CREATING`/`ACTIVE` Run 持久化 `WORKER_SHUTDOWN` stop command。
+3. Reconciler quiesce：停止新 scan/claim，取消并等待正在进行的 PREPARE；尚未进入恢复的 owned driver 仍保留在 drain registry 中，供后续 recovery scan 使用。准备 action 已进入 `DISPATCHING` 时不得改成已取消。
+4. 在 Reconciler quiesce 成功后执行 Phase 1 recovery scan，由现有 drain registry 尝试 bounded drain 并保留 release/verification limitation 语义；quiesce 未完成时跳过 recovery scan，不与可能仍在途的 PREPARE 并行发出恢复动作。
+5. 停止 Reconciler，drain recovery scan 后仍由本进程拥有的 handles；仅在 drain 成功且当前 epoch/lease 仍有效时 conditional relinquish。
+6. 再停止 RecoveryExecutor、普通 Runner、预热、补给和 retention；它们保持各自既有关闭语义，不能被 Fault Run lease loss 误停。
 
 Kubernetes 的 `terminationGracePeriodSeconds` 必须大于：
 

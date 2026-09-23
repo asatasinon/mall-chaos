@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { PoolConnection } from 'mysql2/promise';
 import { getPool } from './db';
 import { verifyFaultRunOwnershipSchema } from './fault-run-schema';
+import { serializeFaultRunEventPayload } from './fault-run-event-policy';
 
 export type FaultRunActionType = 'PREPARE' | 'RELEASE' | 'CLEANUP';
 export type FaultRunActionState =
@@ -133,17 +134,25 @@ export async function claimFaultRunAction(input: {
 }): Promise<FaultRunActionRecord | null> {
   await verifyFaultRunOwnershipSchema();
   const [result] = await getPool().query(
-    `UPDATE fault_run_actions
-        SET action_state = 'DISPATCHING',
+    `UPDATE fault_run_actions action
+      JOIN fault_run_executions execution ON execution.fault_run_id = action.fault_run_id
+      JOIN fault_runs run ON run.fault_run_id = action.fault_run_id
+        SET action.action_state = 'DISPATCHING',
             dispatch_owner_id = ?,
             dispatch_owner_epoch = ?,
             dispatch_started_at = CURRENT_TIMESTAMP(3),
             error_code = NULL
-      WHERE action_id = ?
-        AND action_state = 'REQUESTED'
-        AND dispatch_owner_id IS NULL
-        AND dispatch_owner_epoch IS NULL`,
-    [input.ownerId, input.ownerEpoch, input.actionId],
+      WHERE action.action_id = ?
+        AND action.action_state = 'REQUESTED'
+        AND action.dispatch_owner_id IS NULL
+        AND action.dispatch_owner_epoch IS NULL
+        AND execution.owner_id = ?
+        AND execution.owner_epoch = ?
+        AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)
+        AND execution.reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'
+        AND (action.action_type <> 'PREPARE'
+          OR (run.state = 'CREATING' AND run.expires_at > CURRENT_TIMESTAMP(3)))`,
+    [input.ownerId, input.ownerEpoch, input.actionId, input.ownerId, input.ownerEpoch],
   );
   if (affectedRows(result) !== 1) return null;
   return loadFaultRunAction(input.actionId);
@@ -198,29 +207,105 @@ export async function markStaleFaultRunActionUnknown(input: {
   errorCode: string;
 }): Promise<boolean> {
   await verifyFaultRunOwnershipSchema();
-  const [result] = await getPool().query(
-    `UPDATE fault_run_actions action
-      JOIN fault_run_executions execution
-        ON execution.fault_run_id = action.fault_run_id
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [result] = await connection.query(
+      `UPDATE fault_run_actions action
+       JOIN fault_run_executions execution
+         ON execution.fault_run_id = action.fault_run_id
        SET action.action_state = 'OUTCOME_UNKNOWN',
            action.completed_at = CURRENT_TIMESTAMP(3),
            action.error_code = ?
-     WHERE action.action_id = ?
-       AND action.action_state = 'DISPATCHING'
-       AND action.dispatch_owner_id = ?
-       AND action.dispatch_owner_epoch = ?
-       AND (
-         execution.owner_epoch > action.dispatch_owner_epoch
-         OR execution.lease_expires_at <= CURRENT_TIMESTAMP(3)
-       )`,
-    [
-      normalizeErrorCode(input.errorCode),
-      input.actionId,
-      input.dispatchOwnerId,
-      input.dispatchOwnerEpoch,
-    ],
+       WHERE action.action_id = ?
+         AND action.action_state = 'DISPATCHING'
+         AND action.dispatch_owner_id = ?
+         AND action.dispatch_owner_epoch = ?
+         AND (
+           execution.owner_id <> action.dispatch_owner_id
+           OR execution.owner_epoch > action.dispatch_owner_epoch
+           OR execution.lease_expires_at <= CURRENT_TIMESTAMP(3)
+         )`,
+      [
+        normalizeErrorCode(input.errorCode),
+        input.actionId,
+        input.dispatchOwnerId,
+        input.dispatchOwnerEpoch,
+      ],
+    );
+    if (affectedRows(result) !== 1) {
+      await connection.rollback();
+      return false;
+    }
+    await markManualIntervention(connection, input.actionId, 'OWNER_LEASE_EXPIRED');
+    await connection.commit();
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function markPrepareOutcomeUnknown(input: {
+  actionId: string;
+  ownerId: string;
+  ownerEpoch: number;
+  errorCode: string;
+}): Promise<boolean> {
+  await verifyFaultRunOwnershipSchema();
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [result] = await connection.query(
+      `UPDATE fault_run_actions action
+       JOIN fault_run_executions execution ON execution.fault_run_id = action.fault_run_id
+       SET action.action_state = 'OUTCOME_UNKNOWN',
+           action.completed_at = CURRENT_TIMESTAMP(3),
+           action.error_code = ?
+       WHERE action.action_id = ? AND action.action_type = 'PREPARE'
+         AND action.action_state = 'DISPATCHING'
+         AND action.dispatch_owner_id = ? AND action.dispatch_owner_epoch = ?
+         AND execution.owner_id = ? AND execution.owner_epoch = ?
+         AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)`,
+      [normalizeErrorCode(input.errorCode), input.actionId,
+        input.ownerId, input.ownerEpoch, input.ownerId, input.ownerEpoch],
+    );
+    if (affectedRows(result) !== 1) {
+      await connection.rollback();
+      return false;
+    }
+    await markManualIntervention(connection, input.actionId, input.errorCode);
+    await connection.commit();
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function markManualIntervention(connection: PoolConnection, actionId: string, reason: string): Promise<void> {
+  await connection.query(
+    `UPDATE fault_run_executions execution
+     JOIN fault_run_actions action ON action.fault_run_id = execution.fault_run_id
+     SET execution.reconciliation_state = 'MANUAL_INTERVENTION_REQUIRED',
+         execution.last_action = 'ACTION_OUTCOME_UNKNOWN',
+         execution.last_action_at = CURRENT_TIMESTAMP(3),
+         execution.last_error_code = ?
+     WHERE action.action_id = ?`,
+    [normalizeErrorCode(reason), actionId],
   );
-  return affectedRows(result) === 1;
+  await connection.query(
+    `INSERT INTO fault_run_events (fault_run_id, event_type, payload)
+     SELECT fault_run_id, 'ACTION_OUTCOME_UNKNOWN', ?
+     FROM fault_run_actions WHERE action_id = ?`,
+    [serializeFaultRunEventPayload('ACTION_OUTCOME_UNKNOWN', {
+      reason: 'OUTCOME_UNKNOWN',
+    }), actionId],
+  );
 }
 
 export function toFaultRunAction(row: Record<string, unknown>): FaultRunActionRecord {
@@ -300,20 +385,26 @@ async function finishFaultRunAction(input: {
 }): Promise<boolean> {
   await verifyFaultRunOwnershipSchema();
   const [result] = await getPool().query(
-    `UPDATE fault_run_actions
-        SET action_state = ?,
+    `UPDATE fault_run_actions action
+      JOIN fault_run_executions execution ON execution.fault_run_id = action.fault_run_id
+        SET action.action_state = ?,
             completed_at = CURRENT_TIMESTAMP(3),
             result_summary_json = ?,
             error_code = ?
-      WHERE action_id = ?
-        AND action_state = 'DISPATCHING'
-        AND dispatch_owner_id = ?
-        AND dispatch_owner_epoch = ?`,
+      WHERE action.action_id = ?
+        AND action.action_state = 'DISPATCHING'
+        AND action.dispatch_owner_id = ?
+        AND action.dispatch_owner_epoch = ?
+        AND execution.owner_id = ?
+        AND execution.owner_epoch = ?
+        AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)`,
     [
       input.actionState,
       input.resultSummary === null ? null : JSON.stringify(input.resultSummary),
       input.errorCode,
       input.actionId,
+      input.ownerId,
+      input.ownerEpoch,
       input.ownerId,
       input.ownerEpoch,
     ],

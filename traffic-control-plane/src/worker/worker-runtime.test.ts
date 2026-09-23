@@ -206,6 +206,9 @@ test('runs Reconciler mode without starting legacy Fault Run scanners', async ()
       start: async () => {
         calls.push('reconciler.start');
       },
+      quiesce: async () => {
+        calls.push('reconciler.quiesce');
+      },
       stop: async () => {
         calls.push('reconciler.stop');
       },
@@ -218,9 +221,16 @@ test('runs Reconciler mode without starting legacy Fault Run scanners', async ()
   assert.equal(calls.includes('report.start'), false);
   assert.equal(calls.includes('surge.start'), false);
   assert.equal(calls.includes('scenario.start'), false);
+  assert.equal(calls.includes('legacy.schedule'), false);
+  assert.equal(calls.includes('legacy.recover'), false);
+  assert.equal(calls.filter((call) => call === 'recovery.start').length, 1);
   assert.equal(calls.includes('runner.start'), true);
   assert.equal(await runtime.shutdown('SIGTERM'), 0);
   assert.equal(calls.includes('reconciler.stop'), true);
+  assert.ok(calls.indexOf('runs.stop') < calls.indexOf('reconciler.quiesce'));
+  assert.ok(calls.indexOf('reconciler.quiesce') < calls.indexOf('recovery.scan'));
+  assert.ok(calls.indexOf('recovery.scan') < calls.indexOf('reconciler.stop'));
+  assert.ok(calls.indexOf('reconciler.stop') < calls.indexOf('recovery.stop'));
 });
 
 test('coalesces shutdown requests and prevents later startup stages', async () => {

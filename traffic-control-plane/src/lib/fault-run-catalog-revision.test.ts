@@ -37,6 +37,23 @@ test('catalog facts change the revision', () => {
   assert.notEqual(getCatalogRevision(definitions), getCatalogRevision(changed));
 });
 
+test('the catalog owns the target prepare plan and its canonical revision', () => {
+  const definitions = listScenarioDefinitions();
+  assert.deepEqual(
+    definitions.filter((definition) => definition.targetPrepare === 'NOT_APPLICABLE')
+      .map((definition) => definition.scenario).sort(),
+    ['BROWSE_SURGE', 'ORDER_QUERY_SURGE'],
+  );
+  assert.equal(definitions.filter((definition) => definition.targetPrepare === 'REQUIRED').length,
+    definitions.length - 2);
+  const first = definitions[0];
+  assert.ok(first);
+  assert.notEqual(getCatalogRevision(definitions),
+    getCatalogRevision(definitions.map((definition) => definition === first
+      ? { ...definition, targetPrepare: 'NOT_APPLICABLE' }
+      : definition)));
+});
+
 test('every recovery policy fact contributes to the catalog revision', () => {
   const definitions = listScenarioDefinitions();
   const definition = definitions[0];

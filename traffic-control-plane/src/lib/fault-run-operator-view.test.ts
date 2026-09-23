@@ -165,6 +165,13 @@ test('only exposes allowlisted event facts and audit fields', () => {
         payload: { stack: 'must not be exposed' },
         createdAt: requestedAt,
       },
+      {
+        id: 4,
+        faultRunId,
+        eventType: 'ACTION_OUTCOME_UNKNOWN',
+        payload: { reason: 'OUTCOME_UNKNOWN', requestIdempotencyKey: 'must not be exposed' },
+        createdAt: requestedAt,
+      },
     ],
     {
       id: 7,
@@ -194,6 +201,7 @@ test('only exposes allowlisted event facts and audit fields', () => {
   });
   assert.equal(details.events[1]?.payload.targetSummary !== undefined, true);
   assert.deepEqual(details.events[2]?.payload, {});
+  assert.deepEqual(details.events[3]?.payload, { reason: 'OUTCOME_UNKNOWN' });
   assert.equal(JSON.stringify(details).includes('must not be exposed'), false);
   assert.deepEqual(details.audit, {
     id: 7,

@@ -137,6 +137,30 @@ class MemoryTargetAdapter implements FaultRunTargetAdapter {
   }
 }
 
+test('non-OFF create persists CREATING intent without preparing or compensating in Web/API', async () => {
+  for (const scenario of ['BROWSE_REPORT_SQL', 'BROWSE_SURGE'] as const) {
+    const store = new MemoryFaultRunStore();
+    const target = new MemoryTargetAdapter();
+    const coordinator = new FaultRunCoordinator(target, store);
+    const command = {
+      scenario,
+      parameters: { durationSec: 30 },
+      idempotencyKey: `new-mode-${scenario}`,
+      traceId: 'trace-1',
+      executionMode: 'OBSERVE' as const,
+    };
+    const result = await coordinator.create(command);
+    assert.equal(result.created, true);
+    assert.equal(result.run.state, 'CREATING');
+    const replay = await coordinator.create(command);
+    assert.equal(replay.created, false);
+    assert.equal(replay.run.faultRunId, result.run.faultRunId);
+    assert.equal(target.starts, 0);
+    assert.equal(target.compensations, 0);
+    assert.deepEqual(store.events, ['CREATED']);
+  }
+});
+
 async function waitFor(assertion: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt++) {
     if (assertion()) return;

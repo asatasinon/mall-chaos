@@ -106,6 +106,23 @@ test('execution lease rejects stale owners and advances epoch after relinquish',
       ownerEpoch: 2,
       leaseTtlMs: 30_000,
     }), true);
+    await pool.execute(
+      `UPDATE fault_run_executions
+          SET lease_expires_at = DATE_SUB(CURRENT_TIMESTAMP(3), INTERVAL 1 SECOND)
+        WHERE fault_run_id = ?`,
+      [runId],
+    );
+    assert.equal(await updateOwnedFaultRunExecution({
+      faultRunId: runId,
+      ownerId: 'integration-owner-c',
+      ownerEpoch: 2,
+      drainState: 'DRAINED',
+    }), false);
+    assert.equal(await relinquishFaultRunExecution({
+      faultRunId: runId,
+      ownerId: 'integration-owner-c',
+      ownerEpoch: 2,
+    }), false);
     assert.equal(await markFaultRunExecutionLeaseLost({
       faultRunId: runId,
       ownerId: 'integration-owner-c',

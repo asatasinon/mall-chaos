@@ -376,6 +376,9 @@ function sanitizeFaultRunEventPayload(
   run: FaultRunRecord,
   event: FaultRunEventRecord,
 ): Record<string, unknown> {
+  if (event.eventType === 'ACTION_OUTCOME_UNKNOWN') {
+    return { reason: 'OUTCOME_UNKNOWN' };
+  }
   if ((SAFE_RUNTIME_RECOVERY_EVENT_TYPES as readonly string[]).includes(event.eventType)) {
     try {
       return normalizeFaultRunRecoveryEventPayload(

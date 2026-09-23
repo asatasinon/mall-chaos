@@ -73,6 +73,7 @@ interface RecoveryExecutorComponent {
 
 interface ReconcilerComponent {
   start(): Promise<void>;
+  quiesce(): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -150,12 +151,14 @@ export class WorkerRuntime {
       this.started.reconciler = true;
       await dependencies.reconciler!.start();
     }
-    if (!useReconciler && dependencies.safeRuntimeEnabled) {
-      this.started.recovery = true;
-      await dependencies.recoveryExecutor.start();
-    } else {
-      await dependencies.legacyRecovery.scheduleActiveRuns();
-      await dependencies.legacyRecovery.recoverExpiredRuns();
+    if (!useReconciler) {
+      if (dependencies.safeRuntimeEnabled) {
+        this.started.recovery = true;
+        await dependencies.recoveryExecutor.start();
+      } else {
+        await dependencies.legacyRecovery.scheduleActiveRuns();
+        await dependencies.legacyRecovery.recoverExpiredRuns();
+      }
     }
     if (this.isShuttingDown()) return;
 
@@ -233,7 +236,16 @@ export class WorkerRuntime {
 
     if (this.dependencies.safeRuntimeEnabled && this.started.recovery) {
       await stopStep('shutdown-stop-commands', () => this.requestShutdownStops(), true);
-      await stopStep('recovery-scan', () => this.dependencies.recoveryExecutor.scan(), true);
+      let reconcilerQuiesced = !this.started.reconciler;
+      if (this.started.reconciler) {
+        await stopStep('fault-run-reconciler-quiesce', async () => {
+          await this.dependencies.reconciler!.quiesce();
+          reconcilerQuiesced = true;
+        }, true);
+      }
+      if (reconcilerQuiesced) {
+        await stopStep('recovery-scan', () => this.dependencies.recoveryExecutor.scan(), true);
+      }
       if (this.started.reconciler) {
         await stopStep('fault-run-reconciler', () => this.dependencies.reconciler!.stop(), true);
       }
