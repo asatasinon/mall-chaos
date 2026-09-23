@@ -356,6 +356,7 @@ export class WorkerRuntime {
 }
 
 export function createWorkerRuntime(): WorkerRuntime {
+  const ownerId = createWorkerOwnerId(env.FAULT_RUN_OWNER_ID_PREFIX);
   const reconciler = new FaultRunReconciler({
     listCandidates: listFaultRunReconciliationCandidates,
     loadRun: loadFaultRun,
@@ -373,7 +374,7 @@ export function createWorkerRuntime(): WorkerRuntime {
     logger: log,
   }, {
     mode: env.FAULT_RUN_RECONCILIATION_MODE,
-    ownerId: createWorkerOwnerId(env.FAULT_RUN_OWNER_ID_PREFIX),
+    ownerId,
     leaseTtlMs: env.FAULT_RUN_OWNER_LEASE_TTL_MS,
     heartbeatMs: env.FAULT_RUN_OWNER_HEARTBEAT_MS,
     reconcileIntervalMs: env.FAULT_RUN_RECONCILE_INTERVAL_MS,
@@ -395,6 +396,10 @@ export function createWorkerRuntime(): WorkerRuntime {
       drainTimeoutMs: env.FAULT_RUN_DRAIN_TIMEOUT_MS,
       recoveryTimeoutMs: env.FAULT_RUN_RECOVERY_TIMEOUT_MS,
       scanIntervalMs: env.FAULT_RUN_STOP_SCAN_INTERVAL_MS,
+      ownerId,
+      leaseTtlMs: env.FAULT_RUN_OWNER_LEASE_TTL_MS,
+      heartbeatMs: env.FAULT_RUN_OWNER_HEARTBEAT_MS,
+      ownershipRequired: env.FAULT_RUN_RECONCILIATION_MODE !== 'OFF',
     }),
     legacyRecovery: getLegacyFaultRunRecovery(),
     couponScheduler: getCouponReplenishmentScheduler(),

@@ -5,7 +5,7 @@ import {
   normalizeFaultRunRecoveryEventPayload,
   type FaultRunRecoveryEventType,
 } from './fault-run-event-contract';
-import { ensureFaultRunSchema } from './fault-run-schema';
+import { ensureFaultRunSchema, verifyFaultRunOwnershipSchema } from './fault-run-schema';
 import { serializeFaultRunEventPayload } from './fault-run-event-policy';
 import {
   CATALOG_LARGE_VALUE_MIN_MEMBER_SIZE_BYTES,
@@ -44,6 +44,8 @@ import {
   insertFaultRunAction,
   listFaultRunActions,
   sanitizeFaultRunActionSummary,
+  type FaultRunActionState,
+  type FaultRunActionType,
   type FaultRunActionRecord,
 } from './fault-run-action-repository';
 
@@ -163,6 +165,7 @@ export interface RecordFaultRunRecoveryStepInput {
   mutation: FaultRunRecoveryStepMutation;
   eventType: FaultRunRecoveryEventType;
   eventPayload?: unknown;
+  owner?: FaultRunRecoveryOwner;
 }
 
 export interface CompleteFaultRunRecoveryInput {
@@ -172,6 +175,7 @@ export interface CompleteFaultRunRecoveryInput {
   eventType: Extract<FaultRunRecoveryEventType,
     'RECOVERY_PARTIAL' | 'RECOVERY_BLOCKED' | 'RECOVERY_COMPLETED'>;
   eventPayload?: unknown;
+  owner?: FaultRunRecoveryOwner;
 }
 
 export interface CompleteFaultRunManualCleanupInput {
@@ -180,6 +184,46 @@ export interface CompleteFaultRunManualCleanupInput {
   projection: FaultRunRecoveryProjection;
   eventType: Extract<FaultRunRecoveryEventType,
     'MANUAL_CLEANUP_COMPLETED' | 'MANUAL_CLEANUP_FAILED'>;
+  eventPayload?: unknown;
+  owner?: FaultRunRecoveryOwner;
+}
+
+export interface FaultRunRecoveryOwner {
+  ownerId: string;
+  ownerEpoch: number;
+}
+
+export interface StartOwnedFaultRunReleaseInput extends FaultRunRecoveryOwner {
+  faultRunId: string;
+  expectedAttempt: number;
+  requestIdempotencyKey: string;
+  mutation: FaultRunRecoveryStepMutation;
+  eventPayload?: unknown;
+}
+
+export interface SettleOwnedFaultRunRecoveryActionInput extends FaultRunRecoveryOwner {
+  faultRunId: string;
+  actionId: string;
+  actionType: Extract<FaultRunActionType, 'RELEASE' | 'CLEANUP'>;
+  requestIdempotencyKey: string;
+  actionState: Extract<FaultRunActionState, 'CONFIRMED' | 'DEFINITIVE_FAILURE'>;
+  resultSummary?: unknown;
+  errorCode?: string | null;
+  expectedAttempt: number;
+  mutation: FaultRunRecoveryStepMutation;
+  eventType: Extract<FaultRunRecoveryEventType,
+    'RELEASE_COMPLETED' | 'RELEASE_FAILED' | 'MANUAL_CLEANUP_COMPLETED' | 'MANUAL_CLEANUP_FAILED'>;
+  eventPayload?: unknown;
+}
+
+export interface FinishOwnedFaultRunActionInput extends FaultRunRecoveryOwner {
+  faultRunId: string;
+  actionId: string;
+  actionType: Extract<FaultRunActionType, 'CLEANUP'>;
+  actionState: Extract<FaultRunActionState, 'CONFIRMED' | 'DEFINITIVE_FAILURE'>;
+  resultSummary?: unknown;
+  errorCode?: string | null;
+  eventType: Extract<FaultRunRecoveryEventType, 'MANUAL_CLEANUP_COMPLETED' | 'MANUAL_CLEANUP_FAILED'>;
   eventPayload?: unknown;
 }
 
@@ -594,6 +638,25 @@ export async function listRecoveringFaultRuns(): Promise<FaultRunRecord[]> {
   return asRecords(rows).map(toFaultRun);
 }
 
+export async function listPendingTerminalCleanupFaultRuns(): Promise<FaultRunRecord[]> {
+  await ensureFaultRunSchema();
+  await verifyFaultRunOwnershipSchema();
+  const [rows] = await getPool().query(
+    `SELECT run.*
+       FROM fault_runs run
+       JOIN fault_run_actions action ON action.fault_run_id = run.fault_run_id
+       JOIN fault_run_executions execution ON execution.fault_run_id = run.fault_run_id
+      WHERE run.state IN ('RECOVERED', 'STOPPED', 'FAILED', 'SERVICE_UNAVAILABLE')
+        AND action.action_type = 'CLEANUP'
+        AND action.action_state IN ('REQUESTED', 'DISPATCHING')
+        AND action.requested_by = 'OPERATOR'
+        AND execution.reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'
+      ORDER BY action.requested_at, action.action_id
+      LIMIT 100`,
+  );
+  return attachExecutions(asRecords(rows).map(toFaultRun));
+}
+
 export async function listExpiredRunnableFaultRuns(now = new Date()): Promise<FaultRunRecord[]> {
   await ensureFaultRunSchema();
   const [rows] = await getPool().query(
@@ -842,6 +905,7 @@ export async function requestFaultRunManualCleanup(
       await insertRecoveryEvent(connection, run.faultRunId, 'MANUAL_CLEANUP_REQUESTED', {
         operatorAuditId: auditId,
         actionId: existingAction.actionId,
+        attempt: 1,
         cleanupAttempt: 1,
       });
       await connection.commit();
@@ -1091,6 +1155,14 @@ export async function recordFaultRunRecoveryStep(
       transactionComplete = true;
       return null;
     }
+    if (input.owner && !await lockLiveRecoveryOwner(connection, {
+      ...input.owner,
+      faultRunId: input.faultRunId,
+    })) {
+      await connection.rollback();
+      transactionComplete = true;
+      return null;
+    }
     if (run.state !== 'RECOVERING') {
       throw new FaultRunCommandError('RECOVERY_STATE_INVALID');
     }
@@ -1159,6 +1231,287 @@ export async function completeFaultRunManualCleanup(
 export const recordRecoveryStep = recordFaultRunRecoveryStep;
 export const completeRecovery = completeFaultRunRecovery;
 export const completeManualCleanup = completeFaultRunManualCleanup;
+
+export async function startOwnedFaultRunRelease(
+  input: StartOwnedFaultRunReleaseInput,
+): Promise<{ run: FaultRunRecord; actionId: string } | null> {
+  if (input.mutation.stage !== 'RELEASE'
+    || input.mutation.step.status !== 'RUNNING'
+    || !isRecoveryEventForStage('RELEASE_STARTED', 'RELEASE')) {
+    throw new FaultRunCommandError('RECOVERY_STEP_TRANSITION_INVALID');
+  }
+  await verifyFaultRunOwnershipSchema();
+  await ensureFaultRunSchema();
+  const connection = await getPool().getConnection();
+  let transactionComplete = false;
+  try {
+    await connection.beginTransaction();
+    const run = await loadLockedFaultRun(connection, input.faultRunId);
+    if (!run || run.state !== 'RECOVERING') {
+      await connection.rollback();
+      transactionComplete = true;
+      return null;
+    }
+    if (!await lockLiveRecoveryOwner(connection, input)) {
+      await connection.rollback();
+      transactionComplete = true;
+      return null;
+    }
+    const current = parseFaultRunRecoveryProjection(run.recoveryResult);
+    if (current.kind !== 'SAFE_RUNTIME_V1'
+      || current.projection.stop.attempt !== input.expectedAttempt) {
+      throw new FaultRunCommandError('RECOVERY_ATTEMPT_CONFLICT');
+    }
+    const projection = mergeFaultRunRecoveryStep(current.projection, input.mutation);
+    const serializedProjection = serializeFaultRunRecoveryProjection(projection);
+    const actionId = await insertFaultRunAction(connection, {
+      faultRunId: input.faultRunId,
+      actionType: 'RELEASE',
+      attemptNo: input.expectedAttempt,
+      requestedBy: 'RECONCILER',
+      requestIdempotencyKey: input.requestIdempotencyKey,
+    });
+    await connection.query(
+      `UPDATE fault_runs
+          SET recovery_result = ?, recovery_error = ?
+        WHERE fault_run_id = ? AND state = 'RECOVERING'`,
+      [serializedProjection, projection.lastError?.code ?? null, input.faultRunId],
+    );
+    await insertRecoveryEvent(connection, input.faultRunId, 'RELEASE_STARTED', {
+      ...asRecord(input.eventPayload),
+      attempt: input.expectedAttempt,
+    });
+    await connection.commit();
+    transactionComplete = true;
+    return {
+      run: {
+        ...run,
+        recoveryResult: JSON.parse(serializedProjection),
+        recoveryError: projection.lastError?.code ?? null,
+      },
+      actionId,
+    };
+  } catch (error) {
+    if (!transactionComplete) await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function settleOwnedFaultRunRecoveryAction(
+  input: SettleOwnedFaultRunRecoveryActionInput,
+): Promise<FaultRunRecord | null> {
+  const stage = input.actionType === 'RELEASE' ? 'RELEASE' : 'CLEANUP';
+  if (input.mutation.stage !== stage
+    || !isRecoveryEventForStage(input.eventType, stage)
+    || !isRecoveryActionOutcomeValid(input.actionType, input.actionState, input.eventType)
+    || (input.actionState === 'CONFIRMED' && input.mutation.step.status !== 'SUCCEEDED')
+    || (input.actionState === 'DEFINITIVE_FAILURE'
+      && !['FAILED', 'TIMED_OUT'].includes(input.mutation.step.status))) {
+    throw new FaultRunCommandError('RECOVERY_EVENT_INVALID');
+  }
+  const summary = input.actionState === 'CONFIRMED'
+    ? sanitizeFaultRunActionSummary(input.resultSummary)
+    : null;
+  const errorCode = input.actionState === 'DEFINITIVE_FAILURE'
+    ? normalizeRecoveryActionErrorCode(input.errorCode)
+    : null;
+  await verifyFaultRunOwnershipSchema();
+  await ensureFaultRunSchema();
+  const connection = await getPool().getConnection();
+  let transactionComplete = false;
+  try {
+    await connection.beginTransaction();
+    const run = await loadLockedFaultRun(connection, input.faultRunId);
+    if (!run || run.state !== 'RECOVERING') {
+      await connection.rollback();
+      transactionComplete = true;
+      return null;
+    }
+    if (!await lockLiveRecoveryOwner(connection, input)) {
+      await connection.rollback();
+      transactionComplete = true;
+      return null;
+    }
+    const current = parseFaultRunRecoveryProjection(run.recoveryResult);
+    if (current.kind !== 'SAFE_RUNTIME_V1'
+      || current.projection.stop.attempt !== input.expectedAttempt
+      || (input.actionType === 'CLEANUP'
+        && current.projection.cleanup.requestKeyHash !== input.requestIdempotencyKey)) {
+      throw new FaultRunCommandError('RECOVERY_ATTEMPT_CONFLICT');
+    }
+    let projection: FaultRunRecoveryProjection;
+    if (input.actionType === 'CLEANUP') {
+      const candidate = parseFaultRunRecoveryProjection({
+        ...current.projection,
+        phase: input.mutation.phase,
+        outcome: input.mutation.outcome,
+        cleanup: input.mutation.step as FaultRunCleanupRecoveryStep,
+        residuals: input.mutation.residuals,
+        ...(input.mutation.lastError === undefined
+          ? {}
+          : { lastError: input.mutation.lastError }),
+      });
+      if (candidate.kind !== 'SAFE_RUNTIME_V1') {
+        throw new FaultRunCommandError('RECOVERY_STEP_TRANSITION_INVALID');
+      }
+      assertManualCleanupCompletion(current.projection, candidate.projection, run);
+      if ((input.eventType === 'MANUAL_CLEANUP_COMPLETED'
+        && candidate.projection.cleanup.status !== 'SUCCEEDED')
+        || (input.eventType === 'MANUAL_CLEANUP_FAILED'
+          && !['FAILED', 'TIMED_OUT'].includes(candidate.projection.cleanup.status))) {
+        throw new FaultRunCommandError('RECOVERY_EVENT_INVALID');
+      }
+      projection = candidate.projection;
+    } else {
+      projection = mergeFaultRunRecoveryStep(current.projection, input.mutation);
+    }
+    const [actionResult] = await connection.query(
+      `UPDATE fault_run_actions action
+       JOIN fault_run_executions execution ON execution.fault_run_id = action.fault_run_id
+          SET action.action_state = ?,
+              action.completed_at = CURRENT_TIMESTAMP(3),
+              action.result_summary_json = ?,
+              action.error_code = ?
+        WHERE action.action_id = ?
+          AND action.fault_run_id = ?
+          AND action.action_type = ?
+          AND action.request_idempotency_key = ?
+          AND (action.action_type <> 'RELEASE' OR action.attempt_no = ?)
+          AND action.action_state = 'DISPATCHING'
+          AND action.dispatch_owner_id = ?
+          AND action.dispatch_owner_epoch = ?
+          AND execution.owner_id = ?
+          AND execution.owner_epoch = ?
+          AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)
+          AND execution.reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'`,
+      [
+        input.actionState,
+        summary === null ? null : JSON.stringify(summary),
+        errorCode,
+        input.actionId,
+        input.faultRunId,
+        input.actionType,
+        input.requestIdempotencyKey,
+        input.expectedAttempt,
+        input.ownerId,
+        input.ownerEpoch,
+        input.ownerId,
+        input.ownerEpoch,
+      ],
+    );
+    if (affectedRows(actionResult) !== 1) {
+      await connection.rollback();
+      transactionComplete = true;
+      return null;
+    }
+    const serializedProjection = serializeFaultRunRecoveryProjection(projection);
+    await connection.query(
+      `UPDATE fault_runs
+          SET recovery_result = ?, recovery_error = ?
+        WHERE fault_run_id = ? AND state = 'RECOVERING'`,
+      [serializedProjection, projection.lastError?.code ?? null, run.faultRunId],
+    );
+    await insertRecoveryEvent(connection, run.faultRunId, input.eventType, {
+      ...asRecord(input.eventPayload),
+      attempt: input.expectedAttempt,
+    });
+    await connection.commit();
+    transactionComplete = true;
+    return {
+      ...run,
+      recoveryResult: JSON.parse(serializedProjection),
+      recoveryError: projection.lastError?.code ?? null,
+    };
+  } catch (error) {
+    if (!transactionComplete) await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function finishOwnedFaultRunAction(
+  input: FinishOwnedFaultRunActionInput,
+): Promise<boolean> {
+  if (!isRecoveryActionOutcomeValid(input.actionType, input.actionState, input.eventType)) {
+    throw new FaultRunCommandError('RECOVERY_EVENT_INVALID');
+  }
+  const summary = input.actionState === 'CONFIRMED'
+    ? sanitizeFaultRunActionSummary(input.resultSummary)
+    : null;
+  const errorCode = input.actionState === 'DEFINITIVE_FAILURE'
+    ? normalizeRecoveryActionErrorCode(input.errorCode)
+    : null;
+  await verifyFaultRunOwnershipSchema();
+  await ensureFaultRunSchema();
+  const connection = await getPool().getConnection();
+  let transactionComplete = false;
+  try {
+    await connection.beginTransaction();
+    const run = await loadLockedFaultRun(connection, input.faultRunId);
+    if (!run) {
+      await connection.rollback();
+      transactionComplete = true;
+      return false;
+    }
+    if (!isTerminalFaultRunState(run.state)) {
+      throw new FaultRunCommandError('RECOVERY_STATE_INVALID');
+    }
+    if (!await lockLiveRecoveryOwner(connection, input)) {
+      await connection.rollback();
+      transactionComplete = true;
+      return false;
+    }
+    const [actionResult] = await connection.query(
+      `UPDATE fault_run_actions action
+       JOIN fault_run_executions execution ON execution.fault_run_id = action.fault_run_id
+          SET action.action_state = ?,
+              action.completed_at = CURRENT_TIMESTAMP(3),
+              action.result_summary_json = ?,
+              action.error_code = ?
+        WHERE action.action_id = ?
+          AND action.action_type = 'CLEANUP'
+          AND action.fault_run_id = ?
+          AND action.requested_by = 'OPERATOR'
+          AND action.action_state = 'DISPATCHING'
+          AND action.dispatch_owner_id = ?
+          AND action.dispatch_owner_epoch = ?
+          AND execution.owner_id = ?
+          AND execution.owner_epoch = ?
+          AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)
+          AND execution.reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'`,
+      [
+        input.actionState,
+        summary === null ? null : JSON.stringify(summary),
+        errorCode,
+        input.actionId,
+        input.faultRunId,
+        input.ownerId,
+        input.ownerEpoch,
+        input.ownerId,
+        input.ownerEpoch,
+      ],
+    );
+    if (affectedRows(actionResult) !== 1) {
+      await connection.rollback();
+      transactionComplete = true;
+      return false;
+    }
+    await insertRecoveryEvent(connection, run.faultRunId, input.eventType, {
+      ...asRecord(input.eventPayload),
+    });
+    await connection.commit();
+    transactionComplete = true;
+    return true;
+  } catch (error) {
+    if (!transactionComplete) await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
 
 export async function transitionFaultRun(
   faultRunId: string,
@@ -1423,6 +1776,14 @@ async function completeFaultRunRecoveryProjection(
       transactionComplete = true;
       return null;
     }
+    if (input.owner && !await lockLiveRecoveryOwner(connection, {
+      ...input.owner,
+      faultRunId: input.faultRunId,
+    })) {
+      await connection.rollback();
+      transactionComplete = true;
+      return null;
+    }
     if (run.state !== 'RECOVERING') {
       throw new FaultRunCommandError('RECOVERY_STATE_INVALID');
     }
@@ -1504,6 +1865,24 @@ async function loadLockedFaultRun(
   return row ? toFaultRun(row) : null;
 }
 
+async function lockLiveRecoveryOwner(
+  connection: Pick<FaultRunTransactionConnection, 'query'>,
+  input: FaultRunRecoveryOwner & { faultRunId: string },
+): Promise<boolean> {
+  const [rows] = await connection.query(
+    `SELECT fault_run_id
+       FROM fault_run_executions
+      WHERE fault_run_id = ?
+        AND owner_id = ?
+        AND owner_epoch = ?
+        AND lease_expires_at > CURRENT_TIMESTAMP(3)
+        AND reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'
+      FOR UPDATE`,
+    [input.faultRunId, input.ownerId, input.ownerEpoch],
+  );
+  return asRecords(rows).length === 1;
+}
+
 async function insertRecoveryEvent(
   connection: Pick<FaultRunTransactionConnection, 'query'>,
   faultRunId: string,
@@ -1516,6 +1895,30 @@ async function insertRecoveryEvent(
     eventType,
     normalizeFaultRunRecoveryEventPayload(eventType, payload),
   );
+}
+
+function isRecoveryActionOutcomeValid(
+  actionType: FaultRunActionType,
+  actionState: FaultRunActionState,
+  eventType: FaultRunRecoveryEventType,
+): boolean {
+  if (actionType === 'RELEASE') {
+    return (actionState === 'CONFIRMED' && eventType === 'RELEASE_COMPLETED')
+      || (actionState === 'DEFINITIVE_FAILURE' && eventType === 'RELEASE_FAILED');
+  }
+  return actionType === 'CLEANUP'
+    && ((actionState === 'CONFIRMED' && eventType === 'MANUAL_CLEANUP_COMPLETED')
+      || (actionState === 'DEFINITIVE_FAILURE' && eventType === 'MANUAL_CLEANUP_FAILED'));
+}
+
+function normalizeRecoveryActionErrorCode(value: string | null | undefined): string {
+  return value && /^[A-Z][A-Z0-9_.:-]{0,63}$/.test(value)
+    ? value
+    : 'FAULT_RUN_ACTION_FAILED';
+}
+
+function affectedRows(result: unknown): number {
+  return Number(asRecord(result).affectedRows ?? 0);
 }
 
 function assertRecoveryTimeouts(drainTimeoutMs: number, recoveryTimeoutMs: number): void {

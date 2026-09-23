@@ -118,10 +118,30 @@ export async function claimFaultRunExecution(
   assertLeaseTtl(input.leaseTtlMs);
   await verifyFaultRunOwnershipSchema();
   const connection = await getPool().getConnection();
+  let transactionComplete = false;
   try {
+    await connection.beginTransaction();
+    const [runRows] = await connection.query(
+      'SELECT state FROM fault_runs WHERE fault_run_id = ? FOR UPDATE',
+      [input.faultRunId],
+    );
+    const runState = asRecords(runRows)[0]?.state;
+    if (runState === undefined) {
+      await connection.commit();
+      transactionComplete = true;
+      return null;
+    }
+    const isTerminal = ['RECOVERED', 'STOPPED', 'FAILED', 'SERVICE_UNAVAILABLE']
+      .includes(String(runState));
+    const isClaimable = isTerminal
+      || ['CREATING', 'ACTIVE', 'RECOVERING'].includes(String(runState));
+    if (!isClaimable) {
+      await connection.commit();
+      transactionComplete = true;
+      return null;
+    }
     const [result] = await connection.query(
       `UPDATE fault_run_executions execution
-       JOIN fault_runs run ON run.fault_run_id = execution.fault_run_id
        SET execution.owner_id = ?,
            execution.owner_epoch = execution.owner_epoch + 1,
            execution.lease_acquired_at = CURRENT_TIMESTAMP(3),
@@ -133,7 +153,11 @@ export async function claimFaultRunExecution(
            END,
            execution.reconciled_at = CURRENT_TIMESTAMP(3),
            execution.reconciliation_state = ?,
-           execution.drain_state = 'OWNED',
+           execution.drain_state = CASE
+             WHEN ? = 1
+               THEN execution.drain_state
+             ELSE 'OWNED'
+           END,
            execution.last_action = ?,
            execution.last_action_at = CURRENT_TIMESTAMP(3),
            execution.last_error_code = NULL
@@ -148,17 +172,28 @@ export async function claimFaultRunExecution(
                       AND action.action_state IN ('DISPATCHING', 'OUTCOME_UNKNOWN')
                   )))
          AND execution.reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'
-         AND run.state IN ('CREATING', 'ACTIVE', 'RECOVERING')`,
+         AND (? = 0 OR EXISTS (
+           SELECT 1 FROM fault_run_actions action
+            WHERE action.fault_run_id = execution.fault_run_id
+              AND action.action_type = 'CLEANUP'
+              AND action.action_state = 'REQUESTED'
+         ))`,
       [
         input.ownerId,
         input.leaseTtlMs * 1000,
         input.reconciliationState,
+        isTerminal ? 1 : 0,
         input.lastAction,
         input.faultRunId,
         input.executionMode,
+        isTerminal ? 1 : 0,
       ],
     );
-    if (affectedRows(result) !== 1) return null;
+    if (affectedRows(result) !== 1) {
+      await connection.rollback();
+      transactionComplete = true;
+      return null;
+    }
 
     const [rows] = await connection.query(
       `SELECT fault_run_id, execution_mode, owner_id, owner_epoch,
@@ -166,11 +201,16 @@ export async function claimFaultRunExecution(
               reconciled_at, reconciliation_state, drain_state, drain_deadline_at,
               last_action, last_action_at, last_error_code, created_at, updated_at
          FROM fault_run_executions
-        WHERE fault_run_id = ? AND owner_id = ?`,
-      [input.faultRunId, input.ownerId],
+        WHERE fault_run_id = ? AND owner_id = ? AND execution_mode = ?`,
+      [input.faultRunId, input.ownerId, input.executionMode],
     );
     const row = asRecords(rows)[0];
+    await connection.commit();
+    transactionComplete = true;
     return row ? toExecutionRecord(row) : null;
+  } catch (error) {
+    if (!transactionComplete) await connection.rollback();
+    throw error;
   } finally {
     connection.release();
   }
@@ -196,7 +236,21 @@ export async function heartbeatFaultRunExecution(input: {
        AND execution.owner_epoch = ?
        AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)
        AND execution.reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'
-       AND run.state IN ('CREATING', 'ACTIVE', 'RECOVERING')`,
+       AND (
+         run.state IN ('CREATING', 'ACTIVE', 'RECOVERING')
+         OR (run.state IN ('RECOVERED', 'STOPPED', 'FAILED', 'SERVICE_UNAVAILABLE')
+           AND EXISTS (
+             SELECT 1 FROM fault_run_actions action
+              WHERE action.fault_run_id = run.fault_run_id
+                AND action.action_type = 'CLEANUP'
+                AND action.action_state IN ('REQUESTED', 'DISPATCHING', 'CONFIRMED', 'DEFINITIVE_FAILURE')
+                AND (
+                  action.action_state = 'REQUESTED'
+                  OR (action.dispatch_owner_id = execution.owner_id
+                    AND action.dispatch_owner_epoch = execution.owner_epoch)
+                )
+           ))
+       )`,
     [
       input.leaseTtlMs * 1000,
       input.faultRunId,

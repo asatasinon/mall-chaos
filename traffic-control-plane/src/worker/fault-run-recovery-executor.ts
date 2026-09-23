@@ -2,17 +2,39 @@ import pino from 'pino';
 import {
   completeFaultRunManualCleanup,
   completeFaultRunRecovery,
+  appendFaultRunEvent,
   listExpiredRunnableFaultRuns,
+  listPendingTerminalCleanupFaultRuns,
   listRecoveringFaultRuns,
   loadFaultRun,
   recordFaultRunRecoveryStep,
   requestFaultRunStop,
+  finishOwnedFaultRunAction,
+  settleOwnedFaultRunRecoveryAction,
+  startOwnedFaultRunRelease,
   type CompleteFaultRunRecoveryInput,
   type CompleteFaultRunManualCleanupInput,
   type FaultRunRecord,
   type RecordFaultRunRecoveryStepInput,
   type RequestFaultRunStopInput,
 } from '../lib/fault-run-repository';
+import {
+  claimFaultRunAction,
+  listFaultRunActions,
+  markOwnedFaultRunActionUnknown,
+  markStaleFaultRunActionUnknown,
+  type FaultRunActionRecord,
+} from '../lib/fault-run-action-repository';
+import {
+  claimFaultRunExecution,
+  heartbeatFaultRunExecution,
+  loadFaultRunExecution,
+  markFaultRunExecutionLeaseLost,
+  relinquishFaultRunExecution,
+  updateOwnedFaultRunExecution,
+  type FaultRunExecutionRecord,
+} from '../lib/fault-run-execution-repository';
+import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
 import {
   getScenarioDefinition,
   type FaultRunWorkerDrainOwner,
@@ -82,25 +104,96 @@ type CleanupSettlement =
       timedOut: boolean;
     };
 
+interface RecoveryOwnerLease {
+  execution: FaultRunExecutionRecord;
+  fence: FaultRunOwnerFence;
+  timer: ReturnType<typeof setInterval>;
+  heartbeatPending: boolean;
+  heartbeatPromise: Promise<void> | null;
+  drainState: 'DRAINED' | 'DRAIN_TIMEOUT' | 'NOT_APPLICABLE' | null;
+}
+
 export interface FaultRunRecoveryStore {
   load(faultRunId: string): Promise<FaultRunRecord | null>;
   listRecovering(): Promise<FaultRunRecord[]>;
   listExpiredRunnable(now: Date): Promise<FaultRunRecord[]>;
+  listPendingTerminalCleanup?(): Promise<FaultRunRecord[]>;
   requestStop(input: RequestFaultRunStopInput): ReturnType<typeof requestFaultRunStop>;
   recordStep(input: RecordFaultRunRecoveryStepInput): Promise<FaultRunRecord | null>;
   complete(input: CompleteFaultRunRecoveryInput): Promise<FaultRunRecord | null>;
   completeManualCleanup(input: CompleteFaultRunManualCleanupInput): Promise<FaultRunRecord | null>;
+  loadExecution?(faultRunId: string): Promise<FaultRunExecutionRecord | null>;
+  claimExecution?(input: Parameters<typeof claimFaultRunExecution>[0]): Promise<FaultRunExecutionRecord | null>;
+  heartbeatExecution?(input: Parameters<typeof heartbeatFaultRunExecution>[0]): Promise<boolean>;
+  markLeaseLost?(input: Parameters<typeof markFaultRunExecutionLeaseLost>[0]): Promise<boolean>;
+  updateExecution?(input: Parameters<typeof updateOwnedFaultRunExecution>[0]): Promise<boolean>;
+  relinquishExecution?(input: Parameters<typeof relinquishFaultRunExecution>[0]): Promise<boolean>;
+  listActions?(faultRunId: string): Promise<FaultRunActionRecord[]>;
+  claimAction?(input: Parameters<typeof claimFaultRunAction>[0]): Promise<FaultRunActionRecord | null>;
+  markStaleActionUnknown?(
+    input: Parameters<typeof markStaleFaultRunActionUnknown>[0],
+  ): Promise<boolean>;
+  markActionUnknown?(
+    input: Parameters<typeof markOwnedFaultRunActionUnknown>[0],
+  ): Promise<boolean>;
+  startOwnedRelease?(
+    input: Parameters<typeof startOwnedFaultRunRelease>[0],
+  ): ReturnType<typeof startOwnedFaultRunRelease>;
+  settleOwnedRecoveryAction?(
+    input: Parameters<typeof settleOwnedFaultRunRecoveryAction>[0],
+  ): ReturnType<typeof settleOwnedFaultRunRecoveryAction>;
+  finishOwnedAction?(
+    input: Parameters<typeof finishOwnedFaultRunAction>[0],
+  ): ReturnType<typeof finishOwnedFaultRunAction>;
+  appendEvent?(faultRunId: string, eventType: string, payload?: unknown): Promise<void>;
 }
 
 export class SqlFaultRunRecoveryStore implements FaultRunRecoveryStore {
   load(faultRunId: string) { return loadFaultRun(faultRunId); }
   listRecovering() { return listRecoveringFaultRuns(); }
   listExpiredRunnable(now: Date) { return listExpiredRunnableFaultRuns(now); }
+  listPendingTerminalCleanup() { return listPendingTerminalCleanupFaultRuns(); }
   requestStop(input: RequestFaultRunStopInput) { return requestFaultRunStop(input); }
   recordStep(input: RecordFaultRunRecoveryStepInput) { return recordFaultRunRecoveryStep(input); }
   complete(input: CompleteFaultRunRecoveryInput) { return completeFaultRunRecovery(input); }
   completeManualCleanup(input: CompleteFaultRunManualCleanupInput) {
     return completeFaultRunManualCleanup(input);
+  }
+  loadExecution(faultRunId: string) { return loadFaultRunExecution(faultRunId); }
+  claimExecution(input: Parameters<typeof claimFaultRunExecution>[0]) {
+    return claimFaultRunExecution(input);
+  }
+  heartbeatExecution(input: Parameters<typeof heartbeatFaultRunExecution>[0]) {
+    return heartbeatFaultRunExecution(input);
+  }
+  markLeaseLost(input: Parameters<typeof markFaultRunExecutionLeaseLost>[0]) {
+    return markFaultRunExecutionLeaseLost(input);
+  }
+  updateExecution(input: Parameters<typeof updateOwnedFaultRunExecution>[0]) {
+    return updateOwnedFaultRunExecution(input);
+  }
+  relinquishExecution(input: Parameters<typeof relinquishFaultRunExecution>[0]) {
+    return relinquishFaultRunExecution(input);
+  }
+  listActions(faultRunId: string) { return listFaultRunActions(faultRunId); }
+  claimAction(input: Parameters<typeof claimFaultRunAction>[0]) { return claimFaultRunAction(input); }
+  markStaleActionUnknown(input: Parameters<typeof markStaleFaultRunActionUnknown>[0]) {
+    return markStaleFaultRunActionUnknown(input);
+  }
+  markActionUnknown(input: Parameters<typeof markOwnedFaultRunActionUnknown>[0]) {
+    return markOwnedFaultRunActionUnknown(input);
+  }
+  startOwnedRelease(input: Parameters<typeof startOwnedFaultRunRelease>[0]) {
+    return startOwnedFaultRunRelease(input);
+  }
+  settleOwnedRecoveryAction(input: Parameters<typeof settleOwnedFaultRunRecoveryAction>[0]) {
+    return settleOwnedFaultRunRecoveryAction(input);
+  }
+  finishOwnedAction(input: Parameters<typeof finishOwnedFaultRunAction>[0]) {
+    return finishOwnedFaultRunAction(input);
+  }
+  appendEvent(faultRunId: string, eventType: string, payload?: unknown) {
+    return appendFaultRunEvent(faultRunId, eventType, payload);
   }
 }
 
@@ -133,6 +226,10 @@ export interface FaultRunRecoveryExecutorOptions {
   drainTimeoutMs: number;
   recoveryTimeoutMs: number;
   scanIntervalMs?: number;
+  ownerId?: string;
+  leaseTtlMs?: number;
+  heartbeatMs?: number;
+  ownershipRequired?: boolean;
   now?: () => Date;
   logger?: Pick<typeof log, 'warn' | 'info'>;
 }
@@ -145,6 +242,8 @@ export class FaultRunRecoveryExecutor {
   private readonly running = new Map<string, Promise<void>>();
   private readonly releaseSettlements = new Map<string, ReleaseSettlement>();
   private readonly cleanupSettlements = new Map<string, CleanupSettlement>();
+  private readonly ownerLeases = new Map<string, RecoveryOwnerLease>();
+  private readonly ownerRequiredRunIds = new Set<string>();
   private readonly failedRunIds = new Set<string>();
   private readonly scans = new Set<Promise<void>>();
   private readonly now: () => Date;
@@ -165,6 +264,14 @@ export class FaultRunRecoveryExecutor {
       || options.drainTimeoutMs < 1
       || options.recoveryTimeoutMs < options.drainTimeoutMs) {
       throw new Error('INVALID_RECOVERY_EXECUTOR_TIMEOUTS');
+    }
+    if (options.ownerId !== undefined
+      && (!Number.isSafeInteger(options.leaseTtlMs)
+        || !Number.isSafeInteger(options.heartbeatMs)
+        || options.leaseTtlMs! < 1
+        || options.heartbeatMs! < 1
+        || options.heartbeatMs! >= options.leaseTtlMs!)) {
+      throw new Error('INVALID_RECOVERY_OWNER_TIMINGS');
     }
   }
 
@@ -188,6 +295,9 @@ export class FaultRunRecoveryExecutor {
     if (timer) clearInterval(timer);
     await Promise.allSettled([...this.scans]);
     await Promise.allSettled(this.running.values());
+    await Promise.all([...this.ownerLeases.values()].map((lease) =>
+      this.disposeRecoveryOwner(lease, true)));
+    this.ownerRequiredRunIds.clear();
     return { failedRunIds: [...this.failedRunIds].sort() };
   }
 
@@ -204,9 +314,10 @@ export class FaultRunRecoveryExecutor {
 
   private async scanInternal(): Promise<void> {
     const now = this.now();
-    const [recoveringRuns, expiredRuns] = await Promise.all([
+    const [recoveringRuns, expiredRuns, terminalCleanupRuns] = await Promise.all([
       this.store.listRecovering(),
       this.store.listExpiredRunnable(now),
+      this.listPendingTerminalCleanup(),
     ]);
     if (this.stopping) return;
     const candidates = new Map<string, FaultRunRecord>();
@@ -227,9 +338,28 @@ export class FaultRunRecoveryExecutor {
       if (this.stopping) return;
       candidates.set(recovering.faultRunId, recovering);
     }
+    for (const terminalCleanup of terminalCleanupRuns) {
+      if (this.stopping) return;
+      candidates.set(terminalCleanup.faultRunId, terminalCleanup);
+    }
 
     await Promise.all([...candidates.values()].map((run) =>
       this.stopping ? Promise.resolve() : this.execute(run.faultRunId)));
+  }
+
+  private async listPendingTerminalCleanup(): Promise<FaultRunRecord[]> {
+    if (!this.store.listPendingTerminalCleanup) return [];
+    try {
+      return await this.store.listPendingTerminalCleanup();
+    } catch (error) {
+      if (!this.options.ownershipRequired
+        && error instanceof Error
+        && error.message.startsWith('FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED')) {
+        this.logger.info('Skipping owner-journal cleanup scan while reconciliation is OFF');
+        return [];
+      }
+      throw error;
+    }
   }
 
   execute(faultRunId: string): Promise<void> {
@@ -257,50 +387,423 @@ export class FaultRunRecoveryExecutor {
 
   private async recover(faultRunId: string): Promise<void> {
     let run = await this.store.load(faultRunId);
-    if (!run || run.state !== 'RECOVERING') return;
+    if (!run) return;
+    if (isTerminalFaultRun(run)) {
+      await this.recoverTerminalCleanup(run);
+      return;
+    }
+    if (run.state !== 'RECOVERING') return;
 
     let projection = this.requireSafeProjection(run);
     if (!isActionableRecovery(projection)) return;
+    if (this.options.ownershipRequired && !run.execution) {
+      this.logger.warn({
+        faultRunId,
+        code: 'RECOVERY_OWNERSHIP_MISSING',
+      }, 'Fault Run recovery requires an ownership record');
+      return;
+    }
     const policy = resolveFaultRunRecoveryPolicy(getScenarioDefinition(run.scenario));
+    try {
+      if (run.execution && !await this.ensureRecoveryOwner(run, projection)) return;
+      if (projection.phase === 'CLEANING') {
+        await this.completeManualCleanup(run, projection, policy);
+        return;
+      }
 
-    if (projection.phase === 'CLEANING') {
-      await this.completeManualCleanup(run, projection, policy);
-      return;
-    }
-
-    const drainResult = await this.drain(run, projection, policy);
-    if (drainResult === 'BLOCKED') return;
-    ({ run, projection } = await this.reloadRecovery(faultRunId));
-
-    if (policy.targetRelease === 'FORBIDDEN') {
-      ({ run, projection } = await this.markNonReleasing(run, projection, policy));
-      await this.completeBlockedRecovery(run, projection);
-      return;
-    }
-
-    if (policy.targetRelease === 'NOT_APPLICABLE') {
-      ({ run, projection } = await this.skipRelease(run, projection, policy));
-    } else {
-      const releaseResult = await this.release(run, projection, policy);
-      if (releaseResult === 'BLOCKED') return;
+      const drainResult = await this.drain(run, projection, policy);
+      if (drainResult === 'BLOCKED') return;
       ({ run, projection } = await this.reloadRecovery(faultRunId));
+
+      if (policy.targetRelease === 'FORBIDDEN') {
+        ({ run, projection } = await this.markNonReleasing(run, projection, policy));
+        await this.completeBlockedRecovery(run, projection);
+        return;
+      }
+
+      if (policy.targetRelease === 'NOT_APPLICABLE') {
+        ({ run, projection } = await this.skipRelease(run, projection, policy));
+      } else {
+        const releaseResult = await this.release(run, projection, policy);
+        if (releaseResult === 'BLOCKED') return;
+        ({ run, projection } = await this.reloadRecovery(faultRunId));
+      }
+
+      if (policy.cleanup === 'OPERATOR_CONFIRMED' && projection.cleanup.status === 'NOT_STARTED') {
+        await this.requireManualCleanup(run, projection, policy);
+        return;
+      }
+      if (projection.cleanup.status !== 'SUCCEEDED') {
+        ({ run, projection } = await this.skipCleanup(run, projection));
+      }
+
+      if (policy.verification === 'NOT_CONFIGURED') {
+        ({ run, projection } = await this.recordVerificationUnavailable(run, projection));
+        await this.completeBlockedRecovery(run, projection);
+        return;
+      }
+
+      await this.recordVerificationFailure(run, projection);
+    } finally {
+      await this.finishRecoveryOwner(faultRunId);
+    }
+  }
+
+  private async ensureRecoveryOwner(
+    run: FaultRunRecord,
+    projection?: FaultRunRecoveryProjection,
+  ): Promise<RecoveryOwnerLease | null> {
+    const ownerId = this.options.ownerId;
+    if (!ownerId || !this.store.loadExecution || !this.store.claimExecution
+      || !this.store.heartbeatExecution || !this.store.updateExecution
+      || !this.store.relinquishExecution || !this.store.listActions) {
+      return null;
+    }
+    const execution = await this.store.loadExecution(run.faultRunId);
+    if (!execution || execution.reconciliationState === 'MANUAL_INTERVENTION_REQUIRED') return null;
+    this.ownerRequiredRunIds.add(run.faultRunId);
+
+    const actions = await this.store.listActions(run.faultRunId);
+    const staleDispatches = actions.filter((action) => action.actionState === 'DISPATCHING'
+      && (execution.ownerId !== action.dispatchOwnerId
+        || execution.ownerEpoch > (action.dispatchOwnerEpoch ?? 0)
+        || (execution.leaseExpiresAt !== null
+          && Date.parse(execution.leaseExpiresAt) <= this.now().getTime())));
+    if (staleDispatches.length > 0) {
+      for (const action of staleDispatches) {
+        if (!action.dispatchOwnerId || action.dispatchOwnerEpoch === null) continue;
+        await this.markStaleActionUnknown({
+          actionId: action.actionId,
+          dispatchOwnerId: action.dispatchOwnerId,
+          dispatchOwnerEpoch: action.dispatchOwnerEpoch,
+          errorCode: 'OWNER_LEASE_EXPIRED',
+        });
+      }
+      return null;
+    }
+    if (actions.some((action) => action.actionState === 'OUTCOME_UNKNOWN')) return null;
+
+    const now = this.now().getTime();
+    const leaseIsLive = execution.ownerId !== null
+      && execution.leaseExpiresAt !== null
+      && Date.parse(execution.leaseExpiresAt) > now;
+    const local = this.ownerLeases.get(run.faultRunId);
+    if (local && (local.execution.ownerId !== execution.ownerId
+      || local.execution.ownerEpoch !== execution.ownerEpoch
+      || !leaseIsLive)) {
+      this.detachRecoveryOwner(local);
+    }
+    if (execution.ownerId === ownerId && leaseIsLive) {
+      const currentLocal = this.ownerLeases.get(run.faultRunId);
+      if (currentLocal?.execution.ownerEpoch === execution.ownerEpoch) {
+        return currentLocal.fence.isLocallyCurrent() ? currentLocal : null;
+      }
+      return this.startRecoveryOwner(execution, desiredRecoveryDrainState(run, projection));
+    }
+    if (execution.ownerId !== null && !leaseIsLive) {
+      if (execution.leaseExpiresAt === null
+        || execution.executionMode !== 'TAKEOVER') return null;
+    } else if (execution.ownerId !== null) {
+      return null;
     }
 
-    if (policy.cleanup === 'OPERATOR_CONFIRMED' && projection.cleanup.status === 'NOT_STARTED') {
-      await this.requireManualCleanup(run, projection, policy);
+    const initial = execution.ownerId === null && execution.ownerEpoch === 0;
+    const claimed = await this.store.claimExecution({
+      faultRunId: run.faultRunId,
+      executionMode: execution.executionMode,
+      ownerId,
+      leaseTtlMs: this.options.leaseTtlMs!,
+      reconciliationState: initial ? 'OWNED' : 'TAKEN_OVER',
+      lastAction: initial ? 'OWNER_LEASE_ACQUIRED' : 'OWNER_TAKEOVER_COMPLETED',
+    });
+    if (!claimed) return null;
+    const drainState = desiredRecoveryDrainState(run, projection);
+    const lease = await this.startRecoveryOwner(claimed, drainState);
+    if (lease && this.store.appendEvent) {
+      await this.store.appendEvent(run.faultRunId, initial
+        ? 'OWNER_LEASE_ACQUIRED'
+        : 'OWNER_TAKEOVER_COMPLETED', {
+        ownerEpoch: claimed.ownerEpoch,
+        reason: initial ? 'INITIAL' : 'TAKEOVER',
+        component: 'RECOVERY',
+      });
+    }
+    return lease;
+  }
+
+  private async startRecoveryOwner(
+    execution: FaultRunExecutionRecord,
+    drainState: RecoveryOwnerLease['drainState'],
+  ): Promise<RecoveryOwnerLease | null> {
+    const fence = new FaultRunOwnerFence(
+      execution.faultRunId,
+      execution.ownerId!,
+      execution.ownerEpoch,
+    );
+    const lease: RecoveryOwnerLease = {
+      execution,
+      fence,
+      timer: setInterval(() => {
+        const heartbeat = this.heartbeatRecoveryOwner(lease);
+        lease.heartbeatPromise = heartbeat;
+        void heartbeat.finally(() => {
+          if (lease.heartbeatPromise === heartbeat) lease.heartbeatPromise = null;
+        });
+      }, this.options.heartbeatMs!),
+      heartbeatPending: false,
+      heartbeatPromise: null,
+      drainState,
+    };
+    this.ownerLeases.set(execution.faultRunId, lease);
+    if (drainState) {
+      const updated = await this.store.updateExecution?.({
+        faultRunId: execution.faultRunId,
+        ownerId: fence.ownerId,
+        ownerEpoch: fence.ownerEpoch,
+        drainState,
+        lastAction: drainState === 'DRAIN_TIMEOUT'
+          ? 'OWNER_DRAIN_TIMEOUT'
+          : 'OWNER_DRAIN_COMPLETED',
+      });
+      if (!updated) {
+        await this.disposeRecoveryOwner(lease, false);
+        return null;
+      }
+    }
+    return lease;
+  }
+
+  private async heartbeatRecoveryOwner(lease: RecoveryOwnerLease): Promise<void> {
+    if (lease.heartbeatPending || !lease.fence.isLocallyCurrent()) return;
+    lease.heartbeatPending = true;
+    try {
+      const renewed = await this.store.heartbeatExecution?.({
+        faultRunId: lease.execution.faultRunId,
+        ownerId: lease.fence.ownerId,
+        ownerEpoch: lease.fence.ownerEpoch,
+        leaseTtlMs: this.options.leaseTtlMs!,
+      });
+      if (renewed) return;
+      lease.fence.lose('HEARTBEAT_REJECTED');
+      clearInterval(lease.timer);
+      if (this.ownerLeases.get(lease.execution.faultRunId) === lease) {
+        this.ownerLeases.delete(lease.execution.faultRunId);
+      }
+      await this.store.markLeaseLost?.({
+        faultRunId: lease.execution.faultRunId,
+        ownerId: lease.fence.ownerId,
+        ownerEpoch: lease.fence.ownerEpoch,
+        errorCode: 'HEARTBEAT_REJECTED',
+      });
+      await this.store.appendEvent?.(lease.execution.faultRunId, 'OWNER_LEASE_LOST', {
+        ownerEpoch: lease.fence.ownerEpoch,
+        reason: 'HEARTBEAT_REJECTED',
+      });
+      this.logger.warn({
+        faultRunId: lease.execution.faultRunId,
+        ownerEpoch: lease.fence.ownerEpoch,
+        code: 'HEARTBEAT_REJECTED',
+      }, 'Fault Run recovery owner lease was lost');
+    } catch (error) {
+      lease.fence.lose('HEARTBEAT_FAILED');
+      clearInterval(lease.timer);
+      if (this.ownerLeases.get(lease.execution.faultRunId) === lease) {
+        this.ownerLeases.delete(lease.execution.faultRunId);
+      }
+      this.logger.warn({
+        faultRunId: lease.execution.faultRunId,
+        ownerEpoch: lease.fence.ownerEpoch,
+        code: recoveryExecutorErrorCode(error),
+      }, 'Fault Run recovery owner heartbeat failed');
+    } finally {
+      lease.heartbeatPending = false;
+    }
+  }
+
+  private async setRecoveryDrainState(
+    faultRunId: string,
+    drainState: NonNullable<RecoveryOwnerLease['drainState']>,
+  ): Promise<void> {
+    const lease = this.ownerLeases.get(faultRunId);
+    if (!lease) return;
+    const updated = await this.store.updateExecution?.({
+      faultRunId,
+      ownerId: lease.fence.ownerId,
+      ownerEpoch: lease.fence.ownerEpoch,
+      drainState,
+      lastAction: drainState === 'DRAIN_TIMEOUT'
+        ? 'OWNER_DRAIN_TIMEOUT'
+        : 'OWNER_DRAIN_COMPLETED',
+      lastErrorCode: drainState === 'DRAIN_TIMEOUT' ? 'DRAIN_TIMEOUT' : null,
+    });
+    if (!updated) {
+      lease.fence.lose('OWNER_LEASE_LOST');
+      throw new Error('RECOVERY_OWNER_LEASE_LOST');
+    }
+    lease.drainState = drainState;
+  }
+
+  private async finishRecoveryOwner(faultRunId: string): Promise<void> {
+    const lease = this.ownerLeases.get(faultRunId);
+    if (!lease) return;
+    const [run, execution] = await Promise.all([
+      this.store.load(faultRunId),
+      this.store.loadExecution?.(faultRunId) ?? Promise.resolve(null),
+    ]);
+    if (!run || isTerminalFaultRun(run)
+      || execution?.reconciliationState === 'MANUAL_INTERVENTION_REQUIRED') {
+      await this.disposeRecoveryOwner(lease, false);
+    }
+  }
+
+  private async disposeRecoveryOwner(
+    lease: RecoveryOwnerLease,
+    shutdown: boolean,
+  ): Promise<void> {
+    if (this.ownerLeases.get(lease.execution.faultRunId) !== lease) return;
+    clearInterval(lease.timer);
+    if (lease.heartbeatPromise) await lease.heartbeatPromise;
+    const safeDrainState = lease.drainState === 'DRAINED'
+      || lease.drainState === 'NOT_APPLICABLE';
+    const execution = await this.store.loadExecution?.(lease.execution.faultRunId);
+    const canRelinquish = execution?.reconciliationState !== 'MANUAL_INTERVENTION_REQUIRED';
+    if (lease.fence.isLocallyCurrent() && safeDrainState && canRelinquish) {
+      const updated = await this.store.updateExecution?.({
+        faultRunId: lease.execution.faultRunId,
+        ownerId: lease.fence.ownerId,
+        ownerEpoch: lease.fence.ownerEpoch,
+        drainState: lease.drainState!,
+        lastAction: shutdown ? 'OWNER_RELINQUISHED' : 'RECOVERY_COMPLETED',
+      });
+      if (updated) {
+        await this.store.relinquishExecution?.({
+          faultRunId: lease.execution.faultRunId,
+          ownerId: lease.fence.ownerId,
+          ownerEpoch: lease.fence.ownerEpoch,
+        });
+      }
+    }
+    lease.fence.lose(shutdown ? 'PROCESS_SHUTDOWN' : 'OWNER_RELINQUISHED');
+    this.ownerLeases.delete(lease.execution.faultRunId);
+    this.ownerRequiredRunIds.delete(lease.execution.faultRunId);
+  }
+
+  private detachRecoveryOwner(lease: RecoveryOwnerLease): void {
+    clearInterval(lease.timer);
+    lease.fence.lose('OWNER_EPOCH_CHANGED');
+    if (this.ownerLeases.get(lease.execution.faultRunId) === lease) {
+      this.ownerLeases.delete(lease.execution.faultRunId);
+    }
+  }
+
+  private async recoverTerminalCleanup(run: FaultRunRecord): Promise<void> {
+    if (this.options.ownershipRequired && !run.execution) {
+      this.logger.warn({
+        faultRunId: run.faultRunId,
+        code: 'RECOVERY_OWNERSHIP_MISSING',
+      }, 'Terminal cleanup requires an ownership record');
       return;
     }
-    if (projection.cleanup.status !== 'SUCCEEDED') {
-      ({ run, projection } = await this.skipCleanup(run, projection));
+    if (!run.execution) return;
+    try {
+      const owner = await this.ensureRecoveryOwner(run);
+      if (!owner) return;
+      const actions = await this.listActions(run.faultRunId);
+      const action = actions.find((candidate) => candidate.actionType === 'CLEANUP'
+        && candidate.requestedBy === 'OPERATOR'
+        && candidate.actionState === 'REQUESTED');
+      if (!action) return;
+      const claimed = await this.claimAction({
+        actionId: action.actionId,
+        ownerId: owner.fence.ownerId,
+        ownerEpoch: owner.fence.ownerEpoch,
+      });
+      if (!claimed) return;
+      let dispatched = false;
+      let response: unknown;
+      try {
+        response = await this.withDeadline(
+          new Date(this.now().getTime() + this.options.recoveryTimeoutMs),
+          (signal) => {
+            owner.fence.assertLocallyCurrent();
+            dispatched = true;
+            return this.targetAdapter.cleanup(run, combineSignals(signal, owner.fence.signal));
+          },
+        );
+      } catch (error) {
+        const outcome = classifyRecoveryActionFailure(error, dispatched, 'CLEANUP');
+        if (outcome.kind === 'UNKNOWN') {
+          await this.markActionOutcomeUnknown(owner, claimed, outcome.errorCode);
+          return;
+        }
+        await this.finishTerminalCleanup(
+          run,
+          owner,
+          claimed,
+          'DEFINITIVE_FAILURE',
+          null,
+          outcome.kind === 'TIMEOUT' ? 'CLEANUP_OPERATION_FAILED' : outcome.errorCode,
+        );
+        return;
+      }
+      const outcome = classifyRecoveryActionResponse(response, 'CLEANUP', run);
+      if (outcome.kind === 'UNKNOWN') {
+        await this.markActionOutcomeUnknown(owner, claimed, outcome.errorCode);
+        return;
+      }
+      if (outcome.kind === 'DEFINITIVE_FAILURE') {
+        await this.finishTerminalCleanup(run, owner, claimed, 'DEFINITIVE_FAILURE', null, outcome.errorCode);
+        return;
+      }
+      await this.finishTerminalCleanup(run, owner, claimed, 'CONFIRMED', outcome.summary, null);
+    } finally {
+      await this.finishRecoveryOwner(run.faultRunId);
     }
+  }
 
-    if (policy.verification === 'NOT_CONFIGURED') {
-      ({ run, projection } = await this.recordVerificationUnavailable(run, projection));
-      await this.completeBlockedRecovery(run, projection);
-      return;
-    }
+  private async finishTerminalCleanup(
+    run: FaultRunRecord,
+    owner: RecoveryOwnerLease,
+    action: FaultRunActionRecord,
+    actionState: 'CONFIRMED' | 'DEFINITIVE_FAILURE',
+    resultSummary: unknown,
+    errorCode: string | null,
+  ): Promise<void> {
+    const finished = await this.finishOwnedAction({
+      faultRunId: action.faultRunId,
+      actionId: action.actionId,
+      actionType: 'CLEANUP',
+      ownerId: owner.fence.ownerId,
+      ownerEpoch: owner.fence.ownerEpoch,
+      actionState,
+      resultSummary,
+      errorCode,
+      eventType: actionState === 'CONFIRMED'
+        ? 'MANUAL_CLEANUP_COMPLETED'
+        : 'MANUAL_CLEANUP_FAILED',
+      eventPayload: {
+        cleanupAttempt: action.attemptNo,
+        operation: run.targetOperation,
+        ...(errorCode ? { errorCode } : {}),
+        completedAt: this.now().toISOString(),
+      },
+    });
+    if (!finished) throw new Error('CLEANUP_ACTION_PERSISTENCE_FAILED');
+  }
 
-    await this.recordVerificationFailure(run, projection);
+  private async markActionOutcomeUnknown(
+    owner: RecoveryOwnerLease,
+    action: FaultRunActionRecord,
+    errorCode: string,
+  ): Promise<void> {
+    const marked = await this.markActionUnknown({
+      actionId: action.actionId,
+      actionType: action.actionType as 'RELEASE' | 'CLEANUP',
+      ownerId: owner.fence.ownerId,
+      ownerEpoch: owner.fence.ownerEpoch,
+      errorCode,
+    });
+    if (!marked) throw new Error('ACTION_OUTCOME_UNKNOWN_PERSISTENCE_FAILED');
   }
 
   private async drain(
@@ -323,6 +826,7 @@ export class FaultRunRecoveryExecutor {
         residuals: projection.residuals,
         lastError: projection.lastError,
       }, 'DRAIN_COMPLETED');
+      await this.setRecoveryDrainState(run.faultRunId, 'NOT_APPLICABLE');
       return 'CONTINUE';
     }
 
@@ -428,6 +932,7 @@ export class FaultRunRecoveryExecutor {
         ...(result.metrics ?? {}),
         completedAt,
       });
+      await this.setRecoveryDrainState(run.faultRunId, 'DRAINED');
       return 'CONTINUE';
     }
 
@@ -451,6 +956,7 @@ export class FaultRunRecoveryExecutor {
         completedAt,
         errorCode: error.code,
       });
+      await this.setRecoveryDrainState(run.faultRunId, 'DRAIN_TIMEOUT');
       this.drainController.acknowledgeDrainTimeout?.({ run, owner });
       return 'CONTINUE';
     }
@@ -517,6 +1023,11 @@ export class FaultRunRecoveryExecutor {
     projection: FaultRunRecoveryProjection,
     policy: FaultRunResolvedRecoveryPolicy,
   ): Promise<'CONTINUE' | 'BLOCKED'> {
+    if (run.execution) {
+      const owner = this.ownerLeases.get(run.faultRunId);
+      if (!owner) throw new Error('RECOVERY_OWNER_REQUIRED');
+      return this.releaseOwned(run, projection, policy, owner);
+    }
     if (projection.release.status === 'NOT_STARTED') {
       ({ run, projection } = await this.recordStep(run, projection, {
         stage: 'RELEASE',
@@ -605,6 +1116,195 @@ export class FaultRunRecoveryExecutor {
     this.releaseSettlements.delete(key);
     await this.completeBlockedRecovery(updated.run, updated.projection);
     return 'BLOCKED';
+  }
+
+  private async releaseOwned(
+    run: FaultRunRecord,
+    projection: FaultRunRecoveryProjection,
+    policy: FaultRunResolvedRecoveryPolicy,
+    owner: RecoveryOwnerLease,
+  ): Promise<'CONTINUE' | 'BLOCKED'> {
+    let actionId: string | null = null;
+    const requestIdempotencyKey = `release-${run.faultRunId}-${projection.stop.attempt}`;
+    if (projection.release.status === 'NOT_STARTED') {
+      const startedAt = this.now().toISOString();
+      const started = await this.startOwnedRelease({
+        faultRunId: run.faultRunId,
+        ownerId: owner.fence.ownerId,
+        ownerEpoch: owner.fence.ownerEpoch,
+        expectedAttempt: projection.stop.attempt,
+        requestIdempotencyKey,
+        mutation: {
+          stage: 'RELEASE',
+          step: {
+            status: 'RUNNING',
+            attempt: projection.stop.attempt,
+            startedAt,
+          },
+          phase: nextPhase(projection, 'RELEASING'),
+          outcome: projection.outcome,
+          residuals: projection.residuals,
+          lastError: projection.lastError,
+        },
+        eventPayload: { operation: policy.target.operation },
+      });
+      if (!started) return 'BLOCKED';
+      run = started.run;
+      projection = this.requireSafeProjection(run);
+      actionId = started.actionId;
+    }
+    if (projection.release.status !== 'RUNNING') {
+      return projection.release.status === 'SUCCEEDED' || projection.release.status === 'NOT_APPLICABLE'
+        ? 'CONTINUE'
+        : 'BLOCKED';
+    }
+
+    const actions = await this.listActions(run.faultRunId);
+    const action = actionId
+      ? actions.find((candidate) => candidate.actionId === actionId)
+      : actions.find((candidate) => candidate.actionType === 'RELEASE'
+        && candidate.requestIdempotencyKey === requestIdempotencyKey);
+    if (!action) throw new Error('RELEASE_ACTION_INTENT_MISSING');
+    if (action.actionState !== 'REQUESTED') return 'BLOCKED';
+    const claimed = await this.claimAction({
+      actionId: action.actionId,
+      ownerId: owner.fence.ownerId,
+      ownerEpoch: owner.fence.ownerEpoch,
+    });
+    if (!claimed) return 'BLOCKED';
+
+    let dispatched = false;
+    let response: unknown;
+    try {
+      response = await this.withDeadline(
+        new Date(projection.deadlines.recoveryAt),
+        (signal) => {
+          owner.fence.assertLocallyCurrent();
+          dispatched = true;
+          return this.targetAdapter.stop(run, combineSignals(signal, owner.fence.signal));
+        },
+      );
+    } catch (error) {
+      const outcome = classifyRecoveryActionFailure(error, dispatched, 'RELEASE');
+      if (outcome.kind === 'UNKNOWN') {
+        await this.markActionOutcomeUnknown(owner, claimed, outcome.errorCode);
+        return 'BLOCKED';
+      }
+      const failure = sanitizeFaultRunRecoveryError('RELEASE', {
+        kind: outcome.kind === 'TIMEOUT' ? 'ABORTED' : 'REJECTED',
+      });
+      const completedAt = this.now().toISOString();
+      const updated = await this.settleOwnedRecoveryAction(
+        run,
+        projection,
+        owner,
+        claimed,
+        'DEFINITIVE_FAILURE',
+        null,
+        failure.code,
+        {
+          stage: 'RELEASE',
+          step: {
+            status: failure.code === 'TARGET_RELEASE_TIMEOUT' ? 'TIMED_OUT' : 'FAILED',
+            attempt: projection.stop.attempt,
+            startedAt: projection.release.startedAt,
+            completedAt,
+            errorCode: failure.code,
+          },
+          phase: 'PARTIAL_RECOVERY',
+          outcome: selectDominantFaultRunRecoveryOutcome([projection.outcome, 'RELEASE_FAILED']),
+          residuals: withResidual(projection.residuals, {
+            kind: 'SERVICE_RECOVERY_REQUIRED',
+            responsibility: 'SERVICE_OWNER',
+            nextAction: 'WAIT_FOR_SERVICE_RECOVERY',
+          }),
+          lastError: failure,
+        },
+        'RELEASE_FAILED',
+        {
+          operation: policy.target.operation,
+          completedAt,
+          errorCode: failure.code,
+        },
+      );
+      await this.completeBlockedRecovery(updated.run, updated.projection);
+      return 'BLOCKED';
+    }
+
+    const outcome = classifyRecoveryActionResponse(response, 'RELEASE', run);
+    if (outcome.kind === 'UNKNOWN') {
+      await this.markActionOutcomeUnknown(owner, claimed, outcome.errorCode);
+      return 'BLOCKED';
+    }
+    if (outcome.kind === 'DEFINITIVE_FAILURE') {
+      const failure = sanitizeFaultRunRecoveryError('RELEASE', { kind: 'REJECTED' });
+      const completedAt = this.now().toISOString();
+      const updated = await this.settleOwnedRecoveryAction(
+        run,
+        projection,
+        owner,
+        claimed,
+        'DEFINITIVE_FAILURE',
+        null,
+        failure.code,
+        {
+          stage: 'RELEASE',
+          step: {
+            status: 'FAILED',
+            attempt: projection.stop.attempt,
+            startedAt: projection.release.startedAt,
+            completedAt,
+            errorCode: failure.code,
+          },
+          phase: 'PARTIAL_RECOVERY',
+          outcome: selectDominantFaultRunRecoveryOutcome([projection.outcome, 'RELEASE_FAILED']),
+          residuals: withResidual(projection.residuals, {
+            kind: 'SERVICE_RECOVERY_REQUIRED',
+            responsibility: 'SERVICE_OWNER',
+            nextAction: 'WAIT_FOR_SERVICE_RECOVERY',
+          }),
+          lastError: failure,
+        },
+        'RELEASE_FAILED',
+        {
+          operation: policy.target.operation,
+          completedAt,
+          errorCode: failure.code,
+        },
+      );
+      await this.completeBlockedRecovery(updated.run, updated.projection);
+      return 'BLOCKED';
+    }
+
+    const completedAt = this.now().toISOString();
+    await this.settleOwnedRecoveryAction(
+      run,
+      projection,
+      owner,
+      claimed,
+      'CONFIRMED',
+      outcome.summary,
+      null,
+      {
+        stage: 'RELEASE',
+        step: {
+          status: 'SUCCEEDED',
+          attempt: projection.stop.attempt,
+          startedAt: projection.release.startedAt,
+          completedAt,
+        },
+        phase: nextPhase(projection, 'RELEASING'),
+        outcome: projection.outcome,
+        residuals: projection.residuals,
+        lastError: projection.lastError,
+      },
+      'RELEASE_COMPLETED',
+      {
+        operation: policy.target.operation,
+        completedAt,
+      },
+    );
+    return 'CONTINUE';
   }
 
   private async skipRelease(
@@ -710,6 +1410,13 @@ export class FaultRunRecoveryExecutor {
       throw new Error('MANUAL_CLEANUP_STATE_INVALID');
     }
 
+    if (run.execution) {
+      const owner = this.ownerLeases.get(run.faultRunId);
+      if (!owner) throw new Error('RECOVERY_OWNER_REQUIRED');
+      await this.completeOwnedManualCleanup(run, projection, policy, owner);
+      return;
+    }
+
     const key = `${run.faultRunId}:${projection.stop.attempt}:${projection.cleanup.requestKeyHash}`;
     let settlement = this.cleanupSettlements.get(key);
     if (!settlement) {
@@ -781,6 +1488,148 @@ export class FaultRunRecoveryExecutor {
     if (!updated) throw new Error('MANUAL_CLEANUP_PERSISTENCE_FAILED');
     this.logRecoverySummary(this.requireSafeProjection(updated));
     this.cleanupSettlements.delete(key);
+  }
+
+  private async completeOwnedManualCleanup(
+    run: FaultRunRecord,
+    projection: FaultRunRecoveryProjection,
+    policy: FaultRunResolvedRecoveryPolicy,
+    owner: RecoveryOwnerLease,
+  ): Promise<void> {
+    const actions = await this.listActions(run.faultRunId);
+    const action = actions.find((candidate) => candidate.actionType === 'CLEANUP'
+      && candidate.requestIdempotencyKey === projection.cleanup.requestKeyHash);
+    if (!action || action.actionState !== 'REQUESTED') return;
+    const claimed = await this.claimAction({
+      actionId: action.actionId,
+      ownerId: owner.fence.ownerId,
+      ownerEpoch: owner.fence.ownerEpoch,
+    });
+    if (!claimed) return;
+
+    let dispatched = false;
+    let response: unknown;
+    try {
+      response = await this.withDeadline(
+        new Date(projection.deadlines.recoveryAt),
+        (signal) => {
+          owner.fence.assertLocallyCurrent();
+          dispatched = true;
+          return this.targetAdapter.cleanup(run, combineSignals(signal, owner.fence.signal));
+        },
+      );
+    } catch (error) {
+      const outcome = classifyRecoveryActionFailure(error, dispatched, 'CLEANUP');
+      if (outcome.kind === 'UNKNOWN') {
+        await this.markActionOutcomeUnknown(owner, claimed, outcome.errorCode);
+        return;
+      }
+      const failure = sanitizeFaultRunRecoveryError('CLEANUP', {
+        kind: outcome.kind === 'TIMEOUT' ? 'ABORTED' : 'UNKNOWN',
+      });
+      await this.settleOwnedRecoveryAction(
+        run,
+        projection,
+        owner,
+        claimed,
+        'DEFINITIVE_FAILURE',
+        null,
+        failure.code,
+        {
+          stage: 'CLEANUP',
+          step: {
+            status: failure.code === 'CLEANUP_OPERATION_FAILED' && outcome.kind === 'TIMEOUT'
+              ? 'TIMED_OUT'
+              : 'FAILED',
+            attempt: projection.stop.attempt,
+            startedAt: projection.cleanup.startedAt,
+            completedAt: this.now().toISOString(),
+            errorCode: failure.code,
+          },
+          phase: 'PARTIAL_RECOVERY',
+          outcome: 'CLEANUP_FAILED',
+          residuals: projection.residuals,
+          lastError: failure,
+        },
+        'MANUAL_CLEANUP_FAILED',
+        {
+          operation: policy.target.operation,
+          cleanupAttempt: projection.cleanup.attempt,
+          completedAt: this.now().toISOString(),
+          errorCode: failure.code,
+        },
+      );
+      return;
+    }
+
+    const outcome = classifyRecoveryActionResponse(response, 'CLEANUP', run);
+    if (outcome.kind === 'UNKNOWN') {
+      await this.markActionOutcomeUnknown(owner, claimed, outcome.errorCode);
+      return;
+    }
+    const completedAt = this.now().toISOString();
+    if (outcome.kind === 'DEFINITIVE_FAILURE') {
+      const failure = sanitizeFaultRunRecoveryError('CLEANUP', { kind: 'UNKNOWN' });
+      await this.settleOwnedRecoveryAction(
+        run,
+        projection,
+        owner,
+        claimed,
+        'DEFINITIVE_FAILURE',
+        null,
+        failure.code,
+        {
+          stage: 'CLEANUP',
+          step: {
+            status: 'FAILED',
+            attempt: projection.stop.attempt,
+            startedAt: projection.cleanup.startedAt,
+            completedAt,
+            errorCode: failure.code,
+          },
+          phase: 'PARTIAL_RECOVERY',
+          outcome: 'CLEANUP_FAILED',
+          residuals: projection.residuals,
+          lastError: failure,
+        },
+        'MANUAL_CLEANUP_FAILED',
+        {
+          operation: policy.target.operation,
+          cleanupAttempt: projection.cleanup.attempt,
+          completedAt,
+          errorCode: failure.code,
+        },
+      );
+      return;
+    }
+    const settled = await this.settleOwnedRecoveryAction(
+      run,
+      projection,
+      owner,
+      claimed,
+      'CONFIRMED',
+      outcome.summary,
+      null,
+      {
+        stage: 'CLEANUP',
+        step: {
+          status: 'SUCCEEDED',
+          attempt: projection.stop.attempt,
+          startedAt: projection.cleanup.startedAt,
+          completedAt,
+        },
+        phase: 'VERIFYING',
+        outcome: 'PENDING',
+        residuals: withoutResidual(projection.residuals, 'MANUAL_CLEANUP_PENDING'),
+      },
+      'MANUAL_CLEANUP_COMPLETED',
+      {
+        operation: policy.target.operation,
+        cleanupAttempt: projection.cleanup.attempt,
+        completedAt,
+      },
+    );
+    this.logRecoverySummary(settled.projection);
   }
 
   private async recordVerificationUnavailable(
@@ -874,6 +1723,7 @@ export class FaultRunRecoveryExecutor {
     projection: FaultRunRecoveryProjection,
   ): Promise<void> {
     if (projection.outcome === 'PENDING') return;
+    const owner = this.currentRecoveryOwner(run.faultRunId);
     const completed = await this.store.complete({
       faultRunId: run.faultRunId,
       expectedAttempt: projection.stop.attempt,
@@ -883,6 +1733,7 @@ export class FaultRunRecoveryExecutor {
         outcome: projection.outcome,
         ...lastResidualEventFacts(projection.residuals),
       },
+      ...(owner ? { owner } : {}),
     });
     if (completed && completed.state !== 'RECOVERING') {
       this.drainController.forgetCompletedRun?.(completed.faultRunId);
@@ -900,14 +1751,119 @@ export class FaultRunRecoveryExecutor {
     eventType: RecordFaultRunRecoveryStepInput['eventType'],
     eventPayload?: unknown,
   ): Promise<{ run: FaultRunRecord; projection: FaultRunRecoveryProjection }> {
+    const owner = this.currentRecoveryOwner(run.faultRunId);
     const updated = await this.store.recordStep({
       faultRunId: run.faultRunId,
       expectedAttempt: projection.stop.attempt,
       mutation,
       eventType,
       eventPayload,
+      ...(owner ? { owner } : {}),
     });
     if (!updated) throw new Error('RECOVERY_STEP_PERSISTENCE_FAILED');
+    const nextProjection = this.requireSafeProjection(updated);
+    this.logRecoverySummary(nextProjection);
+    return { run: updated, projection: nextProjection };
+  }
+
+  private currentRecoveryOwner(
+    faultRunId: string,
+  ): { ownerId: string; ownerEpoch: number } | null {
+    const lease = this.ownerLeases.get(faultRunId);
+    if (!lease) {
+      if (this.ownerRequiredRunIds.has(faultRunId)) throw new Error('RECOVERY_OWNER_REQUIRED');
+      return null;
+    }
+    lease.fence.assertLocallyCurrent();
+    return {
+      ownerId: lease.fence.ownerId,
+      ownerEpoch: lease.fence.ownerEpoch,
+    };
+  }
+
+  private listActions(faultRunId: string): Promise<FaultRunActionRecord[]> {
+    return this.store.listActions
+      ? this.store.listActions(faultRunId)
+      : listFaultRunActions(faultRunId);
+  }
+
+  private claimAction(
+    input: Parameters<typeof claimFaultRunAction>[0],
+  ): Promise<FaultRunActionRecord | null> {
+    return this.store.claimAction
+      ? this.store.claimAction(input)
+      : claimFaultRunAction(input);
+  }
+
+  private markStaleActionUnknown(
+    input: Parameters<typeof markStaleFaultRunActionUnknown>[0],
+  ): Promise<boolean> {
+    return this.store.markStaleActionUnknown
+      ? this.store.markStaleActionUnknown(input)
+      : markStaleFaultRunActionUnknown(input);
+  }
+
+  private markActionUnknown(
+    input: Parameters<typeof markOwnedFaultRunActionUnknown>[0],
+  ): Promise<boolean> {
+    return this.store.markActionUnknown
+      ? this.store.markActionUnknown(input)
+      : markOwnedFaultRunActionUnknown(input);
+  }
+
+  private startOwnedRelease(
+    input: Parameters<typeof startOwnedFaultRunRelease>[0],
+  ): ReturnType<typeof startOwnedFaultRunRelease> {
+    return this.store.startOwnedRelease
+      ? this.store.startOwnedRelease(input)
+      : startOwnedFaultRunRelease(input);
+  }
+
+  private persistOwnedRecoveryAction(
+    input: Parameters<typeof settleOwnedFaultRunRecoveryAction>[0],
+  ): ReturnType<typeof settleOwnedFaultRunRecoveryAction> {
+    return this.store.settleOwnedRecoveryAction
+      ? this.store.settleOwnedRecoveryAction(input)
+      : settleOwnedFaultRunRecoveryAction(input);
+  }
+
+  private finishOwnedAction(
+    input: Parameters<typeof finishOwnedFaultRunAction>[0],
+  ): ReturnType<typeof finishOwnedFaultRunAction> {
+    return this.store.finishOwnedAction
+      ? this.store.finishOwnedAction(input)
+      : finishOwnedFaultRunAction(input);
+  }
+
+  private async settleOwnedRecoveryAction(
+    run: FaultRunRecord,
+    projection: FaultRunRecoveryProjection,
+    owner: RecoveryOwnerLease,
+    action: FaultRunActionRecord,
+    actionState: 'CONFIRMED' | 'DEFINITIVE_FAILURE',
+    resultSummary: unknown,
+    errorCode: string | null,
+    mutation: RecordFaultRunRecoveryStepInput['mutation'],
+    eventType: 'RELEASE_COMPLETED' | 'RELEASE_FAILED' | 'MANUAL_CLEANUP_COMPLETED' | 'MANUAL_CLEANUP_FAILED',
+    eventPayload: unknown,
+  ): Promise<{ run: FaultRunRecord; projection: FaultRunRecoveryProjection }> {
+    owner.fence.assertLocallyCurrent();
+    const updated = await this.persistOwnedRecoveryAction({
+      faultRunId: run.faultRunId,
+      actionId: action.actionId,
+      actionType: action.actionType as 'RELEASE' | 'CLEANUP',
+      requestIdempotencyKey: action.requestIdempotencyKey,
+      ownerId: owner.fence.ownerId,
+      ownerEpoch: owner.fence.ownerEpoch,
+      actionState,
+      resultSummary,
+      errorCode,
+      expectedAttempt: projection.stop.attempt,
+      mutation,
+      eventType,
+      eventPayload,
+    });
+    if (!updated) throw new Error('RECOVERY_ACTION_SETTLEMENT_FENCED');
     const nextProjection = this.requireSafeProjection(updated);
     this.logRecoverySummary(nextProjection);
     return { run: updated, projection: nextProjection };
@@ -966,6 +1922,113 @@ export class FaultRunRecoveryExecutor {
       if (timeoutId) clearTimeout(timeoutId);
     }
   }
+}
+
+type RecoveryActionClassification =
+  | { kind: 'CONFIRMED'; summary: Record<string, boolean | number | string> }
+  | { kind: 'DEFINITIVE_FAILURE'; errorCode: string }
+  | { kind: 'UNKNOWN'; errorCode: string };
+
+type RecoveryActionFailure =
+  | { kind: 'TIMEOUT' }
+  | { kind: 'DEFINITIVE_FAILURE'; errorCode: string }
+  | { kind: 'UNKNOWN'; errorCode: string };
+
+function classifyRecoveryActionResponse(
+  response: unknown,
+  actionType: 'RELEASE' | 'CLEANUP',
+  run: FaultRunRecord,
+): RecoveryActionClassification {
+  const gateway = asObject(response);
+  const errorCode = actionType === 'RELEASE'
+    ? 'TARGET_RELEASE_REJECTED'
+    : 'CLEANUP_OPERATION_FAILED';
+  if (gateway.code === 400 && gateway.data === null) {
+    return { kind: 'DEFINITIVE_FAILURE', errorCode };
+  }
+  if (gateway.code !== 200) {
+    return {
+      kind: 'UNKNOWN',
+      errorCode: actionType === 'RELEASE' ? 'RELEASE_OUTCOME_UNKNOWN' : 'CLEANUP_OUTCOME_UNKNOWN',
+    };
+  }
+  const target = asObject(gateway.data);
+  if (target.code !== 200) {
+    return {
+      kind: 'UNKNOWN',
+      errorCode: actionType === 'RELEASE' ? 'RELEASE_OUTCOME_UNKNOWN' : 'CLEANUP_OUTCOME_UNKNOWN',
+    };
+  }
+  const data = asObject(target.data);
+  if ((data.operation !== undefined && data.operation !== run.targetOperation)
+    || (data.runId !== undefined && data.runId !== run.faultRunId)) {
+    return {
+      kind: 'UNKNOWN',
+      errorCode: actionType === 'RELEASE' ? 'RELEASE_OUTCOME_UNKNOWN' : 'CLEANUP_OUTCOME_UNKNOWN',
+    };
+  }
+  const confirmed = actionType === 'RELEASE' ? data.released === true : data.cleaned === true;
+  if (!confirmed) {
+    return {
+      kind: 'UNKNOWN',
+      errorCode: actionType === 'RELEASE' ? 'RELEASE_OUTCOME_UNKNOWN' : 'CLEANUP_OUTCOME_UNKNOWN',
+    };
+  }
+  return {
+    kind: 'CONFIRMED',
+    summary: {
+      [actionType === 'RELEASE' ? 'released' : 'cleaned']: true,
+      operation: run.targetOperation,
+    },
+  };
+}
+
+function classifyRecoveryActionFailure(
+  error: unknown,
+  dispatched: boolean,
+  actionType: 'RELEASE' | 'CLEANUP',
+): RecoveryActionFailure {
+  if (!dispatched && error instanceof RecoveryDeadlineExceededError) return { kind: 'TIMEOUT' };
+  if (error instanceof GatewayRequestError && error.status >= 400 && error.status < 500) {
+    return {
+      kind: 'DEFINITIVE_FAILURE',
+      errorCode: actionType === 'RELEASE' ? 'TARGET_RELEASE_REJECTED' : 'CLEANUP_OPERATION_FAILED',
+    };
+  }
+  return {
+    kind: 'UNKNOWN',
+    errorCode: actionType === 'RELEASE' ? 'RELEASE_OUTCOME_UNKNOWN' : 'CLEANUP_OUTCOME_UNKNOWN',
+  };
+}
+
+function desiredRecoveryDrainState(
+  run: FaultRunRecord,
+  projection?: FaultRunRecoveryProjection,
+): RecoveryOwnerLease['drainState'] {
+  if (projection?.drain.status === 'SUCCEEDED') return 'DRAINED';
+  if (projection?.drain.status === 'TIMED_OUT') return 'DRAIN_TIMEOUT';
+  if (projection?.drain.status === 'NOT_APPLICABLE') return 'NOT_APPLICABLE';
+  if (run.execution?.drainState === 'DRAINED'
+    || run.execution?.drainState === 'DRAIN_TIMEOUT'
+    || run.execution?.drainState === 'NOT_APPLICABLE') return run.execution.drainState;
+  return null;
+}
+
+function isTerminalFaultRun(run: FaultRunRecord): boolean {
+  return run.state === 'RECOVERED'
+    || run.state === 'STOPPED'
+    || run.state === 'FAILED'
+    || run.state === 'SERVICE_UNAVAILABLE';
+}
+
+function combineSignals(deadlineSignal: AbortSignal, ownerSignal: AbortSignal): AbortSignal {
+  return AbortSignal.any([deadlineSignal, ownerSignal]);
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 function isActionableRecovery(projection: FaultRunRecoveryProjection): boolean {

@@ -348,7 +348,7 @@ export class FaultRunReconciler {
           run.faultRunId,
           {
             kind: faultRunDrainParticipantForOwner(driver.drainOwner),
-            requestStop: () => this.stopOwned(owned, 'MANUAL').then(() => undefined),
+            requestStop: () => this.stopOwned(owned, 'RECOVERY').then(() => undefined),
             settled: () => settled,
           },
         );
@@ -543,11 +543,13 @@ export class FaultRunReconciler {
           lastAction: 'OWNER_DRAIN_COMPLETED',
           lastErrorCode: null,
         }).catch(() => false);
-        await this.dependencies.relinquishExecution({
-          faultRunId: owned.run.faultRunId,
-          ownerId: owned.fence.ownerId,
-          ownerEpoch: owned.fence.ownerEpoch,
-        }).catch(() => false);
+        if (reason !== 'RECOVERY') {
+          await this.dependencies.relinquishExecution({
+            faultRunId: owned.run.faultRunId,
+            ownerId: owned.fence.ownerId,
+            ownerEpoch: owned.fence.ownerEpoch,
+          }).catch(() => false);
+        }
       } else {
         await this.dependencies.updateExecution({
           faultRunId: owned.run.faultRunId,

@@ -153,6 +153,72 @@ test('quiesce waits for scans but leaves owned drivers available to recovery', a
   assert.deepEqual(stopped, [run.faultRunId]);
 });
 
+test('recovery drain keeps the owner lease for RecoveryExecutor', async () => {
+  let current = execution();
+  const recoveryStopRequests: Array<() => void | Promise<void>> = [];
+  let relinquishCalls = 0;
+  const stopReasons: string[] = [];
+  const reconciler = new FaultRunReconciler({
+    listCandidates: async () => [run],
+    loadExecution: async () => current,
+    claimExecution: async (input) => {
+      current = execution({
+        ownerId: input.ownerId,
+        ownerEpoch: 1,
+        leaseExpiresAt: '2026-09-21T01:01:00.000Z',
+        reconciliationState: input.reconciliationState,
+        drainState: 'OWNED',
+      });
+      return current;
+    },
+    heartbeatExecution: async () => true,
+    markLeaseLost: async () => true,
+    updateExecution: async () => true,
+    relinquishExecution: async () => {
+      relinquishCalls++;
+      return true;
+    },
+    appendEvent: async () => undefined,
+    drainRegistry: {
+      register: (_faultRunId, participant) => {
+        recoveryStopRequests.push(participant.requestStop);
+        return () => undefined;
+      },
+    },
+    drivers: [{
+      name: 'recovery-drain-test-driver',
+      drainOwner: 'REPORT_SCENARIO_WORKER',
+      supports: () => true,
+      start: async () => ({
+        stop: async ({ reason }) => {
+          stopReasons.push(reason);
+          return { drained: true };
+        },
+      }),
+    }],
+    now: () => new Date('2026-09-21T01:00:00.000Z'),
+    logger: { warn: () => undefined, info: () => undefined },
+  }, {
+    mode: 'TAKEOVER',
+    ownerId: 'worker-a',
+    leaseTtlMs: 30_000,
+    heartbeatMs: 5_000,
+    reconcileIntervalMs: 1_000,
+  });
+
+  await reconciler.scan();
+  assert.equal(recoveryStopRequests.length, 1);
+  const requestRecoveryStop = recoveryStopRequests[0];
+  assert.ok(requestRecoveryStop);
+  await requestRecoveryStop();
+
+  assert.deepEqual(stopReasons, ['RECOVERY']);
+  assert.equal(relinquishCalls, 0);
+  assert.equal(current.ownerId, 'worker-a');
+  assert.deepEqual(reconciler.getOwnedRunIds(), []);
+  await reconciler.stop();
+});
+
 test('shadow mode records stale takeover without claiming or starting a driver', async () => {
   const updates: string[] = [];
   let claims = 0;

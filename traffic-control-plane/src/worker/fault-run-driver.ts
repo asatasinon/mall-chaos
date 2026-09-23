@@ -5,6 +5,7 @@ import type { FaultRunWorkerDrainOwner } from '../lib/fault-run-catalog';
 export type OwnedRunStopReason =
   | 'MANUAL'
   | 'EXPIRED'
+  | 'RECOVERY'
   | 'OWNER_LOST'
   | 'PROCESS_SHUTDOWN';
 

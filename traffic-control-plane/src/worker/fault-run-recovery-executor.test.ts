@@ -11,6 +11,8 @@ import {
   type RecordFaultRunRecoveryStepInput,
   type RequestFaultRunStopInput,
 } from '../lib/fault-run-repository';
+import type { FaultRunActionRecord } from '../lib/fault-run-action-repository';
+import type { FaultRunExecutionRecord } from '../lib/fault-run-execution-repository';
 import {
   createInitialFaultRunRecoveryProjection,
   parseFaultRunRecoveryProjection,
@@ -107,25 +109,93 @@ function initialProjection(): FaultRunRecoveryProjection {
   });
 }
 
+function createExecution(): FaultRunExecutionRecord {
+  return {
+    faultRunId: runId,
+    executionMode: 'TAKEOVER',
+    ownerId: null,
+    ownerEpoch: 0,
+    leaseAcquiredAt: null,
+    leaseExpiresAt: null,
+    lastHeartbeatAt: null,
+    leaseLostAt: null,
+    reconciledAt: null,
+    reconciliationState: 'IDLE',
+    drainState: 'IDLE',
+    drainDeadlineAt: null,
+    lastAction: null,
+    lastActionAt: null,
+    lastErrorCode: null,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+}
+
+function createAction(
+  actionType: FaultRunActionRecord['actionType'],
+  requestIdempotencyKey: string,
+  actionState: FaultRunActionRecord['actionState'] = 'REQUESTED',
+): FaultRunActionRecord {
+  return {
+    actionId: `action-${requestIdempotencyKey}`,
+    faultRunId: runId,
+    actionType,
+    attemptNo: 1,
+    actionState,
+    requestedBy: actionType === 'RELEASE' ? 'RECONCILER' : 'OPERATOR',
+    requestIdempotencyKey,
+    operatorAuditId: null,
+    dispatchOwnerId: null,
+    dispatchOwnerEpoch: null,
+    requestedAt: now.toISOString(),
+    dispatchStartedAt: null,
+    completedAt: null,
+    resultSummary: null,
+    errorCode: null,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+}
+
+function isTerminalTestRun(state: FaultRunRecord['state']): boolean {
+  return state === 'RECOVERED' || state === 'STOPPED'
+    || state === 'FAILED' || state === 'SERVICE_UNAVAILABLE';
+}
+
 class MemoryRecoveryStore implements FaultRunRecoveryStore {
   events: string[] = [];
   requestStops: RequestFaultRunStopInput[] = [];
   completeCalls: CompleteFaultRunRecoveryInput[] = [];
   completeManualCleanupCalls: CompleteFaultRunManualCleanupInput[] = [];
   failEvent: string | null = null;
+  actions: FaultRunActionRecord[] = [];
+  execution: FaultRunExecutionRecord | null;
 
-  constructor(public run: FaultRunRecord | null) {}
+  constructor(public run: FaultRunRecord | null) {
+    this.execution = run?.execution ?? null;
+  }
 
   async load() {
-    return this.run;
+    return this.currentRun();
   }
 
   async listRecovering() {
-    return this.run?.state === 'RECOVERING' ? [this.run] : [];
+    const run = this.currentRun();
+    return run?.state === 'RECOVERING' ? [run] : [];
   }
 
   async listExpiredRunnable() {
-    return this.run?.state === 'ACTIVE' && this.run.expiresAt <= now.toISOString() ? [this.run] : [];
+    const run = this.currentRun();
+    return run?.state === 'ACTIVE' && run.expiresAt <= now.toISOString() ? [run] : [];
+  }
+
+  async listPendingTerminalCleanup() {
+    const run = this.currentRun();
+    return run && isTerminalTestRun(run.state)
+      && this.actions.some((action) => action.actionType === 'CLEANUP'
+        && ['REQUESTED', 'DISPATCHING'].includes(action.actionState))
+      ? [run]
+      : [];
   }
 
   async requestStop(input: RequestFaultRunStopInput): Promise<FaultRunCommandResult | null> {
@@ -149,13 +219,14 @@ class MemoryRecoveryStore implements FaultRunRecoveryStore {
     }
     return {
       disposition: plan.disposition,
-      run: this.run,
+      run: this.currentRun()!,
       recovery: parseFaultRunRecoveryProjection(this.run.recoveryResult),
     };
   }
 
   async recordStep(input: RecordFaultRunRecoveryStepInput) {
     if (!this.run) return null;
+    if (!this.ownerMatches(input.faultRunId, input.owner)) return null;
     if (this.failEvent === input.eventType) throw new Error('RECOVERY_STEP_PERSISTENCE_FAILED');
     const current = parseFaultRunRecoveryProjection(this.run.recoveryResult);
     if (current.kind !== 'SAFE_RUNTIME_V1') throw new Error('TEST_PROJECTION_INVALID');
@@ -170,6 +241,7 @@ class MemoryRecoveryStore implements FaultRunRecoveryStore {
 
   async complete(input: CompleteFaultRunRecoveryInput) {
     if (!this.run) return null;
+    if (!this.ownerMatches(input.faultRunId, input.owner)) return null;
     this.completeCalls.push(input);
     this.events.push(input.eventType);
     return this.run;
@@ -186,6 +258,234 @@ class MemoryRecoveryStore implements FaultRunRecoveryStore {
       recoveryError: input.projection.lastError?.code ?? null,
     };
     return this.run;
+  }
+
+  async loadExecution() {
+    return this.execution;
+  }
+
+  async claimExecution(input: {
+    faultRunId: string;
+    executionMode: FaultRunExecutionRecord['executionMode'];
+    ownerId: string;
+    leaseTtlMs: number;
+    reconciliationState: 'OWNED' | 'TAKEN_OVER';
+    lastAction: 'OWNER_LEASE_ACQUIRED' | 'OWNER_TAKEOVER_COMPLETED';
+  }) {
+    if (!this.execution || input.faultRunId !== this.execution.faultRunId) return null;
+    const stale = this.execution.ownerId !== null
+      && this.execution.leaseExpiresAt !== null
+      && Date.parse(this.execution.leaseExpiresAt) <= now.getTime();
+    if (this.execution.ownerId !== null
+      && !(this.execution.executionMode === 'TAKEOVER' && stale)) return null;
+    this.execution = {
+      ...this.execution,
+      ownerId: input.ownerId,
+      ownerEpoch: this.execution.ownerEpoch + 1,
+      leaseAcquiredAt: now.toISOString(),
+      leaseExpiresAt: new Date(now.getTime() + input.leaseTtlMs).toISOString(),
+      lastHeartbeatAt: now.toISOString(),
+      reconciliationState: input.reconciliationState,
+      drainState: this.run && isTerminalTestRun(this.run.state)
+        ? this.execution.drainState
+        : 'OWNED',
+      lastAction: input.lastAction,
+    };
+    return this.execution;
+  }
+
+  async heartbeatExecution(input: {
+    faultRunId: string;
+    ownerId: string;
+    ownerEpoch: number;
+    leaseTtlMs: number;
+  }) {
+    if (!this.ownerMatches(input.faultRunId, input)) return false;
+    this.execution = {
+      ...this.execution!,
+      leaseExpiresAt: new Date(now.getTime() + input.leaseTtlMs).toISOString(),
+      lastHeartbeatAt: now.toISOString(),
+    };
+    return true;
+  }
+
+  async markLeaseLost() {
+    return false;
+  }
+
+  async updateExecution(input: {
+    faultRunId: string;
+    ownerId: string;
+    ownerEpoch: number;
+    drainState?: FaultRunExecutionRecord['drainState'];
+    lastAction?: string | null;
+    lastErrorCode?: string | null;
+  }) {
+    if (!this.ownerMatches(input.faultRunId, input)) return false;
+    this.execution = {
+      ...this.execution!,
+      ...(input.drainState === undefined ? {} : { drainState: input.drainState }),
+      ...(input.lastAction === undefined ? {} : { lastAction: input.lastAction }),
+      ...(input.lastErrorCode === undefined ? {} : { lastErrorCode: input.lastErrorCode }),
+    };
+    return true;
+  }
+
+  async relinquishExecution(input: { faultRunId: string; ownerId: string; ownerEpoch: number }) {
+    if (!this.ownerMatches(input.faultRunId, input)
+      || !['DRAINED', 'NOT_APPLICABLE'].includes(this.execution?.drainState ?? '')) return false;
+    this.execution = {
+      ...this.execution!,
+      ownerId: null,
+      leaseExpiresAt: now.toISOString(),
+      reconciliationState: 'IDLE',
+    };
+    return true;
+  }
+
+  async listActions() {
+    return this.actions;
+  }
+
+  async claimAction(input: { actionId: string; ownerId: string; ownerEpoch: number }) {
+    const action = this.actions.find((candidate) => candidate.actionId === input.actionId);
+    if (!action || action.actionState !== 'REQUESTED' || !this.ownerMatches(runId, input)) return null;
+    Object.assign(action, {
+      actionState: 'DISPATCHING',
+      dispatchOwnerId: input.ownerId,
+      dispatchOwnerEpoch: input.ownerEpoch,
+      dispatchStartedAt: now.toISOString(),
+    });
+    return action;
+  }
+
+  async markStaleActionUnknown(input: {
+    actionId: string;
+    dispatchOwnerId: string;
+    dispatchOwnerEpoch: number;
+  }) {
+    const action = this.actions.find((candidate) => candidate.actionId === input.actionId);
+    if (!action || action.actionState !== 'DISPATCHING'
+      || action.dispatchOwnerId !== input.dispatchOwnerId
+      || action.dispatchOwnerEpoch !== input.dispatchOwnerEpoch) return false;
+    Object.assign(action, {
+      actionState: 'OUTCOME_UNKNOWN',
+      completedAt: now.toISOString(),
+      errorCode: 'OWNER_LEASE_EXPIRED',
+    });
+    if (this.execution) this.execution.reconciliationState = 'MANUAL_INTERVENTION_REQUIRED';
+    this.events.push('ACTION_OUTCOME_UNKNOWN');
+    return true;
+  }
+
+  async markActionUnknown(input: {
+    actionId: string;
+    actionType: 'RELEASE' | 'CLEANUP';
+    ownerId: string;
+    ownerEpoch: number;
+    errorCode: string;
+  }) {
+    const action = this.actions.find((candidate) => candidate.actionId === input.actionId);
+    if (!action || action.actionType !== input.actionType
+      || action.actionState !== 'DISPATCHING'
+      || !this.ownerMatches(runId, input)) return false;
+    Object.assign(action, {
+      actionState: 'OUTCOME_UNKNOWN',
+      completedAt: now.toISOString(),
+      errorCode: input.errorCode,
+    });
+    if (this.execution) this.execution.reconciliationState = 'MANUAL_INTERVENTION_REQUIRED';
+    this.events.push('ACTION_OUTCOME_UNKNOWN');
+    return true;
+  }
+
+  async startOwnedRelease(input: Parameters<NonNullable<FaultRunRecoveryStore['startOwnedRelease']>>[0]) {
+    if (!this.run || !this.ownerMatches(input.faultRunId, input)) return null;
+    const current = parseFaultRunRecoveryProjection(this.run.recoveryResult);
+    if (current.kind !== 'SAFE_RUNTIME_V1') return null;
+    const projection = mergeFaultRunRecoveryStep(current.projection, input.mutation);
+    const action = createAction('RELEASE', input.requestIdempotencyKey);
+    action.attemptNo = input.expectedAttempt;
+    this.actions.push(action);
+    this.run = { ...this.run, recoveryResult: projection };
+    this.events.push('RELEASE_STARTED');
+    return { run: this.currentRun()!, actionId: action.actionId };
+  }
+
+  async settleOwnedRecoveryAction(
+    input: Parameters<NonNullable<FaultRunRecoveryStore['settleOwnedRecoveryAction']>>[0],
+  ) {
+    if (!this.run || !this.ownerMatches(input.faultRunId, input)) return null;
+    const action = this.actions.find((candidate) => candidate.actionId === input.actionId);
+    if (!action || action.actionState !== 'DISPATCHING'
+      || action.dispatchOwnerId !== input.ownerId
+      || action.dispatchOwnerEpoch !== input.ownerEpoch) return null;
+    const current = parseFaultRunRecoveryProjection(this.run.recoveryResult);
+    if (current.kind !== 'SAFE_RUNTIME_V1') return null;
+    const projection = input.actionType === 'CLEANUP'
+      ? {
+          ...current.projection,
+          phase: input.mutation.phase,
+          outcome: input.mutation.outcome,
+          cleanup: input.mutation.step as FaultRunRecoveryProjection['cleanup'],
+          residuals: input.mutation.residuals,
+          ...(input.mutation.lastError === undefined
+            ? {}
+            : { lastError: input.mutation.lastError }),
+        }
+      : mergeFaultRunRecoveryStep(current.projection, input.mutation);
+    Object.assign(action, {
+      actionState: input.actionState,
+      resultSummary: input.resultSummary ?? null,
+      errorCode: input.errorCode ?? null,
+      completedAt: now.toISOString(),
+    });
+    this.run = {
+      ...this.run,
+      recoveryResult: projection,
+      recoveryError: projection.lastError?.code ?? null,
+    };
+    this.events.push(input.eventType);
+    return this.currentRun();
+  }
+
+  async finishOwnedAction(
+    input: Parameters<NonNullable<FaultRunRecoveryStore['finishOwnedAction']>>[0],
+  ) {
+    if (!this.run || !this.ownerMatches(input.faultRunId, input)) return false;
+    const action = this.actions.find((candidate) => candidate.actionId === input.actionId);
+    if (!action || action.actionState !== 'DISPATCHING'
+      || action.dispatchOwnerId !== input.ownerId
+      || action.dispatchOwnerEpoch !== input.ownerEpoch) return false;
+    Object.assign(action, {
+      actionState: input.actionState,
+      resultSummary: input.resultSummary ?? null,
+      errorCode: input.errorCode ?? null,
+      completedAt: now.toISOString(),
+    });
+    this.events.push(input.eventType);
+    return true;
+  }
+
+  async appendEvent(_faultRunId: string, eventType: string) {
+    this.events.push(eventType);
+  }
+
+  private currentRun(): FaultRunRecord | null {
+    if (!this.run) return null;
+    return this.execution ? { ...this.run, execution: this.execution } : this.run;
+  }
+
+  private ownerMatches(
+    faultRunId: string,
+    owner?: { ownerId: string; ownerEpoch: number },
+  ): boolean {
+    return !owner || (this.execution?.faultRunId === faultRunId
+      && this.execution.ownerId === owner.ownerId
+      && this.execution.ownerEpoch === owner.ownerEpoch
+      && this.execution.leaseExpiresAt !== null
+      && Date.parse(this.execution.leaseExpiresAt) > now.getTime()
+      && this.execution.reconciliationState !== 'MANUAL_INTERVENTION_REQUIRED');
   }
 }
 
@@ -216,6 +516,35 @@ function createExecutor(
     now: () => now,
     logger: { info() {}, warn() {} },
   });
+}
+
+function createOwnedExecutor(
+  store: MemoryRecoveryStore,
+  stop: (run: FaultRunRecord, signal?: AbortSignal) => Promise<unknown> = async () => ({
+    code: 200,
+    data: { code: 200, data: { released: true, operation: 'products-browse-report' } },
+  }),
+  cleanup: (run: FaultRunRecord, signal?: AbortSignal) => Promise<unknown> = async () => ({
+    code: 200,
+    data: { code: 200, data: { cleaned: true, operation: 'notification-storage' } },
+  }),
+) {
+  const participant = store.run?.scenario === 'NOTIFICATION_STORAGE_APPEND' ? 'RUNNER' : 'REPORT';
+  return new FaultRunRecoveryExecutor(
+    store,
+    new MemoryDrainController({ kind: 'DRAINED', participant }),
+    { stop, cleanup },
+    {
+      drainTimeoutMs: 30_000,
+      recoveryTimeoutMs: 60_000,
+      ownerId: 'recovery-owner',
+      leaseTtlMs: 30_000,
+      heartbeatMs: 10_000,
+      ownershipRequired: true,
+      now: () => now,
+      logger: { info() {}, warn() {} },
+    },
+  );
 }
 
 function recoveryOf(store: MemoryRecoveryStore): FaultRunRecoveryProjection {
@@ -861,6 +1190,150 @@ test('resumes a persisted cleanup command after Worker restart', async () => {
   assert.equal(cleanups, 1);
   assert.equal(recoveryOf(store).cleanup.status, 'SUCCEEDED');
   assert.equal(recoveryOf(store).phase, 'VERIFYING');
+});
+
+test('owner-fences the release action and its recovery projection', async () => {
+  const store = new MemoryRecoveryStore(createRun({ execution: createExecution() }));
+  let releases = 0;
+  const executor = createOwnedExecutor(store, async (_run, signal) => {
+    releases++;
+    assert.ok(signal instanceof AbortSignal);
+    assert.ok(store.events.includes('RELEASE_STARTED'));
+    assert.equal(store.actions[0]?.actionState, 'DISPATCHING');
+    assert.equal(store.actions[0]?.dispatchOwnerId, 'recovery-owner');
+    return {
+      code: 200,
+      data: { code: 200, data: { released: true, operation: 'products-browse-report' } },
+    };
+  });
+
+  await executor.execute(runId);
+
+  assert.equal(releases, 1);
+  assert.equal(store.actions[0]?.actionState, 'CONFIRMED');
+  assert.equal(store.actions[0]?.resultSummary && typeof store.actions[0]?.resultSummary, 'object');
+  assert.equal(recoveryOf(store).release.status, 'SUCCEEDED');
+  assert.ok(store.events.includes('RELEASE_COMPLETED'));
+  assert.equal(store.execution?.ownerId, 'recovery-owner');
+  assert.deepEqual((await executor.stop()).failedRunIds, []);
+  assert.equal(store.execution?.ownerId, null);
+});
+
+test('unknown release outcomes require intervention and are never retried', async () => {
+  const store = new MemoryRecoveryStore(createRun({ execution: createExecution() }));
+  let releases = 0;
+  const executor = createOwnedExecutor(store, async () => {
+    releases++;
+    return { code: 200, data: { code: 200, data: { released: false } } };
+  });
+
+  await executor.execute(runId);
+  await executor.execute(runId);
+
+  assert.equal(releases, 1);
+  assert.equal(store.actions[0]?.actionState, 'OUTCOME_UNKNOWN');
+  assert.equal(store.execution?.reconciliationState, 'MANUAL_INTERVENTION_REQUIRED');
+  assert.equal(recoveryOf(store).release.status, 'RUNNING');
+  assert.equal(store.events.filter((event) => event === 'ACTION_OUTCOME_UNKNOWN').length, 1);
+});
+
+test('late release responses remain unknown after the recovery deadline', async () => {
+  const shortRecovery = createInitialFaultRunRecoveryProjection({
+    reason: 'MANUAL',
+    requestedAt: now,
+    drainDeadlineAt: new Date(now.getTime() + 5),
+    recoveryDeadlineAt: new Date(now.getTime() + 20),
+  });
+  const store = new MemoryRecoveryStore(createRun({
+    execution: createExecution(),
+    recoveryResult: shortRecovery,
+  }));
+  let resolveRelease!: (value: unknown) => void;
+  let releaseSignal: AbortSignal | undefined;
+  let releases = 0;
+  const executor = createOwnedExecutor(store, async (_run, signal) => {
+    releases++;
+    releaseSignal = signal;
+    return new Promise((resolve) => { resolveRelease = resolve; });
+  });
+
+  await executor.execute(runId);
+  assert.equal(releases, 1);
+  assert.equal(releaseSignal?.aborted, true);
+  assert.equal(store.actions[0]?.actionState, 'OUTCOME_UNKNOWN');
+  resolveRelease({
+    code: 200,
+    data: { code: 200, data: { released: true, operation: 'products-browse-report' } },
+  });
+  await executor.execute(runId);
+
+  assert.equal(releases, 1);
+  assert.equal(store.actions[0]?.actionState, 'OUTCOME_UNKNOWN');
+  assert.equal(recoveryOf(store).release.status, 'RUNNING');
+});
+
+test('owner-fences operator-confirmed cleanup and resumes verification', async () => {
+  const cleanupKey = 'b'.repeat(64);
+  const cleaning = startFaultRunManualCleanup(
+    createManualCleanupRequiredProjection(),
+    cleanupKey,
+    new Date('2026-09-18T00:00:20.000Z'),
+  );
+  const store = new MemoryRecoveryStore(createRun({
+    scenario: 'NOTIFICATION_STORAGE_APPEND',
+    targetService: 'notification-service',
+    targetOperation: 'notification-storage',
+    recoveryResult: cleaning,
+    execution: createExecution(),
+  }));
+  store.actions.push(createAction('CLEANUP', cleanupKey));
+  let cleanups = 0;
+  const executor = createOwnedExecutor(store, async () => {
+    throw new Error('release must not run');
+  }, async (_run, signal) => {
+    cleanups++;
+    assert.ok(signal instanceof AbortSignal);
+    return {
+      code: 200,
+      data: { code: 200, data: { cleaned: true, operation: 'notification-storage' } },
+    };
+  });
+
+  await executor.execute(runId);
+
+  assert.equal(cleanups, 1);
+  assert.equal(store.actions[0]?.actionState, 'CONFIRMED');
+  assert.equal(recoveryOf(store).cleanup.status, 'SUCCEEDED');
+  assert.equal(recoveryOf(store).phase, 'VERIFYING');
+  assert.ok(store.events.includes('MANUAL_CLEANUP_COMPLETED'));
+  assert.deepEqual((await executor.stop()).failedRunIds, []);
+});
+
+test('consumes terminal per-run cleanup intents through an owner-fenced action', async () => {
+  const store = new MemoryRecoveryStore(createRun({
+    state: 'RECOVERED',
+    scenario: 'NOTIFICATION_STORAGE_APPEND',
+    targetService: 'notification-service',
+    targetOperation: 'notification-storage',
+    execution: { ...createExecution(), drainState: 'DRAINED' },
+  }));
+  store.actions.push(createAction('CLEANUP', 'terminal-cleanup-001'));
+  let cleanups = 0;
+  const executor = createOwnedExecutor(store, async () => ({}), async () => {
+    cleanups++;
+    return {
+      code: 200,
+      data: { code: 200, data: { cleaned: true, operation: 'notification-storage' } },
+    };
+  });
+
+  await executor.scan();
+
+  assert.equal(cleanups, 1);
+  assert.equal(store.run?.state, 'RECOVERED');
+  assert.equal(store.actions[0]?.actionState, 'CONFIRMED');
+  assert.ok(store.events.includes('MANUAL_CLEANUP_COMPLETED'));
+  assert.equal(store.execution?.ownerId, null);
 });
 
 test('records non-releasing recovery without calling the target release operation', async () => {

@@ -133,29 +133,95 @@ export async function claimFaultRunAction(input: {
   ownerEpoch: number;
 }): Promise<FaultRunActionRecord | null> {
   await verifyFaultRunOwnershipSchema();
-  const [result] = await getPool().query(
-    `UPDATE fault_run_actions action
-      JOIN fault_run_executions execution ON execution.fault_run_id = action.fault_run_id
-      JOIN fault_runs run ON run.fault_run_id = action.fault_run_id
-        SET action.action_state = 'DISPATCHING',
-            dispatch_owner_id = ?,
-            dispatch_owner_epoch = ?,
-            dispatch_started_at = CURRENT_TIMESTAMP(3),
-            error_code = NULL
-      WHERE action.action_id = ?
-        AND action.action_state = 'REQUESTED'
-        AND action.dispatch_owner_id IS NULL
-        AND action.dispatch_owner_epoch IS NULL
-        AND execution.owner_id = ?
-        AND execution.owner_epoch = ?
-        AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)
-        AND execution.reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'
-        AND (action.action_type <> 'PREPARE'
-          OR (run.state = 'CREATING' AND run.expires_at > CURRENT_TIMESTAMP(3)))`,
-    [input.ownerId, input.ownerEpoch, input.actionId, input.ownerId, input.ownerEpoch],
-  );
-  if (affectedRows(result) !== 1) return null;
-  return loadFaultRunAction(input.actionId);
+  const connection = await getPool().getConnection();
+  let transactionComplete = false;
+  try {
+    await connection.beginTransaction();
+    const [actionRefRows] = await connection.query(
+      'SELECT fault_run_id FROM fault_run_actions WHERE action_id = ?',
+      [input.actionId],
+    );
+    const faultRunId = asRecords(actionRefRows)[0]?.fault_run_id;
+    if (faultRunId === undefined) {
+      await connection.commit();
+      transactionComplete = true;
+      return null;
+    }
+    const [runRows] = await connection.query(
+      'SELECT state FROM fault_runs WHERE fault_run_id = ? FOR UPDATE',
+      [faultRunId],
+    );
+    if (asRecords(runRows).length === 0) {
+      await connection.commit();
+      transactionComplete = true;
+      return null;
+    }
+    const [executionRows] = await connection.query(
+      `SELECT fault_run_id
+         FROM fault_run_executions
+        WHERE fault_run_id = ?
+          AND owner_id = ?
+          AND owner_epoch = ?
+          AND lease_expires_at > CURRENT_TIMESTAMP(3)
+          AND reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'
+        FOR UPDATE`,
+      [faultRunId, input.ownerId, input.ownerEpoch],
+    );
+    if (asRecords(executionRows).length === 0) {
+      await connection.commit();
+      transactionComplete = true;
+      return null;
+    }
+    const [actionRows] = await connection.query(
+      `SELECT * FROM fault_run_actions
+        WHERE action_id = ? AND fault_run_id = ?
+        FOR UPDATE`,
+      [input.actionId, faultRunId],
+    );
+    const actionRow = asRecords(actionRows)[0];
+    if (!actionRow || actionRow.action_state !== 'REQUESTED'
+      || actionRow.dispatch_owner_id !== null
+      || actionRow.dispatch_owner_epoch !== null) {
+      await connection.commit();
+      transactionComplete = true;
+      return null;
+    }
+    const [result] = await connection.query(
+      `UPDATE fault_run_actions action
+        JOIN fault_run_executions execution ON execution.fault_run_id = action.fault_run_id
+        JOIN fault_runs run ON run.fault_run_id = action.fault_run_id
+          SET action.action_state = 'DISPATCHING',
+              dispatch_owner_id = ?,
+              dispatch_owner_epoch = ?,
+              dispatch_started_at = CURRENT_TIMESTAMP(3),
+              error_code = NULL
+        WHERE action.action_id = ?
+          AND action.action_state = 'REQUESTED'
+          AND action.dispatch_owner_id IS NULL
+          AND action.dispatch_owner_epoch IS NULL
+          AND execution.owner_id = ?
+          AND execution.owner_epoch = ?
+          AND execution.lease_expires_at > CURRENT_TIMESTAMP(3)
+          AND execution.reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'
+          AND (action.action_type <> 'PREPARE'
+            OR (run.state = 'CREATING' AND run.expires_at > CURRENT_TIMESTAMP(3)))`,
+      [input.ownerId, input.ownerEpoch, input.actionId, input.ownerId, input.ownerEpoch],
+    );
+    if (affectedRows(result) !== 1) {
+      await connection.rollback();
+      transactionComplete = true;
+      return null;
+    }
+    const claimed = await loadFaultRunActionWithConnection(connection, input.actionId);
+    await connection.commit();
+    transactionComplete = true;
+    return claimed;
+  } catch (error) {
+    if (!transactionComplete) await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 export async function confirmFaultRunAction(input: {
@@ -200,6 +266,108 @@ export async function markFaultRunActionUnknown(input: {
   });
 }
 
+export async function markOwnedFaultRunActionUnknown(input: {
+  actionId: string;
+  actionType: Extract<FaultRunActionType, 'RELEASE' | 'CLEANUP'>;
+  ownerId: string;
+  ownerEpoch: number;
+  errorCode: string;
+}): Promise<boolean> {
+  await verifyFaultRunOwnershipSchema();
+  const connection = await getPool().getConnection();
+  let transactionComplete = false;
+  try {
+    await connection.beginTransaction();
+    const [actionRefRows] = await connection.query(
+      'SELECT fault_run_id FROM fault_run_actions WHERE action_id = ?',
+      [input.actionId],
+    );
+    const faultRunId = asRecords(actionRefRows)[0]?.fault_run_id;
+    if (faultRunId === undefined) {
+      await connection.commit();
+      transactionComplete = true;
+      return false;
+    }
+    const [runRows] = await connection.query(
+      'SELECT fault_run_id FROM fault_runs WHERE fault_run_id = ? FOR UPDATE',
+      [faultRunId],
+    );
+    if (asRecords(runRows).length === 0) {
+      await connection.commit();
+      transactionComplete = true;
+      return false;
+    }
+    const [executionRows] = await connection.query(
+      `SELECT fault_run_id
+         FROM fault_run_executions
+        WHERE fault_run_id = ?
+          AND owner_id = ?
+          AND owner_epoch = ?
+          AND lease_expires_at > CURRENT_TIMESTAMP(3)
+          AND reconciliation_state <> 'MANUAL_INTERVENTION_REQUIRED'
+        FOR UPDATE`,
+      [faultRunId, input.ownerId, input.ownerEpoch],
+    );
+    if (asRecords(executionRows).length === 0) {
+      await connection.commit();
+      transactionComplete = true;
+      return false;
+    }
+    const [actionRows] = await connection.query(
+      `SELECT action_id
+         FROM fault_run_actions
+        WHERE action_id = ?
+          AND fault_run_id = ?
+          AND action_type = ?
+          AND action_state = 'DISPATCHING'
+          AND dispatch_owner_id = ?
+          AND dispatch_owner_epoch = ?
+        FOR UPDATE`,
+      [input.actionId, faultRunId, input.actionType, input.ownerId, input.ownerEpoch],
+    );
+    if (asRecords(actionRows).length === 0) {
+      await connection.commit();
+      transactionComplete = true;
+      return false;
+    }
+    const [result] = await connection.query(
+      `UPDATE fault_run_actions
+          SET action_state = 'OUTCOME_UNKNOWN',
+              completed_at = CURRENT_TIMESTAMP(3),
+              result_summary_json = NULL,
+              error_code = ?
+        WHERE action_id = ?
+          AND fault_run_id = ?
+          AND action_type = ?
+          AND action_state = 'DISPATCHING'
+          AND dispatch_owner_id = ?
+          AND dispatch_owner_epoch = ?`,
+      [
+        normalizeErrorCode(input.errorCode),
+        input.actionId,
+        faultRunId,
+        input.actionType,
+        input.ownerId,
+        input.ownerEpoch,
+      ],
+    );
+    if (affectedRows(result) !== 1) {
+      await connection.rollback();
+      transactionComplete = true;
+      return false;
+    }
+    await markManualIntervention(connection, input.actionId, input.errorCode);
+    await connection.commit();
+    transactionComplete = true;
+    return true;
+  } catch (error) {
+    if (!transactionComplete) await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 export async function markStaleFaultRunActionUnknown(input: {
   actionId: string;
   dispatchOwnerId: string;
@@ -208,40 +376,88 @@ export async function markStaleFaultRunActionUnknown(input: {
 }): Promise<boolean> {
   await verifyFaultRunOwnershipSchema();
   const connection = await getPool().getConnection();
+  let transactionComplete = false;
   try {
     await connection.beginTransaction();
+    const [actionRefRows] = await connection.query(
+      'SELECT fault_run_id FROM fault_run_actions WHERE action_id = ?',
+      [input.actionId],
+    );
+    const faultRunId = asRecords(actionRefRows)[0]?.fault_run_id;
+    if (faultRunId === undefined) {
+      await connection.commit();
+      transactionComplete = true;
+      return false;
+    }
+    const [runRows] = await connection.query(
+      'SELECT fault_run_id FROM fault_runs WHERE fault_run_id = ? FOR UPDATE',
+      [faultRunId],
+    );
+    if (asRecords(runRows).length === 0) {
+      await connection.commit();
+      transactionComplete = true;
+      return false;
+    }
+    const [executionRows] = await connection.query(
+      `SELECT fault_run_id
+         FROM fault_run_executions
+        WHERE fault_run_id = ?
+          AND (NOT (owner_id <=> ?)
+            OR owner_epoch > ?
+            OR lease_expires_at <= CURRENT_TIMESTAMP(3))
+        FOR UPDATE`,
+      [faultRunId, input.dispatchOwnerId, input.dispatchOwnerEpoch],
+    );
+    if (asRecords(executionRows).length === 0) {
+      await connection.commit();
+      transactionComplete = true;
+      return false;
+    }
+    const [actionRows] = await connection.query(
+      `SELECT action_id
+         FROM fault_run_actions
+        WHERE action_id = ?
+          AND fault_run_id = ?
+          AND action_state = 'DISPATCHING'
+          AND dispatch_owner_id = ?
+          AND dispatch_owner_epoch = ?
+        FOR UPDATE`,
+      [input.actionId, faultRunId, input.dispatchOwnerId, input.dispatchOwnerEpoch],
+    );
+    if (asRecords(actionRows).length === 0) {
+      await connection.commit();
+      transactionComplete = true;
+      return false;
+    }
     const [result] = await connection.query(
-      `UPDATE fault_run_actions action
-       JOIN fault_run_executions execution
-         ON execution.fault_run_id = action.fault_run_id
-       SET action.action_state = 'OUTCOME_UNKNOWN',
-           action.completed_at = CURRENT_TIMESTAMP(3),
-           action.error_code = ?
-       WHERE action.action_id = ?
-         AND action.action_state = 'DISPATCHING'
-         AND action.dispatch_owner_id = ?
-         AND action.dispatch_owner_epoch = ?
-         AND (
-           execution.owner_id <> action.dispatch_owner_id
-           OR execution.owner_epoch > action.dispatch_owner_epoch
-           OR execution.lease_expires_at <= CURRENT_TIMESTAMP(3)
-         )`,
+      `UPDATE fault_run_actions
+          SET action_state = 'OUTCOME_UNKNOWN',
+              completed_at = CURRENT_TIMESTAMP(3),
+              error_code = ?
+        WHERE action_id = ?
+          AND fault_run_id = ?
+          AND action_state = 'DISPATCHING'
+          AND dispatch_owner_id = ?
+          AND dispatch_owner_epoch = ?`,
       [
         normalizeErrorCode(input.errorCode),
         input.actionId,
+        faultRunId,
         input.dispatchOwnerId,
         input.dispatchOwnerEpoch,
       ],
     );
     if (affectedRows(result) !== 1) {
       await connection.rollback();
+      transactionComplete = true;
       return false;
     }
     await markManualIntervention(connection, input.actionId, 'OWNER_LEASE_EXPIRED');
     await connection.commit();
+    transactionComplete = true;
     return true;
   } catch (error) {
-    await connection.rollback();
+    if (!transactionComplete) await connection.rollback();
     throw error;
   } finally {
     connection.release();

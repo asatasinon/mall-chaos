@@ -198,10 +198,10 @@ graph TD
 
 **目标：** 让 Operator 看见 owner/reconcile 事实，但不能把控制动作、目标效果、业务恢复和 cleanup 混为一谈。
 
-- [x] 新 mode 的 create 在同一 transaction 写 `CREATING`、execution 初始行、按 Catalog 要求写 prepare intent 和 `CREATED`；返回受限 intent，不在 Web/API 直接 prepare（单元验证；数据库事务证据仍待 disposable DB）。
+- [x] 新 mode 的 create 在同一 transaction 写 `CREATING`、execution 初始行、按 Catalog 要求写 prepare intent 和 `CREATED`；返回受限 intent，不在 Web/API 直接 prepare（单元及 disposable MySQL 事务验证）。
 - [x] stop/expiry/cleanup API 只写 recovery command/action intent；CREATING Run 停止时在同一事务取消尚未 dispatch 的 PREPARE，保留 Phase 1 session、CSRF、confirmation、audit、idempotency 和 `202`/`200`/`409` 语义。
 - [x] list/detail 返回受限 execution/action projection；legacy Run 明确空 execution/action，不返回伪造 owner/action 历史。
-- [-] 新增 owner acquired/lost/takeover/reconcile/drain/action unknown 低频事件，禁止每 heartbeat/每请求写事件；PREPARE unknown 与 execution 人工介入同事务，RELEASE/CLEANUP action event 待 owner-journal 集成（P2-ISSUE-009）。
+- [x] 新增 owner acquired/lost/takeover/reconcile/drain/action unknown 低频事件，禁止每 heartbeat/每请求写事件；PREPARE/RELEASE/CLEANUP unknown 与 execution 人工介入同事务，恢复 action 与 projection/event 在 live owner epoch 下原子结算。
 - [x] `fault-run-view.ts`/Operator details 严格消费受限 execution projection；UI 展示 takeover 与业务恢复、公开请求重叠不确定性的差异。
 - [x] 同步中英文 Scenario 文案和 i18n parity；不渲染 raw error、HTTP body、token、SQL、stack 或 host details。
 - [x] 覆盖 Operator projection、legacy read、i18n parity 和 UI parser 的现有 targeted tests。
@@ -221,8 +221,8 @@ graph TD
 
 **目标：** 用现有测试工具证明设计行为，而不是只证明类型或静态配置存在。
 
-- [-] repository/SQL：disposable MySQL 已覆盖 claim race、heartbeat、epoch fencing、lease loss、action uniqueness、create/PREPARE activation/action fencing 和 CREATING stop cancellation；RELEASE/CLEANUP owner-scoped transition/event SQL 尚未实现或验证。
-- [ ] Reconciler：四种 mode、首次 claim/stale takeover、driver single-start、unknown action、manual intervention、expiry/stop/recovery core；PREPARE 单元覆盖，RELEASE/CLEANUP owner-fenced 流程仍缺失。
+- [x] repository/SQL：disposable MySQL 已覆盖 claim race、heartbeat、epoch fencing、lease loss、action uniqueness、create/PREPARE activation、CREATING stop cancellation，以及 RELEASE/CLEANUP owner-scoped transition、event 和 terminal optional cleanup。
+- [x] Reconciler：四种 mode、首次 claim/stale takeover、driver single-start、unknown action、manual intervention、expiry/stop/recovery core；覆盖 recovery drain 保留同一 owner lease，以及 RELEASE/CLEANUP owner-fenced unit flow。
 - [x] driver：Report、Surge、Scenario、Runner-backed 的 ACTIVE gate、AbortSignal、drain timeout、迟到完成和 session cleanup。
 - [x] 生命周期隔离：normal Runner、warmup、coupon/inventory replenishment、retention 不因单 Run owner loss/stop 被停止。
 - [x] HTTP/security：consumer header、Gateway allowlist、Payment/PSP、no ownerEpoch、no scenario/lifecycle leakage。
@@ -261,18 +261,19 @@ graph TD
 | P2-ISSUE-002 | 设计复核 | `drain_state` claim 后写成 `RUNNING`，与 drain 语义混淆；`lease_lost_at` 会被 takeover 清空。 | UI/审计可能把 owner 获得误报为 drain 已开始，并丢失失联证据。 | 使用 `OWNED`；stale takeover 保留/记录 MySQL 检测时间。 | 已解决（文档修正） |
 | P2-ISSUE-003 | 设计复核 | Phase 1 已有 recovery executor/policy/runtime，但原设计未明确增量接入。 | 实现可能产生两套 recovery projection、deadline、cleanup 和 shutdown 语义。 | P2-00 固定复用并由 Reconciler 渐进接管，不复制状态机。 | 已解决（文档修正） |
 | P2-ISSUE-004 | P2-00 | `002`、`003`、`004` 已分别被 baseline、warmup config、alert receipts 占用，原设计使用了冲突的 `003`。 | migration 顺序和部署回退不可审计。 | Phase 2 固定 `005`，Phase 3 改用 `006`。 | 已解决（仓库核对后修正） |
-| P2-ISSUE-005 | 实施前 | prepare/release 没有通用 readback，`DISPATCHING` crash 无法判断 target 是否生效；PREPARE 已 journal unknown，RELEASE/CLEANUP 尚未接入。 | 自动重试可能造成重复真实副作用。 | journaled action 的 stale dispatch 固定 `OUTCOME_UNKNOWN`/人工介入；不自动重发。RELEASE/CLEANUP 由 P2-ISSUE-009 跟踪。 | 部分解决 |
-| P2-ISSUE-006 | 实施前 | 公开 consumer request 已发出后不能依赖 target fencing 立即拒绝。 | takeover 期间可能有请求重叠，不能承诺零重叠。 | local fence、停止接收、AbortSignal、bounded drain；UI 明示不确定性。 | 待实施 |
+| P2-ISSUE-005 | 实施前 | prepare/release 没有通用 readback，`DISPATCHING` crash 无法判断 target 是否生效。 | 自动重试可能造成重复真实副作用。 | PREPARE/RELEASE/CLEANUP 均 journal dispatch；迟到或不确定结果固定为 `OUTCOME_UNKNOWN`/人工介入，禁止自动重发；RELEASE/CLEANUP settlement 另由 P2-ISSUE-009 验证。 | 已解决（未知结果 fail-closed） |
+| P2-ISSUE-006 | 实施前 | 公开 consumer request 已发出后不能依赖 target fencing 立即拒绝。 | takeover 期间可能有请求重叠，不能承诺零重叠。 | P2-05/P2-06 使用 local fence、停止接收、AbortSignal 和 bounded drain；UI 明示不确定性，不承诺撤回已发请求。 | 已缓解（仍保留重叠限制） |
 | P2-ISSUE-007 | 实施前 | 旧 scanner 与新 Reconciler 并存会产生双驱动。 | 同一 Run 可能被两个本地 driver 同时执行。 | `WorkerRuntime` 在 non-`OFF` mode 禁用旧 Fault Run scanners；`OFF` 保持兼容路径。 | 已解决（P2-04/P2-05 wiring） |
 | P2-ISSUE-008 | P2-02 远端回归 | 远端 revision `26e36d5` 的 `runner-engine.test.ts` 中“runner gate closure…”用例以 `cancelledByParent` 失败，单文件重跑仍复现。 | 完整 `pnpm test:runner` 暂不能作为全绿门禁；该失败位于既有 Runner shutdown 测试，不涉及 execution lease repository。 | 由用户/后续批次单独归因 Runner 测试环境或既有实现；P2-03 继续使用 targeted tests，不能把该失败折叠为 lease 通过。 | 待处理 |
-| P2-ISSUE-009 | P2-07/P2-04 | 新模式 create/PREPARE 已由 Worker owner 驱动，但 RecoveryExecutor 的 RELEASE/CLEANUP 仍按 Phase 1 路径执行，未获得 owner-scoped journal/epoch fence。 | 不可宣称新模式 recovery 安全，也不得执行 runtime canary。 | 后续 slice 将 recovery action 与 execution lease、epoch、unknown/manual intervention 原子接入；保留现有 executor 避免遗弃恢复中的运行。 | 待处理 |
-| P2-ISSUE-010 | P2-09 | 新增 create、PREPARE action/activation、owner lease expiry 和 stop cancellation SQL 之前缺少独立数据库证据。 | 缺少新事务路径数据库证据；不得借用保留 RECOVERING/VERIFY_UNAVAILABLE 的共享环境。 | 在临时 MySQL 8.0.46 中执行 `db:migrate`/`db:verify`、`test:execution-lease` 和 `test:action-journal`；容器已移除。 | 已解决（4 个 DB integration tests 通过） |
+| P2-ISSUE-009 | P2-07/P2-04 | 新模式 create/PREPARE 已由 Worker owner 驱动，但 RecoveryExecutor 的 RELEASE/CLEANUP 曾未获得 owner-scoped journal/epoch fence。 | 不可宣称新模式 recovery 安全，也不得执行 runtime canary。 | RELEASE/CLEANUP 的 intent、dispatch、settlement/event 均受 live owner lease/epoch fence；不确定结果转 manual intervention 且不重发；terminal `OPTIONAL_PER_RUN` cleanup 保持终态并由 Worker 处理。恢复 drain 保留同一 owner lease，事务统一按 Run→execution→action 加锁。 | 已解决（unit + disposable MySQL 1+6 tests） |
+| P2-ISSUE-010 | P2-09 | 新增 create、PREPARE action/activation、owner lease expiry、stop cancellation 和 recovery action SQL 需要独立数据库证据。 | 缺少新事务路径数据库证据；不得借用保留 RECOVERING/VERIFY_UNAVAILABLE 的共享环境。 | 在临时 MySQL 8.0.46 加载 `00-schema-ddl.sql` 后执行 `db:migrate`/`db:verify`、`test:execution-lease` 和 `test:action-journal`；验证完移除容器。 | 已解决（1 + 6 个 DB integration tests 通过） |
 | P2-ISSUE-011 | P2-04/P2-07 | 初始 Reconciler scan 未安装 heartbeat；shutdown 不等待/取消 PREPARE；CREATING stop 留下可 dispatch 的 REQUESTED action；Web/API 新模式 create 未先验证 ownership schema。 | 租约可能在 PREPARE 中过期，shutdown recovery 可与 PREPARE 并发，停用 Run 留下陈旧意图，迁移缺失时 create 暴露底层表错误。 | 初始 scan 前启用 heartbeat、跟踪 PREPARE/driver-start owner、Gateway PREPARE 使用 fence AbortSignal；WorkerRuntime 在 recovery scan 前 quiesce 并对挂起 scan 设置有界超时；stop transaction 取消 REQUESTED PREPARE；新模式 create 先验证 schema。 | 已解决（本地 unit、typecheck、disposable MySQL 验证） |
 
 ## 8. 执行更新记录
 
 | 时间 | 任务 | 事实与证据 | 限制/下一步 |
 | --- | --- | --- | --- |
+| 2026-09-23 CST | P2-07/P2-09：owner-fenced RELEASE/CLEANUP recovery 完成 | RecoveryExecutor 将 RELEASE、recovering CLEANUP 和 terminal `OPTIONAL_PER_RUN` CLEANUP 纳入 owner/epoch action journal；intent、执行结果、recovery projection 与事件在事务中结算，unknown/迟到结果进入人工介入且不重发。Recovery drain 保留同一 owner lease；新增 Reconciler 测试，并统一 owner claim/recovery 写事务锁顺序为 Run→execution→action。临时 MySQL 8.0.46（含 `00-schema-ddl.sql`）上 `db:migrate`/`db:verify`、`test:execution-lease` 1/1、`test:action-journal` 6/6 通过；`pnpm test:runner` 235/235、typecheck 通过，lint 0 errors（1 个既有 warning）。 | 临时 DB 容器已移除；未连接或触碰共享/远端环境，未启用 canary。P2-10 的 restart、SHADOW、双 Worker TAKEOVER 与 promotion/rollback 证据仍待专用 runtime gate。 |
 | 2026-09-23 CST | P2-04/P2-07/P2-09：PREPARE lease、shutdown、stop intent 与 SQL 证据 | Reconciler 在初始 scan 前安装 heartbeat，并 heartbeat 正在 PREPARE/启动 driver 的 owner；PREPARE 使用 `FaultRunOwnerFence.signal`；新增 quiesce 与有界等待，使 WorkerRuntime 在 recovery scan 前停止新 scan、取消并等待未完成 PREPARE，同时保留 active owned drain participant；CREATING stop 在同一事务取消 REQUESTED PREPARE；新模式 API create 先验证 ownership schema。临时 MySQL 8.0.46 上 `db:migrate`/`db:verify` 通过，`test:execution-lease` 1/1、`test:action-journal` 3/3 通过；`pnpm test:runner` 229/229、Reconciler/WorkerRuntime targeted tests 22/22、typecheck 通过，lint 无错误（有既有 warning）。 | 临时 MySQL 容器已移除，未连接或触碰共享/远端 MySQL；RELEASE/CLEANUP 尚未 owner-fenced，P2-ISSUE-009 仍开放，远端继续 `OFF`，不运行 canary。 |
 | 2026-09-23 CST | P2-07：新模式 create/PREPARE focused slice | Catalog 显式声明 prepare capability 并计入 revision；create 同事务写 CREATING/CREATED/execution/按需 PREPARE；Web 不直接调用 target；Worker 先 claim，再 journal DISPATCHING、校验双层响应、owner-fenced activation 或 unknown/manual intervention；修复 WorkerRuntime non-OFF 旧 scanner fallthrough。focused unit、typecheck、lint 已通过。 | 未运行 runtime canary 或共享 DB 测试。RecoveryExecutor 的 RELEASE/CLEANUP 仍未 owner-fenced；disposable MySQL action/activation 集成测试待执行，P2-ISSUE-009/010 保持开放。 |
 | 2026-09-20 CST | 设计复核 | 完成 Phase 2 product/phase/tech 与 Phase 1 实现、任务清单、migration 文件、RecoveryExecutor/WorkerRuntime/RecoveryPolicy 对照；确认原设计没有 Phase 2 task list。 | 已补充本清单并修正 tech/phase/Phase 3 migration 引用；实施仍未开始。 |
