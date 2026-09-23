@@ -194,6 +194,47 @@ pnpm dev
 pnpm worker
 ```
 
+### 3.1 Fault Run ownership migration and rollout
+
+Fault Run owner/reconciliation remains disabled by default with
+`FAULT_RUN_RECONCILIATION_MODE=OFF`. Do not enable `OBSERVE`, `SHADOW`, or
+`TAKEOVER` before applying and verifying the control-plane migrations:
+
+```bash
+cd traffic-control-plane
+pnpm db:migrate
+pnpm db:verify
+```
+
+`db:migrate` is an explicit, checksum-checked operation. It must not be
+executed from a Route Handler, normal Worker startup, or an application
+request. Existing Fault Runs are not backfilled with synthetic owner/action
+history. The first rollout keeps one Worker and `TAKEOVER` disabled; promote
+from `OBSERVE` to `SHADOW`, then to test-only `TAKEOVER` only after the
+double-claim, stale-owner, drain, action-unknown, and rollback checks pass.
+
+For Compose, keep the Web/API and Worker reconciliation settings paired and
+recreate both control-plane containers only after the migration has completed:
+
+```bash
+FAULT_RUN_RECONCILIATION_MODE=OFF \
+REGISTRY=castrel docker compose up -d --no-build --pull never --force-recreate
+```
+
+For Kubernetes, run the migration Job separately before changing the Web/API
+or Worker Deployment:
+
+```bash
+kubectl apply -k k8s
+kubectl -n castrel wait --for=condition=complete job/traffic-control-plane-migrate --timeout=10m
+kubectl -n castrel logs job/traffic-control-plane-migrate
+```
+
+If the rollout is reverted, first stop new owner claims, preserve active
+`CREATING`/`RECOVERING` runs for reconciliation or manual handling, and keep
+the additive execution/action tables and events. Never reset the MySQL volume
+or mark an unknown action as confirmed.
+
 ### 4. 可选 SkyWalking
 
 默认观测链路是 OTel/Tempo。SkyWalking 仅提供 Compose profile，不随 Kubernetes 清单部署。推荐以下方式启动：脚本会自动包含项目 override；缺少 MySQL connector 时会下载 `mysql-connector-j-8.0.33.jar`。
