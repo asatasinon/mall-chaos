@@ -67,7 +67,7 @@
 ## 3. 总体进度
 
 - **总体状态：** P2-00 已完成，P2-01 进行中；仍保持 `OFF`，不启用 `TAKEOVER`。
-- **总体进度：** 7 / 11 个任务组，62 / 75 个实施子任务。
+- **总体进度：** 7 / 11 个任务组，63 / 75 个实施子任务。
 - **当前任务：** P2-07 Command/API/UI/event projection。
 - **下一步：** 将 owner/action projection 接入 Operator API/UI，并保持 legacy read compatibility。
 
@@ -83,7 +83,7 @@
 | P2-07 | Command/API/UI/event projection | 进行中 | 3 / 7 | P2-03、P2-04 |
 | P2-08 | 配置、部署、灰度和回退 | 进行中 | 4 / 6 | P2-04、P2-07 |
 | P2-09 | 单元、并发、协议和集成验证 | 进行中 | 7 / 8 | P2-02 至 P2-08 |
-| P2-10 | Docker canary、双 Worker 验证和阶段退出 | 未开始 | 0 / 6 | P2-08、P2-09 |
+| P2-10 | Docker canary、双 Worker 验证和阶段退出 | 进行中（preflight） | 1 / 6 | P2-08、P2-09 |
 
 ## 4. 执行依赖
 
@@ -235,7 +235,7 @@ graph TD
 
 **目标：** 在 disposable 环境证明 owner/reconcile 行为，并保留所有运行时限制。
 
-- [ ] canary 前确认 migration、镜像、Web/Worker mode、active Run 快照、normal-task baseline、owner identity 和回退窗口。
+- [x] canary 前确认 migration、镜像、Web/Worker mode、active Run 快照、normal-task baseline、owner identity 和回退窗口。
 - [ ] 在 `OBSERVE`/`SHADOW` 单 Worker 环境验证 create、heartbeat、stop、expiry、restart、shutdown 和 legacy compatibility。
 - [ ] 在专用双 Worker 测试环境验证 concurrent claim、stale owner、旧 owner local fence、公开请求重叠限制和 takeover；不得把双 Worker 作为默认部署。
 - [ ] 验证 prepare/release/cleanup action unknown 不重发，manual intervention、drain timeout、verification unavailable 和 non-releasing 均保持正确状态。
@@ -304,4 +304,5 @@ graph TD
 | 2026-09-22 CST | P2-08：migration rollout runbook 完成 | README 增加 `db:migrate`/`db:verify`、Compose mode pairing、Kubernetes Job wait、single-Worker promotion 和 non-destructive rollback 顺序。 | 仍未执行 runtime rollout；P2-10 负责真实 canary。 |
 | 2026-09-23 CST | P2-09：并行静态/协议验证收口 | 本地 `pnpm test:runner`、`test:i18n`、typecheck、lint、terminology check、Compose config、Kustomize、diff check 全部通过；Gateway/Payment Maven targeted tests通过；repository/lease/action/driver/projection/security coverage 已完成静态与 targeted 验证。 | Reconciler full takeover、normal-task runtime isolation、真实 Docker canary 和 rollback 仍属于 P2-10 runtime gate。 |
 | 2026-09-23 CST | P2-09：Reconciler mode matrix unit coverage | 新增 TAKEOVER stale epoch unit coverage；结合 OFF gate、OBSERVE/SHADOW stale、initial claim、heartbeat loss、expiry recovery command tests，Reconciler core mode coverage通过。 | normal-task runtime isolation 和真实 takeover/canary 仍未运行。 |
+| 2026-09-23 CST | P2-10：远端 canary preflight | 用户更新后的远端 revision `5fdde12` Compose 全部 running；`FAULT_RUN_RECONCILIATION_MODE=OFF`、safe-runtime=false、migration `db:verify` 通过、lease/action integration tests 通过、active/recovering Run 为 `0`。 | 不在当前 mode 下启用 canary/takeover；需由用户后续部署 `OBSERVE` 配对配置并提供独立停止窗口。 |
 | 2026-09-21 CST | P2-04：drain registry bridge | Reconciler owned entry 增加 drain-owner mapping，注册到现有 `FaultRunDrainRegistry`，stop/recovery 可复用 participant settled contract；core tests 与 typecheck/lint 通过。 | WorkerRuntime 仍未启用 Reconciler；expiry/release recovery 和真实 driver wiring 后续完成。 |
