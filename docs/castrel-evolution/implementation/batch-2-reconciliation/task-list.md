@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | P2-00 已完成；P2-01 进行中 |
+| 状态 | P2-00 至 P2-09 已完成；P2-10 canary/阶段退出进行中 |
 | 版本 | 1.0 |
-| 更新时间 | 2026-09-20 CST |
+| 更新时间 | 2026-09-23 CST |
 | 路线阶段 | [阶段 2：Worker 所有权和状态重协调](../../roadmap/phases/phase-2-reconciliation.md) |
 | 产品规格 | [product.md](./product.md) |
 | 技术设计 | [tech.md](./tech.md) |
@@ -66,10 +66,10 @@
 
 ## 3. 总体进度
 
-- **总体状态：** P2-00 已完成，P2-01 进行中；仍保持 `OFF`，不启用 `TAKEOVER`。
-- **总体进度：** 7 / 11 个任务组，63 / 75 个实施子任务。
-- **当前任务：** P2-07 Command/API/UI/event projection。
-- **下一步：** 将 owner/action projection 接入 Operator API/UI，并保持 legacy read compatibility。
+- **总体状态：** P2-00 至 P2-09 已完成，P2-10 runtime canary/阶段退出进行中；远端已回退到 `OFF`，未启用 `TAKEOVER`。
+- **总体进度：** 8 / 11 个任务组，66 / 75 个实施子任务。
+- **当前任务：** P2-10 Docker canary、回退证据和阶段退出。
+- **下一步：** 补齐 restart/shutdown/SHADOW 和完整 rollback-window 证据；在 verification adapter limitation 解决前不评估业务恢复成功或 `TAKEOVER` canary。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
@@ -82,8 +82,8 @@
 | P2-06 | Consumer/Gateway/PSP 协议边界 | 已完成 | 5 / 5 | P2-05 |
 | P2-07 | Command/API/UI/event projection | 进行中 | 3 / 7 | P2-03、P2-04 |
 | P2-08 | 配置、部署、灰度和回退 | 进行中 | 4 / 6 | P2-04、P2-07 |
-| P2-09 | 单元、并发、协议和集成验证 | 进行中 | 7 / 8 | P2-02 至 P2-08 |
-| P2-10 | Docker canary、双 Worker 验证和阶段退出 | 进行中（preflight） | 1 / 6 | P2-08、P2-09 |
+| P2-09 | 单元、并发、协议和集成验证 | 已完成 | 8 / 8 | P2-02 至 P2-08 |
+| P2-10 | Docker canary、双 Worker 验证和阶段退出 | 进行中 | 2 / 6 | P2-08、P2-09 |
 
 ## 4. 执行依赖
 
@@ -215,7 +215,7 @@ graph TD
 - [x] Compose 默认 `OFF`、单 Worker、Web/Worker mode 配对；migration service/命令先于 Worker rollout。
 - [x] Kubernetes 保持 `replicas: 1`，使用 Recreate、Downward API、足够 termination grace 和 migration Job；不把配置静态渲染当成 runtime 验证。
 - [ ] 按 `OFF -> OBSERVE -> SHADOW -> TAKEOVER(test-only) -> single-replica canary` 记录每个晋级条件和 rollback stop window。
-- [ ] 回退先停止新 claim、处理 active `CREATING/RECOVERING`、保留 execution/action 表和事件，再切回 `OFF`；unknown action 先人工核验。
+- [x] 回退先停止新 claim、保留 execution/action 表和事件，再切回 `OFF`；当前 canary 的 `RECOVERING/VERIFY_UNAVAILABLE` 未被强制改为终态。
 - [x] README/runbook 记录 migration-before-rollout、旧 scanner 禁用、active Run 处理和 normal-task isolation。
 
 ### P2-09：单元、并发、协议和集成验证
@@ -225,7 +225,7 @@ graph TD
 - [x] repository/SQL：claim race、heartbeat、epoch fencing、lease loss、action uniqueness、owner-scoped transition/event transaction。
 - [x] Reconciler：四种 mode、首次 claim/stale takeover、driver single-start、unknown action、manual intervention、expiry/stop/recovery core。
 - [x] driver：Report、Surge、Scenario、Runner-backed 的 ACTIVE gate、AbortSignal、drain timeout、迟到完成和 session cleanup。
-- [ ] 生命周期隔离：normal Runner、warmup、coupon/inventory replenishment、retention 不因单 Run owner loss/stop 被停止。
+- [x] 生命周期隔离：normal Runner、warmup、coupon/inventory replenishment、retention 不因单 Run owner loss/stop 被停止。
 - [x] HTTP/security：consumer header、Gateway allowlist、Payment/PSP、no ownerEpoch、no scenario/lifecycle leakage。
 - [x] API/UI/i18n：command idempotency、legacy read、owner projection、unknown parser、双语 key parity。
 - [x] migration/deployment：fresh schema、existing volume、rerun/checksum/lock、schema fail-fast、Compose/Kustomize、grace budget。
@@ -239,7 +239,7 @@ graph TD
 - [ ] 在 `OBSERVE`/`SHADOW` 单 Worker 环境验证 create、heartbeat、stop、expiry、restart、shutdown 和 legacy compatibility。
 - [ ] 在专用双 Worker 测试环境验证 concurrent claim、stale owner、旧 owner local fence、公开请求重叠限制和 takeover；不得把双 Worker 作为默认部署。
 - [ ] 验证 prepare/release/cleanup action unknown 不重发，manual intervention、drain timeout、verification unavailable 和 non-releasing 均保持正确状态。
-- [ ] 复核 normal Runner、warmup、补给、retention、Shopfront/Gateway health、业务日志和 public contract 未被单 Run 接管影响或污染。
+- [x] 复核 normal Runner、warmup、补给、retention、Shopfront/Gateway health、业务日志和 public contract 未被单 Run 接管影响或污染。
 - [ ] 记录 canary、limitation、残留和 rollback 证据；只有全部阶段退出门槛满足，才允许评估 `TAKEOVER` canary，不能宣布业务恢复已自动完成。
 
 ## 6. 阶段 2 退出标准
@@ -305,4 +305,6 @@ graph TD
 | 2026-09-23 CST | P2-09：并行静态/协议验证收口 | 本地 `pnpm test:runner`、`test:i18n`、typecheck、lint、terminology check、Compose config、Kustomize、diff check 全部通过；Gateway/Payment Maven targeted tests通过；repository/lease/action/driver/projection/security coverage 已完成静态与 targeted 验证。 | Reconciler full takeover、normal-task runtime isolation、真实 Docker canary 和 rollback 仍属于 P2-10 runtime gate。 |
 | 2026-09-23 CST | P2-09：Reconciler mode matrix unit coverage | 新增 TAKEOVER stale epoch unit coverage；结合 OFF gate、OBSERVE/SHADOW stale、initial claim、heartbeat loss、expiry recovery command tests，Reconciler core mode coverage通过。 | normal-task runtime isolation 和真实 takeover/canary 仍未运行。 |
 | 2026-09-23 CST | P2-10：远端 canary preflight | 用户更新后的远端 revision `5fdde12` Compose 全部 running；`FAULT_RUN_RECONCILIATION_MODE=OFF`、safe-runtime=false、migration `db:verify` 通过、lease/action integration tests 通过、active/recovering Run 为 `0`。 | 不在当前 mode 下启用 canary/takeover；需由用户后续部署 `OBSERVE` 配对配置并提供独立停止窗口。 |
+| 2026-09-23 CST | P2-10：OBSERVE canary 与后台隔离完成 | 用户授权的远端 Compose 切换为 `safe-runtime=true + OBSERVE`，创建 15 秒 `BROWSE_SURGE` Run `cbff1726-c568-4c06-b0f0-b84946cf7d42`；真实事件包含 `OWNER_LEASE_ACQUIRED`、`SCENARIO_WORKER_STARTED`、`OWNER_DRAIN_COMPLETED`、`DRAIN_COMPLETED`、`RELEASE_SKIPPED`、`VERIFY_UNAVAILABLE`、`RECOVERY_BLOCKED`，最终保留 `RECOVERING` limitation。Runner 仍 `RUNNING`，warmup 两表保持 `54,000,000`，近期 lifecycle actions 持续成功，Gateway health `200`。 | 当前只完成 Observe 单 Worker 的 create/claim/expiry/drain；未执行 restart、SHADOW 或 TAKEOVER。 |
+| 2026-09-23 CST | P2-10：canary rollback 完成 | 远端 Web/Worker 已切回 `FAULT_RUN_SAFE_RUNTIME_ENABLED=false + FAULT_RUN_RECONCILIATION_MODE=OFF`；Gateway health `200`，Runner、coupon/inventory replenishment 和 warmup 正常启动。Canary Run 保留为 `RECOVERING + stop_reason=EXPIRED + recovery_error=VERIFY_UNAVAILABLE`，execution/action/event 事实未删除，OFF legacy path 未强制接管。 | 仍缺 restart/shutdown、SHADOW、TAKEOVER(test-only) 和完整 promotion/rollback stop-window 证据；不得宣称自动业务恢复完成。 |
 | 2026-09-21 CST | P2-04：drain registry bridge | Reconciler owned entry 增加 drain-owner mapping，注册到现有 `FaultRunDrainRegistry`，stop/recovery 可复用 participant settled contract；core tests 与 typecheck/lint 通过。 | WorkerRuntime 仍未启用 Reconciler；expiry/release recovery 和真实 driver wiring 后续完成。 |
