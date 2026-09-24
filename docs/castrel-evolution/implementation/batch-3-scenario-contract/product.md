@@ -3,7 +3,9 @@
 > 状态：产品规格 v1
 > 对应路线阶段：阶段 3
 > 依赖：批次 2
-> 下一步：技术设计和 Contract validation 任务
+> 技术设计：[tech.md](./tech.md)
+> 实施进度：[task-list.md](./task-list.md)
+> 下一步：按任务清单实施 Catalog Contract supplement、兼容的 revision 设计与 Contract validator
 
 ## 1. 产品目标
 
