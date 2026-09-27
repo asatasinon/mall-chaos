@@ -1,10 +1,10 @@
 # 批次 3：Scenario Contract 技术设计
 
-> 状态：技术设计 v1，已按 Phase 2 现有代码校准；Contract 实施待开始<br>
+> 状态：技术设计 v1.3，按 2026-09-26 用户决策对齐；实施待开始<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 对应路线阶段：阶段 3<br>
 > 前置条件：批次 0～2 的运行事实、drain、owner/reconcile 语义已可验证<br>
-> 设计原则：Catalog 单一事实源、跨层显式校验、只读生成、增量迁移、业务协议零泄漏
+> 设计原则：Catalog 单一事实源、跨层显式校验、fresh-schema 部署、只读生成、业务协议零泄漏
 
 ## 1. 设计结论
 
@@ -12,12 +12,14 @@
 
 实现采用以下结论：
 
-1. `traffic-control-plane/src/lib/fault-run-catalog.ts` 继续是所有场景可变事实的唯一来源。每个场景所需的执行、恢复、证据和告警补充语义直接附着在该 Catalog 项上；新模块只提供类型、规范化、校验和投影，不保存第二份 `scenario -> contract` 表。
-2. Gateway、各 Worker 和目标服务继续拥有自己的手工运行映射。它们必须导出最小的、只用于校验的 capability descriptor；Contract validator 比较这些 descriptor 与 Catalog，而不通过 AST、正则或 Markdown prose 猜测运行行为。
-3. 静态校验在 CI 中为阻断门禁；独立的 Contract validation mode 默认 `warn`，只记录控制面诊断，不改变已存在 Fault Run 的执行、停止或恢复。它不得复用或覆盖 Phase 2 的 `FAULT_RUN_SAFE_RUNTIME_ENABLED`、`FAULT_RUN_RECONCILIATION_MODE`。所有 12 个场景稳定通过后，才在测试环境和 canary 中将**创建新 Run**提升为 `enforce`。
-4. 新建 Fault Run 在同一个 MySQL 创建事务内写入 server-derived `contractRevision`，并将相同值写进既有 `CREATED` 事件。该字段只出现在 Operator 内部读模型，不能进入 Gateway payload、`FaultRunContext` 或业务服务协议。
-5. Contract 的 alert 声明必须区分“控制动作完成”“目标效果被观察到”“告警 receipt 已接收”和“证据不可用”。场景开启绝不表示告警一定 firing；阶段 5 的 receiver 尚未部署时使用显式的 `NOT_ENABLED_YET` 状态，而不是伪造已就绪。
-6. Contract 只生成表单元数据、runbook checklist、smoke matrix、术语检查输入和 CI artifact；v1 不自动生成或改写生产路由、Worker 代码、目标服务接口或 Markdown 正文。
+1. `traffic-control-plane/src/lib/fault-run-catalog.ts` 继续是场景可变事实的唯一来源。Catalog 已有的 `targetPrepare`、`recoveryPolicy`、target 和 parameters 是权威字段；supplement 只增加参数消费者、预算/guard 说明、生命周期检查 ID、Evidence DSL 和 Alert Contract，不复制第二套 dispatch/recovery policy。
+2. Gateway、Owned Worker drivers 和目标服务继续拥有自己的运行映射。用 Catalog 派生的临时 expectation 与各自代码测试比对；不使用 AST/prose 猜测，也不要求运行时 control-plane 镜像读取 Gateway Java map。
+3. 跨层静态 gate 由外部 CI 调用根级脚本并设为阻断；本仓库不增加 GitHub Actions workflow。`SCENARIO_CONTRACT_VALIDATION_MODE=warn|enforce` 仅用于当前进程可验证的 Catalog/schema/new-run admission，且与 Phase 2 safe-runtime/reconciliation switches 分离。
+4. 新 Fault Run 的非空 per-run `contractRevision` 与 `CREATED` event 在同一创建事务写入，并在 Operator 的受控事件投影中展示。它不进入 Gateway payload、`FaultRunContext` 或业务服务协议。
+5. revision 同时保留全局 64-hex `catalogRevision` 和 per-run `sc.v1:sha256:` `contractRevision`；两者 canonical input 都包含新增 supplement，参数按名称排序，UI 顺序不影响 hash。
+6. Phase 3 不保存完整 Contract JSON；Phase 4 capture 开启时保存冻结 Evidence snapshot。当前 clean-slate 部署会清空数据库和业务资源；`contract_revision` 在 fresh schema 中 `NOT NULL`，不提供旧行、旧 schema 或跨部署 idempotency-key 兼容。
+7. Alert 合同区分控制动作、effect observation、控制面 receipt、外部 Agent delivery readiness、观测不可用和业务恢复；场景开启绝不表示告警一定 firing。
+8. Contract 只生成表单元数据、runbook checklist、smoke matrix、术语输入、合同测试骨架和 CI artifact；v1 不自动生成/改写生产路由、Worker 代码或目标服务接口。
 
 ```text
 Catalog + Contract supplement
@@ -51,11 +53,13 @@ Operator creates Fault Run
 | --- | --- |
 | Catalog、Gateway target map、Worker dispatch 的一致性 | 通过跨语言和 TypeScript descriptor 进行静态、确定性校验。 |
 | 参数、duration、预算和参数消费者 | 校验 Catalog schema、默认值、标准化、消费者、限制权威和专用不变量。 |
-| prepare、active、stop、release、cleanup、recovery | 在 Contract 中声明可验证的 capability 和检查项；校验 Phase 2 已有 owner/action/recovery hooks，不复制或替代其状态机。 |
+| prepare、active、stop、release、cleanup、recovery | 由 Catalog 既有 `targetPrepare` / `recoveryPolicy` 和 Phase 2 owner/action/recovery hooks 决定；Contract 仅校验其适用性，不复制或替代状态机。 |
 | 证据和告警 | 为阶段 4、5 定义结构化声明与校验规则；不采集或保存 Prometheus、Loki、Tempo 的现场数据。 |
 | runbook、i18n、术语隔离 | 扩展已有覆盖检查，并生成维护者辅助工件。 |
 | Contract revision | 为新 Fault Run 持久化 revision，支持 Operator 时间线追踪。 |
 | CI 和发布门禁 | 增加独立的静态命令、报告工件和阻断流程。 |
+
+资源预算的已确认边界：`BROWSE_SURGE` / `ORDER_QUERY_SURGE` 的 `concurrency` 上限为 `128`；`NOTIFICATION_STORAGE_APPEND.totalBytes` 是可配置目标、无静态总量上限，实际 append 由文件系统 `usableSpace` guard 保护；`minFreeBytes` 约束为 `1 MiB`–`1 GiB`。Contract 要表达这是容量 guard，而不是物理空间使用量保证。
 
 以下内容明确不属于批次 3：
 
@@ -64,7 +68,7 @@ Operator creates Fault Run
 - 不自动修复、自动 release、自动 cleanup，也不把 Contract 校验变成目标服务的 Controller 校验。
 - 不把 Contract manifest 当作离线指标、日志、Trace、数据库、Redis、JVM heap、文件系统或 PSP 现场快照。
 - 不重做现有 Alertmanager receipt intake；不实现专用外部 Agent 投递、RCA 提交或 Evaluator，这些仍分别属于批次 5.1 和 5.2。
-- 不把一次 Contract revision 当作历史场景内容归档。Fault Run 仍遵循现有七天 retention；长期可重放的 Contract archive 如有需要，应作为后续独立的、无级联删除设计。
+- 不把 Phase 3 的 revision hash 当成完整历史 Contract archive；完整 Evidence snapshot 由 Batch 4 capture 功能在 flag 启用时冻结。当前部署 reset 会整体删除运行状态，不支持旧 Run 跨部署恢复；未来保留数据库时必须另行实现 migration 和 archive/retention。
 
 ## 3. 当前实现基线与阻断项
 
@@ -74,7 +78,7 @@ Operator creates Fault Run
 | --- | --- | --- |
 | Catalog 与 Gateway 的关系 | Catalog 有 12 个场景；Gateway `OperationDispatchController.TARGETS` 有 10 个 target-backed operation；两种 surge operation 是本地 Worker bypass。 | 校验 target-backed operation 的 service/operation 一致性，并明确声明本地 Worker bypass。不能把“Gateway 找不到 operation”误判为所有场景错误。 |
 | Worker dispatch | Phase 2 提供 `OwnedFaultRunDriver` 的 `supports(run)` / `drainOwner`，由 `getFaultRunDrivers()` 注册四类 driver；`WorkerRuntime` 在 safe-runtime + reconciliation mode 非 `OFF` 时启动 Reconciler 并跳过旧 report/surge/scenario scanners。 | Contract 补充 validator-facing capability metadata 并对实际 `supports()`、ACTIVE admission、drain participant 和 summary event 做覆盖测试；不新增第二套 scenario list 或 Worker dispatcher。 |
-| `CART_CATALOG_DEPENDENCY` | `ScenarioWorkers.startOwned()` 已创建 customer session、选择商品，并通过 Gateway 调用真实 `POST /api/cart/items`；Catalog recovery policy 的 drain owner 是 `SCENARIO_WORKERS`。 | Contract 应声明并校验该现有 owner/path；尚未完成的运行证据和 verification 保持 `UNKNOWN` / `NOT_CONFIGURED`，不能称为没有 dispatch。 |
+| `CART_CATALOG_DEPENDENCY` | `ScenarioWorkers.startOwned()` 已创建 customer session、选择商品，并通过 Gateway 调用真实 `POST /api/cart/items`；Catalog recovery policy 的 drain owner 是 `SCENARIO_WORKERS`。 | Contract 从已有 Catalog/driver 派生 owner/path；尚未完成的运行证据和 verification 保持 `UNKNOWN` / `NOT_CONFIGURED`，不能称为没有 dispatch。 |
 | runnable state | Repository 提供 `listRunnableFaultRuns()`；Reconciler 可处理 `CREATING` 的 target prepare，但只在成功激活为 `ACTIVE` 后启动 driver。`RECOVERING` 不作为 effect driver 的 runnable state。 | Contract 检查必须确认所有效果只在 ACTIVE 生效，并覆盖 CREATING prepare 与 RECOVERING 禁止启动；这是对已交付行为的校验，不是重做 Phase 1/2 gate。 |
 | worker drain | Owned drivers 声明 `drainOwner`，Reconciler 启动后把 owner participant 注册至 `FaultRunDrainRegistry`；每个 driver 通过受控 stop/handle 完成 bounded drain。 | Contract 将 Catalog `recoveryPolicy.workerDrain.owner` 与真实 driver、drain registry 和结果事件交叉验证；不另建 run drain Map 或 Coordinator hook。 |
 | recovery strategy | Catalog 已定义 `recoveryPolicy`，`resolveFaultRunRecoveryPolicy()` 做组合校验；`FaultRunRecoveryExecutor` 使用该 policy 决定 drain、target release、manual cleanup 和结果记录。`WorkerRuntime` 在 legacy、safe-runtime 与 Reconciler mode 下采用不同接线。 | Contract 复用该 resolver 和 executor 行为；只补齐跨层静态 coverage。不得把 legacy `FaultRunCoordinator` 单独作为当前所有部署模式的 recovery 描述。 |
@@ -82,8 +86,8 @@ Operator creates Fault Run
 | cleanup wire compatibility | Gateway cleanup 只发送 `runId`、`operation`、`fencingToken`，而 target cleanup handler 的上下文校验并不完全一致。 | Gateway registry test 和 target endpoint test 必须证明声明的 cleanup mode 与实际 wire contract 兼容。 |
 | evidence | runbook 有展示用 Tempo recipe，但没有 run-relative PromQL/LogQL/TraceQL、业务检查或 `evidence_unavailable` 声明。 | 所有场景必须增加结构化 evidence recipe；不可将 `now-1h to now` 的 UI 提示冒充阶段 4 Manifest。 |
 | alert delivery | P0-13 已补齐内部 webhook route、service-key credentials file 和低基数 receipt；当前仍为 generic receiver，尚无阶段 5 专用 child route、告警关联和外部 Agent receiver。 | 每个场景必须有完整 alert declaration；当 delivery 为 `NOT_ENABLED_YET` 或尚未完成真实 receipt 时静态 Contract 可通过，但 readiness 报告必须说明未可投递/未核验。 |
-| Contract revision | `fault_runs`、`fault_run_events` 和 API record 中均没有 per-run Contract revision；已有 `getCatalogRevision()` 是 Catalog-level revision，不会绑定到 Run。 | 通过 nullable additive column 和既有 `CREATED` event 写入；不回填旧 Run。 |
-| 迁移 | 已有顺序 migration runner，当前执行 `001`–`005`，支持 checksum、migration history 与 MySQL advisory lock；fresh-install init 已占用 `00`–`09`。`CREATE TABLE IF NOT EXISTS` 仍不能为已有 volume 增列。 | revision 使用 `006-fault-run-contract-revision.sql` 和 `infra/mysql/init/10-fault-run-contract-revision.sql`；更新既有 runner/verifier 与 fresh-install parity，不新建平行 migration runner，也不重置 volume。 |
+| Contract revision | `fault_runs`、`fault_run_events` 和 API record 中没有 per-run revision；已有 `getCatalogRevision()` 是 global Catalog revision。 | clean schema 增加 `contract_revision NOT NULL`；部署不保留旧 Run 或跨部署幂等 key。 |
+| Schema rollout | 部署会清空数据库及业务资源，不保留旧 migration history 或运行数据。 | 本批次不新增 `006` / init `10`，不做 upgrade migration；同步更新 runtime create schema、`001` 和 init `04` 并加 fresh-schema parity/verification。以后改为保留数据部署时另立 migration 设计。 |
 
 这些发现不是本设计中的默认豁免。`warn` 阶段可以把它们作为有结构的诊断保留；任何被标为 required 的能力在 `enforce` 或 CI strict gate 中均必须失败。
 
@@ -113,7 +117,7 @@ export interface FaultRunScenarioDefinition {
 | `fault-run-catalog.ts` | traffic-control-plane | 场景、固定 target、参数、duration、恢复分类和新增的补充语义。 | 在 Validator、API route、SQL 或业务服务复制场景属性。 |
 | Gateway `OperationTargetRegistry` | gateway-service | operation 到 service/prepare/release/cleanup path 的运行路由。 | 用 TypeScript 重新实现 Gateway target map。 |
 | Worker descriptor exports | 对应 Worker | 运行 owner、支持的场景、ACTIVE gate、drain/summary capability。 | 从 Worker 源码文本或日志推断 dispatch。 |
-| `RUNBOOK_METADATA` 与 Markdown | runbook | 文档文件 allowlist、展示用业务路径和 Tempo 提示。 | 以自由文本作为 target/recovery/evidence 的权威来源。 |
+| `RUNBOOK_METADATA` 与 Markdown | runbook | 文档文件 allowlist、文章展示和影响解释；Tempo service/route/query 从 Evidence Contract 派生。 | 以自由文本作为 target/recovery/evidence 的权威来源。 |
 | `SCENARIO_META`、messages | 控制台 UI/i18n | 场景分组、标签、说明和参数翻译。 | 用 UI fallback 掩盖缺失 Catalog 场景。 |
 | Prometheus/Alertmanager YAML | 部署配置 | 可用 rule、severity、route、receiver 和 `send_resolved` 的部署意图。 | 用运行时告警或 prose 推断静态声明。 |
 | `docs/runbooks/alert-scenario-matrix.md` | 维护者文档 | 对真实信号强弱、阈值和限制的解释。 | 解析表格来生成机器 Contract。 |
@@ -153,14 +157,6 @@ Catalog 只依赖 control-plane 内部类型。Gateway Java 代码不导入 Type
 ```ts
 export const SCENARIO_CONTRACT_SCHEMA_VERSION = 'scenario-contract.v1' as const;
 
-export type ScenarioDispatchOwner =
-  | 'REPORT_WORKER'
-  | 'TRAFFIC_SURGE_EXECUTOR'
-  | 'SCENARIO_WORKERS'
-  | 'RUNNER_ENGINE';
-
-export type TargetLifecycleMode = 'GATEWAY' | 'LOCAL_WORKER';
-export type CleanupMode = 'NONE' | 'OPTIONAL_PER_RUN' | 'OPERATOR_CONFIRMED';
 export type ParameterConsumer = 'ADMISSION' | 'TARGET_PREPARE' | 'WORKER_EXECUTION';
 export type EvidenceSource =
   | 'RUN_EVENT'
@@ -169,34 +165,95 @@ export type EvidenceSource =
   | 'TEMPO'
   | 'BUSINESS_CHECK'
   | 'RESOURCE_CHECK';
-export type EvidenceWindow = 'BASELINE' | 'ACTIVE' | 'RECOVERY' | 'CLEANUP';
+export type EvidenceWindow = 'baseline' | 'active' | 'recovery' | 'cleanup';
+export type EvidenceProjection = 'NUMERIC' | 'COUNT' | 'BOOLEAN' | 'TIMELINE';
+export type EvidenceTemplateId =
+  | 'HTTP_P99' | 'HTTP_ERROR_RATIO' | 'HTTP_RATE' | 'HIKARI_UTILIZATION'
+  | 'JVM_HEAP_RATIO' | 'MYSQL_SLOW_QUERY_RATE' | 'REDIS_MEMORY_RATIO'
+  | 'NODE_FILESYSTEM_RATIO' | 'SERVICE_EVENT_COUNT' | 'SERVICE_ERROR_COUNT'
+  | 'SERVICE_REQUESTS' | 'SERVICE_ERRORS' | 'SERVICE_SLOW_REQUESTS'
+  | 'SERVICE_ROUTE_REQUESTS' | 'CATALOG_PRODUCT_LIST' | 'CATALOG_BROWSE_REPORT'
+  | 'RUN_TIMELINE';
+
+export interface EvidenceScope {
+  service: string;
+  route?: string;
+  fixedLabels?: Readonly<Record<string, string>>;
+}
+
+export type EvidencePredicate =
+  | { kind: 'NONE' }
+  | { kind: 'BOOLEAN_EQUALS'; expected: boolean }
+  | {
+      kind: 'COMPARISON';
+      operator: 'GT' | 'GTE' | 'LT' | 'LTE' | 'EQ';
+      value: number;
+    };
+
+export interface EvidenceWindowPolicy {
+  baselineBeforeActiveSec: number;
+  activeLeadSec: number;
+  activeTailSec: number;
+  recoveryLeadSec: number;
+  recoveryTailSec: number;
+  cleanupLeadSec: number;
+}
+
+export interface EvidenceRecipeDefinition {
+  id: string;
+  source: EvidenceSource;
+  window: EvidenceWindow;
+  observationMode: 'WINDOWED' | 'CURRENT';
+  required: boolean;
+  template: EvidenceTemplateId;
+  scope: EvidenceScope;
+  predicate: EvidencePredicate;
+  projection: EvidenceProjection;
+}
+
+export interface EvidenceContractPlan {
+  schemaVersion: 'evidence-contract.v1';
+  windows: EvidenceWindowPolicy;
+  recipes: readonly EvidenceRecipeDefinition[];
+  effectRule: {
+    mode: 'ALL' | 'ANY';
+    recipeIds: readonly string[];
+  };
+}
+
+export type BudgetBoundary =
+  | {
+      kind: 'PARAMETER_BOUNDS';
+      parameterNames: readonly string[];
+    }
+  | {
+      kind: 'CATALOG_RULE';
+      ruleId: 'CATALOG_LARGE_VALUE_MAX_LOGICAL_BYTES';
+      parameterNames: readonly string[];
+    }
+  | {
+      kind: 'TARGET_CAPACITY_GUARD';
+      guardId: 'FILESYSTEM_USABLE_SPACE_RESERVE';
+      targetBytesParameter: 'totalBytes';
+      reserveBytesParameter: 'minFreeBytes';
+      hardTargetMaximum: 'UNBOUNDED_BY_DESIGN';
+    };
+
+export interface ScenarioResourceBudget {
+  resource: 'REQUEST_CONCURRENCY' | 'REDIS_LOGICAL_BYTES' | 'JVM_RETAINED_BYTES' | 'STORAGE_FILE_BYTES';
+  boundary: BudgetBoundary;
+}
 
 export interface ScenarioContractSupplement {
-  dispatch: {
-    owner: ScenarioDispatchOwner;
-    requiresActiveState: true;
-    requiresDrain: boolean;
-    terminalSummaryEvent: string;
-  };
-  targetLifecycle: {
-    mode: TargetLifecycleMode;
-    prepareRequired: boolean;
-    release: 'REQUIRED' | 'FORBIDDEN' | 'NOT_APPLICABLE';
-    cleanup: {
-      mode: CleanupMode;
-      trigger?: 'OPERATOR_CONFIRMED';
-      owner?: 'OPERATOR';
-      completionCheckIds: readonly string[];
-    };
-    prepareAssertionIds: readonly string[];
-  };
   parameterConsumers: Readonly<Record<string, readonly ParameterConsumer[]>>;
+  budgets: readonly ScenarioResourceBudget[];
   lifecycle: {
+    prepareAssertionIds: readonly string[];
     recoveryCheckIds: readonly string[];
     sideEffectCheckIds: readonly string[];
     nonReleasingReason?: string;
   };
-  evidence: readonly EvidenceRecipeDefinition[];
+  evidence: EvidenceContractPlan;
   alert: ScenarioAlertContract;
 }
 
@@ -207,94 +264,102 @@ export interface ResolvedScenarioContract extends ScenarioContractSupplement {
   targetOperation: string;
   maxDurationSec: number;
   recoveryStrategy: FaultRunRecoveryStrategy;
+  targetPrepare: 'REQUIRED' | 'NOT_APPLICABLE';
+  recoveryPolicy: FaultRunRecoveryPolicy;
   allowManualCleanup: boolean;
   parameters: readonly FaultRunParameterDefinition[];
+  dispatchOwner: FaultRunWorkerDrainOwner | null;
+  targetLifecycleMode: 'GATEWAY' | 'LOCAL_WORKER';
 }
 ```
+
+`ScenarioResourceBudget` 是预算权威来源声明，而不是第二份数值限制表：
+
+- `PARAMETER_BOUNDS` 要求列出的 Catalog 参数存在相应边界；例如 surge `concurrency` 的 `max=128`。
+- `CATALOG_RULE` 指向已有组合校验；例如 Redis logical bytes 的固定总量预算。
+- `TARGET_CAPACITY_GUARD` 描述目标服务实时检查的资源边界。通知存储的 `totalBytes` 是期望目标、按决策不设绝对上限；目标服务必须按 `FileStore.getUsableSpace()` 检查写入后仍保留 `minFreeBytes`，Catalog 的 `minFreeBytes.min` 为 1 MiB。
+
+所有场景的 `durationSec` 和普通参数范围仍直接读取 Catalog。Contract budget assertion 说明哪些资源边界由参数、组合规则或目标容量 guard 负责；无固定上限必须显式记录为已批准例外，不得伪装成数值上界。
 
 限制规则：
 
 - `durationSec` 必须存在于每个场景的参数中，并在 `parameterConsumers` 中至少有 `ADMISSION`；实际执行方需要 expiry 时必须声明 `WORKER_EXECUTION` 或 `TARGET_PREPARE`。
 - `parameterConsumers` 的 key 集合必须和 Catalog `parameters[].name` 完全相等。缺少、额外或空消费者均为 `invalidParameters`。
-- `TargetLifecycleMode.LOCAL_WORKER` 仅允许本地 Worker target bypass，`prepareRequired` 必须为 `false`、`release` 为 `NOT_APPLICABLE`，且不能要求 Gateway `TARGETS` entry。
-- `TargetLifecycleMode.GATEWAY` 要求 Catalog target operation 存在于 Gateway registry；除明确 `NON_RELEASING` 策略外，release 必须为 `REQUIRED`。
-- `OPTIONAL_PER_RUN` 表示恢复后可选、按该 Run 清理；`OPERATOR_CONFIRMED` 表示需要独立的 Operator confirmation/action，不表示全场景或无 Run 清理。所有 cleanup 均须有确定的 Run 身份、Catalog operation、fencing token 和 action journal 语义。
-- `NON_RELEASING` 场景必须给出 `nonReleasingReason`、停止后的 side-effect check 和恢复检查，且 `release` 不能写为 `REQUIRED`。这会暴露当前 notification heap 行为与 Catalog 的不一致，不能以“已有 release route”为通过条件。
+- `targetLifecycleMode` 从既有 `targetPrepare` 派生；`dispatchOwner` 从既有 `recoveryPolicy.workerDrain` 派生；target release/cleanup 从既有 recovery policy 派生。Resolved view 可携带这些计算结果供校验，但 Catalog supplement 不得再编辑同一事实。
+- 所有要求 worker 执行的场景必须对应一个 `getFaultRunDrivers()` driver，其 `name` 与派生 owner 一致，并在 runtime fixture 下恰好一个 `supports(run)` 命中。
+- `TARGET` 必须有 Catalog 声明的 target release；`WORKER` 必须有适用的 Worker stop/drain/verification，不要求不存在的 Gateway release；local Worker target release 可为 `NOT_APPLICABLE`。
+- `OPTIONAL_PER_RUN` 和 `OPERATOR_CONFIRMED` 直接使用 `recoveryPolicy.cleanup` 语义；所有 cleanup 均绑定 Run 身份、operation、fencing token 和现有 action journal，不声明 scenario-wide cleanup。
+- `NON_RELEASING` 必须给出 `nonReleasingReason`、停止后的 side-effect check 和适用 recovery check；目标释放由 Catalog policy 决定。
+- 每个 resource-bound parameter 均由其 Catalog `min/max` 或已验证 Catalog invariant 决定；surge 的 `concurrency.max=128` 必须进入参数验证与 worker 测试。storage 的 `totalBytes` 使用明确的 runtime guard exception：不加绝对最大值，validator 确认 `minFreeBytes.min >= 1 MiB`、Catalog/max 与 Java target 一致，且目标服务实施 filesystem capacity guard。
 
 ### 5.2 证据声明
 
-`EvidenceRecipeDefinition` 是阶段 4 可复用的结构化输入，不是现场数据，也不是可由用户请求指定的查询文本：
+`EvidenceContractPlan` 直接采用 Batch 4 已定义的 `EvidenceWindowPolicy`、`EvidenceRecipe` 和 `effectRule` 结构，不再使用自由形式 `queryTemplateOrOperation`。`EvidenceTemplateId`、`EvidenceScope` 和 `EvidencePredicate` 在 Phase 3 代码中定义为有限 union/结构化输入，供 Batch 4 renderer 消费。
 
-```ts
-export interface EvidenceRecipeDefinition {
-  recipeId: string;
-  source: EvidenceSource;
-  window: EvidenceWindow;
-  required: boolean;
-  subject: string;
-  queryTemplateOrOperation: string;
-  judgmentRuleId: string;
-  timeoutMs: number;
-  unavailableOutcome: 'EVIDENCE_UNAVAILABLE';
-}
-```
+每个 recipe 必须满足：
 
-所有 recipe 必须满足：
+- `id` 采用稳定 lower-kebab 命名并在当前 Evidence plan 内唯一，例如 `browse-surge.prometheus.active-rate`。
+- `template` 必须来自阶段 4 的有限模板清单；`scope` 只包含合同内固定的 service、route 和低敏静态 label；`predicate` 只能使用有限比较/布尔运算符和 typed operand，不得存自由 PromQL、LogQL、TraceQL、SQL、URL 或 shell。
+- Prometheus、Loki、Tempo、Run Event 使用 `WINDOWED`；固定业务 read-check 使用 `CURRENT`，只能证明执行时的当前可用性，不能作为过去 effect window 的 evidence 或 `effectRule` 输入。
+- 每个场景至少有 Run Event、适用的观测 source，以及 recovery/cleanup 适用性说明。`MANUAL_CLEANUP` 有 cleanup check；`NON_RELEASING` 有 residual/service recovery check。
+- `effectRule.recipeIds` 必须引用能输出 predicate outcome 的 Evidence recipe；结构规则不可把 prepare/receipt/release 自动映射为效果或业务恢复。
+- 任何查询失败、权限不足、retention 超期或数据不存在均由 Batch 4 表示为 `EVIDENCE_UNAVAILABLE` / `INCONCLUSIVE`，不能转换成“效果未发生”或“已恢复”。
 
-- `recipeId` 采用稳定 lower-kebab 命名并全局唯一，例如 `browse-surge.prometheus.active-rate`。
-- 查询模板、业务只读 operation、判断规则均为可信静态字符串；不得接受 Operator、消费者或 Agent 提供的 PromQL、LogQL、TraceQL、URL、SQL 或 shell。
-- 每个场景至少有一个 `RUN_EVENT` recipe、一个与效果相符的观测 recipe，以及一个与 recovery/cleanup 语义相符的 recipe。
-- `MANUAL_CLEANUP` 必须有 `CLEANUP` window 的 completion recipe；`NON_RELEASING` 必须有停止后 residual-effect 或 service-recovery recipe。
-- 任何查询失败、权限不足、retention 超期或数据不存在均返回 `EVIDENCE_UNAVAILABLE`，不能转换成“效果未发生”或“已恢复”。
-
-现有 `RUNBOOK_METADATA.tempo` 保留为展示用途。阶段 3 可以校验其 service/route 与 Contract evidence subject 不冲突，但不能把 `now-1h to now` 或 Tempo 页面链接视为 run-relative Evidence Query Manifest。
+Catalog Evidence Contract 是 service/route/query 的唯一机器事实源。`runbook.ts` 的 Tempo service/route/query展示字段应从同一合同派生；`RUNBOOK_METADATA` 只保留文章文件名、影响范围、解释路径等文档元数据，不能另存可变 query 映射。自由 prose 仍可解释限制，但不作为 renderer 输入。
 
 ### 5.3 告警声明
 
-每个场景必须显式声明 alert 边界，包括没有合理告警预期的场景：
+每个场景必须显式声明 alert 边界，包括没有合理告警预期的场景。相关 selector 的字段直接复用 Batch 5.0 `AlertCorrelationContract`，避免在 intake route 维护第二份 correlation schema：
 
 ```ts
+export interface AlertCorrelationContract {
+  alertName: string;
+  service: string;
+  severity: 'warning' | 'critical';
+  requiredLabels: Readonly<Record<string, string>>;
+  incidentKeyLabels: readonly string[];
+  correlationWindowSec: number;
+  activeGraceBeforeSec: number;
+  recentGraceAfterSec: number;
+  sendResolvedToControlPlane: boolean;
+  faultRunCorrelation: 'required' | 'optional' | 'not_required';
+}
+
 export type ScenarioAlertContract =
   | {
       expectation: 'NOT_EXPECTED';
       reason: string;
+      faultRunCorrelation: 'not_required';
       missingAlertTreatment: 'EFFECT_CAN_STILL_BE_OBSERVED';
+      receiptPolicyId: 'alert-receipt.v1';
     }
   | {
       expectation: 'CONDITIONAL' | 'REQUIRED_FOR_PILOT';
-      allowedAlerts: readonly AlertSelector[];
-      correlation: {
-        activeGraceBeforeSec: number;
-        recentGraceAfterSec: number;
-        incidentKeyLabels: readonly string[];
-      };
+      allowedAlerts: readonly AlertCorrelationContract[];
       missingAlertTreatment: 'EFFECT_CAN_STILL_BE_OBSERVED' | 'EVIDENCE_UNAVAILABLE';
-      receiptPolicy: {
-        retainAtLeastThrough: 'FAULT_RUN_RETENTION_END';
-        close: 'EXPLICIT_OR_TERMINAL_FLOW_ONLY';
-        fingerprintDedup: true;
-        resolvedHandled: true;
-      };
-      delivery: {
-        state: 'NOT_ENABLED_YET' | 'ENABLED';
-        childRouteName: string;
-        externalReceiverName: string;
-        basicAuthCredentialSource: 'DEPLOYMENT_MANAGED_SECRET';
-        sendResolved: boolean;
-      };
+      receiptPolicyId: 'alert-receipt.v1';
     };
 
-export interface AlertSelector {
-  alertName: string;
-  service: string;
-  severity: 'info' | 'warning' | 'critical';
-  requiredLabels: Readonly<Record<string, string>>;
-}
+export type AgentDeliveryReadiness =
+  | { state: 'NOT_ENABLED_YET' }
+  | {
+      state: 'ENABLED';
+      childRouteName: string;
+      externalReceiverName: string;
+      credentialSource: 'DEPLOYMENT_MANAGED_SECRET';
+      sendResolved: true;
+    };
 ```
 
 `allowedAlerts` 表示允许用于关联或 pilot 的真实信号，不表示触发保证。对于 Prometheus rule 仅以 runtime series 产生 `service` label 的场景，静态校验可证明 rule name、severity 和静态 selector 合法，但不能承诺某个 service/URI 一定产生 series 或达到阈值。
 
-`delivery.state = NOT_ENABLED_YET` 仍要求写出未来专用 child route、外部 receiver、凭据来源和 `sendResolved` 策略；它表示阶段 5 基础设施尚未启用，而不是少填字段。只有 `ENABLED` 才要求 Compose 与 Kubernetes 真实存在对应 child route、receiver、机器认证来源和一致的 `send_resolved`。
+`AlertCorrelationContract.severity` 复用 Batch 5.0 的 `'warning' | 'critical'` 范围；Prometheus 中与场景无关的 `info` rules 不能被静态 validator 自动升级为可关联告警。
+
+`receiptPolicyId` 引用 Batch 5.0 的全局 `alert-receipt.v1` policy，不在每个场景重复定义保留期或 webhook 状态机。该 policy 以规范化 `(fingerprint, startsAt UTC millisecond)` 标识告警实例；重复 webhook 幂等更新已有实例，不创建新的 receipt/incident/correlation，resolved 通知更新已有实例。`NOT_EXPECTED` 不做 Fault Run 关联，但同样保留通用 receipt 并使用 `NOT_REQUIRED` correlation status。内部 `sendResolvedToControlPlane` 与外部 Agent receiver 的 `AgentDeliveryReadiness.sendResolved` 是不同事实，不能混用。
+
+`AgentDeliveryReadiness` 是外部部署配置的 validator input，不是 Catalog per-scenario 字段，也不进入 `contractRevision`。`state = NOT_ENABLED_YET` 只输出 readiness note，不要求填未来 route/receiver 占位值；只有显式 `ENABLED` 才校验专用 child route、external receiver、部署凭据来源和 `send_resolved: true`。无论哪个状态都不表示 alert 一定 firing。
+
+`NOT_EXPECTED.reason` 必须是非空维护者说明；`CONDITIONAL`/`REQUIRED_FOR_PILOT` 的 `allowedAlerts` 必须非空，且每条告警必须满足 Batch 5.0 字段和静态部署规则。
 
 ### 5.4 revision
 
@@ -311,7 +376,7 @@ canonicalization 的规则如下：
 
 1. 排序 object key，保留缺失字段与显式 `null` 的差异；
 2. Catalog scenario 按 `scenario` 排序；
-3. 参数数组保留 Catalog 声明顺序，因为该顺序影响表单展示；无顺序语义的 evidence、alert selector、检查 ID 集合按稳定 ID 排序；
+3. parameters 始终按 parameter name 排序（与既有 `getCatalogRevision()` canonicalization 一致），不得将字段显示顺序计入 revision；Evidence recipes 按 recipe ID、Alert correlations 按 alert name/service、无序检查 ID 集合按稳定值排序；
 4. label map key 排序，数字保留 JSON 数字语义；
 5. 不纳入请求参数实际值、`faultRunId`、fencing token、时间戳、运行环境 URL、密码、token、文件绝对路径、观测结果或显示文案；
 6. 对 canonical JSON 使用 Node `crypto.createHash('sha256')`。
@@ -322,13 +387,13 @@ canonicalization 的规则如下：
 
 ### 6.1 预期 ownership matrix
 
-下表是 Contract 必须表达的运行 owner。表中“当前状态”是设计评审时的事实，不是临时豁免。
+下表展示从现有 Catalog `recoveryPolicy.workerDrain.owner` / `targetPrepare` 派生的 driver owner 与 target mode，不构成第二份手工映射。
 
 | 场景 | 预期 dispatch owner | target lifecycle | cleanup mode | 当前状态 |
 | --- | --- | --- | --- | --- |
-| `BROWSE_REPORT_SQL` | `REPORT_WORKER` | `GATEWAY` | `NONE` | 有报表 Worker；需要 ACTIVE-only gate 和实际 drain 注册。 |
-| `ORDER_REPORT_SQL` | `REPORT_WORKER` | `GATEWAY` | `NONE` | 同上。 |
-| `BROWSE_SURGE` | `TRAFFIC_SURGE_EXECUTOR` | `LOCAL_WORKER` | `NONE` | 有本地 target map；需要 ACTIVE-only gate 和 drain 注册。 |
+| `BROWSE_REPORT_SQL` | `REPORT_SCENARIO_WORKER` | `GATEWAY` | `NONE` | Driver `name` 与 Catalog drain owner 一致。 |
+| `ORDER_REPORT_SQL` | `REPORT_SCENARIO_WORKER` | `GATEWAY` | `NONE` | 同上。 |
+| `BROWSE_SURGE` | `TRAFFIC_SURGE_EXECUTOR` | `LOCAL_WORKER` | `NONE` | 每 Run `concurrency` 上限 128；Worker stop/drain 满足 applicable release。 |
 | `ORDER_QUERY_SURGE` | `TRAFFIC_SURGE_EXECUTOR` | `LOCAL_WORKER` | `NONE` | 同上。 |
 | `CATALOG_REDIS_LARGE_VALUE` | `SCENARIO_WORKERS` | `GATEWAY` | `OPTIONAL_PER_RUN` | Owned driver 由 Reconciler 启动并接入 drain registry；cleanup 仍需校验 target summary 和 per-run action contract。 |
 | `CART_CATALOG_DEPENDENCY` | `SCENARIO_WORKERS` | `GATEWAY` | `NONE` | 已有 customer-session 和真实 Cart add-item Gateway path；verification 仍未配置。 |
@@ -350,11 +415,11 @@ export interface ScenarioDispatchDescriptor extends OwnedFaultRunDriver {
 }
 ```
 
-descriptor 应附着在既有 driver 实例或其纯 capability projection 上；`name` 对应 Catalog supplement 的 owner，`drainOwner` 继续对应现有 `recoveryPolicy.workerDrain.owner`，不维护第二份场景数组。现有 owner 和 coverage 分布如下：
+descriptor 应附着在既有 driver 实例或其纯 capability projection 上；`name` 和 `drainOwner` 均使用现有真实 owner id，且后者与 `recoveryPolicy.workerDrain.owner` 相同；owner 不在 Contract supplement 中重新存储。现有 owner 和 coverage 分布如下：
 
 | 现有 driver | 真实 `supports(run)` 场景覆盖 |
 | --- | --- |
-| `ReportScenarioFaultRunDriver` | 两个 report 场景。 |
+| `ReportScenarioFaultRunDriver` | 两个 report 场景；owner id 为 `REPORT_SCENARIO_WORKER`。 |
 | `TrafficSurgeFaultRunDriver` | 两个 surge 场景。 |
 | `ScenarioFaultRunDriver` | Cache、Cart、promotion、两个 inventory 场景。 |
 | `RunnerBackedFaultRunDriver` | notification heap/storage 和 PSP 场景。 |
@@ -407,9 +472,9 @@ Contract 必须校验 `FaultRunRecoveryExecutor` 通过 `resolveFaultRunRecovery
 | `src/lib/scenario-contract-revision.ts` | canonical JSON、SHA-256、`catalogRevision`/`contractRevision` 生成。 |
 | `src/lib/scenario-contract-validator.ts` | 纯校验器，接收显式 inputs，返回稳定、排序后的诊断。 |
 | `src/lib/scenario-contract-artifacts.ts` | 从 resolved Contract 投影表单、runbook checklist、smoke matrix、术语输入和 manifest。 |
-| `src/lib/scenario-contract-runtime.ts` | 运行时最小 capability 检查与 warn/enforce admission policy；不读取 Markdown、根目录 infra 或数据库。 |
+| `src/lib/scenario-contract-runtime.ts` | Web/API 当前进程内的 Contract 检查与 warn/enforce admission；不读取 Markdown、root infra、Gateway Java map、数据库旧 Run 或网络。 |
 | `scripts/validate-scenario-contract.ts` | 仅供本地/CI 使用的全量静态输入装配、report 输出与 exit code。 |
-| `scripts/test-scenario-contract.sh` | 根级编排 TypeScript、Gateway Maven、runbook/i18n/terminology 静态门禁。 |
+| `scripts/test-scenario-contract.sh` | 根级分阶段编排 TypeScript 预检、Gateway/目标服务 Maven 测试、最终 report、runbook/i18n/terminology 检查；供外部 CI 调用。 |
 
 Validator 输入必须以依赖注入形式传入，以便负向 fixture 不修改真实 Catalog 或生产文件：
 
@@ -447,14 +512,14 @@ export interface ScenarioContractValidationReport {
 
 | 分类 | 输入 | 必须验证的条件 |
 | --- | --- | --- |
-| `missingTarget` | resolved Contract、Gateway test result、`TRAFFIC_SCENARIO_TARGETS` | Gateway 场景有 operation/service/path capability；本地 Worker bypass 有精确 target descriptor；无孤立 target map。 |
+| `missingTarget` | resolved Contract、Gateway registry result、各目标服务 controller-mapping test result、`TRAFFIC_SCENARIO_TARGETS` | Gateway operation/service/path 一致；path 在目标服务中有实际 controller mapping；本地 Worker bypass 不误入 Gateway；任一 Java result 缺失时最终 report 不 valid。 |
 | `missingDispatch` | 四类 Worker descriptor | 每场景恰好一个 owner，owner/lifecycle 一致，ACTIVE gate 与真实 drain capability 满足声明。 |
 | `invalidParameters` | Catalog 参数 schema、`validateScenarioParameters()`、consumer map | `durationSec`、default、min/max、option、unit、maxDuration、专用预算和参数消费者完整；没有未知或无消费者参数。 |
 | `invalidRecoveryHook` | lifecycle supplement、Worker/Gateway capability、cleanup route test | release、drain、recovery check、manual cleanup/confirmation、non-releasing residual check 与 Catalog 策略一致。 |
 | `missingEvidenceQuery` | evidence recipes | ID 唯一、source/window/timeout/judgment 合法，必需 Run Event/效果/recovery/cleanup 证据齐全，且失败语义为 `EVIDENCE_UNAVAILABLE`。 |
 | `missingRunbook` | `RUNBOOK_METADATA`、双语 Markdown | Catalog 覆盖一对一、allowlisted 文件存在、必要标题和 alert section 齐全、固定 target service/operation 可由 Catalog 验证。 |
 | `missingI18n` | locale message indexes、`SCENARIO_META`、`SCENARIO_GROUPS` | 每个场景 label/description、参数 label/description、recovery label、分组与双语 leaf key 完整；每场景恰好属于一个显示分组。 |
-| `invalidAlertContract` | alert supplement、Prometheus/Alertmanager Compose/Kubernetes YAML | alert name/severity/静态 label 约束有效，窗口和 receipt policy 合法；仅在 delivery `ENABLED` 时要求真实 child route、receiver、凭据来源和 `send_resolved` 匹配。 |
+| `invalidAlertContract` | alert supplement、Prometheus/Alertmanager Compose/Kubernetes YAML、deployment-level `AgentDeliveryReadiness` | 规则的 name/service/severity/静态 label 与每个 `AlertCorrelationContract` 一致；internal intake 的 `sendResolvedToControlPlane` 和全局 receipt policy 独立校验；只有 external Agent delivery 明确 `ENABLED` 时才要求专用 Agent child route/receiver/credential source/`send_resolved` 一致。 |
 
 `missingTarget` 与 `missingDispatch` 不得合并。一个场景可以正确映射到 Gateway、却没有 Worker effect path；也可以有 Worker、却错误选择了 target service。错误分类应让维护者直接知道要修哪一层。
 
@@ -465,7 +530,7 @@ export interface ScenarioContractValidationReport {
 配置比较遵循语义规范化而非原始 YAML 文本比较：
 
 - Prometheus：比较 rule name、severity、显式静态 labels、`for`、group interval 与表达式的稳定摘要；
-- Alertmanager：比较 route tree 的 receiver/match/group/repeat 语义和各 webhook 的 `send_resolved`；
+- Alertmanager：分别校验 control-plane intake route/receiver 的 `send_resolved` 和可选 external Agent child route/receiver，按规范化 route tree 比较 receiver/match/group/repeat 语义；
 - Compose/Kubernetes 允许 YAML 层级不同，只要有效 route/receiver 语义一致；
 - `NOT_ENABLED_YET` 的专用 delivery 只输出 readiness note；若 `ENABLED` 却缺 route、receiver、Basic Auth source 或 `send_resolved: true`，则输出 `invalidAlertContract`。
 
@@ -477,12 +542,12 @@ Markdown 只用于文件存在、标题、固定 token 和安全格式检查；�
 
 | 检查 | 执行位置 | 输入 | 行为 |
 | --- | --- | --- | --- |
-| `validate:contract` | 本地仓库与 CI | 全部 Catalog、descriptor、双语内容、根目录 YAML、术语脚本输入 | 严格；发现 error 返回非零。 |
-| `validateRuntimeContract` | Web/API 与 Worker 进程 | 已编译 Catalog、Worker/Gateway capability、环境 mode | 不访问仓库根目录或 Markdown；默认仅结构化 warn。 |
+| `validate:contract` | 外部 CI 调用的仓库根级脚本 | Catalog、descriptor、双语内容、部署 YAML、Gateway/target Java test results | 所有必需阶段完成且无 error 才输出最终 `valid`；TS 预检不是 release report。 |
+| `validateRuntimeContract` | traffic-control-plane Web/API 的新 Run admission | 当前进程编译进去的 Catalog/supplement 与 normalized request | 仅校验进程内事实；不读取 Gateway Java map、目标服务代码、仓库部署文件或旧 Run revision。 |
 
 生产 Docker image 只复制 control-plane 运行所需内容，不能把 CI 依赖的根目录 `infra/`、Kubernetes 配置或文档树视为运行时文件。因此，不应将全量静态 validator 挂到 `pnpm build` 或 Web 请求路径。
 
-新增严格枚举配置；它与 Phase 2 Reconciliation mode、safe-runtime 开关为独立配置，不控制 Worker owner claim 或旧 scanner 接线：
+新增严格枚举配置；它只对 Web/API 的新 Run admission 生效，与 Phase 2 Reconciliation mode、safe-runtime 开关分离，不控制 Worker owner claim 或 scanner 接线：
 
 ```text
 SCENARIO_CONTRACT_VALIDATION_MODE=warn|enforce
@@ -490,29 +555,27 @@ SCENARIO_CONTRACT_VALIDATION_MODE=warn|enforce
 
 - 缺失值默认为 `warn`，以保持现有运行行为。
 - 非法值必须在 `env.ts` 中导致启动失败，不能悄悄降级为 `warn` 或 `enforce`。
-- Web 与 Worker 必须使用同一个部署值；Compose 和 Kubernetes 分别显式配置。
-- `warn` 记录低基数的控制面结构化日志/指标（category、scenario、revision），允许新 Run 按当前逻辑创建。
-- `enforce` 仅在 **新 Run 创建、持久化和 target invocation 之前**拒绝不合法 Contract，返回正常 Operator error envelope `SCENARIO_CONTRACT_INVALID`；不对已存在 Run 重新判错、不停止 Worker、不修改 recovery 状态。
+- 配置仅由创建 Run 的 Web/API 进程读取；Worker 不运行跨部署 Contract drift scan。
+- `warn` 记录低基数的控制面结构化日志（category、scenario、revision），允许新 Run 按当前逻辑创建。
+- `enforce` 仅在**当前 Catalog 已通过请求校验的同一版本新 Run**创建、持久化及 target invocation 前拒绝进程内 Contract 错误，返回正常 Operator error envelope `SCENARIO_CONTRACT_INVALID`；不做跨服务校验。
 
-Worker 发现存储 revision 与当前 Catalog revision 不一致时，在 `warn`/`enforce` 都只记录一次受控的 drift 诊断并继续处理既有生命周期；运行中的资源不能因 Catalog 编辑被突然遗弃。严格模式的真正安全边界是 admission。
+不实现 Worker 持久化 revision drift scan：部署会整体清空数据库和业务资源，运行期间 Catalog 随应用镜像固定。升级/回滚中途若没有执行 clean-slate reset，不属于本批次支持的保留数据部署模式。
 
 ### 8.2 `fault_runs` 和事件
 
-最小、充分的持久化变更为：
+最小持久化字段为：
 
 ```sql
-ALTER TABLE fault_runs
-  ADD COLUMN contract_revision VARCHAR(128) NULL
-  AFTER trace_id;
+contract_revision VARCHAR(128) NOT NULL
 ```
 
-`VARCHAR(128)` 容纳带 schema/算法前缀的 revision，并为未来算法演进留下空间。无须把完整 Contract JSON、告警 receiver、证据模板或任何 secret 写入 `fault_runs`。
+`VARCHAR(128)` 容纳 `sc.v1:sha256:<digest>`。完整 Evidence snapshot 不写入 `fault_runs`，由 Batch 4 在其 capture 开启时按自己的设计持久化；不写入告警 receiver、凭据或现场观测结果。
 
 变更点如下：
 
-1. `FaultRunRecord` 增加 `contractRevision: string | null`；`null` 专门表示 Phase 3 前的历史记录。
+1. `FaultRunRecord` 增加必填 `contractRevision: string`；当前 clean schema 不存在旧 Run/null projection。
 2. `CreateFaultRunInput` 要求由 Coordinator 传入 server-derived 的非空 `contractRevision`。
-3. `FaultRunCoordinator.create()` 在 Catalog lookup 和参数标准化后、`store.create()` 前计算 resolved Contract revision。
+3. `FaultRunCoordinator.create()` 在当前 Catalog lookup 和参数标准化后计算 revision。相同部署的幂等 replay 先返回同 signature 的既有 Run；只有没有既有 Run 的新 admission 才执行 `warn|enforce` Contract 检查，因而 replay 不受 mode 切换影响，也不重发 prepare/action。
 4. `createFaultRun()` 在同一个 transaction 内将 revision 插入 `fault_runs`，并扩展既有 `CREATED` event payload：
 
    ```json
@@ -527,25 +590,25 @@ ALTER TABLE fault_runs
    }
    ```
 
-5. `transitionFaultRun()`、`appendFaultRunEvent()`、`attachOperatorAudit()` 均不得更新 `contract_revision`。
-6. 幂等重试必须返回初始已存 Run 的 revision；即使当前 Catalog 已修改，也不得重新计算并覆盖旧值。
-7. Operator-only `GET /internal/fault-runs` 与 run detail 读模型可返回该字段；消费者、Gateway 和目标服务路径保持不变。
+5. `contract_revision` 在 fresh DDL 中为 `NOT NULL`；`transitionFaultRun()`、`appendFaultRunEvent()`、`attachOperatorAudit()` 均不得更新它。
+6. 同一部署版本的幂等键以当前 Catalog 校验/标准化后的 `(scenario, normalized parameters)` 判重并返回原 revision；异 signature 返回冲突。部署 reset 清除 key，不保留跨部署 key/replay 语义。并发 create 的唯一约束/现有 repository 事务仍负责避免重复创建。
+7. Operator-only run projection 和受控 `CREATED` event projection 返回该字段；消费者、Gateway 和目标服务路径保持不变。
 
-现有 `toGatewayPayload()` 与 `createFaultRunContext()` 应保持显式白名单。新增字段后必须有负向测试，证明它们没有通过对象展开意外进入出站 header/body。
+现有 `toGatewayPayload()` 与 `createFaultRunContext()` 应保持显式白名单。Operator timeline 的 `CREATED` sanitizer 仅投影格式有效的 revision，不透传原始事件 payload。新增字段后必须有负向测试，证明它们没有通过对象展开意外进入出站 header/body。
 
-### 8.3 迁移、历史记录与 retention
+### 8.3 Fresh schema、部署 reset 与 retention
 
-本仓库已有可审计的 migration runner（`db:migrate` / `db:verify`）和 Compose/Kubernetes 发布前 migration 接线；它们当前管理到 `005`。schema `CREATE TABLE IF NOT EXISTS` 不能为既有 volume 增加列，`infra/mysql/init` 也只在全新 MySQL data directory 初始化时运行。Phase 3 复用现有机制按以下 expand 方案：
+用户确认的当前部署策略是清空数据库和业务资源后 fresh rebuild，不需旧库/旧行兼容。因此 Phase 3 不新增 `006` migration 或 `infra/mysql/init/10`，不在运行时做 `ALTER`。
 
-1. 新增顺序迁移 `traffic-control-plane/src/lib/migrations/006-fault-run-contract-revision.sql`，fresh-install 增加 `infra/mysql/init/10-fault-run-contract-revision.sql`；`002`–`005` 已分别由 baseline、warmup config、alert receipts 和 Worker ownership 占用。
-2. 将 `006` 追加到现有 `MIGRATION_FILES`；扩展 `db:verify` schema check，使其同时检查 `fault_runs.contract_revision` 列定义和 migration history/checksum。
-3. 让 `10` 在 fresh-install 的 `04-fault-run-schema.sql` 之后执行同一 additive `ALTER`。因为 fresh MySQL init 可能先执行 `10`，之后发布流程仍会调用 `db:migrate`，现有 migration runner 必须对 `006` 实现明确的目标态检查：列不存在时执行 ALTER；列已存在且定义精确匹配时跳过 ALTER 并记录 checksum；列存在但类型/nullable 不匹配时 fail closed。`db:verify` 还必须拒绝“history 已记录但列缺失”的状态。不得靠吞掉 duplicate-column SQL error 当作幂等。
-4. 复用已有 migration-history、checksum、advisory lock、`db:migrate` CLI、Compose migration service / 发布前命令和 Kubernetes migration Job；runtime Web/Worker 不执行隐式 DDL。
-5. 先运行 `db:migrate` / `db:verify`，再部署支持 nullable column 的 Web/Worker；验证写入后再考虑 Contract `enforce`。migration 可回滚通过降级应用行为完成，不 drop revision 列。
+更新并保持 parity 的三份 fresh schema：
 
-旧 Run **不得**用当前 Catalog revision 回填。当前数据库不保存历史 Catalog/release snapshot，回填会伪造过去的运行事实。旧行和旧 `CREATED` event 保持无 revision，Operator API 返回 `contractRevision: null`，后续查询将其标识为 `LEGACY_UNVERSIONED`。
+- `traffic-control-plane/src/lib/fault-run-schema.ts` 的 `fault_runs` create statement；
+- `traffic-control-plane/src/lib/migrations/001-fault-runs.sql`；
+- `infra/mysql/init/04-fault-run-schema.sql`。
 
-Contract revision 与 Fault Run/Event 使用相同的现有 retention：符合当前删除条件的 Run 七天后连同事件删除。这满足“在 Run Event 中可追踪”的 Phase 3 范围；它不构成长期归档，也不应以 `ON DELETE CASCADE` 外溢到未来独立的 Evidence/receipt/evaluation 存储。
+`pnpm db:migrate` 在全新数据库上运行既有 `001`–`005`；本批次不新增 migration file、修改 migration registry 或提供从已有 volume 的 upgrade path。fresh MySQL init、runtime schema creation 与 `001` 必须都创建 `contract_revision NOT NULL`。`db:verify` 增加该列存在/类型/非空属性检查，但遇到非 clean schema 应 fail fast、不隐式 `ALTER`。
+
+部署前停止旧 Web/API 与 Worker，再对确认可丢弃的整套环境同时重置数据库和业务资源；不要求按 Run 逐条 stop/release/cleanup，也不允许新旧二进制混跑。reset 会销毁 Fault Runs、events、idempotency keys、alert receipts、baselines、存储文件及其他业务资源；它不是 per-Run cleanup。Contract revision 与 Run/event 使用现有 retention，不是长期归档。未来切换到保留数据的部署前，必须另行完成 schema migration、active Run 处置和历史合同/archive 设计。
 
 ## 9. 辅助生成与命令接口
 
@@ -572,18 +635,19 @@ Contract revision 与 Fault Run/Event 使用相同的现有 retention：符合�
 {
   "scripts": {
     "test:contract": "tsx --test src/lib/scenario-contract.test.ts",
-    "validate:contract": "tsx scripts/validate-scenario-contract.ts --format=text",
-    "validate:contract:json": "tsx scripts/validate-scenario-contract.ts --format=json --output=../tmp/scenario-contract/report.json"
+    "validate:contract:preflight": "tsx scripts/validate-scenario-contract.ts --stage=preflight",
+    "validate:contract:finalize": "tsx scripts/validate-scenario-contract.ts --stage=finalize"
   }
 }
 ```
 
-根级 `scripts/test-scenario-contract.sh` 按以下顺序执行：
+根级 `scripts/test-scenario-contract.sh` 由外部 CI 调用，分阶段执行并汇总：
 
 ```text
 pnpm --dir traffic-control-plane test:contract
-pnpm --dir traffic-control-plane validate:contract -- --gateway-input "$TMP/gateway-input.json"
-mvn -pl gateway-service -am -Dtest=OperationDispatchContractTest test
+pnpm --dir traffic-control-plane validate:contract:preflight -- --output "$TMP/scenario-contract/expected.json"
+Maven tests for gateway-service + catalog/order/notification/promotion/inventory/psp target modules
+pnpm --dir traffic-control-plane validate:contract:finalize -- --checks "$TMP/scenario-contract/checks/"
 pnpm --dir traffic-control-plane test:runbook
 pnpm --dir traffic-control-plane test:i18n
 ./scripts/check-runtime-terminology.sh
@@ -591,9 +655,9 @@ pnpm --dir traffic-control-plane typecheck
 pnpm --dir traffic-control-plane lint
 ```
 
-静态 Contract gate 需要在仓库根目录执行，因为它读取 `infra/`、`k8s/`、`docs/` 与 Gateway 模块。`traffic-control-plane/Dockerfile` 的 build context 仅为该子目录，不能替代这一步；CI 在 static gate 成功后再构建 control-plane image，验证双语 runbook content 的 image copy 仍然存在。
+预检阶段可以报告 TypeScript/文档/部署声明的结果，但不能输出最终 12/12 `valid`。gateway 和目标服务测试读取同一 revision 的生成期望，分别证明 Operation registry 路由和真实 controller mapping/wire contract；最终阶段收集这些结构化结果，缺少任一 required target result 即非零并标 `missingTarget`。不能以 Gateway map 字符串对比替代目标服务 endpoint test。
 
-仓库目前没有 GitHub Actions workflow。实施时应新增一个 CI workflow，将上述 static gate 作为 pull-request blocking job，缓存 pnpm/Maven 依赖，并在成功或失败时上传 manifest 和 report。需要 MySQL/Redis/full Compose 的 smoke 放在独立 job 或手动触发，不与纯静态门禁混为一谈。
+仓库目前没有 GitHub Actions workflow；按用户决策，本批次不新建 GitHub workflow。外部 CI 必须调用根脚本并将它设为 blocking/required，成功或失败都上传去敏 manifest、预检和最终报告；任务证据要确认 pipeline 已实际接线，不能只以脚本存在代表阻断已启用。MySQL 与 live scenario smoke 只在可丢弃环境独立执行。
 
 ## 10. runbook、i18n、告警配置与术语检查
 
@@ -604,7 +668,7 @@ pnpm --dir traffic-control-plane lint
 1. 为中英文文章都要求 `Alert mapping` / `告警关联` 标题；
 2. 验证文章有 scenario ID、Catalog target service 和 target operation 的受控引用；
 3. 使用 checklist 验证 prepare/active/stop/release/cleanup/recovery/evidence 的必要说明存在；
-4. 保持 `getRunbookEntry()` 从 Catalog 合并 target/duration/recovery，禁止在 `RUNBOOK_METADATA` 重复这些字段；
+4. 保持 `getRunbookEntry()` 从 Catalog 合并 target/duration/recovery；Tempo service/route/query 展示数据从 Evidence Contract 派生，`RUNBOOK_METADATA` 只保留文档与影响解释元数据；
 5. 不从自由文本解析 alert name、threshold 或 recovery policy；这些值以 Contract supplement 为准，Markdown 解释由审查与 checklist 保持同步。
 
 ### 10.2 i18n 和展示 metadata
@@ -636,15 +700,14 @@ Contract validator 读取 `infra/prometheus/rules/alert-rules.yml`、`infra/aler
 
 ### 11.1 配置位置
 
-新增 `SCENARIO_CONTRACT_VALIDATION_MODE` 后，以下位置必须同一变更更新：
+新增 admission-only `SCENARIO_CONTRACT_VALIDATION_MODE` 后，以下位置必须同一变更更新：
 
 | 位置 | 处理 |
 | --- | --- |
 | `traffic-control-plane/src/lib/env.ts` | 严格解析 `warn`/`enforce`，非法值启动失败。 |
-| `docker-compose.yml` 的 Web 和 Worker | 显式设为 `warn`；避免两个进程读取不同行为。 |
+| `docker-compose.yml` 的 traffic-control-plane Web/API | 显式设为 `warn`；Worker 不读取该 mode。 |
 | `k8s/services/traffic-control-plane/deployment.yaml` | 通过 `app-config` 或明确 env 设为 `warn`。 |
-| `k8s/services/traffic-control-plane/worker-deployment.yaml` | 使用同一值。 |
-| README/发布 runbook | 记录 static gate、migration、模式切换和 rollback 顺序。 |
+| 外部 CI / 部署说明 | 外部 CI 调用根级脚本并设为 blocking；部署说明记录 clean-slate reset、模式切换和 rollback。 |
 
 本批次不新增密码、token、service key 或 Agent credential。Alert delivery 的凭据来源仅作为 Contract 声明，真实 Secret 由阶段 5 部署管理。
 
@@ -652,54 +715,44 @@ Contract validator 读取 `infra/prometheus/rules/alert-rules.yml`、`infra/aler
 
 ```text
 实现 typed Contract + unit fixtures
-  -> 补齐 12 个 Catalog 声明和 descriptor
+  -> 补齐 Catalog supplement 和 derived capability checks
   -> static CI gate 通过
-  -> 执行 expand migration
-  -> Web/Worker 以 warn 部署并写 revision
+  -> 清空 disposable DB 与业务资源并 fresh initialize
+  -> Web/API 以 warn 部署并写 non-null revision
   -> 验证新 Run/Event revision 一致、无业务协议泄漏
-  -> 修复所有 required lifecycle/dispatch blocker
-  -> 测试环境 enforce
-  -> 单环境 canary enforce
-  -> 扩大 enforce
+  -> 单 Worker disposable 环境 enforce canary (Reconciliation=OFF)
 ```
 
-进入 `enforce` 前至少需确认：
+`enforce` 仅用于用户确认的单 Worker disposable canary，不自动推广到保留数据或多 Worker 部署。canary 前至少需确认：
 
 - 静态 report 对 12 个场景无 error；
 - `CART_CATALOG_DEPENDENCY` 有真实 dispatch，不是文档占位；
-- 所有 Worker 仅在 `ACTIVE` 执行，并按 Contract 注册可等待的 drain；
+- 实际 driver 仅在 `ACTIVE` 执行，并按 Catalog policy 注册可等待的 drain；
 - `NON_RELEASING` 与 `MANUAL_CLEANUP` 的 coordinator policy 已与实际 target 行为一致；
 - Gateway cleanup 与 target cleanup wire contract 已经过真实 controller/integration test；
-- 新建 Run 的 table 字段和 `CREATED` event revision 相同，且 Gateway/context payload 仍无该字段；
-- alert 声明中的 `NOT_ENABLED_YET` 与实际阶段 5 readiness 状态一致，没有将 generic receiver 误报为专用 delivery。
+- 新建 Run 的 table 字段、`CREATED` event 与 Operator 事件投影 revision 相同，且 Gateway/context payload 仍无该字段；
+- Alert contract 与 Batch 5.0 receipt schema 对齐；`NOT_ENABLED_YET` 只表示 Agent delivery 未启用，不影响通用 receipt。
 
 ### 11.3 回退
 
-回退优先将 mode 从 `enforce` 改为 `warn`，而不是删除数据库列、重置 MySQL volume 或停止 active Fault Run。具体规则：
+回退优先将 mode 从 `enforce` 改为 `warn`。本批次 canary 只在可丢弃环境；整库/业务资源 reset 是显式的破坏性重建，不是保留数据环境的一般 rollback。具体规则：
 
-1. 已运行 Fault Run 继续使用既有 stop/recovery 路径，不能因 Contract mode 变化中断；
-2. `contract_revision` 保持可读，旧代码应忽略未知 nullable column；
+1. disposable canary 终止后可整体重建 DB 与业务资源；记录被清除数据范围，不能声称保留 Run 证据或完成 per-Run cleanup；
+2. `contract_revision` 是 required fresh-schema 字段；回退代码时须同时 clean rebuild，不支持旧二进制读写新旧 schema 混跑；
 3. 静态 CI gate 若因真实 drift 失败，应修复 source；不能通过关闭运行时 mode 绕过发布门禁；
-4. 只有在迁移未成功写入任何新数据且经过独立评审时才讨论 contract 阶段删除，不能与首次上线同发布进行；
+4. 转为保留数据库部署前必须先另行实现并演练 migration/active-run 处置策略；
 5. Alertmanager receiver 的启停不属于批次 3 回退；其顺序遵循批次 5.0 设计。
 
 ### 11.4 控制面可观测性
 
-运行时仅记录低基数、可审计的控制面信息：
-
-- `scenario_contract_validation_total{result,category,mode}`；
-- `scenario_contract_revision_bound_total`；
-- `scenario_contract_revision_drift_total`；
-- 日志字段：`scenario`、`contractRevision`、`category`、`mode`、稳定错误 code。
-
-不得记录完整 Contract、参数值、告警 label 集合、用户会话、凭据、目标 response 或原始观测结果。revision hash 和场景 ID 留在控制面日志/Operator API 内；它们不能传播到消费者/业务服务 trace、metric 或 response。
+V1 只使用控制面结构化日志和 CI report 记录校验结果；本批次不新增 Node metrics exporter、Prometheus counter 或 revision drift metric。允许的日志字段为 `scenario`、`contractRevision`、`category`、`mode` 和稳定错误 code。不得记录完整 Contract、参数值、告警 label 集合、用户会话、凭据、目标 response 或原始观测结果。revision hash 和场景 ID 留在控制面日志/Operator API 内；它们不能传播到消费者/业务服务 trace、metric 或 response。
 
 ## 12. 测试设计
 
 ### 12.1 TypeScript 单元与 fixture 测试
 
-1. canonicalization 在 object key、无顺序集合重排时稳定；任一实际 Contract 字段变化时 revision 改变。
-2. 12 个真实 Catalog 场景生成唯一 resolved Contract、catalog revision 和 scenario revision。
+1. canonicalization 在 object key、参数声明顺序变化和无序集合重排时稳定；任一实际 Contract 字段变化时相应 revision 改变，UI 字段排序不影响 hash。
+2. 12 个真实 Catalog 场景生成唯一 resolved Contract、64-hex `catalogRevision` 和 `sc.v1:sha256:` per-run `contractRevision`。
 3. 每个八类诊断至少有一个独立的 fixture：
    - target service/operation 缺失或不匹配；
    - scenario 没有或有多个 dispatch owner；
@@ -715,10 +768,10 @@ Contract validator 读取 `infra/prometheus/rules/alert-rules.yml`、`infra/aler
 
 ### 12.2 控制面、Worker 与 Gateway 测试
 
-1. `FaultRunCoordinator.create()` 是 API 的统一创建入口：`executionMode` 未设置时走 legacy create + adapter prepare；设置时 `SqlFaultRunStore.create()` 在 create transaction 中一并创建 execution 和 PREPARE intent，之后由 Reconciler claim/dispatch。Contract admission/revision 必须位于这两种分支之前，`warn` 允许创建，`enforce` 在 Fault Run persistence、PREPARE intent/action 和任何 target invocation 之前拒绝非法 Contract。
+1. `FaultRunCoordinator.create()` 是 API 的统一创建入口：当前 Catalog 先校验/标准化，之后创建同一版本内幂等对照；`executionMode` 未设置时走 legacy create + adapter prepare，设置时在事务中创建 execution/PREPARE intent 后由 Reconciler dispatch。Contract admission/revision 在 Run 写入和 target action 前执行。
 2. `createFaultRun()` transaction 同时写 table revision 和 `CREATED` payload；两者相同。
-3. idempotency replay 返回原 revision；Catalog 变更后不覆盖已存 revision。
-4. `FaultRunRecord` 对 legacy null revision 安全序列化；state transition 不能更改 revision。
+3. 同一 Catalog/schema 版本内，使用标准化参数的 replay 返回原 revision 且不重派发；不提供跨部署 replay。
+4. `FaultRunRecord.contractRevision` 在 fresh schema/API 中为必填 string；state transition 不能更改 revision，无旧行 null fallback 测试。
 5. `toGatewayPayload()`、`FaultRunContext`、owner-fenced action/cleanup payload 均没有 `contractRevision`。
 6. 每个 owned driver capability 与实际 Reconciler 的 ACTIVE gate、drain registration、summary event 一致；CREATING 只可执行已声明 prepare，RECOVERING/终态不得启动 effect driver。
 7. `OperationDispatchContractTest` 验证 target-backed Catalog input 与 Gateway registry、target endpoint path 和 cleanup payload 的兼容性。
@@ -726,28 +779,28 @@ Contract validator 读取 `infra/prometheus/rules/alert-rules.yml`、`infra/aler
 
 ### 12.3 数据库、部署与端到端验证
 
-1. fresh schema 和已有 pre-column schema 都能完成迁移；重复执行不丢数据。
-2. migration lock 下并发 Web/Worker/Job 不会重复记录 migration；失败不会假报已应用。
-3. Compose 与 Kubernetes YAML 语义规范化后匹配；delivery `ENABLED` 时用 `amtool check-config` 检查实际 Alertmanager 文件。
-4. 在 disposable 环境创建一个有效 Run，检查 Operator response/Run detail 的 revision、Gateway request 和 target request header/body 边界。
-5. 现有 `catalog-product-detail-smoke.sh` 仍只代表一个场景 smoke，不能被报告为 12 个场景 Contract 验证；12 场景 live matrix 需在对应真实路径可用后单独执行。
-6. `git diff --check`、`./scripts/check-runtime-terminology.sh`、control-plane typecheck/lint/build 均通过。
+1. 空数据库分别经 MySQL init 和现有 `db:migrate` path 初始化后都含同一 `contract_revision NOT NULL` 定义；runtime schema、`001` 与 init `04` 的 fresh schema parity test 通过。不做旧库升级测试。
+2. `db:verify` 对 fresh schema 检查 revision column/type/NOT NULL；未清库的不兼容 DB 应 fail fast，不得隐式 ALTER。
+3. Compose 与 Kubernetes Alert/Prometheus YAML 语义规范化后匹配；只有外部 Agent delivery 标为 `ENABLED` 时才要求专用 route/receiver。
+4. 在单 Worker disposable、`FAULT_RUN_RECONCILIATION_MODE=OFF` 环境创建一个有效 Run，检查 Operator `CREATED` event revision 投影、table/event revision 一致和 Gateway/consumer 协议边界；按用户部署模式整体 reset 数据库与业务资源。
+5. 现有 `catalog-product-detail-smoke.sh` 仍只代表一个场景 smoke，不能被报告为 12 个场景 Contract 验证；运行未覆盖的场景必须报告 limited。
+6. 外部 CI 执行根脚本并配置为 blocking status；本仓库不创建 GitHub Actions workflow。`git diff --check`、terminology、control-plane typecheck/lint/build 均通过。
 
 ## 13. 实施顺序与任务拆分
 
 | 顺序 | 交付 | 依赖 | 完成标准 |
 | --- | --- | --- | --- |
-| 1 | Contract 类型、resolver、canonicalizer 和 fixture test | 无 | 不含平行场景 registry，revision 稳定。 |
+| 1 | Contract 类型、resolver、canonicalizer 和 fixture test | 无 | 不重复 Catalog 策略；revision 稳定且参数顺序无关。 |
 | 2 | 在 Catalog 补齐 12 个 supplement | 1 | 每项含 dispatch/lifecycle/parameter/evidence/alert 声明。 |
 | 3 | Owned driver capability projection 与 ACTIVE/drain coverage tests | 1、2、批次 1/2 | 复用 P2 drivers/registry/recovery；没有 `missingDispatch` 或虚报 drain，不重建 Worker 执行器。 |
 | 4 | Gateway registry 抽取和跨语言 test input | 1、2 | target-backed operation/service/path 可被 Maven gate 验证。 |
 | 5 | runbook/i18n/alert/terminology validator inputs | 1、2 | 现有文档和 locale 与 Catalog 精确覆盖。 |
 | 6 | full validator、report、辅助生成和根级 static script | 3～5 | 八类负向 fixture 和真实 12 场景 report 可重复执行。 |
-| 7 | revision persistence、migration runner 与 Operator serialization | 1、6 | 新 Run 的 revision 原子写入；legacy null 安全。 |
-| 8 | warn 部署、CI workflow、image validation | 6、7 | CI 阻断，运行时不改变既有 Run。 |
-| 9 | 修复 report 中 required blocker 后的 enforce canary | 3～8 | 满足第 11.2 节的进入条件并有明确 rollback。 |
+| 7 | fresh schema revision persistence 与 Operator serialization | 1、6 | clean schema 中 revision NOT NULL；row/CREATED/Operator event 一致；无 legacy fallback/upgrade migration。 |
+| 8 | warn/enforce 配置、外部 CI 接入和 fresh-image validation | 6、7 | 外部 CI 阻断；runtime 只检查本进程新 Run admission。 |
+| 9 | 单 Worker disposable enforce canary | 3～8 | `FAULT_RUN_RECONCILIATION_MODE=OFF`；完整 reset DB 和业务资源；有可复核 rollback。 |
 
-步骤 3 与 4 主要是现有 Phase 2 capability 的投影与跨语言验证，不代表必须重新实现 Worker/Reconciler。若测试发现真实 Phase 2 行为不满足 Contract，先在任务清单登记差异、更新本设计和对应 Phase 2 gate，再决定是否新增代码；strict gate 不得将未验证的 capability 标为通过。
+步骤 3 与 4 主要是现有 Phase 2 capability 的投影与跨语言验证，不代表必须重新实现 Worker/Reconciler。若测试发现真实 Phase 2 行为不满足 Contract，先在任务清单登记差异、更新本设计和对应 Phase 2 gate，再决定是否新增代码；strict gate 不得将未验证的 capability 标为通过。P3 enforce canary 只验证单 Worker、legacy Reconciliation OFF 的创建门禁，不宣称 Phase 2 TAKEOVER 已验证。
 
 ## 14. 验收与退出条件
 
@@ -755,11 +808,11 @@ Contract validator 读取 `infra/prometheus/rules/alert-rules.yml`、`infra/aler
 
 1. 12 个 Catalog 场景均能解析为唯一、版本化的 `ResolvedScenarioContract`，真实静态 report 无 error。
 2. Catalog、Gateway、Worker、recovery/cleanup、runbook、i18n、evidence 和 alert 声明通过八类校验；新场景缺项会在 CI 中失败。
-3. `contractRevision` 在新建 Fault Run 的数据库行与 `CREATED` event 中一致，并只在 Operator 控制面可见。
+3. `contract_revision` 在 clean schema 中 NOT NULL，新建 Fault Run 的数据库行、`CREATED` event 与 Operator 投影一致；不支持旧数据/nullable fallback。
 4. 消费者和业务服务的请求、响应、日志、metric、trace 和通用内部 operation context 均不包含 Contract/Catalog/Fault Run 生命周期语义。
 5. `NOT_ENABLED_YET`、`EVIDENCE_UNAVAILABLE`、`UNMATCHED`/`AMBIGUOUS` 等不确定性被显式表示；没有“场景已启动，所以告警一定 firing”或“prepare 成功，所以效果已观察到”的推论。
 6. 所有 generated artifact 可重复生成，未成为手工维护的第二数据源，也未自动覆盖 runbook/生产代码。
-7. static gate 在 CI 中阻断；运行时默认 `warn`，只在完整前置条件和 canary 证明后才允许 `enforce`。
-8. migration、rollout、active Run 处理和 rollback 已按 expand/contract 方式演练；没有通过删除数据、重置 MySQL volume 或关闭校验绕过问题。
+7. 外部 CI 根级 static gate 阻断；运行时默认 `warn`，只在本进程新 Run admission 事实完整并通过单 Worker disposable canary 后启用 `enforce`。跨层校验只由 CI 声称。
+8. clean-slate schema 与 disposable reset/canary 有复核证据；该方案不声明为保留数据环境的 migration/rollback 方案。
 
 满足退出条件后，阶段 4 可以消费 resolved Contract 的 evidence recipe 和 revision，而不再从 Catalog、runbook、Worker 条件或告警 prose 中猜测场景边界。

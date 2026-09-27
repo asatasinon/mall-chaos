@@ -1,6 +1,6 @@
 # 批次 4：实时 Evidence Query 技术设计
 
-> 状态：技术设计 v1（待实施）<br>
+> 状态：技术设计 v1.1，已按 Phase 3 用户决策对齐（待实施）<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 对应路线阶段：阶段 4<br>
 > 前置条件：阶段 0～3 的退出门槛已满足，尤其是批次 3 已提供并阻断式校验完整的 Scenario Evidence Contract<br>
@@ -10,33 +10,31 @@
 
 批次 4 在 `traffic-control-plane` 内实现一个仅供 Operator 使用的 Evidence Query 子系统。它由三个彼此独立的层组成：
 
-1. **运行创建时冻结合同**：创建 Fault Run 的同一 MySQL 事务中，保存由 Catalog 派生的 Evidence Contract snapshot、revision 和 canonical hash。该 snapshot 是历史运行唯一可信的查询协议，后续 Catalog 修改不会改写它。
+1. **可选的运行创建时冻结合同**：只有 `EVIDENCE_MANIFEST_CAPTURE_ENABLED=true` 时，才在创建 Fault Run 的同一 MySQL 事务保存由 Catalog 派生的 Evidence Contract snapshot、revision 和 canonical hash。该 snapshot 是已 capture 运行唯一可信的查询协议，后续 Catalog 修改不会改写它；flag 关闭时不要求也不写 snapshot。
 2. **终态按需物化 Manifest**：Operator 首次查看终态运行的证据时，服务端使用 frozen contract 与按 `(created_at, id)` 排序的 Run Event 生成不可变 `EvidenceQueryManifest`。若清理等后续生命周期事实发生，则创建新 revision，绝不原地改写旧 Manifest。
 3. **Operator 显式实时查询**：Operator 主动发起一次有严格时间、并发和响应体上限的同步查询。控制面只向 Prometheus、Loki、Tempo 和既有 Gateway 固定只读检查发请求，结果只在当前 HTTP 响应中以受限摘要返回；数据库、审计、日志和指标只记录状态、判断、时长和安全错误码。
 
 ```text
 Catalog / Scenario Evidence Contract
         |
-        | frozen atomically at Fault Run creation
-        v
-EvidenceContractSnapshot ─────────────────────────┐
-                                                   |
-Fault Run + ordered Run Events --------------------+--> EvidenceManifestService
-                                                        |
-                                                        v
-                                                immutable Manifest revision
-                                                        |
-Operator explicitly requests a report                |
-        |                                             v
-        +---------------------------------> bounded live executor
-                                             |      |       |       |
-                                             v      v       v       v
-                                           Prom.  Loki    Tempo  Gateway
-                                             \      |       |       /
-                                              \-----+-------+------/
-                                                    |
-                                                    v
-                                    sanitized, no-store Operator response
+        +-- capture flag ON --> snapshot frozen atomically at Fault Run creation
+        |                         |
+        |                         v
+        |                  EvidenceContractSnapshot
+        |                         |
+        +-- capture flag OFF -----+--> no snapshot; report unavailable
+                                  |
+Fault Run + ordered Run Events --+--> EvidenceManifestService
+                                       |
+                                       v
+                               immutable Manifest revision
+                                       |
+Operator explicitly requests a report
+        |
+        +--> bounded live executor --> Prometheus / Loki / Tempo / Gateway
+                                       |
+                                       v
+                         sanitized, no-store Operator response
 ```
 
 本设计不新增业务服务的场景语义、通用观测代理、离线证据包、自动恢复或 Agent 入口。`traffic-control-plane` 仍然是 Catalog、Fault Run、审计、恢复和证据语义的唯一所有者。
@@ -81,7 +79,7 @@ Operator explicitly requests a report                |
    - 可选的固定 Gateway read-check；
    - 合法的 runbook、i18n 和 alert contract；
    - 所有 recipe、window、read-check 映射都没有用户输入插槽。
-5. 新建 Fault Run 能在目标 prepare 之前原子地保存对应的 Evidence Contract snapshot。
+5. Phase 3 的静态 Contract gate 已通过；Phase 3 只保存 revision。只有显式启用 Batch 4 capture flag 时，新 Fault Run 才在目标 prepare 之前原子保存对应的 Evidence Contract snapshot；flag 关闭不要求也不写 snapshot。
 6. 每个候选观测后端均有已验证的内部服务 endpoint；不会用 Grafana 公共 URL、浏览器 cookie 或开发环境 Basic Auth 作为查询凭据。
 
 批次 4 不负责修复当前 `deleteExpiredFaultRuns()` 对手工清理边界的既有缺口；该运行安全门禁属于前置阶段。批次 4 只能消费已经可靠记录的事实。
@@ -134,8 +132,12 @@ sequenceDiagram
   API->>API: session + CSRF + idempotency validation
   API->>C: create(command)
   C->>K: validate ResolvedScenarioContract.evidence
-  C->>K: canonicalize exact contract snapshot
-  C->>DB: transaction: fault_runs + CREATED event + contract snapshot
+  alt EVIDENCE_MANIFEST_CAPTURE_ENABLED=true
+    C->>K: canonicalize exact contract snapshot
+    C->>DB: transaction: fault_runs + CREATED event + contract snapshot
+  else capture disabled
+    C->>DB: transaction: fault_runs + CREATED event
+  end
   DB-->>C: committed run
   C->>DB: PREPARE_STARTED event
   C->>G: fixed prepare operation
@@ -145,7 +147,9 @@ sequenceDiagram
   API-->>O: normal control-plane envelope
 ```
 
-Contract snapshot 只记录当次运行应使用的查询协议，不查询任何观测后端。若 capture flag 已开启，snapshot 写入失败必须在任何目标 `prepare` 调用之前使创建失败；否则会产生无法按已批准合同解释的“reportable run”。当 capture flag 关闭时，现有 Fault Run 创建路径保持不变，新运行明确标记为没有 Evidence Contract snapshot。
+Phase 3 的 `contractRevision` 仅用于识别创建时的场景合同，不是历史快照，也不可用于重建 Evidence DSL。Batch 4 的 Contract snapshot 只记录当次运行应使用的查询协议，不查询任何观测后端。若 capture flag 已开启，snapshot 写入失败必须在任何目标 `prepare` 调用之前使创建失败；否则会产生无法按已批准合同解释的“reportable run”。当 capture flag 关闭时，现有 Fault Run 创建路径保持不变，新运行明确标记为没有 Evidence Contract snapshot。
+
+Batch 4 直接消费 Phase 3 Catalog supplement 中版本化的 `EvidenceContractPlan` 类型/值，包括 `EvidenceWindowPolicy`、`EvidenceRecipeDefinition`（对外 snapshot schema 使用 `EvidenceRecipe` 名称）和 `effectRule`。不得维护第二份可变 template/scope/predicate/projection/window 定义；schema 转换只允许做显式、版本化的序列化映射。
 
 ### 4.2 终态 Manifest 物化与实时报告
 
@@ -657,7 +661,7 @@ notes 是 Operator 的辅助分析，不能替代任何控制、效果、恢复�
 | `evidence-report-service.ts` | retention preflight、并发、deadline、判定、response shaping |
 | `evidence-view.ts` | UI 使用的防御性投影，绝不渲染原始 provider payload |
 
-`FaultRunCoordinator` 只负责在创建前获得 frozen snapshot，并新增 `PREPARE_STARTED`/`STOP_REQUESTED` 生命周期事件；它不执行 evidence query。Web route 只编排认证、请求校验、审计和 service 调用；它不持有 query template 或业务路径。
+`FaultRunCoordinator` 只在 capture flag 开启时于创建前获得 frozen snapshot，并新增 `PREPARE_STARTED`/`STOP_REQUESTED` 生命周期事件；flag 关闭时不要求 snapshot，也不执行 evidence query。Coordinator 不持有查询执行器。Web route 只编排认证、请求校验、审计和 service 调用；它不持有 query template 或业务路径。
 
 ### 9.2 调用限制
 
@@ -989,7 +993,7 @@ git diff --check
 批次 4 只有同时满足下列条件才能进入 5.0：
 
 - 12/12 场景都具有通过批次 3 validation 的固定 Evidence Contract，且不含自由输入查询。
-- 新运行对准确 contract revision 的 snapshot 写入与 Fault Run 创建原子完成。
+- capture flag 开启时，新运行对准确 contract revision 的 snapshot 写入与 Fault Run 创建原子完成；flag 关闭时明确没有 snapshot，不能用当前 Catalog 补造。
 - Operator 能对终态运行获得确定性 Manifest，清楚看到 baseline/active/recovery/cleanup 的窗口或限制原因。
 - 同一 Manifest 可在 retention 内多次实时执行，窗口和 recipe 不漂移，响应带新的查询时间。
 - 成功、部分失败、source timeout、retention 不足、legacy snapshot 缺失和 invalid contract 都有明确、非成功形状的状态。
