@@ -1,6 +1,6 @@
 # 批次 5.1：Agent 告警投递与 RCA 提交技术设计
 
-> 状态：技术设计 v1
+> 状态：技术设计 v1.1，确认由本批次拥有 RCA submission window/拒绝语义
 > 配套产品规格：[product.md](./product.md)
 > 对应路线阶段：阶段 5.1
 > 前置条件：批次 5.0 intake 已在专用环境真实验收；阶段 4 的 Evidence Query contract/manifest 接口已确定；仅选择一个已核验 pilot

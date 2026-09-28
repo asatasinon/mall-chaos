@@ -1,6 +1,6 @@
 # 批次 3：Scenario Contract 技术设计
 
-> 状态：技术设计 v1.3，按 2026-09-26 用户决策对齐；实施待开始<br>
+> 状态：技术设计 v1.4，按 2026-09-28 review 决策对齐；实施待开始<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 对应路线阶段：阶段 3<br>
 > 前置条件：批次 0～2 的运行事实、drain、owner/reconcile 语义已可验证<br>
@@ -59,7 +59,7 @@ Operator creates Fault Run
 | Contract revision | 为新 Fault Run 持久化 revision，支持 Operator 时间线追踪。 |
 | CI 和发布门禁 | 增加独立的静态命令、报告工件和阻断流程。 |
 
-资源预算的已确认边界：`BROWSE_SURGE` / `ORDER_QUERY_SURGE` 的 `concurrency` 上限为 `128`；`NOTIFICATION_STORAGE_APPEND.totalBytes` 是可配置目标、无静态总量上限，实际 append 由文件系统 `usableSpace` guard 保护；`minFreeBytes` 约束为 `1 MiB`–`1 GiB`。Contract 要表达这是容量 guard，而不是物理空间使用量保证。
+资源预算的已确认边界：`BROWSE_SURGE` / `ORDER_QUERY_SURGE` 的 `concurrency` 上限为 `128`；`NOTIFICATION_STORAGE_APPEND.totalBytes` 是可配置目标、无静态总量上限，实际 append 由文件系统 `usableSpace` guard 保护；`minFreeBytes` 约束为 `1 MiB`–`1 GiB`。`NOTIFICATION_HEAP_PRESSURE` 不设累计 retained-heap 上限，明确为 disposable-only、non-releasing 风险例外，OOM/服务重启可能。Contract 要把前两者表达为参数/容量 guard，把 heap 场景表达为已批准例外，不得暗示能阻止 OOM。
 
 以下内容明确不属于批次 3：
 
@@ -237,6 +237,13 @@ export type BudgetBoundary =
       targetBytesParameter: 'totalBytes';
       reserveBytesParameter: 'minFreeBytes';
       hardTargetMaximum: 'UNBOUNDED_BY_DESIGN';
+    }
+  | {
+      kind: 'APPROVED_NON_RELEASING_EXCEPTION';
+      ruleId: 'NOTIFICATION_HEAP_PRESSURE_UNBOUNDED_RETAINED_HEAP';
+      hardTargetMaximum: 'UNBOUNDED_BY_DESIGN';
+      allowedEnvironment: 'DISPOSABLE_ONLY';
+      runtimeOutcome: 'OOM_OR_SERVICE_RESTART_POSSIBLE';
     };
 
 export interface ScenarioResourceBudget {
@@ -278,6 +285,7 @@ export interface ResolvedScenarioContract extends ScenarioContractSupplement {
 - `PARAMETER_BOUNDS` 要求列出的 Catalog 参数存在相应边界；例如 surge `concurrency` 的 `max=128`。
 - `CATALOG_RULE` 指向已有组合校验；例如 Redis logical bytes 的固定总量预算。
 - `TARGET_CAPACITY_GUARD` 描述目标服务实时检查的资源边界。通知存储的 `totalBytes` 是期望目标、按决策不设绝对上限；目标服务必须按 `FileStore.getUsableSpace()` 检查写入后仍保留 `minFreeBytes`，Catalog 的 `minFreeBytes.min` 为 1 MiB。
+- `APPROVED_NON_RELEASING_EXCEPTION` 仅用于 `NOTIFICATION_HEAP_PRESSURE`：不设每 Run 累计 heap 上限；保留单次分配、请求间隔和 duration 参数边界，明确 OOM/服务重启可能，且只允许在可丢弃环境演练。停止 worker 不释放已经分配的对象。
 
 所有场景的 `durationSec` 和普通参数范围仍直接读取 Catalog。Contract budget assertion 说明哪些资源边界由参数、组合规则或目标容量 guard 负责；无固定上限必须显式记录为已批准例外，不得伪装成数值上界。
 
@@ -291,6 +299,7 @@ export interface ResolvedScenarioContract extends ScenarioContractSupplement {
 - `OPTIONAL_PER_RUN` 和 `OPERATOR_CONFIRMED` 直接使用 `recoveryPolicy.cleanup` 语义；所有 cleanup 均绑定 Run 身份、operation、fencing token 和现有 action journal，不声明 scenario-wide cleanup。
 - `NON_RELEASING` 必须给出 `nonReleasingReason`、停止后的 side-effect check 和适用 recovery check；目标释放由 Catalog policy 决定。
 - 每个 resource-bound parameter 均由其 Catalog `min/max` 或已验证 Catalog invariant 决定；surge 的 `concurrency.max=128` 必须进入参数验证与 worker 测试。storage 的 `totalBytes` 使用明确的 runtime guard exception：不加绝对最大值，validator 确认 `minFreeBytes.min >= 1 MiB`、Catalog/max 与 Java target 一致，且目标服务实施 filesystem capacity guard。
+- `NOTIFICATION_HEAP_PRESSURE` 必须显式携带 `APPROVED_NON_RELEASING_EXCEPTION`，并断言该合同只能用于 disposable canary；它不能被描述为有 aggregate heap 上限或保证不 OOM。
 
 ### 5.2 证据声明
 
@@ -363,14 +372,15 @@ export type AgentDeliveryReadiness =
 
 ### 5.4 revision
 
-Contract 需要两个可读的稳定身份：
+Phase 3 定义两个 revision；Batch 4 capture 开启时另有一个 Evidence snapshot content hash：
 
 | 字段 | 输入 | 用途 |
 | --- | --- | --- |
 | `catalogRevision` | 已有 `getCatalogRevision()` 对完整 Catalog canonical JSON 计算的 SHA-256 | 保持现有 64 字符小写 hex 格式，供 baseline 和现有测试继续使用；canonical input 扩展时必须纳入 Contract supplement。 |
-| `contractRevision` | 单个 Fault Run 所选 `ResolvedScenarioContract` | Run/Event 追踪、Operator 时间线和后续 Evidence Query 关联。 |
+| `contractRevision` | 单个 Fault Run 所选**完整** `ResolvedScenarioContract` 的 canonical JSON | Phase 3 计算并写入 Run/Event；Batch 4 原样引用，不得从 Evidence 子集重算。 |
+| `contractHash` | 同一 Run 的 `EvidenceContractPlan` canonical JSON | Batch 4 capture flag 开启时随 Evidence snapshot 持久化；只标识 Evidence 内容，不替代 `contractRevision`。 |
 
-`contractRevision` 使用新 schema 版本格式 `sc.v1:sha256:<lowercase-hex>`；不得将此格式套到既有 `catalogRevision`，以免破坏 batch-0 baseline、现有 `getCatalogRevision()` 调用者和 `^[a-f0-9]{64}$` 格式约定。两种 hash 可共用稳定 JSON canonicalization helper，但分别固定其 canonical input 与序列化兼容要求。
+`contractRevision` 使用新 schema 版本格式 `sc.v1:sha256:<lowercase-hex>`；不得将此格式套到既有 `catalogRevision`，以免破坏 batch-0 baseline、现有 `getCatalogRevision()` 调用者和 `^[a-f0-9]{64}$` 格式约定。`catalogRevision` 保持 64-hex 格式，但 canonical input 扩展以包含 Contract supplement；其首次变化是预期的内容变化，不是格式破坏。`contractRevision` 覆盖完整 resolved scenario contract。Batch 4 的 `contractHash` 只覆盖 frozen Evidence plan。三种 hash 的输入和用途不得互换。
 
 canonicalization 的规则如下：
 
@@ -381,7 +391,7 @@ canonicalization 的规则如下：
 5. 不纳入请求参数实际值、`faultRunId`、fencing token、时间戳、运行环境 URL、密码、token、文件绝对路径、观测结果或显示文案；
 6. 对 canonical JSON 使用 Node `crypto.createHash('sha256')`。
 
-这样，场景 Contract 的实际结构变更会改变对应 `contractRevision`，并在全 Catalog canonical input 中反映为 `catalogRevision` 变化；同一 Contract 的无序输入变化不会产生伪 revision。运行请求的规范化参数仍独立记录在 `fault_runs.parameters_json`。
+这样，Catalog supplement 的实际结构变化会同时改变 global `catalogRevision` 与对应场景的 `contractRevision`；任一其他 resolved Contract 字段变化只影响相应 per-run `contractRevision`。Evidence snapshot 的精确内容由独立 `contractHash` 校验。同一 Contract 的无序输入变化不会产生伪 revision；运行请求的规范化参数仍独立记录在 `fault_runs.parameters_json`。
 
 ## 6. 执行、目标与生命周期 capability
 
@@ -397,7 +407,7 @@ canonicalization 的规则如下：
 | `ORDER_QUERY_SURGE` | `TRAFFIC_SURGE_EXECUTOR` | `LOCAL_WORKER` | `NONE` | 同上。 |
 | `CATALOG_REDIS_LARGE_VALUE` | `SCENARIO_WORKERS` | `GATEWAY` | `OPTIONAL_PER_RUN` | Owned driver 由 Reconciler 启动并接入 drain registry；cleanup 仍需校验 target summary 和 per-run action contract。 |
 | `CART_CATALOG_DEPENDENCY` | `SCENARIO_WORKERS` | `GATEWAY` | `NONE` | 已有 customer-session 和真实 Cart add-item Gateway path；verification 仍未配置。 |
-| `NOTIFICATION_HEAP_PRESSURE` | `RUNNER_ENGINE` | `GATEWAY` | `NONE` | Catalog 声明 `targetRelease: FORBIDDEN`；Contract 校验需证明 recovery executor 尊重 non-releasing policy。 |
+| `NOTIFICATION_HEAP_PRESSURE` | `RUNNER_ENGINE` | `GATEWAY` | `NONE` | Catalog 声明 `targetRelease: FORBIDDEN`；累计 retained heap 无静态上限，是只允许 disposable 演练的已批准 non-releasing 风险例外，OOM/服务重启可能。 |
 | `NOTIFICATION_STORAGE_APPEND` | `RUNNER_ENGINE` | `GATEWAY` | `OPERATOR_CONFIRMED` | Confirmed cleanup 是带 Run context 的独立 action；停止 append 与删除运行文件保持分离。 |
 | `PROMOTION_LOCK_CONTENTION` | `SCENARIO_WORKERS` | `GATEWAY` | `NONE` | 有 Worker；需通过 recovery/endpoint capability 校验。 |
 | `INVENTORY_TABLE_EXCLUSIVE` | `SCENARIO_WORKERS` | `GATEWAY` | `NONE` | 有 Worker；需通过 recovery/endpoint capability 校验。 |
@@ -458,7 +468,7 @@ Gateway 的 `TARGETS` 不能被 TypeScript 直接导入，也不应新增一个�
 | `MANUAL_CLEANUP` | Catalog `cleanup: OPERATOR_CONFIRMED`；stop/release 与 destructive cleanup 分离，per-run cleanup 使用 Operator confirmed action、责任边界、completion check 和重试/幂等语义。 |
 | `NON_RELEASING` | release 被禁止；必须声明为什么不释放、停止后残留如何观察、何时转入 service recovery/人工处置。 |
 
-Contract 必须校验 `FaultRunRecoveryExecutor` 通过 `resolveFaultRunRecoveryPolicy()` 分别处理 worker drain、target release、manual cleanup、终态事件与特殊 service recovery；不能以通用“所有场景 drain 后 release”作为实现。`NOTIFICATION_STORAGE_APPEND` 的 release 只停止受控 append 生命周期，运行文件删除仍是独立、需 Operator 确认的 per-run cleanup。`NOTIFICATION_HEAP_PRESSURE` 的 Catalog policy 已禁止 target release，Contract 测试须确保其不被标为正常 release。
+Contract 必须校验 `FaultRunRecoveryExecutor` 通过 `resolveFaultRunRecoveryPolicy()` 分别处理 worker drain、target release、manual cleanup、终态事件与特殊 service recovery；不能以通用“所有场景 drain 后 release”作为实现。`NOTIFICATION_STORAGE_APPEND` 的 release 只停止受控 append 生命周期，运行文件删除仍是独立、需 Operator 确认的 per-run cleanup。`NOTIFICATION_HEAP_PRESSURE` 的 Catalog policy 已禁止 target release，Contract 测试须确保其不被标为正常 release。其累计 retained heap 不设静态总量上限；target 每次分配仍受 Catalog 中单次字节数、请求间隔和 duration 约束，但这些值不构成 aggregate memory bound。必须将 OOM/服务重启可能作为 non-releasing 预算例外，并把 live 验证限制在 disposable 环境。
 
 ## 7. Validator 设计
 
@@ -500,13 +510,29 @@ export interface ScenarioContractValidationIssue {
 
 export interface ScenarioContractValidationReport {
   schemaVersion: 'scenario-contract-report.v1';
+  stage: 'PREFLIGHT' | 'FINAL';
+  scope: 'STATIC_CONTRACT' | 'DISPOSABLE_CANARY' | 'LIVE_SCENARIO_MATRIX';
   catalogRevision: string;
-  valid: boolean;
-  issues: readonly ScenarioContractValidationIssue[];
+  status: 'VALID' | 'BLOCKED' | 'LIMITED';
+  scenarios: readonly {
+    scenario: FaultRunScenario;
+    status: 'VALID' | 'BLOCKED' | 'LIMITED';
+  }[];
+  requiredChecks: readonly {
+    checkId: string;
+    status: 'PASSED' | 'FAILED' | 'MISSING';
+    catalogRevision: string;
+  }[];
+  blockingIssues: readonly ScenarioContractValidationIssue[];
+  readinessNotes: readonly {
+    code: string;
+    scenario?: FaultRunScenario;
+    detail: string;
+  }[];
 }
 ```
 
-所有 issue 以 `category`、`scenario`、`artifact`、`fieldPath`、`code` 排序；同一错误每次执行产生相同顺序和 exit code。报告中不得包含密码、Authorization、Cookie、原始 SQL、原始 webhook、完整 HTTP response、运行时 customer data 或绝对路径。
+`BLOCKED` 表示必需检查缺失/失败、revision 不匹配或存在 blocking issue；`LIMITED` 表示报告 scope 还要求 live/canary 证据，但其中仍有场景未执行或证据不可用；`VALID` 只代表声明 scope 内全部必需检查通过。外部 required release gate 仅接受整体 `VALID`。`NOT_ENABLED_YET` 对不要求外部 Agent delivery 的 `STATIC_CONTRACT` scope 是 readiness note，不自动阻断；若 scope 明确要求 Agent delivery live validation，则结果为 `LIMITED`。预检报告永不宣称 12/12 release validity。所有 blocking issue 与 readiness note 都按稳定字段排序；报告中不得包含密码、Authorization、Cookie、原始 SQL、原始 webhook、完整 HTTP response、运行时 customer data 或绝对路径。
 
 ### 7.2 八类阻断诊断
 
@@ -543,21 +569,26 @@ Markdown 只用于文件存在、标题、固定 token 和安全格式检查；�
 | 检查 | 执行位置 | 输入 | 行为 |
 | --- | --- | --- | --- |
 | `validate:contract` | 外部 CI 调用的仓库根级脚本 | Catalog、descriptor、双语内容、部署 YAML、Gateway/target Java test results | 所有必需阶段完成且无 error 才输出最终 `valid`；TS 预检不是 release report。 |
-| `validateRuntimeContract` | traffic-control-plane Web/API 的新 Run admission | 当前进程编译进去的 Catalog/supplement 与 normalized request | 仅校验进程内事实；不读取 Gateway Java map、目标服务代码、仓库部署文件或旧 Run revision。 |
+| `validateRuntimeContract` | traffic-control-plane Web/API 的新 Run admission | 当前进程 Catalog/supplement、normalized request、validation mode 和 deployment scope | 仅校验进程内事实并实施 heap scenario 的 disposable hard gate；不读取 Gateway Java map、目标服务代码、仓库部署文件或旧 Run revision。 |
 
 生产 Docker image 只复制 control-plane 运行所需内容，不能把 CI 依赖的根目录 `infra/`、Kubernetes 配置或文档树视为运行时文件。因此，不应将全量静态 validator 挂到 `pnpm build` 或 Web 请求路径。
 
-新增严格枚举配置；它只对 Web/API 的新 Run admission 生效，与 Phase 2 Reconciliation mode、safe-runtime 开关分离，不控制 Worker owner claim 或 scanner 接线：
+新增两项 Web-only 严格配置，均与 Phase 2 Reconciliation mode、safe-runtime 开关分离，不控制 Worker owner claim 或 scanner 接线。不得把变量加到共享 `env.ts`：该模块也会由 Worker import。新增 Web-only bootstrap/config module（例如 `scenario-contract-web-config.ts`），仅由 Web/API instrumentation 和 Fault Run POST route 导入；Web 启动时解析并校验，再将配置显式传入 admission。Coordinator/Worker 共用模块不得直接读取这些 `process.env` 变量：
 
 ```text
 SCENARIO_CONTRACT_VALIDATION_MODE=warn|enforce
+SCENARIO_CONTRACT_DEPLOYMENT_SCOPE=disposable|retained
 ```
 
 - 缺失值默认为 `warn`，以保持现有运行行为。
-- 非法值必须在 `env.ts` 中导致启动失败，不能悄悄降级为 `warn` 或 `enforce`。
-- 配置仅由创建 Run 的 Web/API 进程读取；Worker 不运行跨部署 Contract drift scan。
+- `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE` 缺失时默认为 `retained`；只有部署流程明确声明 `disposable` 才允许 heap-pressure 场景。
+- 非法值必须使 Web/API bootstrap fail fast，不能悄悄降级为 `warn` 或 `enforce`。
+- 配置仅由 Web/API bootstrap 和创建 Run 的 Web/API admission 读取；Worker 不解析该配置，也不运行跨部署 Contract drift scan。
 - `warn` 记录低基数的控制面结构化日志（category、scenario、revision），允许新 Run 按当前逻辑创建。
-- `enforce` 仅在**当前 Catalog 已通过请求校验的同一版本新 Run**创建、持久化及 target invocation 前拒绝进程内 Contract 错误，返回正常 Operator error envelope `SCENARIO_CONTRACT_INVALID`；不做跨服务校验。
+- `NOTIFICATION_HEAP_PRESSURE` 在 `deploymentScope !== disposable` 时，无论 validation mode 为何都拒绝新 Run，返回受控 Operator conflict `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE_RESTRICTED`；该 OOM 风险 hard gate 不能被 `warn` 绕过。
+- `enforce` 仅在精确 idempotency replay lookup 未命中后、任何新 Run persistence/prepare/target invocation 前，拒绝进程内 Contract 错误并返回正常 Operator error envelope `SCENARIO_CONTRACT_INVALID`；不做跨服务校验。参数仍按当前部署 Catalog 校验/标准化后才能比较 replay signature。
+
+Deployment-scope hard gate 与 Contract `warn|enforce` 是两个独立判断：exact replay 不分配新对象、不重发 effect；每个新 heap-pressure Run 都要求 scope=`disposable`。部署范围由 retained 切换为 disposable 或反向切换，均要求先执行外部 clean-slate reset。
 
 不实现 Worker 持久化 revision drift scan：部署会整体清空数据库和业务资源，运行期间 Catalog 随应用镜像固定。升级/回滚中途若没有执行 clean-slate reset，不属于本批次支持的保留数据部署模式。
 
@@ -575,8 +606,9 @@ contract_revision VARCHAR(128) NOT NULL
 
 1. `FaultRunRecord` 增加必填 `contractRevision: string`；当前 clean schema 不存在旧 Run/null projection。
 2. `CreateFaultRunInput` 要求由 Coordinator 传入 server-derived 的非空 `contractRevision`。
-3. `FaultRunCoordinator.create()` 在当前 Catalog lookup 和参数标准化后计算 revision。相同部署的幂等 replay 先返回同 signature 的既有 Run；只有没有既有 Run 的新 admission 才执行 `warn|enforce` Contract 检查，因而 replay 不受 mode 切换影响，也不重发 prepare/action。
-4. `createFaultRun()` 在同一个 transaction 内将 revision 插入 `fault_runs`，并扩展既有 `CREATED` event payload：
+3. Web route 先按当前 Catalog 校验和标准化参数；Coordinator/store 随后 lookup idempotency key。相同 scenario/normalized-parameter signature 的 replay 返回既有 Run，跳过 Contract admission 和 heap deployment-scope eligibility check，且不重发 action；异 signature 冲突。无既有 Run 时才计算完整 `contractRevision`，执行 heap hard gate 与 `warn|enforce` Contract admission，再进入 `createFaultRun()` transaction。
+4. `FaultRunStore` 增加只读 `loadByIdempotencyKey()` lookup；查重和插入之间可能有并发请求，`createFaultRun()` 必须继续在事务/唯一键冲突路径二次检查 key 与 signature。并发竞争胜出的请求完成创建，另一请求只返回同 signature replay 或对异 signature 返回冲突，不得重复触发 target prepare。
+5. `createFaultRun()` 在同一个 transaction 内将 revision 插入 `fault_runs`，并扩展既有 `CREATED` event payload：
 
    ```json
    {
@@ -590,9 +622,8 @@ contract_revision VARCHAR(128) NOT NULL
    }
    ```
 
-5. `contract_revision` 在 fresh DDL 中为 `NOT NULL`；`transitionFaultRun()`、`appendFaultRunEvent()`、`attachOperatorAudit()` 均不得更新它。
-6. 同一部署版本的幂等键以当前 Catalog 校验/标准化后的 `(scenario, normalized parameters)` 判重并返回原 revision；异 signature 返回冲突。部署 reset 清除 key，不保留跨部署 key/replay 语义。并发 create 的唯一约束/现有 repository 事务仍负责避免重复创建。
-7. Operator-only run projection 和受控 `CREATED` event projection 返回该字段；消费者、Gateway 和目标服务路径保持不变。
+6. `contract_revision` 在 fresh DDL 中为 `NOT NULL`；`transitionFaultRun()`、`appendFaultRunEvent()`、`attachOperatorAudit()` 均不得更新它。
+7. Operator-only run projection 和受控 `CREATED` event projection 返回 `contractRevision`/`catalogRevision`；消费者、Gateway 和目标服务路径保持不变。
 
 现有 `toGatewayPayload()` 与 `createFaultRunContext()` 应保持显式白名单。Operator timeline 的 `CREATED` sanitizer 仅投影格式有效的 revision，不透传原始事件 payload。新增字段后必须有负向测试，证明它们没有通过对象展开意外进入出站 header/body。
 
@@ -606,9 +637,9 @@ contract_revision VARCHAR(128) NOT NULL
 - `traffic-control-plane/src/lib/migrations/001-fault-runs.sql`；
 - `infra/mysql/init/04-fault-run-schema.sql`。
 
-`pnpm db:migrate` 在全新数据库上运行既有 `001`–`005`；本批次不新增 migration file、修改 migration registry 或提供从已有 volume 的 upgrade path。fresh MySQL init、runtime schema creation 与 `001` 必须都创建 `contract_revision NOT NULL`。`db:verify` 增加该列存在/类型/非空属性检查，但遇到非 clean schema 应 fail fast、不隐式 `ALTER`。
+`pnpm db:migrate` 在全新数据库上运行既有 `001`–`005`；本批次不新增 migration file、修改 migration registry 或提供从已有 volume 的 upgrade path。fresh MySQL init、runtime schema creation 与 `001` 必须都创建 `contract_revision NOT NULL`。外部部署步骤必须在启动 Web/Worker 前运行 `db:migrate` 和 `db:verify`；verify 增加该列存在/类型/非空属性检查，遇到非 clean schema 应 fail fast、不隐式 `ALTER`。
 
-部署前停止旧 Web/API 与 Worker，再对确认可丢弃的整套环境同时重置数据库和业务资源；不要求按 Run 逐条 stop/release/cleanup，也不允许新旧二进制混跑。reset 会销毁 Fault Runs、events、idempotency keys、alert receipts、baselines、存储文件及其他业务资源；它不是 per-Run cleanup。Contract revision 与 Run/event 使用现有 retention，不是长期归档。未来切换到保留数据的部署前，必须另行完成 schema migration、active Run 处置和历史合同/archive 设计。
+完整 clean-slate reset 是部署平台/运维流程的显式前置条件，本仓库不新增全量 wipe 工具。部署流程必须先停所有 DB/Redis/target writers，再重置 MySQL database/migration history、Redis 状态和明确列出的 scenario-owned 持久化资源，并保存可审计的 reset 记录；仅运行当前 `scripts/mysql-reset.sh` 不足以证明完整 reset，因为它不重置 Redis 或服务挂载目录。重置后由部署步骤按 init/migration 顺序创建 fresh schema，再运行 `db:verify`，确认成功后才启动单版本 Web/API 与 Worker。不得按 Run 逐条 stop/release/cleanup，不允许新旧二进制混跑。reset 会销毁 Fault Runs、events、idempotency keys、alert receipts、baselines、scenario-owned storage 及其他声明的业务状态；它不是 per-Run cleanup。Contract revision 与 Run/event 使用现有 retention，不是长期归档。未来切换到保留数据的部署前，必须另行完成 schema migration、active Run 处置和历史合同/archive 设计。
 
 ## 9. 辅助生成与命令接口
 
@@ -643,19 +674,13 @@ contract_revision VARCHAR(128) NOT NULL
 
 根级 `scripts/test-scenario-contract.sh` 由外部 CI 调用，分阶段执行并汇总：
 
-```text
-pnpm --dir traffic-control-plane test:contract
-pnpm --dir traffic-control-plane validate:contract:preflight -- --output "$TMP/scenario-contract/expected.json"
-Maven tests for gateway-service + catalog/order/notification/promotion/inventory/psp target modules
-pnpm --dir traffic-control-plane validate:contract:finalize -- --checks "$TMP/scenario-contract/checks/"
-pnpm --dir traffic-control-plane test:runbook
-pnpm --dir traffic-control-plane test:i18n
-./scripts/check-runtime-terminology.sh
-pnpm --dir traffic-control-plane typecheck
-pnpm --dir traffic-control-plane lint
-```
+1. 运行 Contract unit tests 和 `validate:contract:preflight`，生成带 `catalogRevision` 的期望文件；预检不得输出 release `valid`。
+2. 运行 runbook、i18n、terminology、typecheck、lint 和 Gateway/target Java endpoint tests。Maven 测试模块为 `gateway-service,catalog-service,order-service,notification-service,promotion-service,inventory-service,psp-simulator`；用 `OperationDispatchContractTest` 和 `ScenarioTargetEndpointContractTest` 对照同一份期望。
+3. 每步无论成功/失败都写入带 `catalogRevision` 的结构化 check result 和受限日志摘要。根脚本不得在第一项失败时退出；它应继续执行剩余检查。
+4. 所有 required checks 落盘后再运行 `validate:contract:finalize -- --checks "$TMP/scenario-contract/checks/" --scope STATIC_CONTRACT`。finalize 将结果汇总为整体及逐场景 `VALID`/`BLOCKED`/`LIMITED`；任一 required result 缺失、失败或 revision 不匹配均为 `BLOCKED`。外部 blocking release gate 只有整体 `VALID` 才通过；`BLOCKED`/`LIMITED` 均在报告写出后以非零退出。`LIMITED` 仅用于 non-release canary/live-scope 报告，不可提升为静态 gate success。
+5. 外部 CI 使用 always-run artifact upload，成功/失败都上传去敏的 manifest、preflight、checks 和 final report；若执行器被强制中断、无法产生 final report，则 pipeline 仍必须失败并保留已产生的 preflight/check artifacts。
 
-预检阶段可以报告 TypeScript/文档/部署声明的结果，但不能输出最终 12/12 `valid`。gateway 和目标服务测试读取同一 revision 的生成期望，分别证明 Operation registry 路由和真实 controller mapping/wire contract；最终阶段收集这些结构化结果，缺少任一 required target result 即非零并标 `missingTarget`。不能以 Gateway map 字符串对比替代目标服务 endpoint test。
+Maven 测试通过固定 `-Dscenario.contract.expected=...` 和 `-Dscenario.contract.checksDir=...` 接收期望并输出逐模块结构化结果；普通 `Surefire` 文本或 exit code 不能代替 finalizer 所需的 operation/service/controller/path assertion。不能以 Gateway map 字符串对比替代目标服务 endpoint test。
 
 仓库目前没有 GitHub Actions workflow；按用户决策，本批次不新建 GitHub workflow。外部 CI 必须调用根脚本并将它设为 blocking/required，成功或失败都上传去敏 manifest、预检和最终报告；任务证据要确认 pipeline 已实际接线，不能只以脚本存在代表阻断已启用。MySQL 与 live scenario smoke 只在可丢弃环境独立执行。
 
@@ -700,14 +725,15 @@ Contract validator 读取 `infra/prometheus/rules/alert-rules.yml`、`infra/aler
 
 ### 11.1 配置位置
 
-新增 admission-only `SCENARIO_CONTRACT_VALIDATION_MODE` 后，以下位置必须同一变更更新：
+新增 Web-only `SCENARIO_CONTRACT_VALIDATION_MODE` / `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE` 后，以下位置必须同一变更更新：
 
 | 位置 | 处理 |
 | --- | --- |
-| `traffic-control-plane/src/lib/env.ts` | 严格解析 `warn`/`enforce`，非法值启动失败。 |
-| `docker-compose.yml` 的 traffic-control-plane Web/API | 显式设为 `warn`；Worker 不读取该 mode。 |
-| `k8s/services/traffic-control-plane/deployment.yaml` | 通过 `app-config` 或明确 env 设为 `warn`。 |
-| 外部 CI / 部署说明 | 外部 CI 调用根级脚本并设为 blocking；部署说明记录 clean-slate reset、模式切换和 rollback。 |
+| Web-only bootstrap/config module (e.g. `traffic-control-plane/src/lib/scenario-contract-web-config.ts`) | 严格解析 validation mode 与 deployment scope；scope 缺失默认 `retained`；只由 Web/API instrumentation/route 导入，非法值令 Web/API fail fast。 |
+| `FaultRun POST` route / coordinator command | 将解析后的 mode/scope 显式传入新 Run admission；shared `env.ts`、Coordinator module startup 和 Worker 不读取这些变量。 |
+| `docker-compose.yml` 的 traffic-control-plane Web/API | 显式设 `SCENARIO_CONTRACT_VALIDATION_MODE=warn`；默认 deployment scope 为 `retained`，仅 disposable canary 显式设 `disposable`；Worker 不设置/解析。 |
+| `k8s/services/traffic-control-plane/deployment.yaml` | 在 Web-only `env` 或 Web 专用 ConfigMap 设置 mode/scope；不得加到 Web/Worker 共同引用的 `app-config`。 |
+| 外部 CI / 部署说明 | 外部 CI 调用根级脚本并设为 blocking；部署平台外部流程执行完整 clean-slate reset、`db:migrate`/`db:verify`，并留存 reset/check/rollback 记录。 |
 
 本批次不新增密码、token、service key 或 Agent credential。Alert delivery 的凭据来源仅作为 Contract 声明，真实 Secret 由阶段 5 部署管理。
 
@@ -718,9 +744,9 @@ Contract validator 读取 `infra/prometheus/rules/alert-rules.yml`、`infra/aler
   -> 补齐 Catalog supplement 和 derived capability checks
   -> static CI gate 通过
   -> 清空 disposable DB 与业务资源并 fresh initialize
-  -> Web/API 以 warn 部署并写 non-null revision
+  -> Web/API 以 warn + deploymentScope=disposable 部署并写 non-null revision
   -> 验证新 Run/Event revision 一致、无业务协议泄漏
-  -> 单 Worker disposable 环境 enforce canary (Reconciliation=OFF)
+  -> 单 Worker disposable 环境 enforce canary (Reconciliation=OFF, deploymentScope=disposable)
 ```
 
 `enforce` 仅用于用户确认的单 Worker disposable canary，不自动推广到保留数据或多 Worker 部署。canary 前至少需确认：
@@ -728,6 +754,7 @@ Contract validator 读取 `infra/prometheus/rules/alert-rules.yml`、`infra/aler
 - 静态 report 对 12 个场景无 error；
 - `CART_CATALOG_DEPENDENCY` 有真实 dispatch，不是文档占位；
 - 实际 driver 仅在 `ACTIVE` 执行，并按 Catalog policy 注册可等待的 drain；
+- `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE=disposable` 仅注入本次已 reset 的 Web/API；其余/保留数据部署显式设为 `retained` 或使用默认值；
 - `NON_RELEASING` 与 `MANUAL_CLEANUP` 的 coordinator policy 已与实际 target 行为一致；
 - Gateway cleanup 与 target cleanup wire contract 已经过真实 controller/integration test；
 - 新建 Run 的 table 字段、`CREATED` event 与 Operator 事件投影 revision 相同，且 Gateway/context payload 仍无该字段；
@@ -751,26 +778,27 @@ V1 只使用控制面结构化日志和 CI report 记录校验结果；本批次
 
 ### 12.1 TypeScript 单元与 fixture 测试
 
-1. canonicalization 在 object key、参数声明顺序变化和无序集合重排时稳定；任一实际 Contract 字段变化时相应 revision 改变，UI 字段排序不影响 hash。
+1. canonicalization 在 object key、参数声明顺序变化和无序集合重排时稳定；任一 Catalog supplement 变化都会改变 global `catalogRevision` 和对应 per-run `contractRevision`；Evidence plan 变化会改变 `contractHash`；UI 字段排序不影响 hash。
 2. 12 个真实 Catalog 场景生成唯一 resolved Contract、64-hex `catalogRevision` 和 `sc.v1:sha256:` per-run `contractRevision`。
 3. 每个八类诊断至少有一个独立的 fixture：
    - target service/operation 缺失或不匹配；
    - scenario 没有或有多个 dispatch owner；
-   - 参数 default、duration、consumer、预算或 unit 非法；
+   - 参数 default、duration、consumer、预算或 unit 非法；heap unbounded exception 只能用于 `NOTIFICATION_HEAP_PRESSURE`；scope 缺省 retained 时在 warn/enforce 下都拒绝新建，显式 disposable 才允许；
    - drain/release/manual/non-releasing lifecycle hook 不合法；
    - evidence recipe 缺失、ID 重复、window/source 不合法；
    - 双语 runbook 文件/标题/固定 operation 缺失；
    - i18n key、metadata 或分组缺失；
    - alert rule/severity/label/window/delivery route 不一致。
-4. `NOT_ENABLED_YET` 的完整 alert declaration 在静态 Contract 中可通过，同时产生 readiness note；将它错误标为 `ENABLED` 后必须失败。
-5. 不把 `prepare succeeded`、alert receipt、effect observed、business recovered 和 cleanup completed 互相自动推导。
-6. generated manifest/report/form/checklist/smoke/term 输出稳定，且不含 secrets 或绝对路径。
+4. `NOTIFICATION_HEAP_PRESSURE` 的 no-aggregate-cap 例外仅绑定该场景；Web runtime scope 缺省 `retained` 时拒绝新建，即使 mode 为 `warn`；显式 `disposable` 才允许。
+5. `NOT_ENABLED_YET` 的完整 alert declaration 在静态 Contract 中可通过，同时产生 readiness note；将它错误标为 `ENABLED` 后必须失败。
+6. 不把 `prepare succeeded`、alert receipt、effect observed、business recovered 和 cleanup completed 互相自动推导。
+7. generated manifest/report/form/checklist/smoke/term 输出稳定，且不含 secrets 或绝对路径。
 
 ### 12.2 控制面、Worker 与 Gateway 测试
 
-1. `FaultRunCoordinator.create()` 是 API 的统一创建入口：当前 Catalog 先校验/标准化，之后创建同一版本内幂等对照；`executionMode` 未设置时走 legacy create + adapter prepare，设置时在事务中创建 execution/PREPARE intent 后由 Reconciler dispatch。Contract admission/revision 在 Run 写入和 target action 前执行。
+1. `FaultRunCoordinator.create()` 是 API 的统一创建入口：当前 Catalog 先校验/标准化，再按 key/same signature lookup；精确 replay 绕过新 Run Contract admission、heap scope eligibility check，并不重派发，lookup miss 才执行硬 scope gate 和 `warn|enforce`。`executionMode` 未设置时走 legacy create + adapter prepare，设置时在事务中创建 execution/PREPARE intent 后由 Reconciler dispatch。Contract admission/revision 在 Run 写入和 target action 前执行。
 2. `createFaultRun()` transaction 同时写 table revision 和 `CREATED` payload；两者相同。
-3. 同一 Catalog/schema 版本内，使用标准化参数的 replay 返回原 revision 且不重派发；不提供跨部署 replay。
+3. 同一 Catalog/schema 版本内，使用标准化参数的 replay 返回原 revision 且即使 Runtime mode 为 `enforce` 仍不重派发；并发 key race 的 duplicate-entry 路径同样校验 signature。不提供跨部署 replay。
 4. `FaultRunRecord.contractRevision` 在 fresh schema/API 中为必填 string；state transition 不能更改 revision，无旧行 null fallback 测试。
 5. `toGatewayPayload()`、`FaultRunContext`、owner-fenced action/cleanup payload 均没有 `contractRevision`。
 6. 每个 owned driver capability 与实际 Reconciler 的 ACTIVE gate、drain registration、summary event 一致；CREATING 只可执行已声明 prepare，RECOVERING/终态不得启动 effect driver。
@@ -782,9 +810,9 @@ V1 只使用控制面结构化日志和 CI report 记录校验结果；本批次
 1. 空数据库分别经 MySQL init 和现有 `db:migrate` path 初始化后都含同一 `contract_revision NOT NULL` 定义；runtime schema、`001` 与 init `04` 的 fresh schema parity test 通过。不做旧库升级测试。
 2. `db:verify` 对 fresh schema 检查 revision column/type/NOT NULL；未清库的不兼容 DB 应 fail fast，不得隐式 ALTER。
 3. Compose 与 Kubernetes Alert/Prometheus YAML 语义规范化后匹配；只有外部 Agent delivery 标为 `ENABLED` 时才要求专用 route/receiver。
-4. 在单 Worker disposable、`FAULT_RUN_RECONCILIATION_MODE=OFF` 环境创建一个有效 Run，检查 Operator `CREATED` event revision 投影、table/event revision 一致和 Gateway/consumer 协议边界；按用户部署模式整体 reset 数据库与业务资源。
+4. 在单 Worker disposable、`FAULT_RUN_RECONCILIATION_MODE=OFF`、Web scope=`disposable` 环境创建/重放/停止 Run；检查 heap scenario retained-scope 拒绝、exact replay 不重派发、Operator `CREATED` revision 投影、table/event revision 一致和协议边界；按外部流程复核 DB/Redis/scenario-owned storage reset 记录。
 5. 现有 `catalog-product-detail-smoke.sh` 仍只代表一个场景 smoke，不能被报告为 12 个场景 Contract 验证；运行未覆盖的场景必须报告 limited。
-6. 外部 CI 执行根脚本并配置为 blocking status；本仓库不创建 GitHub Actions workflow。`git diff --check`、terminology、control-plane typecheck/lint/build 均通过。
+6. 外部 CI 执行根脚本并配置为 blocking status；本仓库不创建 GitHub Actions workflow。报告区分 `VALID`、`BLOCKED`、`LIMITED`，但 `BLOCKED` 不得通过；`LIMITED` 不能宣传为 full live scenario/Agent delivery 验收。`git diff --check`、terminology、control-plane typecheck/lint/build 均通过。
 
 ## 13. 实施顺序与任务拆分
 
@@ -796,9 +824,9 @@ V1 只使用控制面结构化日志和 CI report 记录校验结果；本批次
 | 4 | Gateway registry 抽取和跨语言 test input | 1、2 | target-backed operation/service/path 可被 Maven gate 验证。 |
 | 5 | runbook/i18n/alert/terminology validator inputs | 1、2 | 现有文档和 locale 与 Catalog 精确覆盖。 |
 | 6 | full validator、report、辅助生成和根级 static script | 3～5 | 八类负向 fixture 和真实 12 场景 report 可重复执行。 |
-| 7 | fresh schema revision persistence 与 Operator serialization | 1、6 | clean schema 中 revision NOT NULL；row/CREATED/Operator event 一致；无 legacy fallback/upgrade migration。 |
-| 8 | warn/enforce 配置、外部 CI 接入和 fresh-image validation | 6、7 | 外部 CI 阻断；runtime 只检查本进程新 Run admission。 |
-| 9 | 单 Worker disposable enforce canary | 3～8 | `FAULT_RUN_RECONCILIATION_MODE=OFF`；完整 reset DB 和业务资源；有可复核 rollback。 |
+| 7 | fresh schema revision persistence 与 Operator serialization | 1、6 | clean schema 中 revision NOT NULL；row/CREATED/Operator event 一致；无 legacy fallback/upgrade migration；Batch 4 hash 不重算 `contractRevision`。 |
+| 8 | Web-only warn/enforce/scope config、外部 CI 接入和 fresh-image validation | 6、7 | 外部 CI 阻断；Worker 不解析 Web-only config；runtime admission 显式接收 mode/scope。 |
+| 9 | 单 Worker disposable enforce canary | 3～8 | `FAULT_RUN_RECONCILIATION_MODE=OFF`、Web `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE=disposable`；外部完整 reset 有记录；有可复核 rollback。 |
 
 步骤 3 与 4 主要是现有 Phase 2 capability 的投影与跨语言验证，不代表必须重新实现 Worker/Reconciler。若测试发现真实 Phase 2 行为不满足 Contract，先在任务清单登记差异、更新本设计和对应 Phase 2 gate，再决定是否新增代码；strict gate 不得将未验证的 capability 标为通过。P3 enforce canary 只验证单 Worker、legacy Reconciliation OFF 的创建门禁，不宣称 Phase 2 TAKEOVER 已验证。
 
@@ -809,10 +837,11 @@ V1 只使用控制面结构化日志和 CI report 记录校验结果；本批次
 1. 12 个 Catalog 场景均能解析为唯一、版本化的 `ResolvedScenarioContract`，真实静态 report 无 error。
 2. Catalog、Gateway、Worker、recovery/cleanup、runbook、i18n、evidence 和 alert 声明通过八类校验；新场景缺项会在 CI 中失败。
 3. `contract_revision` 在 clean schema 中 NOT NULL，新建 Fault Run 的数据库行、`CREATED` event 与 Operator 投影一致；不支持旧数据/nullable fallback。
-4. 消费者和业务服务的请求、响应、日志、metric、trace 和通用内部 operation context 均不包含 Contract/Catalog/Fault Run 生命周期语义。
-5. `NOT_ENABLED_YET`、`EVIDENCE_UNAVAILABLE`、`UNMATCHED`/`AMBIGUOUS` 等不确定性被显式表示；没有“场景已启动，所以告警一定 firing”或“prepare 成功，所以效果已观察到”的推论。
-6. 所有 generated artifact 可重复生成，未成为手工维护的第二数据源，也未自动覆盖 runbook/生产代码。
-7. 外部 CI 根级 static gate 阻断；运行时默认 `warn`，只在本进程新 Run admission 事实完整并通过单 Worker disposable canary 后启用 `enforce`。跨层校验只由 CI 声称。
-8. clean-slate schema 与 disposable reset/canary 有复核证据；该方案不声明为保留数据环境的 migration/rollback 方案。
+4. `catalogRevision` canonical input 包含完整 Contract supplement；`contractRevision` 哈希完整 `ResolvedScenarioContract`；Batch 4 不重算该值，capture snapshot 另用 `contractHash`。
+5. 消费者和业务服务的请求、响应、日志、metric、trace 和通用内部 operation context 均不包含 Contract/Catalog/Fault Run 生命周期语义。
+6. `NOT_ENABLED_YET`、`EVIDENCE_UNAVAILABLE`、`UNMATCHED`/`AMBIGUOUS` 等不确定性被显式表示；没有“场景已启动，所以告警一定 firing”或“prepare 成功，所以效果已观察到”的推论。
+7. 所有 generated artifact 可重复生成，未成为手工维护的第二数据源，也未自动覆盖 runbook/生产代码。
+8. 外部 CI 根级 static gate 阻断；运行时默认 `warn`，只在本进程新 Run admission 事实完整并通过单 Worker disposable canary 后启用 `enforce`。跨层校验只由 CI 声称，报告状态区分 `VALID`/`BLOCKED`/`LIMITED`。
+9. clean-slate schema 与外部 reset/canary 有复核记录；`NOTIFICATION_HEAP_PRESSURE` 在 retained scope 被 hard-reject；该方案不声明为保留数据环境的 migration/rollback 方案。
 
 满足退出条件后，阶段 4 可以消费 resolved Contract 的 evidence recipe 和 revision，而不再从 Catalog、runbook、Worker 条件或告警 prose 中猜测场景边界。

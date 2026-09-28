@@ -165,6 +165,17 @@ Compose 通过同一个环境锚点向 Web/API 与唯一 worker 注入 safe-runt
 
 回退时先暂停 Operator 发起新的 Fault Run，并处理或保留全部 `safe-runtime.v1` `RECOVERING` Run 的真实 drain、release、manual cleanup 或 non-releasing residual。当前没有独立的跨进程创建总闸门，因此这是一项受控操作边界，而不是可由单个 flag 自动强制的承诺。只有不存在未完成的新协议 Run 时，才将 Web/API 与 worker 的 flag 一起关闭并回退镜像。保留 `recovery_result`、事件、审计和 target 资源；不要通过删除 Fault Run、重置 MySQL volume、删除 target 文件或强制终态来完成回退。
 
+### Phase 3 Scenario Contract clean-slate prerequisite
+
+Phase 3 adds `fault_runs.contract_revision NOT NULL` to fresh schema and does not provide an upgrade path for existing databases. When deploying that schema, the deployment platform/operator must explicitly run and record the approved clean-slate procedure before starting the new Web/API and Worker images:
+
+1. Stop all Web/API, Worker, Gateway and business-service processes that may write state.
+2. Reset the MySQL application database and migration history, Redis runtime state, and the explicitly inventoried scenario-owned persistent resources (including run-scoped notification storage files).
+3. Run `pnpm db:migrate` and `pnpm db:verify` against the fresh database; start only one matching Web/API/Worker release after both succeed. `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE` defaults to `retained`; for the Phase 3 heap-pressure disposable canary only, set it to `disposable` on Web/API. The Worker does not receive this variable, and changing scope requires another complete reset.
+4. Record the reset scope, completion time, and verification result in the external deployment record. This reset intentionally destroys application/run state; it is not Fault Run recovery or per-Run cleanup.
+
+This is an external deployment responsibility; the repository does not provide a full-platform wipe command. `scripts/mysql-reset.sh` resets the MySQL databases and seed data, but explicitly leaves Redis and service bind-mounted data in place, so it is not sufficient by itself for this gate. Do not apply the clean-slate procedure to shared or data-retaining environments; those require a separately designed migration and active-Run transition plan.
+
 ### 2. 构建本地镜像
 
 `build-all.sh` 会构建 common、全部 Java 服务、控制面、重启 broker 和 shopfront，默认目标平台为 `linux/amd64`。它默认使用本地基础镜像缓存；需要刷新基础镜像时增加 `--pull`。构建未推送的镜像后，直接调用 `docker compose`，避免 `compose-up.sh` 再次拉取远程镜像：

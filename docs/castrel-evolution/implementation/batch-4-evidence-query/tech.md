@@ -1,6 +1,6 @@
 # 批次 4：实时 Evidence Query 技术设计
 
-> 状态：技术设计 v1.1，已按 Phase 3 用户决策对齐（待实施）<br>
+> 状态：技术设计 v1.2，已按 2026-09-28 Phase 3 复审决议对齐（待实施）<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 对应路线阶段：阶段 4<br>
 > 前置条件：阶段 0～3 的退出门槛已满足，尤其是批次 3 已提供并阻断式校验完整的 Scenario Evidence Contract<br>
@@ -10,7 +10,7 @@
 
 批次 4 在 `traffic-control-plane` 内实现一个仅供 Operator 使用的 Evidence Query 子系统。它由三个彼此独立的层组成：
 
-1. **可选的运行创建时冻结合同**：只有 `EVIDENCE_MANIFEST_CAPTURE_ENABLED=true` 时，才在创建 Fault Run 的同一 MySQL 事务保存由 Catalog 派生的 Evidence Contract snapshot、revision 和 canonical hash。该 snapshot 是已 capture 运行唯一可信的查询协议，后续 Catalog 修改不会改写它；flag 关闭时不要求也不写 snapshot。
+1. **可选的运行创建时冻结合同**：只有 `EVIDENCE_MANIFEST_CAPTURE_ENABLED=true` 时，才在创建 Fault Run 的同一 MySQL 事务保存 Phase 3 `contractRevision` 引用、由 Catalog 派生的 Evidence Contract snapshot 和其 `contractHash`。该 snapshot 是已 capture 运行唯一可信的查询协议，后续 Catalog 修改不会改写它；flag 关闭时不要求也不写 snapshot。
 2. **终态按需物化 Manifest**：Operator 首次查看终态运行的证据时，服务端使用 frozen contract 与按 `(created_at, id)` 排序的 Run Event 生成不可变 `EvidenceQueryManifest`。若清理等后续生命周期事实发生，则创建新 revision，绝不原地改写旧 Manifest。
 3. **Operator 显式实时查询**：Operator 主动发起一次有严格时间、并发和响应体上限的同步查询。控制面只向 Prometheus、Loki、Tempo 和既有 Gateway 固定只读检查发请求，结果只在当前 HTTP 响应中以受限摘要返回；数据库、审计、日志和指标只记录状态、判断、时长和安全错误码。
 
@@ -149,7 +149,7 @@ sequenceDiagram
 
 Phase 3 的 `contractRevision` 仅用于识别创建时的场景合同，不是历史快照，也不可用于重建 Evidence DSL。Batch 4 的 Contract snapshot 只记录当次运行应使用的查询协议，不查询任何观测后端。若 capture flag 已开启，snapshot 写入失败必须在任何目标 `prepare` 调用之前使创建失败；否则会产生无法按已批准合同解释的“reportable run”。当 capture flag 关闭时，现有 Fault Run 创建路径保持不变，新运行明确标记为没有 Evidence Contract snapshot。
 
-Batch 4 直接消费 Phase 3 Catalog supplement 中版本化的 `EvidenceContractPlan` 类型/值，包括 `EvidenceWindowPolicy`、`EvidenceRecipeDefinition`（对外 snapshot schema 使用 `EvidenceRecipe` 名称）和 `effectRule`。不得维护第二份可变 template/scope/predicate/projection/window 定义；schema 转换只允许做显式、版本化的序列化映射。
+Batch 4 直接消费 Phase 3 Catalog supplement 中版本化的 `EvidenceContractPlan` 类型/值，包括 `EvidenceWindowPolicy`、`EvidenceRecipeDefinition` 和 `effectRule`。不得维护第二份可变 template/scope/predicate/projection/window 定义，也不做 DSL 类型/字段 rename；snapshot 将同一 `EvidenceContractPlan` 作为 JSON 序列化。
 
 ### 4.2 终态 Manifest 物化与实时报告
 
@@ -204,65 +204,31 @@ Manifest 浏览绝不触发外部查询。页面轮询、详情打开、列表�
 
 ### 5.1 单一事实来源
 
-`traffic-control-plane/src/lib/fault-run-catalog.ts` 继续是所有可变场景事实的唯一来源。批次 3 在 `FaultRunScenarioDefinition` 上增加必填 `evidence` 字段；`scenario-contract.ts` 如有必要只能校验、canonicalize 和导出该字段，不能维护第二个按场景列出的 recipe map。
+`traffic-control-plane/src/lib/fault-run-catalog.ts` 继续是所有可变场景事实的唯一来源。批次 3 在 `FaultRunScenarioDefinition` 上增加必填 `contract: ScenarioContractSupplement`；Evidence plan 位于 `contract.evidence`。Phase 3 的 `scenario-contract.ts` 是 Evidence DSL 类型/schema 的唯一来源，Batch 4 直接 import 并消费，不得再声明 `EvidenceRecipe`、`EvidenceWindowPolicy`、`EvidenceTemplateId`、`EvidenceScope` 或 `EvidencePredicate` 的镜像类型。
 
 ```ts
-type EvidenceWindowName = 'baseline' | 'active' | 'recovery' | 'cleanup';
-type EvidenceSource =
-  | 'RUN_EVENT'
-  | 'PROMETHEUS'
-  | 'LOKI'
-  | 'TEMPO'
-  | 'BUSINESS_CHECK'
-  | 'RESOURCE_CHECK';
-type EvidenceProjection = 'NUMERIC' | 'COUNT' | 'BOOLEAN' | 'TIMELINE';
-type EvidencePredicateOutcome = 'MET' | 'NOT_MET' | 'INCONCLUSIVE';
+import type { EvidenceContractPlan } from '@/lib/scenario-contract';
 
-type EvidenceWindowPolicy = {
-  baselineBeforeActiveSec: number;
-  activeLeadSec: number;
-  activeTailSec: number;
-  recoveryLeadSec: number;
-  recoveryTailSec: number;
-  cleanupLeadSec: number;
-};
-
-type EvidenceRecipe = {
-  id: string;
-  source: EvidenceSource;
-  window: EvidenceWindowName;
-  observationMode: 'WINDOWED' | 'CURRENT';
-  required: boolean;
-  template: EvidenceTemplateId;
-  scope: EvidenceScope;
-  predicate: EvidencePredicate;
-  projection: EvidenceProjection;
-};
-
-type EvidenceContractPlan = {
-  schemaVersion: 'evidence-contract.v1';
-  windows: EvidenceWindowPolicy;
-  recipes: readonly EvidenceRecipe[];
-  effectRule: {
-    mode: 'ALL' | 'ANY';
-    recipeIds: readonly string[];
-  };
+type EvidenceContractSnapshotRecord = {
+  contractRevision: string;
+  contractHash: string;
+  evidence: EvidenceContractPlan;
 };
 ```
 
-`EvidenceContractPlan` 由批次 3 的 `resolveScenarioContract(definition).evidence` 转换而来，不是第二份 Catalog。`EvidenceTemplateId`、`EvidenceScope` 和 `EvidencePredicate` 都是有限枚举或经过严格验证的结构；它们不是可由 Operator 或环境变量任意替换的查询字符串。Prometheus、Loki、Tempo 和 Run Event 时间线使用 `WINDOWED`；业务 read-check 只能使用 `CURRENT`，表示报告发起时的当前恢复探测，不能冒充历史窗口内的效果证据，也不能被 `effectRule` 引用。
+`contract_json` 持久化该 `EvidenceContractSnapshotRecord.evidence` 对象；canonical JSON 是计算 hash 时的确定性序列化，不重复作为第二份 snapshot 存储。字段名与 Phase 3 DSL 完全一致，不做 `EvidenceRecipeDefinition`→`EvidenceRecipe` 或其他 schema rename。`contractHash` 为该 Evidence plan canonical JSON 的 64-character lowercase SHA-256；它只标识 snapshot 内容，不是 Fault Run 的 scenario contract revision。模板/scope/predicate 仍是有限枚举或结构化输入，不能由 Operator、Agent 或环境变量替换。
 
 ### 5.2 revision、canonicalization 与历史冻结
 
-1. 对每个场景的 target、operation、validated evidence contract、schema version 和固定 read-check ID 做稳定 JSON 序列化。
-2. 对 object key、recipe ID 和数组中的稳定标识符排序。
-3. 使用批次 3 的 canonicalization 对 resolved Contract 计算 `sc.v1:sha256:<lowercase-hex>` 形式的 `contractRevision`。
-4. 在同一个 Fault Run 创建事务中保存 canonical JSON、`contractRevision` 和 `contractHash`，并验证它与 `fault_runs.contract_revision`、`CREATED.contractRevision` 相同。
+1. Batch 4 从 `resolveScenarioContract(definition)` 读取完整 resolved contract 与 `evidence` plan。
+2. 按 Phase 3 的 canonicalization 对 Evidence plan 自身计算 `contractHash`；Recipes 按 `id`、`effectRule.recipeIds` 按稳定 ID 排序。
+3. 不由 Batch 4 重算 `contractRevision`。使用 Phase 3 计算的完整 ResolvedScenarioContract revision 原值；Evidence 之外字段变化也可能改变它。
+4. 仅当 capture flag 开启时，在 Fault Run 创建事务中保存 Evidence plan 的 canonical JSON、`contractHash` 与同一 `contractRevision` 引用；验证该引用与 `fault_runs.contract_revision`、`CREATED.contractRevision` 相同。
 5. Manifest 用 `contractHash + safe timeline projection + resolved windows + rendered recipe plan` 生成独立 `manifestHash`。
 
-这与批次 0 的 Catalog revision 规则保持一致：revision 从 authoritative Catalog 内容导出，不依赖 Git branch、部署时间或手工填写的版本号。`schemaVersion` 用于解释结构变更，但不能替代内容 revision。
+`catalogRevision` 仍为完整 Catalog 的 64-hex hash；`contractRevision` 是 Phase 3 的完整 per-run Resolved Contract hash；`contractHash` 是 Batch 4 Evidence snapshot 的 content hash；`manifestHash` 是带 lifecycle timeline/windows 的 Manifest hash。四者用途不同，不可互相赋值或重算替代。
 
-Catalog 后续变更只影响新运行。旧运行始终使用自己的 frozen snapshot；无法读取 snapshot 的旧运行必须得到 `CONTRACT_SNAPSHOT_UNAVAILABLE`，不得用当前 Catalog 伪造历史配方。
+Catalog 后续变更只影响新 capture snapshot。已有 snapshot 的运行始终使用自己的冻结 Evidence plan；在 capture flag 关闭时创建的 Run 没有 snapshot，即使有 `contractRevision` 也不得用当前 Catalog 重建其历史 Evidence plan，必须得到 `CONTRACT_SNAPSHOT_UNAVAILABLE`。
 
 ### 5.3 Recipe DSL 与查询渲染
 

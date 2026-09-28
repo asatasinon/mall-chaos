@@ -1,6 +1,6 @@
 # 阶段 3：Scenario Contract
 
-> 状态：P3-00R 用户决策已同步至产品/技术/任务设计；Contract 实施待开始<br>
+> 状态：P3-00R 用户决策及复审决议已同步；Contract 实施待开始<br>
 > 技术设计：[implementation/batch-3-scenario-contract/tech.md](../../implementation/batch-3-scenario-contract/tech.md)
 > 实施任务：[implementation/batch-3-scenario-contract/task-list.md](../../implementation/batch-3-scenario-contract/task-list.md)
 
@@ -19,7 +19,7 @@ scenario
   - prepare / active / stop / release / cleanup
   - expected evidence
   - alert contract
-  - shared Batch 5.0 alert receipt policy reference and Agent delivery readiness
+  - shared Batch 5.0 alert receipt policy reference and external Agent delivery readiness
   - recovery checks
   - side-effect checks
 ```
@@ -28,7 +28,7 @@ Contract 属于控制面和测试生成层，不原样暴露给业务服务。
 
 `targetPrepare` / `recoveryPolicy` 是执行策略事实来源；Contract 从中派生适用的 release/drain。local Worker 可无 Gateway target release，但必须定义 stop/drain 与验证。资源预算可声明硬参数上限或受控的目标容量 guard；storage target 不承诺一定达到物理写入量。
 
-已确认预算边界：两个 surge 场景的每 Run `concurrency.max=128`；`NOTIFICATION_STORAGE_APPEND.totalBytes` 无静态绝对上限，依赖目标 filesystem usable-space guard；`minFreeBytes` 范围为 `1 MiB`–`1 GiB`，Catalog 与目标服务须一致。
+已确认预算边界：两个 surge 场景的每 Run `concurrency.max=128`；`NOTIFICATION_STORAGE_APPEND.totalBytes` 无静态绝对上限，依赖目标 filesystem usable-space guard；`minFreeBytes` 范围为 `1 MiB`–`1 GiB`，Catalog 与目标服务须一致。`NOTIFICATION_HEAP_PRESSURE` 不设累计保留上限，必须作为 OOM/服务重启可能的 non-releasing 例外，只在 disposable 环境演练。
 
 ## 实施顺序
 
@@ -40,10 +40,8 @@ Contract 属于控制面和测试生成层，不原样暴露给业务服务。
 - `recoveryStrategy` 与对应生命周期 hook 存在；`TARGET` 需要适用的 target release；`WORKER` 需要 Worker stop/drain，有 Gateway prepare 时按 Catalog policy release，local Worker 的 target release 可为 `NOT_APPLICABLE`；`MANUAL_CLEANUP` 需要清晰的人工清理合同；`NON_RELEASING` 不得伪造 release。
 - 参数、时长、runbook、Evidence Query 和 i18n 完整。
 - 需要告警驱动的场景必须声明允许的 alert name、service、severity、关联窗口和告警缺失处理方式。
-- 所有场景引用 Batch 5.0 全局 receipt policy `alert-receipt.v1`；内部 `sendResolvedToControlPlane` 不代表外部 Agent receiver 已就绪。
-- 场景合同引用 Batch 5.0 的全局 receipt policy `alert-receipt.v1`，不重复定义 retention 和 webhook 状态机；实例按规范化 `(fingerprint, startsAt UTC millisecond)` 幂等 upsert，重复 firing/resolved 更新同一 receipt。
-- receipt 保留由 Batch 5.0 的 `ALERT_RECEIPT_RETENTION_DAYS` 控制，且不得短于 Fault Run retention。Phase 3 不定义未来 Evaluator 的关闭/过期策略，也不把 receipt 等同于评估完成。
-- v0 不设置固定的 Agent RCA 提交窗口；只有显式关闭、告警引用无效或告警集合互相冲突时才拒绝提交；Fault Run 暂时无法唯一关联时记录 `faultRunCorrelationStatus=UNMATCHED/AMBIGUOUS`，不阻止基于告警和观测证据的 RCA 评估，观测 retention 只决定能否完成证据复查。
+- 场景合同引用 Batch 5.0 全局 receipt policy `alert-receipt.v1`，不重复定义 retention 和 webhook 状态机；实例按规范化 `(fingerprint, startsAt UTC millisecond)` 幂等 upsert，重复 firing/resolved 更新同一 receipt。receipt retention 由 `ALERT_RECEIPT_RETENTION_DAYS` 控制且不得短于 Fault Run retention。
+- Phase 3 只定义 receipt/correlation 输入；Agent RCA report 的提交时效/拒绝条件由 [Batch 5.1](../../implementation/batch-5-1-agent-rca-submission/product.md) 负责，评估关闭/重试/放弃策略由 [Batch 5.2](../../implementation/batch-5-2-evaluator/product.md) 负责。
 - 只有外部 Agent delivery readiness 明确为 `ENABLED` 时，才要求专用 Alertmanager child route、外部 receiver、Basic Auth 凭据来源和 `send_resolved` 规则；不能把内部 control-plane intake 当作 Agent receiver。
 - Alert Contract 将 control-plane receipt/correlation 与外部 Agent delivery readiness 分开；`NOT_EXPECTED` 不做 Fault Run correlation，但平台通用 receipt 仍保留并标记为 `NOT_REQUIRED`。
 
@@ -69,6 +67,6 @@ Evidence Contract 使用受限的 template/scope/predicate/projection 与 run-re
 
 ## 发布
 
-通过外部 CI 的根级 Contract gate（本仓库提供脚本，不新增 GitHub Actions workflow）；运行时 `warn` 仅检查当前进程内合同，`enforce` 仅 gate 新 Run admission。跨 Gateway/目标服务一致性由 CI 与目标 Controller 测试证明。
+通过外部 CI 的根级 Contract gate（本仓库提供脚本，不新增 GitHub Actions workflow）；运行时 `warn` 仅检查当前 Web/API 进程内合同，`enforce` 仅 gate 新 Run admission；Web-only bootstrap 解析 mode/scope，Worker 不读取该变量。`SCENARIO_CONTRACT_DEPLOYMENT_SCOPE` 缺省 `retained`；heap-pressure 新 Run 在任何 validation mode 下仅 `disposable` scope 可建。跨 Gateway/目标服务一致性由 CI 与目标 Controller 测试证明。
 
-Contract enforce canary 限定于单 Worker、可丢弃数据库和业务资源、`FAULT_RUN_RECONCILIATION_MODE=OFF` 的环境；部署测试前整体清空/重建，不做旧 Run 迁移或 pre-reset Run gate。该 canary 不验证、不替代阶段 2 的多 Worker/TAKEOVER 退出。
+Contract enforce canary 限定于单 Worker、可丢弃数据库和业务资源、`FAULT_RUN_RECONCILIATION_MODE=OFF` 的环境；完整 reset 是部署平台/运维流程的显式前置条件，必须停止 writers、清除 DB、Redis 和场景持久化资源，并保留可审计完成记录。本仓库不提供全量 wipe 工具；`mysql-reset.sh` 单独不满足该前置条件。不做旧 Run 迁移或 pre-reset Run gate。该 canary 不验证、不替代阶段 2 的多 Worker/TAKEOVER 退出。

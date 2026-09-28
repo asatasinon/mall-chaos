@@ -1,6 +1,6 @@
 # 批次 5.2：RCA Evaluator 技术设计
 
-> 状态：技术设计 v1
+> 状态：技术设计 v1.1，确认由本批次拥有 Evaluator case close/expiry policy
 > 配套产品规格：[product.md](./product.md)
 > 对应路线阶段：阶段 5.2
 > 前置条件：批次 5.0 receipt/incident 已稳定，批次 5.1 report/queue handoff 已验收，阶段 4 已提供受控 Evidence Query Manifest 与只读 executor

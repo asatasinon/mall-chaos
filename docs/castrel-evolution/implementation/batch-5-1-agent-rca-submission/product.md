@@ -1,6 +1,6 @@
 # 批次 5.1：Agent 告警投递与 RCA 报告提交产品规格
 
-> 状态：产品规格 v1
+> 状态：产品规格 v1.1，承接 Phase 3 review 的 RCA submission ownership 决议
 > 对应路线阶段：阶段 5 Agent RCA
 > 依赖：批次 5.0
 > 配套技术设计：[tech.md](./tech.md)；Schema：[agent-rca-report-schema.md](./agent-rca-report-schema.md)
@@ -56,6 +56,8 @@ Alertmanager 发送 pilot firing alert
 ```
 
 告警从 firing 变为 resolved 不会使已接收的提交失效。提交是否还能被评估由服务端/Operator 的评估关闭状态决定，而不是由固定时间窗口决定。
+
+本批次拥有 AgentRcaReport 的提交有效性、拒绝条件和无固定时间提交窗口策略；Batch 5.2 拥有 case 的关闭/重试/放弃生命周期。Phase 3 只定义 Alert receipt/correlation 输入，不重述这些 report/evaluation 行为。
 
 ## 5. 产品行为
 

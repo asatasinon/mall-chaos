@@ -1,6 +1,6 @@
 # 批次 5.2：RCA Evaluator 产品规格
 
-> 状态：产品规格 v1
+> 状态：产品规格 v1.1，确认由本批次拥有 Evaluator case close/retry/abandon policy
 > 对应路线阶段：阶段 5 Evaluator
 > 依赖：批次 5.1
 > 配套技术设计：[tech.md](./tech.md)
@@ -54,6 +54,8 @@ AgentRcaReport 被接受
 ```
 
 评估关闭是服务端或 Operator 的显式状态；没有固定的 RCA 提交过期时间。
+
+本批次拥有 Evaluation Case 的 close/retry/abandon 状态转换与关闭/过期策略；不会因 alert resolved 或观测 retention 到期自动关闭/判错。Agent report 的格式/拒绝条件和提交窗口归 Batch 5.1，Phase 3 只提供 receipt/correlation contract。
 
 ## 5. 产品输出
 
