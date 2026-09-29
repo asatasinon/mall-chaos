@@ -5,6 +5,7 @@ import {
   type FaultRunRecoveryPolicy,
   type FaultRunScenarioDefinition,
 } from './fault-run-catalog';
+import { normalizeScenarioContractSupplement } from './scenario-contract';
 
 function canonicalize(value: unknown): string {
   if (value === null) return 'null';
@@ -52,6 +53,7 @@ function canonicalRecoveryPolicy(policy: FaultRunRecoveryPolicy): Record<string,
 function canonicalDefinition(definition: FaultRunScenarioDefinition): Record<string, unknown> {
   return {
     allowManualCleanup: definition.allowManualCleanup,
+    contract: normalizeScenarioContractSupplement(definition.contract),
     maxDurationSec: definition.maxDurationSec,
     parameters: [...definition.parameters]
       .sort((left, right) => left.name.localeCompare(right.name))

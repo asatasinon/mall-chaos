@@ -1,6 +1,6 @@
 # 批次 5.0：Alertmanager 告警接收与关联技术设计
 
-> 状态：技术设计 v1.1，已与 Phase 3 `AlertCorrelationContract`/receipt policy 对齐
+> 状态：技术设计 v1.2，已与 Phase 3 `AlertCorrelationContract`/receipt policy 和关联时间窗口对齐
 > 配套产品规格：[product.md](./product.md)
 > 对应路线阶段：阶段 5.0
 > 前置条件：阶段 3 的告警合同和阶段 4 的证据窗口合同已落地；已由阶段 0 选择并核验一个 pilot 候选
@@ -110,6 +110,8 @@ type AlertCorrelationContract = {
 Batch 5.0 owns one global receipt-ingestion policy with the stable ID `alert-receipt.v1`, referenced by Phase 3; do not repeat its retention and webhook lifecycle fields in every scenario. Its instance key is the normalized `(fingerprint, startsAt UTC millisecond)`. Repeated notifications upsert the existing receipt and append controlled history; a `resolved` notification updates that same instance. Retention is controlled by `ALERT_RECEIPT_RETENTION_DAYS` and must remain no shorter than Fault Run retention. An alert with no scenario correlation contract is still retained as a generic receipt with `fault_run_correlation_status=NOT_REQUIRED`.
 
 The `AlertCorrelationContract` shape above is the shared Phase 3 Catalog type consumed by Batch 5.0; this section documents its wire/data contract, not a second implementation-owned type.
+
+Batch 5.0 consumes the explicit timing fields from each Catalog contract. Phase 3 V1 defaults are `correlationWindowSec=900`, `activeGraceBeforeSec=900`, and `recentGraceAfterSec=900`; the intake/correlation implementation must not replace them with an independent default.
 
 约束如下：
 

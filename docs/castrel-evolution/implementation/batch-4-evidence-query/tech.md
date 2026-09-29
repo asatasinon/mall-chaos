@@ -1,6 +1,6 @@
 # 批次 4：实时 Evidence Query 技术设计
 
-> 状态：技术设计 v1.3，已按 2026-09-28 Phase 3 复审决议及 clean-slate schema 边界对齐（待实施）<br>
+> 状态：技术设计 v1.4，已按 2026-09-28 Phase 3 复审决议、clean-slate schema 边界及 P3-ISSUE-034 对齐（待实施）<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 对应路线阶段：阶段 4<br>
 > 前置条件：阶段 0～3 的退出门槛已满足，尤其是批次 3 已提供并阻断式校验完整的 Scenario Evidence Contract<br>
@@ -236,11 +236,13 @@ Catalog 后续变更只影响新 capture snapshot。已有 snapshot 的运行始
 
 | Source | 允许模板示例 | 受限 scope | 返回摘要 |
 | --- | --- | --- | --- |
-| Prometheus | `HTTP_P99`、`HTTP_ERROR_RATIO`、`HTTP_RATE`、`HIKARI_UTILIZATION`、`JVM_HEAP_RATIO`、`MYSQL_SLOW_QUERY_RATE`、`REDIS_MEMORY_RATIO`、`NODE_FILESYSTEM_RATIO` | 已验证 service、固定 route、固定 metric label | sample 数、min/max/latest、predicate outcome |
+| Prometheus | `HTTP_P99`、`HTTP_ERROR_RATIO`、`HTTP_RATE`、`HIKARI_UTILIZATION`、`JVM_HEAP_RATIO`、`MYSQL_SLOW_QUERY_RATE`、`PAYMENT_FAILURE_RATIO`、`PAYMENT_TIMEOUT_RATE`、`REDIS_MEMORY_RATIO`、`NODE_FILESYSTEM_RATIO`、`NODE_FILESYSTEM_GROWTH_RATE` | 已验证 service、固定 route、固定 metric label | sample 数、min/max/latest、predicate outcome |
 | Loki | `SERVICE_EVENT_COUNT`、`SERVICE_ERROR_COUNT` | 已验证 `service`、允许的 `log_level` | bucket/series 数与 count summary |
 | Tempo | `SERVICE_REQUESTS`、`SERVICE_ERRORS`、`SERVICE_SLOW_REQUESTS`、`SERVICE_ROUTE_REQUESTS` | 已验证 `resource.service.name`、固定 route、阈值 | trace/error count 与 duration bucket |
 | Business check | `CATALOG_PRODUCT_LIST`、`CATALOG_BROWSE_REPORT` | 固定的正常业务 GET 和静态 query 参数 | `PASS`、`FAIL`、`NO_DATA` 或受限 scalar |
 | Run event | `RUN_TIMELINE` | Manifest 内安全时间线 | anchor 是否存在和限制码 |
+
+三个新增 Prometheus templates 都绑定当前部署已存在的 metrics：`PAYMENT_FAILURE_RATIO` 使用 `payment_charge_fail_count_total` 与 `payment_charge_success_count_total` 的 5 分钟失败比例；`PAYMENT_TIMEOUT_RATE` 使用 `payment_charge_timeout_count_total` 的 5 分钟速率；`NODE_FILESYSTEM_GROWTH_RATE` 使用 `/data`、`ext4` 的 `node_filesystem_avail_bytes` 15 分钟导数，Catalog predicate `< -2097152` 表示可用空间下降快于 2 MiB/s。服务、文件系统标签、窗口和阈值只能来自受控 Catalog scope/predicate，renderer 不接受 query text。
 
 渲染器只能替换已验证的服务名、静态 route 和常量阈值，绝不能替换 Fault Run 参数、Operator 输入、URL、label matcher、业务 ID 或 trace ID。每个模板输出在写入 snapshot 前都必须通过静态验证：
 
@@ -877,7 +879,7 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 
 | 层 | 必测情形 |
 | --- | --- |
-| Catalog/Contract | 12 场景完整覆盖；recipe ID 唯一；未知 template/window/read-check；未解析占位符；超范围 window；Catalog 改动导致 revision 变化 |
+| Catalog/Contract | 12 场景完整覆盖；recipe ID 唯一；包含支付失败/超时与文件系统增长 templates；未知 template/window/read-check；未解析占位符；超范围 window；Catalog 改动导致 revision 变化 |
 | Snapshot/Manifest | key 排序不影响 hash；新运行原子 snapshot；旧 Catalog 变更不改旧 Manifest；相同时间线幂等；cleanup 产生新 revision |
 | Timeline/window | `(created_at,id)` tie-break；每种 terminal state；缺 active/recovery/cleanup；`TARGET_CONFIRMED` 不产生 observed effect；UTC 边界；不使用 `Date.now()` 补历史时间 |
 | Retention | 全部过期不调用 source；部分过期得到 `coverage=PARTIAL`；源 run 删除后仍读 Manifest；legacy run 安全失败 |

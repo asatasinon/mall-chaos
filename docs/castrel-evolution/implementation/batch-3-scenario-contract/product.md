@@ -1,6 +1,6 @@
 # 批次 3：Scenario Contract 产品规格
 
-> 状态：产品规格 v1.3，按 2026-09-28 复审决议对齐
+> 状态：产品规格 v1.5，按 2026-09-28 复审决议及 P3-01 告警关联窗口/Evidence 模板决议对齐
 > 对应路线阶段：阶段 3
 > 依赖：批次 2
 > 技术设计：[tech.md](./tech.md)
@@ -32,6 +32,7 @@ Contract 至少覆盖：
 - prepare、active、stop、release、cleanup 和 verification。
 - 与 `recoveryStrategy` 匹配的生命周期 hook。
 - Evidence Query、时间窗口和判断规则。
+- Evidence template 是有限的 typed DSL；支付失败率、支付超时率与节点 `/data` 文件系统增长只通过绑定既有 Prometheus metrics 的固定模板表达，不接受任意 query text 或新增业务端点。
 - runbook、i18n、可见错误和告警合同。
 - Batch 5.0 全局 Alert receipt policy 引用、fingerprint 去重、重复通知、resolved 和关联失败处理；不重复定义 receipt 生命周期。
 - 适用于各场景的资源预算、目标侧容量 guard 和显式预算例外。
@@ -92,6 +93,8 @@ invalidAlertContract
 ```
 
 `NOT_EXPECTED` 表示不要求场景专属告警或 Fault Run 关联（`faultRunCorrelation=not_required`），不关闭平台通用 Alertmanager receipt 接收；所有场景引用 Batch 5.0 的全局 `alert-receipt.v1` policy。内部 `sendResolvedToControlPlane` 与外部 Agent receiver 的 readiness/`send_resolved` 属于不同配置事实。Phase 3 不定义 RCA submission 或 Evaluator close/expiry rules：提交拒绝语义归 Batch 5.1，评估关闭归 Batch 5.2。
+
+V1 所有允许告警采用统一关联时序：15 分钟 correlation window、Run active 前 15 分钟 grace、Run 结束后 15 分钟 recent grace。具体字段随 Catalog Alert Contract 提供给 Batch 5.0，不能由接收端另设不同默认值。
 
 新 Run 准入拒绝使用具名错误和固定安全 Operator 响应：`SCENARIO_CONTRACT_INVALID` 返回 HTTP/envelope 503，`SCENARIO_CONTRACT_DEPLOYMENT_SCOPE_RESTRICTED` 返回 409。不得回显原始 validator details 或 stack；拒绝不得持久化 Run/action 或调用 prepare。
 

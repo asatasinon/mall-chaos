@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | P3-00R 决策及 2026-09-28 复审决议（含六项后续闭环）已同步；Phase 3 Contract 实施尚未开始 |
-| 版本 | 1.6 |
-| 更新时间 | 2026-09-28 CST |
+| 状态 | P3-00R 决策及复审缺口已同步；Phase 3 Contract 实施已启动，当前进行 P3-01 |
+| 版本 | 2.2 |
+| 更新时间 | 2026-09-29 CST |
 | 路线阶段 | [阶段 3：Scenario Contract](../../roadmap/phases/phase-3-scenario-contract.md) |
 | 产品规格 | [product.md](./product.md) |
 | 技术设计 | [tech.md](./tech.md) |
@@ -44,6 +44,8 @@
 14. **Validation mode：** 仅 Web-only bootstrap/config 严格解析 `SCENARIO_CONTRACT_VALIDATION_MODE`；Worker/shared `env.ts` 不读取或解析。
 15. **Reset evidence：** clean-slate 是部署平台/运维流程责任；reset MySQL、Redis、scenario-owned resources 并留下记录，现有 `mysql-reset.sh` 单独不满足。
 16. **Heap scenario eligibility：** Web/API-only `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE` 缺省为 `retained`；只有显式标为 `disposable` 才允许创建 `NOTIFICATION_HEAP_PRESSURE`，该 hard gate 不受 `warn` mode 绕过。
+17. **Alert correlation timing：** 所有 Catalog allowed-alert correlation 使用 `correlationWindowSec=900`、`activeGraceBeforeSec=900`、`recentGraceAfterSec=900`；Batch 5.0 直接消费这些值，不维护另一套默认值。
+18. **Evidence template coverage：** 为 PSP provider failure/timeout 与 node filesystem growth 增加固定模板 `PAYMENT_FAILURE_RATIO`、`PAYMENT_TIMEOUT_RATE`、`NODE_FILESYSTEM_GROWTH_RATE`，只映射现有 Prometheus metrics，不提供 free-form queries 或新增业务端点（P3-ISSUE-034）。
 
 ### 1.3 设计复审结论（2026-09-24，按 2026-09-26/28 决策收敛）
 
@@ -53,6 +55,7 @@
 | --- | --- | --- |
 | Catalog / Contract model、revision | P3-01 | 方案已定：supplement 不重复既有策略；参数名排序保留；owner 从实际 driver 派生；`catalogRevision` 保持 64-hex，见 P3-ISSUE-007。 |
 | Evidence Query 合同与历史解释 | P3-01、P3-04、P3-05 | 方案已定：Phase 3 是 Evidence DSL 的唯一类型来源并保存 full `contractRevision`；Batch 4 capture 使用同一 plan，以独立 `contractHash` 校验快照，见 P3-ISSUE-008/009/017/021。 |
+| Evidence template coverage | P3-01、P3-04、Batch 4 | 用户已批准在 finite DSL 中增加 payment failure/timeout 与 node filesystem growth 的固定模板，严格对应已有 Prometheus metrics；不增自由查询或业务端点，见 P3-ISSUE-034。 |
 | Gateway、Worker 与恢复策略 | P3-02、P3-07 | 方案已定：本地 Worker stop/drain 合法替代不存在的 target release；目标服务 Controller 需独立测试，见 P3-ISSUE-010/011。 |
 | Validator、CLI 和 CI 门禁 | P3-03、P3-06 | 方案已定：全部 required TS/文档/Java results 汇总后才 finalize；报告区分 `VALID/BLOCKED/LIMITED` 与 readiness；运行时只验证 Web 进程事实；外部 CI 调根脚本，不新建 GHA，见 P3-ISSUE-010/015/019/020/024。 |
 | Run revision、fresh schema、Operator 读面 | P3-05 | 方案已定：三份 fresh DDL 使用 `NOT NULL`，无旧库 migration/legacy null/cross-deploy replay；full-contract `contractRevision` 与 Evidence `contractHash` 分离，见 P3-ISSUE-002/006/008/012/016/017/018。 |
@@ -61,6 +64,7 @@
 | Lifecycle control facts 与 Evidence check refs | P3-01～04 | Prepare/stop/cleanup 引用受控 event/action types；recovery/side-effect check 引用 Evidence recipe；cleanup verification 使用 `window=cleanup` recipe，不维护第二份 check map，见 P3-ISSUE-028。 |
 | 资源预算与部署边界 | P3-01、P3-02、P3-05～07 | Heap aggregate 无 cap 作为 disposable non-releasing exception，Web 新 Run 有 hard scope gate；surge API/Worker 均强制 concurrency ≤128；admission config 为 Web-only；full clean-slate reset 由外部流程执行并记录，见 P3-ISSUE-023～026/029。 |
 | Admission response 与发布制品 | P3-05～07 | Named admission failures 使用固定 Operator envelope/status；Kubernetes migration/verify 必须先于应用启动；release attestation 绑定 source commit、不可变服务 image digests 与 final report hash，见 P3-ISSUE-027/031/032。 |
+| Alert correlation timing | P3-01、Batch 5.0 | 用户已定所有允许告警统一采用 900 秒 correlation window、active 前 grace 与结束后 grace；Batch 5.0 消费 Catalog 值，不复制默认值，见 P3-ISSUE-033。 |
 
 ### 1.4 不可绕过的决策
 
@@ -94,19 +98,19 @@
 
 ## 3. 总体进度
 
-- **总体状态：** 用户决策及 2026-09-28 复审决议（含 admission 错误映射、lifecycle refs、Worker concurrency 上限、Batch 4 fresh-only schema、Kubernetes 顺序和发布 provenance）已同步至相关设计/任务/部署文档；Phase 3 implementation 尚未开始。
-- **当前任务：** P3-00R 文档/接口定稿已完成。
-- **下一步：** 完成后按 P3-01 实施；Contract enforce/canary 仅在数据库和业务资源可丢弃的单 Worker 环境中运行，保持 Reconciliation `OFF`，不声称 P2 takeover 已验证。
+- **总体状态：** P3-00R 决策与复审缺口已同步；P3-01 Catalog Contract 与 revision 实施已完成，12 个场景均有可解析合同。
+- **当前任务：** P3-01 已完成（7/7）；下一项为 P3-02 Gateway/Worker capability 与 recovery coverage。
+- **下一步：** 开始 P3-02，以实际 driver registry、ACTIVE gate、drain/summary writers 验证声明；Web-only heap hard gate 仍由 P3-05/07 完成，Batch 4 renderer/query fixtures 由 Batch 4/P3-04 完成。
 - **进度口径：** 仅按 `[x]` 子任务统计；代码存在但当前任务未验证的能力不能提前计入完成。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
 | P3-00 | 现状基线与技术设计对齐 | 已完成（1 项被用户决策替代） | 6 / 7 | 当前仓库 |
 | P3-00R | 设计复审整改与跨阶段接口定稿 | 已完成 | 28 / 28 | P3-00 |
-| P3-01 | Catalog Contract supplement 与 revision | 未开始 | 0 / 7 | P3-00R |
+| P3-01 | Catalog Contract supplement 与 revision | 已完成 | 7 / 7 | P3-00R |
 | P3-02 | Gateway/Worker capability 对照与 recovery coverage | 未开始 | 1 / 9 | P3-00R、P3-01 |
 | P3-03 | 纯函数 Contract validator 与稳定诊断 | 未开始 | 0 / 7 | P3-01、P3-02 |
-| P3-04 | Runbook、i18n、evidence、alert、术语工件 | 未开始 | 0 / 8 | P3-01、P3-03 |
+| P3-04 | Runbook、i18n、evidence、alert、术语工件 | 未开始 | 0 / 9 | P3-01、P3-03 |
 | P3-05 | Fresh schema、revision 事务持久化与 Operator 读面 | 未开始 | 0 / 9 | P3-00R、P3-01、P3-03 |
 | P3-06 | CLI、外部 CI 接入、配置与回退 | 未开始 | 0 / 11 | P3-00R、P3-02 至 P3-05 |
 | P3-07 | 集成验证、single-worker canary 与阶段退出 | 未开始 | 0 / 9 | P3-02 至 P3-06；外部 reset 记录/可丢弃环境 |
@@ -163,6 +167,8 @@ P3-00R 已定稿 `P3-ISSUE-007`～`032` 的处理方案。实现仍须按下表�
 | P3-ISSUE-030 | Batch 4 schema migration / clean-slate compatibility | Batch 4 Tech、P3-06 | Evidence migration/init scripts 只用于 clean database bootstrap；删除已有 volume upgrade/幂等升级验收承诺，文档与测试均不声称升级受支持。 |
 | P3-ISSUE-031 | Kubernetes migration verify ordering | P3-06、README | Pipeline 先 provision/reset infra、运行 migration 与独立 verify 并阻断，再创建/启动 Web/Worker Deployments；文档不得先 `apply -k k8s` 启动应用。 |
 | P3-ISSUE-032 | CI report 与 deployed artifacts provenance | P3-06、P3-07 | Gate report 关联 source commit；外部 attestation 绑定同 commit、被测服务不可变 image digests 与 final-report SHA-256；部署只提升已验 digest。 |
+| P3-ISSUE-033 | Alert correlation window defaults | P3-01、Batch 5.0 | `correlationWindowSec=900`、`activeGraceBeforeSec=900`、`recentGraceAfterSec=900`；Phase 3 Catalog 是这些值的唯一来源，Batch 5.0 逐告警消费合同字段，不硬编码替代值。 |
+| P3-ISSUE-034 | Evidence template coverage for PSP/storage signals | P3-01、P3-04、Batch 4 | User approved fixed `PAYMENT_FAILURE_RATIO`, `PAYMENT_TIMEOUT_RATE`, and `NODE_FILESYSTEM_GROWTH_RATE` templates backed by existing Prometheus metrics; Batch 4 renderer and metric fixtures must keep queries fixed and bounded. |
 
 ## 5. 实施任务
 
@@ -215,13 +221,13 @@ P3-00R 已定稿 `P3-ISSUE-007`～`032` 的处理方案。实现仍须按下表�
 
 **目标：** 在现有 Catalog 与 Catalog revision 机制上补充 Phase 3 语义，不复制场景基本事实。
 
-- [ ] 按 P3-00R 定稿定义版本化 `ScenarioContractSupplement` / `ResolvedScenarioContract`，仅在 Catalog 的 `FaultRunScenarioDefinition` 挂载新增语义；从已有 `targetPrepare`、`recoveryPolicy.workerDrain` / `targetRelease` / `cleanup` 派生 dispatch 和 target lifecycle，不再另写可变 owner、prepare、release、cleanup 声明（P3-ISSUE-007）。
-- [ ] 为全部 Catalog 场景补全参数消费者与 lifecycle refs，校验消费者集合与 `parameters[]` 一致；`prepareEventTypes`/`stopEventTypes`/`cleanupActionTypes` 仅引用对应受控 event/action types 并验证实际写入路径；stop/drain/release/verification 由 recovery refs 覆盖，`recoveryRecipeIds`/`sideEffectRecipeIds` 引用适用 Evidence recipes，cleanup result 通过 `window=cleanup` recipe 表达，不另建 cleanup check map。driver owner 从现有 policy 与运行注册表求得，不以 `TARGET_ONLY` 或未实施 hook 占位（P3-ISSUE-007/028）。
-- [ ] 按已确认的产品预算策略为全部场景声明并校验 duration、并发、字节/内存/存储等预算或运行保护；把两个 surge Catalog `concurrency.max` 设为 `128`、拒绝 129；storage `totalBytes` 不设绝对 max，以 filesystem usable-space guard 保留 `minFreeBytes=1 MiB..1 GiB` 并同步 Catalog/Java；heap pressure 标成 disposable-only、non-releasing、无 aggregate cap 的 approved exception，保留单次分配/间隔/duration 边界并明确 OOM/重启可能；Web/API 对新建 heap Run 执行 `deploymentScope=disposable` hard gate（P3-ISSUE-014/023/026）。
-- [ ] 为每个场景补齐阶段 4 可直接消费的 Evidence Contract：稳定 recipe ID、窗口 policy 与硬上限、受限 template ID/scope/predicate/projection、required、`effectRule`、`WINDOWED`/`CURRENT` 区分、固定只读 Gateway check 和 unavailable 语义；拒绝任意 PromQL/LogQL/TraceQL/URL/SQL 或 Operator 输入。业务 CURRENT check 不得证明历史效果（P3-ISSUE-009）。
-- [ ] 为每个场景补齐阶段 5.0 可直接消费的 Alert Contract：`NOT_EXPECTED` / `CONDITIONAL` / `REQUIRED_FOR_PILOT`、允许的 name/service/severity/低敏标签、关联窗口和 `faultRunCorrelation`；引用全局 `alert-receipt.v1`，不在各场景重复 fingerprint/upsert/retention policy。`NOT_EXPECTED` 仍保留通用 receipt 并设为 `NOT_REQUIRED`；内部 `sendResolvedToControlPlane` 与外部 Agent readiness/`send_resolved` 分开声明，不承诺 firing（P3-ISSUE-013）。
-- [ ] 更新 `fault-run-catalog-revision.ts` 的 canonical definition，将 Catalog `contract` supplement 纳入既有 64-hex `catalogRevision` 输入；global hash 首次内容变化允许，但不得改格式。`contractRevision` 对完整 `ResolvedScenarioContract` 计算 `sc.v1:sha256:`，不含请求值、运行时 ID、时间戳、secret 或遥测结果；不实现旧 Run drift scan（P3-ISSUE-007/015/017）。
-- [ ] 用 12 场景 fixture 和变更 fixture 验证：参数重排不改变既有 canonical behavior；supplement 改变 global 与对应 scenario revision；其他场景变化只影响 global revision；Agent delivery readiness 不进入 hash；Batch 4 的 `contractHash` 单独对 Evidence plan 变化响应（P3-ISSUE-007/009/013/017）。
+- [x] 定义版本化 `ScenarioContractSupplement` / `ResolvedScenarioContract` 并在 `FaultRunScenarioDefinition` 上要求 `contract`；resolver 从已有 `targetPrepare` 和 `recoveryPolicy` 派生 dispatch owner 与 target lifecycle，不再另写可变 owner、prepare、release、cleanup 声明。完成 12 个 Catalog Contract 挂载与 resolver fixture（P3-ISSUE-007）。
+- [x] 核验全部 Catalog 场景的参数消费者与 lifecycle refs，消费者集合与 `parameters[]` 完全一致；prepare/stop/cleanup refs 使用受控 event/action types，recovery/side-effect refs 引用适用 Evidence recipes，cleanup policy 使用 `window=cleanup` recipe；dispatch owner 从 recovery policy 派生。`pnpm test:runner` 覆盖实际 repository/recovery/action writers（P3-ISSUE-007/028）。
+- [x] 按产品预算策略在 Catalog 为所有 resource-bound parameters 声明边界或 guard；两个 surge `concurrency.max=128` 并拒绝 129；storage `totalBytes` 无绝对上限、`minFreeBytes=1 MiB..1 GiB` 且声明 filesystem usable-space guard；heap pressure 标成 `allowedEnvironment=DISPOSABLE_ONLY` 的 non-releasing、无 aggregate cap approved exception，保留单次分配/间隔/duration 边界并明确 OOM/重启风险。Java target 对齐由 P3-02 验证；Web/API 新建 Run 的 disposable scope hard gate 由 P3-05/07 实施（P3-ISSUE-014/023/026/029）。
+- [x] 为每个场景补齐阶段 4 可直接消费的 Evidence Contract：稳定 recipe ID、窗口 policy 与硬上限、受限 template ID/scope/predicate/projection、required、`effectRule`、`WINDOWED`/`CURRENT` 区分、固定只读 Gateway check 和 unavailable 语义；拒绝任意 PromQL/LogQL/TraceQL/URL/SQL 或 Operator 输入。业务 CURRENT check 不得证明历史效果；使用 `PAYMENT_FAILURE_RATIO` / `PAYMENT_TIMEOUT_RATE` / `NODE_FILESYSTEM_GROWTH_RATE` 表达现有支付结果与文件系统增长信号，不承诺一定触发（P3-ISSUE-009/034）。
+- [x] 为每个场景补齐阶段 5.0 可直接消费的 Alert Contract：`NOT_EXPECTED` / `CONDITIONAL` / `REQUIRED_FOR_PILOT`、允许的 name/service/severity/低敏标签、统一 `correlationWindowSec=900` / `activeGraceBeforeSec=900` / `recentGraceAfterSec=900` 和 `faultRunCorrelation`；引用全局 `alert-receipt.v1`，不在各场景重复 fingerprint/upsert/retention policy。`NOT_EXPECTED` 仍保留通用 receipt 并设为 `NOT_REQUIRED`；内部 `sendResolvedToControlPlane` 与外部 Agent readiness/`send_resolved` 分开声明，不承诺 firing（P3-ISSUE-013/033）。
+- [x] 更新 `fault-run-catalog-revision.ts` 的 canonical definition，将 Catalog `contract` supplement 纳入既有 64-hex `catalogRevision` 输入；global hash 首次内容变化允许，但不得改格式。`contractRevision` 对完整 `ResolvedScenarioContract` 计算 `sc.v1:sha256:`，不含请求值、运行时 ID、时间戳、secret 或遥测结果；不实现旧 Run drift scan（P3-ISSUE-007/015/017）。
+- [x] 用 12 场景 fixture 和变更 fixture 验证：参数重排不改变既有 canonical behavior；supplement 改变 global 与对应 scenario revision；其他场景变化只影响 global revision；Agent delivery readiness 不进入 hash；Batch 4 的 `contractHash` 单独对 Evidence plan 变化响应（P3-ISSUE-007/009/013/017）。
 
 ### P3-02：Gateway/Worker capability 对照与 recovery coverage
 
@@ -256,6 +262,7 @@ P3-00R 已定稿 `P3-ISSUE-007`～`032` 的处理方案。实现仍须按下表�
 - [ ] 扩展 `runbook.test.ts` 为 Catalog-driven required headings / operation assertion；确保 12 个双语 allowlisted 文件逐个覆盖，生成 checklist 供人工核对，禁止靠解析 prose 推断机器语义。
 - [ ] 扩展 i18n tests：Catalog 场景 label/description、参数 label/description、recovery label 均存在；`SCENARIO_META` 精确覆盖，每场景在且仅在一个 group。
 - [ ] Batch 4 直接 import Phase 3 `EvidenceContractPlan`/`EvidenceRecipeDefinition`/window/template/scope/predicate/projection 类型，验证 snapshot 序列化保持同 schema；不在 Batch 4 redeclare mirror types，不重命名 Evidence recipe；覆盖 `WINDOWED`/`CURRENT`、effect predicate 与 unavailable rules（P3-ISSUE-009/021）。
+- [ ] 交接 Batch 4 为 `PAYMENT_FAILURE_RATIO`、`PAYMENT_TIMEOUT_RATE` 和 `NODE_FILESYSTEM_GROWTH_RATE` 实现固定 renderer 与 metric fixture；renderer 只能使用既有 Prometheus metrics、固定 labels 和窗口参数，不能引入任意查询槽或业务写/读端点（P3-ISSUE-034）。
 - [ ] 将 `runbook.ts` 中重叠的 Tempo service/route/query 展示数据按定稿边界从 Catalog Evidence Contract 派生，保留 Markdown 解释与文件 allowlist；中英文文章仍可维护解释，但不能作为第二份机器查询定义（P3-ISSUE-009）。
 - [ ] 从同一 Alert Contract 校验 Prometheus alert name/severity/静态 labels 与 Batch 5.0 correlation contract；校验所有场景引用全局 `alert-receipt.v1`，并用 fixture 覆盖 fingerprint upsert、重复/resolved 及 `NOT_EXPECTED` 通用 receipt 适用性；不把后续 Agent delivery 当作本批次已交付（P3-ISSUE-013）。
 - [ ] 读取并规范化 Compose 与 Kubernetes Prometheus/Alertmanager YAML；只比较部署语义与内部 receipt/专用外部 receiver 的各自规则，不读取运行时 DB 中的可编辑 secret；`NOT_ENABLED_YET` 只表明未启用。
@@ -355,6 +362,8 @@ P3-00R 已定稿 `P3-ISSUE-007`～`032` 的处理方案。实现仍须按下表�
 | P3-ISSUE-030 | 复审 / Batch 4 Tech、P3-06 | Batch 4 Tech 仍把 Evidence SQL 描述为已有 volume expand-only migration，并要求已有 volume migration 验收。 | 与 clean-slate、无旧数据兼容决策冲突，可能导致部署方错误依赖旧 schema upgrade。 | Evidence migration/init 都作为空库 fresh-bootstrap 路径；删除旧 volume upgrade/expand-only 承诺与对应验收，只验证 MySQL init 与空库 `db:migrate` 结果等价。 | Batch 4 Tech 已同步；实现/空库验证待 Batch 4 |
 | P3-ISSUE-031 | 复审 / P3-06、README | 当前 flat `k8s/kustomization.yaml` 同时包含应用 Deployments 与只执行 migration apply 的 Job，没有独立 verify stage。 | 应用可能在 migration 或 schema verification 前启动，且 migration 镜像 tag 未绑定已验制品。 | 分阶段 provision/bootstrap → pinned migration Job → 独立 `db:verify` Job/process → application Deployments；verify 成功前不得启动应用，并固定迁移/验证所用 image digest。 | Tech/README 已同步；staged resource sets 与 pipeline gate 待 P3-06 |
 | P3-ISSUE-032 | 复审 / P3-06、P3-07 | 报告只关联 `catalogRevision` 不能证明 Gate 检查的 source commit 与最终部署的 Gateway/业务镜像一致。 | Java-only 改动不一定改变 Catalog revision；用 tag 部署还可能覆盖已验证制品。 | Report 携带 `sourceCommitSha`；外部 release attestation 绑定 required-check commit、被测服务 image digest map 与 final report SHA-256；部署只提升 attested immutable digests，digest 变化重新验证/关联。 | 设计已定并同步；CI provenance/deployment enforcement 待 P3-06/07 |
+| P3-ISSUE-033 | P3-01 / Batch 5.0 handoff | Alert correlation type 已规定 `correlationWindowSec`、`activeGraceBeforeSec`、`recentGraceAfterSec`，但没有批准的默认数值或 per-alert derivation rule。 | 数值过小会漏关联；过大可能把告警错配到相邻/已结束运行，影响 Incident 与 Fault Run correlation。 | 用户定稿统一采用 900 秒 correlation window、active 前 grace 与结束后 grace；由 Phase 3 Catalog 保存，Batch 5.0 直接消费，不维护平行默认值。 | 已解决（用户决策）；Catalog 合同与 Batch 5.0 consumption tests 待 P3-01/Batch 5.0 |
+| P3-ISSUE-034 | P3-01 / Batch 4 evidence handoff | 12-scenario matrix includes payment failure/timeout and run-scoped storage growth signals, but the prior finite `EvidenceTemplateId` list exposed only generic HTTP/heap/Redis/filesystem-ratio metrics. | Generic request/latency or filesystem-usage signals cannot directly assess provider outcome or filesystem growth; a route request must not be presented as proof of its business/resource effect. | User approved three fixed typed templates over existing Prometheus metrics: `PAYMENT_FAILURE_RATIO`, `PAYMENT_TIMEOUT_RATE`, and `NODE_FILESYSTEM_GROWTH_RATE`. No arbitrary PromQL or new write/read endpoint. | Decision resolved; Phase 3 types/Catalog are wired; Batch 4 renderer/query fixtures pending |
 
 ## 8. 执行更新记录
 
@@ -368,6 +377,14 @@ P3-00R 已定稿 `P3-ISSUE-007`～`032` 的处理方案。实现仍须按下表�
 | 2026-09-26 CST | P3-00R：用户决策同步与跨文档对齐 | 将 clean-slate/NOT NULL、Phase 3 revision vs Batch 4 capture snapshot、Catalog 派生策略、Batch 4 Evidence DSL、Batch 5.0 Alert/receipt reference、预算边界、同部署幂等、API-only warn/enforce、外部 CI 和 disposable Reconciliation-OFF canary 同步到 Product、Tech、Phase 3 roadmap、Batch 4/5 Tech 与任务清单；将 P3-00R 更新为 12/12，并收敛 P3-ISSUE-002/006/007～016。 | 文档范围完成；无运行时代码、旧库 migration 或 GitHub Actions workflow 变更。`git diff --check` 通过。P3-01～07 仍未实施；下一步按任务清单开始 P3-01。 |
 | 2026-09-28 CST | P3-00R：设计复审选项决议同步 | 按用户选项定稿完整 `contractRevision` 与 Evidence `contractHash` 分离、精确 replay bypass 新 admission、全 required checks 后 finalize、三态报告、Phase 3 唯一 Evidence DSL、5.1/5.2 RCA/Evaluator 职责、heap unbounded exception 及 disposable hard gate、Web-only mode/scope parser 和外部完整 clean-slate reset。更新 Product/Tech/task/Phase 3 roadmap、Batch 4/5.1/5.2 handoff 与 README reset说明；新增 P3-ISSUE-017～026。 | 仅文档变更，无运行时代码、DB migration 或 wipe 脚本；reset 具体执行步骤由外部部署/运维流程负责并留痕。P3-00R 22/22；P3-01～07 仍未实施。 |
 | 2026-09-28 CST | P3-00R：复审缺口补齐与跨文档对齐 | 将具名 admission 错误及固定 HTTP/envelope 映射、lifecycle event/action 与 Evidence recipe 职责、Worker persisted concurrency=128 hard limit、Batch 4 fresh-only schema、Kubernetes migration/verify 顺序和 commit/image/report provenance 写入 Tech/Product/任务/Phase 3 roadmap/Batch 4 Tech/README；新增 P3-ISSUE-027～032，并更新任务映射、测试和退出条件。 | 仅文档变更；`git diff --check` 通过。P3-00R 更新为 28/28；P3-01～07 的运行时代码仍未实施，Kubernetes staged resource sets 与外部 provenance enforcement 待 P3-06/07。 |
+| 2026-09-29 CST | P3-01：Catalog Contract supplement 与 revision（启动） | 已检查 Catalog 与 Catalog revision 的现有实现和测试；将 Contract 类型/resolver 子任务标记进行中，并建立实现追踪项。 | runtime implementation 尚在探索与设计；后续按子任务完成情况即时更新状态、验证证据和相关 issue。 |
+| 2026-09-29 CST | P3-01：类型/resolver与revision基础实现进展 | 新增 `scenario-contract.ts` 的版本化 DSL 类型、Catalog-derived resolver、canonicalization、完整 `contractRevision` 与 Evidence-only `contractHash`；将 `contract` 接入 Catalog 类型及 global revision canonical input（未挂载 12 个场景数据）；Catalog/API concurrency 上限改为 128，`minFreeBytes.min` 改为 1 MiB。`pnpm exec tsx --test src/lib/fault-run-catalog.test.ts src/lib/fault-run-catalog-revision.test.ts src/lib/scenario-contract.test.ts` 17/17 通过；`pnpm typecheck` 通过。 | 第一子任务仍进行中，Catalog `contract` 暂为 optional，12 场景数据与预算/Evidence/Alert contracts 未完成。 |
+| 2026-09-29 CST | P3-01：告警关联窗口决议 | 用户选择所有允许告警统一使用 `correlationWindowSec=900`、`activeGraceBeforeSec=900`、`recentGraceAfterSec=900`；已记录于 Product/Tech 与 Batch 5.0 handoff，供 Catalog contract 与后续 correlation 实现使用。 | P3-ISSUE-033 已解决；仍须完成 12 场景合同数据及测试，当前第一子任务继续进行中。 |
+| 2026-09-29 CST | P3-01：类型模型及 12 场景 Catalog supplement | 第一子任务完成：新增 `scenario-contract.ts` 的 DSL 类型、resolver、canonicalization 与两类 hash；12 个 Catalog 项现带参数消费者、预算、Evidence recipes、Alert contracts 和派生 lifecycle refs；surge concurrency/max 与 storage minFree 边界同步落实。`pnpm test:runner` 241/241 通过，`pnpm typecheck` 通过。 | P3-01 为 1/7；第二子任务继续核对 event/action writers 与实际参数消费。接着补足 revision/change-scope 与 scenario evidence contract 断言，特别是 non-releasing residual 和 cleanup-window 限制。 |
+| 2026-09-29 CST | P3-01：Evidence signal coverage 决议 | 用户批准为既有 payment failure/timeout 和 node filesystem growth metrics 增加 `PAYMENT_FAILURE_RATIO`、`PAYMENT_TIMEOUT_RATE`、`NODE_FILESYSTEM_GROWTH_RATE` 三个固定模板；不扩展为 free-form queries，也不新增业务端点。 | P3-ISSUE-034 决议已关闭；Catalog recipes、Batch 4 renderer 与 metric fixtures 待完成。 |
+| 2026-09-29 CST | P3-01：预算与 Evidence Contract 实现进展 | Catalog budgets 覆盖 surge concurrency、Redis logical bytes、storage filesystem reserve 和 heap disposable/non-releasing exception；12 场景 Evidence plans 已含 Run Event/Prometheus/Loki/Tempo recipes、固定 current read-check 与 cleanup window，并为 PSP/storage 使用新批准的有限 templates。`pnpm test:runner` 243/243、targeted Catalog/Contract/revision tests 19/19、`pnpm typecheck` 全部通过。 | P3-01 为 3/7，Evidence 合同继续复核 predicate/window/read-check 边界；Batch 4 renderer/query fixtures 待 Batch 4 实施，P3-05/07 的 heap API hard gate 未涉及本阶段。 |
+
+| 2026-09-29 CST | P3-01：Catalog Contract 阶段完成 | 12 个 required Catalog supplements、resolver/lifecycle refs、parameter consumers、预算/guard、Evidence/Alert plans、alert timing 与完整/per-Evidence revisions 已落实；批次 4 模板 handoff 明确新增三种固定 metric templates。`pnpm test:runner` 243/243、`pnpm typecheck` 通过；`pnpm lint` 通过且仅剩一条既有 `runner-backed-fault-run-driver.ts` unused-import warning。 | P3-01 更新为 7/7；下一任务 P3-02 driver/ACTIVE/drain capability 与剩余 Worker/Java wire coverage。Batch 4 renderer/query fixtures、P3-05 heap admission hard gate 尚未实施。 |
 
 ## 9. 每次任务更新模板
 

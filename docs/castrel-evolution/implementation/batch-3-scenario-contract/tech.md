@@ -1,6 +1,6 @@
 # 批次 3：Scenario Contract 技术设计
 
-> 状态：技术设计 v1.5，按 2026-09-28 复审决议及跨服务准入/发布缺口对齐；实施待开始<br>
+> 状态：技术设计 v1.7，按 2026-09-28 复审决议及 P3-01 告警关联窗口/Evidence 模板决议对齐；实施中<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 对应路线阶段：阶段 3<br>
 > 前置条件：批次 0～2 的运行事实、drain、owner/reconcile 语义已可验证<br>
@@ -169,8 +169,9 @@ export type EvidenceWindow = 'baseline' | 'active' | 'recovery' | 'cleanup';
 export type EvidenceProjection = 'NUMERIC' | 'COUNT' | 'BOOLEAN' | 'TIMELINE';
 export type EvidenceTemplateId =
   | 'HTTP_P99' | 'HTTP_ERROR_RATIO' | 'HTTP_RATE' | 'HIKARI_UTILIZATION'
-  | 'JVM_HEAP_RATIO' | 'MYSQL_SLOW_QUERY_RATE' | 'REDIS_MEMORY_RATIO'
-  | 'NODE_FILESYSTEM_RATIO' | 'SERVICE_EVENT_COUNT' | 'SERVICE_ERROR_COUNT'
+  | 'JVM_HEAP_RATIO' | 'MYSQL_SLOW_QUERY_RATE' | 'PAYMENT_FAILURE_RATIO'
+  | 'PAYMENT_TIMEOUT_RATE' | 'REDIS_MEMORY_RATIO' | 'NODE_FILESYSTEM_RATIO'
+  | 'NODE_FILESYSTEM_GROWTH_RATE' | 'SERVICE_EVENT_COUNT' | 'SERVICE_ERROR_COUNT'
   | 'SERVICE_REQUESTS' | 'SERVICE_ERRORS' | 'SERVICE_SLOW_REQUESTS'
   | 'SERVICE_ROUTE_REQUESTS' | 'CATALOG_PRODUCT_LIST' | 'CATALOG_BROWSE_REPORT'
   | 'RUN_TIMELINE';
@@ -373,6 +374,8 @@ export type AgentDeliveryReadiness =
 ```
 
 `allowedAlerts` 表示允许用于关联或 pilot 的真实信号，不表示触发保证。对于 Prometheus rule 仅以 runtime series 产生 `service` label 的场景，静态校验可证明 rule name、severity 和静态 selector 合法，但不能承诺某个 service/URI 一定产生 series 或达到阈值。
+
+V1 所有 Catalog `allowedAlerts` 使用统一时序：`correlationWindowSec=900`、`activeGraceBeforeSec=900`、`recentGraceAfterSec=900`。这三个值作为每条 AlertCorrelationContract 的显式 Catalog 字段参与 `contractRevision`；Batch 5.0 直接消费，不维护额外默认值。
 
 `AlertCorrelationContract.severity` 复用 Batch 5.0 的 `'warning' | 'critical'` 范围；Prometheus 中与场景无关的 `info` rules 不能被静态 validator 自动升级为可关联告警。
 
