@@ -4,8 +4,8 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | P3-00R 决策及 2026-09-28 复审决议已同步；Phase 3 Contract 实施尚未开始 |
-| 版本 | 1.5 |
+| 状态 | P3-00R 决策及 2026-09-28 复审决议（含六项后续闭环）已同步；Phase 3 Contract 实施尚未开始 |
+| 版本 | 1.6 |
 | 更新时间 | 2026-09-28 CST |
 | 路线阶段 | [阶段 3：Scenario Contract](../../roadmap/phases/phase-3-scenario-contract.md) |
 | 产品规格 | [product.md](./product.md) |
@@ -58,7 +58,9 @@
 | Run revision、fresh schema、Operator 读面 | P3-05 | 方案已定：三份 fresh DDL 使用 `NOT NULL`，无旧库 migration/legacy null/cross-deploy replay；full-contract `contractRevision` 与 Evidence `contractHash` 分离，见 P3-ISSUE-002/006/008/012/016/017/018。 |
 | Validator/CI/report 状态 | P3-03、P3-06、P3-07 | 方案已定：所有 required check 完成/失败后才 finalize；三态报告分离 blocking 与 readiness；外部 CI blocking，见 P3-ISSUE-019/020。 |
 | Evidence/Alert/阶段归属 | P3-01、P3-04 | Phase 3 是 Evidence DSL 唯一类型来源；RCA submission 归 5.1，Evaluator close 归 5.2，Phase 3 只保留 receipt/correlation，见 P3-ISSUE-021/022。 |
-| 资源预算与部署边界 | P3-01、P3-05～07 | Heap aggregate 无 cap 作为 disposable non-releasing exception，Web 新 Run 有 hard scope gate；admission config 为 Web-only；full clean-slate reset 由外部流程执行并记录，见 P3-ISSUE-023～026。 |
+| Lifecycle control facts 与 Evidence check refs | P3-01～04 | Prepare/stop/cleanup 引用受控 event/action types；recovery/side-effect check 引用 Evidence recipe；cleanup verification 使用 `window=cleanup` recipe，不维护第二份 check map，见 P3-ISSUE-028。 |
+| 资源预算与部署边界 | P3-01、P3-02、P3-05～07 | Heap aggregate 无 cap 作为 disposable non-releasing exception，Web 新 Run 有 hard scope gate；surge API/Worker 均强制 concurrency ≤128；admission config 为 Web-only；full clean-slate reset 由外部流程执行并记录，见 P3-ISSUE-023～026/029。 |
+| Admission response 与发布制品 | P3-05～07 | Named admission failures 使用固定 Operator envelope/status；Kubernetes migration/verify 必须先于应用启动；release attestation 绑定 source commit、不可变服务 image digests 与 final report hash，见 P3-ISSUE-027/031/032。 |
 
 ### 1.4 不可绕过的决策
 
@@ -92,7 +94,7 @@
 
 ## 3. 总体进度
 
-- **总体状态：** 2026-09-26 用户决策及 2026-09-28 设计复审决议已同步至 Product、Tech、Phase 3 roadmap、Batch 4/5 handoff、README 部署说明与任务清单；Phase 3 implementation 尚未开始。
+- **总体状态：** 用户决策及 2026-09-28 复审决议（含 admission 错误映射、lifecycle refs、Worker concurrency 上限、Batch 4 fresh-only schema、Kubernetes 顺序和发布 provenance）已同步至相关设计/任务/部署文档；Phase 3 implementation 尚未开始。
 - **当前任务：** P3-00R 文档/接口定稿已完成。
 - **下一步：** 完成后按 P3-01 实施；Contract enforce/canary 仅在数据库和业务资源可丢弃的单 Worker 环境中运行，保持 Reconciliation `OFF`，不声称 P2 takeover 已验证。
 - **进度口径：** 仅按 `[x]` 子任务统计；代码存在但当前任务未验证的能力不能提前计入完成。
@@ -100,13 +102,13 @@
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
 | --- | --- | --- | --- | --- |
 | P3-00 | 现状基线与技术设计对齐 | 已完成（1 项被用户决策替代） | 6 / 7 | 当前仓库 |
-| P3-00R | 设计复审整改与跨阶段接口定稿 | 已完成 | 22 / 22 | P3-00 |
+| P3-00R | 设计复审整改与跨阶段接口定稿 | 已完成 | 28 / 28 | P3-00 |
 | P3-01 | Catalog Contract supplement 与 revision | 未开始 | 0 / 7 | P3-00R |
-| P3-02 | Gateway/Worker capability 对照与 recovery coverage | 未开始 | 1 / 8 | P3-00R、P3-01 |
+| P3-02 | Gateway/Worker capability 对照与 recovery coverage | 未开始 | 1 / 9 | P3-00R、P3-01 |
 | P3-03 | 纯函数 Contract validator 与稳定诊断 | 未开始 | 0 / 7 | P3-01、P3-02 |
 | P3-04 | Runbook、i18n、evidence、alert、术语工件 | 未开始 | 0 / 8 | P3-01、P3-03 |
-| P3-05 | Fresh schema、revision 事务持久化与 Operator 读面 | 未开始 | 0 / 8 | P3-00R、P3-01、P3-03 |
-| P3-06 | CLI、外部 CI 接入、配置与回退 | 未开始 | 0 / 9 | P3-00R、P3-02 至 P3-05 |
+| P3-05 | Fresh schema、revision 事务持久化与 Operator 读面 | 未开始 | 0 / 9 | P3-00R、P3-01、P3-03 |
+| P3-06 | CLI、外部 CI 接入、配置与回退 | 未开始 | 0 / 11 | P3-00R、P3-02 至 P3-05 |
 | P3-07 | 集成验证、single-worker canary 与阶段退出 | 未开始 | 0 / 9 | P3-02 至 P3-06；外部 reset 记录/可丢弃环境 |
 
 ## 4. 执行依赖
@@ -131,7 +133,7 @@ Phase 3 的 Contract 单 Worker canary 不启用 Reconciler，故不声称 P2-10
 
 ### 4.1 审查问题闭环映射
 
-P3-00R 已定稿 `P3-ISSUE-007`～`026` 的处理方案。实现仍须按下表完成并登记验证；“设计已解决”不等于“运行时代码已完成”。
+P3-00R 已定稿 `P3-ISSUE-007`～`032` 的处理方案。实现仍须按下表完成并登记验证；“设计已解决”不等于“运行时代码已完成”。
 
 | 问题 | 设计定稿 | 实施任务 | 最低关闭证据 |
 | --- | --- | --- | --- |
@@ -154,8 +156,13 @@ P3-00R 已定稿 `P3-ISSUE-007`～`026` 的处理方案。实现仍须按下表�
 | P3-ISSUE-023 | Heap pressure aggregate budget | P3-01、P3-03、P3-07 | 明确 no aggregate cap 的 approved exception 只用于 `NOTIFICATION_HEAP_PRESSURE`、disposable-only；OOM/重启风险在 budget/report/验收中可见。 |
 | P3-ISSUE-024 | Admission mode Web/Worker 导入边界 | P3-05、P3-06 | mode 从 Web-only bootstrap 解析并传入 admission；Worker/shared env import 不解析、不需配置；非法值仅导致 Web/API fail-fast。 |
 | P3-ISSUE-025 | Clean-slate reset 的执行责任与证据 | P3-06、P3-07、README | 外部部署流程停止 writers 并重置 DB/Redis/scenario-owned resources；发布记录证明完成；不能以 `mysql-reset.sh` 单独替代。 |
-| P3-ISSUE-026 | Heap exception 的部署 scope enforcement | P3-01、P3-05～07 | Web-only scope 缺省 `retained`；无论 validation mode，为 heap-pressure 创建新 Run 只有显式 `disposable` 才允许；精确 replay 不重做新 effect。 |
 | P3-ISSUE-026 | Heap exception 的部署 scope enforcement | P3-01、P3-05～07 | Web-only scope 缺省 `retained`；无论 validation mode，为 heap-pressure 创建新 Run 只有显式 `disposable` 才允许；精确 replay 不重做新的 effect。 |
+| P3-ISSUE-027 | Contract admission errors / Operator response mapping | P3-05、P3-07 | `SCENARIO_CONTRACT_INVALID` → HTTP/envelope 503；`SCENARIO_CONTRACT_DEPLOYMENT_SCOPE_RESTRICTED` → 409；固定安全消息、具名内部错误码；Run persistence/prepare 前拒绝且有 route tests。 |
+| P3-ISSUE-028 | Lifecycle control facts / evidence check mapping | P3-01～04 | Prepare/stop/cleanup references 使用受控 event/action types；stop/drain/release 由 recovery references 覆盖；recovery/side-effect IDs 指向 Evidence recipes；cleanup verification 使用 `window=cleanup` recipes，不重复 check map。 |
+| P3-ISSUE-029 | Surge concurrency execution hard limit | P3-01～03、P3-07 | Catalog/API 与 Worker 都限制到 128；Worker 在 worker/session/request 构造前对异常 persisted value fail closed、不 clamp、不发 Gateway request。 |
+| P3-ISSUE-030 | Batch 4 schema migration / clean-slate compatibility | Batch 4 Tech、P3-06 | Evidence migration/init scripts 只用于 clean database bootstrap；删除已有 volume upgrade/幂等升级验收承诺，文档与测试均不声称升级受支持。 |
+| P3-ISSUE-031 | Kubernetes migration verify ordering | P3-06、README | Pipeline 先 provision/reset infra、运行 migration 与独立 verify 并阻断，再创建/启动 Web/Worker Deployments；文档不得先 `apply -k k8s` 启动应用。 |
+| P3-ISSUE-032 | CI report 与 deployed artifacts provenance | P3-06、P3-07 | Gate report 关联 source commit；外部 attestation 绑定同 commit、被测服务不可变 image digests 与 final-report SHA-256；部署只提升已验 digest。 |
 
 ## 5. 实施任务
 
@@ -175,7 +182,7 @@ P3-00R 已定稿 `P3-ISSUE-007`～`026` 的处理方案。实现仍须按下表�
 
 **目标：** 根据用户选择统一产品、技术、任务与 Batch 4/5 交接并关闭设计歧义；不代表 Phase 3 runtime implementation 已开始。
 
-- [x] 核对 Phase 3 设计/任务与当前 Phase 2 代码、批次 4 Evidence 和批次 5.0 Alert 技术设计，记录 P3-ISSUE-007～014；二次复审补记 P3-ISSUE-015/016，2026-09-28 复审补记 P3-ISSUE-017～026。
+- [x] 核对 Phase 3 设计/任务与当前 Phase 2 代码、批次 4 Evidence 和批次 5.0 Alert 技术设计，记录 P3-ISSUE-007～014；二次复审补记 P3-ISSUE-015/016，2026-09-28 复审补记 P3-ISSUE-017～026，后续补记 P3-ISSUE-027～032。
 - [x] 将 schema 决策定为 clean-slate only：`contract_revision VARCHAR(128) NOT NULL` 写入 runtime schema、migration `001` 与 init `04`；不新增 `006`/init `10`、旧 volume upgrade、legacy null 或历史 revision 回填（P3-ISSUE-002/006）。
 - [x] 将历史合同边界定为 Phase 3 只保存 `catalogRevision` 与 per-run `contractRevision`；不保存完整 Contract JSON，Batch 4 capture flag 启用时才冻结 Evidence snapshot（P3-ISSUE-008/009）。
 - [x] 确认 Catalog 为唯一可变事实源：supplement 不重复 target/prepare/release/cleanup/worker owner；真实 driver owner 派生；保留 global 64-hex 与 per-run `sc.v1:sha256:` revision，参数按名称排序且 UI 顺序不影响 hash；不做 Worker drift scan（P3-ISSUE-007/015）。
@@ -197,13 +204,19 @@ P3-00R 已定稿 `P3-ISSUE-007`～`026` 的处理方案。实现仍须按下表�
 - [x] 定稿 clean-slate 执行责任：部署平台/运维流程停止 writers，重置 MySQL/Redis/scenario-owned persistent resources 并留存记录；仓库不新增全量 wipe 工具，`mysql-reset.sh` 单独不满足前置条件（P3-ISSUE-025）。
 - [x] 定稿 heap 风险 hard gate：Web-only `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE=disposable|retained` 缺省为 `retained`；创建 `NOTIFICATION_HEAP_PRESSURE` 时无论 validation mode 为何，只有显式 disposable 才允许；Worker 不读取该范围（P3-ISSUE-026）。
 - [x] 将上述决议同步到 Product、Tech、Phase 3 roadmap、Batch 4/5 handoff、README 部署说明与本清单；复核问题/任务/验收一致，P3-01～07 尚未标为已实施。
+- [x] 定稿新准入错误边界：`SCENARIO_CONTRACT_INVALID` 以标准 envelope 返回 HTTP 503；`SCENARIO_CONTRACT_DEPLOYMENT_SCOPE_RESTRICTED` 返回 409；响应使用固定安全消息，不回显 validator detail（P3-ISSUE-027）。
+- [x] 收敛 lifecycle check refs：prepare/stop/cleanup refs 使用受控 event/action types；stop/drain/release 由 recovery refs 覆盖；recovery/side-effect refs 绑定 Evidence recipe；cleanup 验证使用 cleanup-window recipe，不复制 check map（P3-ISSUE-028）。
+- [x] 定稿 surge concurrency 双层硬限制：API Catalog max=128；owned `startOwned` 与 legacy `startRun` 对 persisted 值二次 fail closed，不 clamp、不发请求（P3-ISSUE-029）。
+- [x] 将 Batch 4 migration/init 定为 clean-database bootstrap；不支持现有 volume upgrade，也不以幂等 SQL 表述历史 schema 兼容（P3-ISSUE-030）。
+- [x] 定稿 Kubernetes 发布顺序：先基础设施/重置，再 migration Job 和独立 verify；两者成功后才 apply Web/Worker apps（P3-ISSUE-031）。
+- [x] 定稿 CI/deployment provenance：Gate report 绑定 source commit；release attestation 绑定同 commit、被测服务 image digests、final report SHA-256；部署只提升已验证 digests（P3-ISSUE-032）。
 
 ### P3-01：Catalog Contract supplement 与确定性 revision
 
 **目标：** 在现有 Catalog 与 Catalog revision 机制上补充 Phase 3 语义，不复制场景基本事实。
 
 - [ ] 按 P3-00R 定稿定义版本化 `ScenarioContractSupplement` / `ResolvedScenarioContract`，仅在 Catalog 的 `FaultRunScenarioDefinition` 挂载新增语义；从已有 `targetPrepare`、`recoveryPolicy.workerDrain` / `targetRelease` / `cleanup` 派生 dispatch 和 target lifecycle，不再另写可变 owner、prepare、release、cleanup 声明（P3-ISSUE-007）。
-- [ ] 为全部 Catalog 场景补全参数消费者、可验证的 prepare/stop/recovery/side-effect/cleanup 检查 ID，校验消费者集合与 `parameters[]` 一致；driver owner 从现有 policy 与运行注册表求得，不以 `TARGET_ONLY` 或未实施 hook 占位（P3-ISSUE-007）。
+- [ ] 为全部 Catalog 场景补全参数消费者与 lifecycle refs，校验消费者集合与 `parameters[]` 一致；`prepareEventTypes`/`stopEventTypes`/`cleanupActionTypes` 仅引用对应受控 event/action types 并验证实际写入路径；stop/drain/release/verification 由 recovery refs 覆盖，`recoveryRecipeIds`/`sideEffectRecipeIds` 引用适用 Evidence recipes，cleanup result 通过 `window=cleanup` recipe 表达，不另建 cleanup check map。driver owner 从现有 policy 与运行注册表求得，不以 `TARGET_ONLY` 或未实施 hook 占位（P3-ISSUE-007/028）。
 - [ ] 按已确认的产品预算策略为全部场景声明并校验 duration、并发、字节/内存/存储等预算或运行保护；把两个 surge Catalog `concurrency.max` 设为 `128`、拒绝 129；storage `totalBytes` 不设绝对 max，以 filesystem usable-space guard 保留 `minFreeBytes=1 MiB..1 GiB` 并同步 Catalog/Java；heap pressure 标成 disposable-only、non-releasing、无 aggregate cap 的 approved exception，保留单次分配/间隔/duration 边界并明确 OOM/重启可能；Web/API 对新建 heap Run 执行 `deploymentScope=disposable` hard gate（P3-ISSUE-014/023/026）。
 - [ ] 为每个场景补齐阶段 4 可直接消费的 Evidence Contract：稳定 recipe ID、窗口 policy 与硬上限、受限 template ID/scope/predicate/projection、required、`effectRule`、`WINDOWED`/`CURRENT` 区分、固定只读 Gateway check 和 unavailable 语义；拒绝任意 PromQL/LogQL/TraceQL/URL/SQL 或 Operator 输入。业务 CURRENT check 不得证明历史效果（P3-ISSUE-009）。
 - [ ] 为每个场景补齐阶段 5.0 可直接消费的 Alert Contract：`NOT_EXPECTED` / `CONDITIONAL` / `REQUIRED_FOR_PILOT`、允许的 name/service/severity/低敏标签、关联窗口和 `faultRunCorrelation`；引用全局 `alert-receipt.v1`，不在各场景重复 fingerprint/upsert/retention policy。`NOT_EXPECTED` 仍保留通用 receipt 并设为 `NOT_REQUIRED`；内部 `sendResolvedToControlPlane` 与外部 Agent readiness/`send_resolved` 分开声明，不承诺 firing（P3-ISSUE-013）。
@@ -222,6 +235,7 @@ P3-00R 已定稿 `P3-ISSUE-007`～`026` 的处理方案。实现仍须按下表�
 - [ ] 复用 `resolveFaultRunRecoveryPolicy()` 验证 PREPARE、RELEASE、`OPTIONAL_PER_RUN` / `OPERATOR_CONFIRMED` cleanup 与 `NON_RELEASING`；两个 local surge 的 target release 应为 `NOT_APPLICABLE`，但须有可验证 stop/drain 边界；不新增平行 resolver（P3-ISSUE-011）。
 - [ ] 从 Gateway 真实 operation registry 建立只读测试 seam：十个 target-backed operation 的 service/prepare/release/cleanup 固定路径与 Catalog 对齐，两个 local surge 仅校验自己的 Worker target map；不能只比较两份手写字符串。
 - [ ] 对十个 target-backed operation 的各目标服务添加/复用独立 controller mapping 与 wire-contract 测试，覆盖适用 prepare/release/cleanup 请求字段、上下文校验、`accepted`/业务 envelope 和 Storage `minFreeBytes` 的 1 MiB–1 GiB 两端/越界；普通消费接口不得接收场景身份，Gateway 测试不能冒充跨服务验证（P3-ISSUE-010/014）。
+- [ ] 对 owned 与 legacy surge Worker 入口均实施 persisted `concurrency` 的第二道 `1..128` 硬校验；128 正常执行，129/非整数/非法值 fail closed，不 clamp，并在创建 `ControlledScenarioWorker`、customer session 或 Gateway request 前拒绝。仅记录稳定 failure code，不记录原始值；测试确认超限时没有 session 或 Gateway 请求（P3-ISSUE-029）。
 
 ### P3-03：纯函数 Contract validator 与稳定诊断
 
@@ -260,6 +274,7 @@ P3-00R 已定稿 `P3-ISSUE-007`～`026` 的处理方案。实现仍须按下表�
 - [ ] 明确完整 `contractRevision` 只是完整 Resolved Contract 的识别符，不冻结/内嵌 snapshot；状态迁移、audit attachment、stop/release/cleanup 均不得改写它。Batch 4 capture flag 开启时存 Evidence plan canonical JSON 与独立 `contractHash`，原样引用同一个 `contractRevision`（P3-ISSUE-008/017）。
 - [ ] Operator list/detail 与 `CREATED` timeline 通过 allowlist 展示格式合法的 revision；扩展 `buildFaultRunOperatorEvent()` / `sanitizeFaultRunEventPayload()`，拒绝非法 payload，不展示合同全文、密钥、任意 alert labels 或客户数据（P3-ISSUE-016）。
 - [ ] 添加 boundary tests：`toGatewayPayload()`、owned driver context、`FaultRunContext`、Gateway headers/body、cleanup action payload 和 consumer response 均不出现 contract/catalog/run lifecycle identity。
+- [ ] 为 Fault Run POST 增加具名 admission error route contract tests：`SCENARIO_CONTRACT_INVALID` → 固定安全消息及 HTTP/envelope 503；`SCENARIO_CONTRACT_DEPLOYMENT_SCOPE_RESTRICTED` → 固定安全消息及 409；无 validator detail/stack 回显，且 Run/action/prepare 尚未持久化或调用；failure audit 只含稳定 code/correlation（P3-ISSUE-027）。
 
 ### P3-06：CLI、根级 gate、CI、配置与回退
 
@@ -274,20 +289,22 @@ P3-00R 已定稿 `P3-ISSUE-007`～`026` 的处理方案。实现仍须按下表�
 - [ ] `warn` 记录当前 Web/API 进程的 Contract 诊断；不实现 Worker persisted revision drift scan。`enforce` 只对新 Run admission 生效，跨层 Gateway/target mapping 由 CI 证明；同部署匹配的 idempotent replay 返回既有 Run、不重派发；heap disposable-scope hard gate 在两种 mode 下都生效（P3-ISSUE-010/012/015/018/026）。
 - [ ] 更新 Compose traffic-control-plane Web/API、Kubernetes Web/API 和部署文档；Worker Deployment 与 migration Job 不增加此 mode。clean-slate 发布由外部部署流程执行并记录：停旧 Web/Worker 与所有 writers，重置 MySQL/Redis/scenario-owned resources，fresh init，`db:migrate` + `db:verify` 后再启动单版本应用；仅 `mysql-reset.sh` 不构成完整 reset，不做 active Run 逐条 reset gate（P3-ISSUE-025）。
 - [ ] 记录并验证 disposable canary rollback：新 Run admission 从 `enforce` 切回 `warn`，随后按批准策略停止服务并整体重建 DB/业务资源；不得将该破坏性步骤用于共享/保留数据环境，也不得声称旧应用可读取新 schema。
+- [ ] 将 Kubernetes 发布资源拆为可独立执行的 infrastructure/bootstrap、migration、verify 与 application 阶段；确认现有 flat `k8s/kustomization.yaml` 不会在 migration/verify 前创建 Web/Worker 或业务 Deployment；migration Job 与独立 `db:verify` Job/process 使用同一 immutable control-plane image digest（P3-ISSUE-031）。
+- [ ] 让外部 CI final report 携带非空 source commit provenance，并要求每项 required check artifact 的 commit 与之相同；缺失/不匹配必须 BLOCKED。Release attestation 再绑定该 commit、被测服务 image digest map、final report SHA-256；部署 gate 只允许提升 attested digests，不以 mutable tag 作为制品身份，digest 改变时重新验证/关联（P3-ISSUE-032）。
 
 ### P3-07：集成验证、canary 准入与阶段退出
 
 **目标：** 以目标行为证据验证 Contract，而不是只凭类型、manifest 或测试 fixture 宣称跨层闭环。
 
-- [ ] 跑受影响的 targeted 单元测试：12 场景 derived policy/revision（含 global/per-run/evidence hash scope）、八类负向 fixture、预算/exception、retained scope 的 heap拒绝/disposable scope 允许、Evidence/Alert 合同、ACTIVE/drain/recovery、enforce 下 replay bypass 与并发同 key、报告 status/readiness 区分、Operator `CREATED` event 和缺失 Java result；不测试跨部署 drift、legacy null 或升级迁移（P3-ISSUE-007～026）。
+- [ ] 跑受影响的 targeted 单元测试：12 场景 derived policy/revision（含 global/per-run/evidence hash scope）、八类负向 fixture、预算/exception、retained scope 的 heap拒绝/disposable scope 允许、Evidence/Alert 合同、ACTIVE/drain/recovery、persisted surge concurrency 128/129 fail-closed 与无请求、enforce 下 replay bypass 与并发同 key、报告 status/readiness 区分、Operator `CREATED` event、admission HTTP/envelope mapping 和缺失 Java result；不测试跨部署 drift、legacy null 或升级迁移（P3-ISSUE-007～032）。
 - [ ] 跑已有 `pnpm test:runner`、`pnpm test:runbook`、`pnpm test:i18n`、typecheck、lint、build 与 `check-runtime-terminology.sh`，失败逐项登记；静态通过不得宣称告警已 firing 或业务已恢复。
 - [ ] 运行 Gateway registry 及所有适用 target controller/wire Maven tests，检查真实 endpoint、Generic DTO、可见错误和消费者信息隔离；仅比较手写字符串或只跑 Gateway 不满足门禁（P3-ISSUE-010）。
 - [ ] 在 disposable MySQL 验证 MySQL init 和 `db:migrate` 从空库均创建三份一致的 `contract_revision NOT NULL` schema，`db:verify` 正确检查列定义；验证 create transaction 回滚和同部署幂等，不做 `005 -> 006`、旧 volume 或 nullable fallback 测试。
 - [ ] 在单 Worker、`FAULT_RUN_RECONCILIATION_MODE=OFF`、Web-only `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE=disposable` 的 disposable 环境创建/重放/停止至少一个有效 Run；检查行与 `CREATED`/Operator timeline revision 一致、`warn/enforce` 新 Run admission、heap scope hard gate、Gateway/consumer header/body 无控制面信息。启动前留存外部 reset 记录（DB、Redis、scenario-owned resources）；结束后按同一外部流程整体 reset。
 - [ ] 按 generated smoke matrix 为 12 场景逐个审查实际目标业务路径、准备/停止/清理边界和运行前提；只能在适用的可丢弃环境演练高风险场景，未运行的必须写明限制，不把一场景 smoke 或 TS 12/12 当作全场景现场验收。
-- [ ] 确认外部 CI 在同一 Catalog revision 上运行根脚本并设为 blocking/required；缺少 Gateway 或任一目标服务 Java result、报告 revision 不匹配或 pipeline 未实际接线时不得标记最终报告 valid。
+- [ ] 确认外部 CI 在同一 source commit/Catalog revision 上运行根脚本并设为 blocking/required；缺少 Gateway 或任一目标服务 Java result、报告 revision/commit 不匹配或 pipeline 未实际接线时不得标记最终报告 valid。发布 attestation 将该 commit、tested image digest map 和 final report SHA-256 绑定；部署只能提升相同不可变 digests（P3-ISSUE-032）。
 - [ ] 用 TS + Gateway/target 全部验证结果生成最终逐场景 `valid` / `blocked` / `limited` 报告；缺少任何必需结果不得计入 12/12。告警 delivery `NOT_ENABLED_YET`、观测不可用、验证未配置与不匹配只能表述为能力限制，不等于合同静态校验通过后现场效果已发生。
-- [ ] canary 前确认 DB 和业务资源均可丢弃、单 Worker、`FAULT_RUN_RECONCILIATION_MODE=OFF`、Web `deploymentScope=disposable`、旧 Web/Worker 已停止；无需 pre-reset Run 级 cleanup gate。记录被 reset 的数据/资源，演练 enforce -> warn 与整套重建；将 P2-10 作为 Phase 2 独立状态，不作为 P3 canary 前置或通过证据（P3-ISSUE-011/025/026）。
+- [ ] canary 前确认 DB 和业务资源均可丢弃、单 Worker、`FAULT_RUN_RECONCILIATION_MODE=OFF`、Web `deploymentScope=disposable`、旧 Web/Worker 已停止；Kubernetes 必须先完成 migration 与独立 `db:verify`，之后才部署应用；无需 pre-reset Run 级 cleanup gate。记录被 reset 的数据/资源，演练 enforce -> warn 与整套重建；将 P2-10 作为 Phase 2 独立状态，不作为 P3 canary 前置或通过证据（P3-ISSUE-011/025/026/031）。
 
 ## 6. 阶段 3 退出标准
 
@@ -298,8 +315,9 @@ P3-00R 已定稿 `P3-ISSUE-007`～`026` 的处理方案。实现仍须按下表�
 - 新 Fault Run 的 full-contract `contractRevision` 在数据库行、`CREATED` event 和受控 Operator 事件投影一致；clean schema 中 `contract_revision` 为 `NOT NULL`。Phase 3 不保存完整 snapshot、不提供旧 Run/旧 schema 或跨部署 key 兼容；Batch 4 capture flag 启用时冻结 Evidence plan，以独立 `contractHash` 校验。
 - contract metadata 不进入 consumer、Gateway、target service 或外部 Agent payload；外部系统只接收其业务允许的通用协议。
 - 告警未 firing、receipt 未到达、观测数据不可用、无法唯一关联和业务恢复未验证均可显式表达；`NOT_ENABLED_YET` 不等于阶段 5 receiver 已上线，静态配方不等于现场已查询。
-- TS、docs/lint 和 Gateway/target Java checks 全部结束并落盘后才能生成 final `VALID`/`BLOCKED`/`LIMITED` 报告；任何 required check 缺失/失败必须 BLOCKED；外部 CI 根脚本设为 blocking/required，失败仍上传结果。运行时默认 `warn`，Web-only `enforce` 只作用于新 Run admission，不冒充跨服务实时验证。
-- clean schema 的两条 fresh-install 路径与三处 DDL parity 有可复核证据；外部完整 reset 有 MySQL/Redis/scenario-owned resources 记录；单 Worker disposable canary 的 Reconciliation 为 `OFF`。P2-10 仍独立验收，但不是 P3 canary/退出的依赖。
+- TS、docs/lint 和 Gateway/target Java checks 全部结束并落盘后才能生成 final `VALID`/`BLOCKED`/`LIMITED` 报告；任何 required check 缺失/失败必须 BLOCKED；外部 CI 根脚本设为 blocking/required，失败仍上传结果。运行时默认 `warn`，Web-only `enforce` 只作用于新 Run admission，不冒充跨服务实时验证；发布 provenance 绑定 source commit、被测 image digests 和 final report hash。
+- clean schema 的两条 fresh-install 路径与三处 DDL parity 有可复核证据；外部完整 reset 有 MySQL/Redis/scenario-owned resources 记录；单 Worker disposable canary 的 Reconciliation 为 `OFF`。Kubernetes migration 与独立 verify 必须先于应用部署。P2-10 仍独立验收，但不是 P3 canary/退出的依赖。
+- Admission 拒绝使用具名错误和固定安全 HTTP/envelope 映射；persisted surge concurrency 在 API 与 Worker 两层都强制不超过 128，Worker 不 clamp 且超限不发请求。
 
 ## 7. 问题跟踪
 
@@ -331,6 +349,12 @@ P3-00R 已定稿 `P3-ISSUE-007`～`026` 的处理方案。实现仍须按下表�
 | P3-ISSUE-024 | 复审 / P3-05、P3-06 | `env.ts` 同时由 Web 和 Worker import；在共享 env 中严格 parse 会让 Worker 启动也受 admission mode 影响。 | 与“只有 Web/API 新 Run admission 使用该模式”冲突，Worker 缺值/非法值可能被意外影响。 | 在 Web-only bootstrap/config 解析，Web route 显式传入 admission；shared `env.ts`、Coordinator module initialization 和 Worker 不读取此变量。 | 设计已解决；bootstrap/wiring tests 待 P3-05、P3-06 |
 | P3-ISSUE-025 | 复审 / P3-06、P3-07、README | 仓库持久化 bind mounts/PVC；`mysql-reset.sh` 只重置 MySQL、不重置 Redis/业务挂载资源。 | 仅运行现有脚本不能满足 clean-slate/reset premise，fresh schema 和无旧 target state 的验收会失去证据。 | 外部部署/运维流程负责停 writers、重置 DB、Redis、scenario-owned persistent resources 并保留复核记录；本仓库不新增全量 wipe 工具；README 明确脚本边界。 | 设计已解决；部署说明/外部流程证据待 P3-06、P3-07 |
 | P3-ISSUE-026 | 复审 / P3-01、P3-05～07 | Heap pressure 选择不设 aggregate cap，但此前只写 disposable exception，未定义创建时如何执行该范围限制。 | `warn` 仍可能允许在 retained/shared 部署创建该 non-releasing OOM 风险场景。 | 增加 Web-only `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE`，缺省 `retained`；无论 validation mode 为何，heap scenario 仅在显式 `disposable` scope 接受新建；replay 不会重新触发新效果。 | 决策已定；runtime gate/config/test 待 P3-01、P3-05～07 |
+| P3-ISSUE-027 | 复审 / P3-05、P3-07 | Fault Run POST route 对未识别的 admission rejection 会走通用 500，Contract validator 诊断也缺少 Operator-safe mapping。 | scope 冲突与 Contract 缺陷无法被稳定区分；原始诊断若直接回显还会扩大信息暴露。 | 使用具名内部错误码及固定 envelope：`SCENARIO_CONTRACT_INVALID` → 503，`SCENARIO_CONTRACT_DEPLOYMENT_SCOPE_RESTRICTED` → 409；拒绝在 Run/action/prepare 前发生，response 不含 validator detail/stack，并为 route 加契约测试。 | 设计已定并同步；route/error types/tests 待 P3-05/07 |
+| P3-ISSUE-028 | 复审 / P3-01～04 | lifecycle 字段中 event/action IDs 与 Evidence recipe IDs 的来源和职责边界此前未足够明确，可能复制相同的 check map。 | 无效或不可写入的 ID 会被静态合同误认为已覆盖；cleanup/recovery 证据容易与控制动作混为一谈。 | Prepare/stop/cleanup refs 限于受控 event/action types 并验证写入路径；stop/drain/release/verification 由 recovery refs 覆盖；recovery/side-effect refs 指向 Evidence recipes；cleanup result 用 `window=cleanup` recipe 表达，不另建 check map。 | 设计已定并同步；resolver/validator/fixture 待 P3-01～04 |
+| P3-ISSUE-029 | 复审 / P3-01～03、P3-07 | Catalog/API 的 surge 上限若未由 Worker 对 persisted 参数再次执行，非法行仍可能通过无上限的 `boundedInteger` 进入执行路径。 | `concurrency > 128` 会绕过资源预算；当前 fallback 还可能将异常值静默改成低并发继续运行。 | API Catalog max=128；owned 与 legacy Worker entrypoints 在创建 worker/session/request 前校验 persisted concurrency，非法值 fail closed、不 clamp、不发 Gateway request；failure 只记录稳定 code，不记录原值。 | 设计已定并同步；Worker guard/tests 待 P3-02/07 |
+| P3-ISSUE-030 | 复审 / Batch 4 Tech、P3-06 | Batch 4 Tech 仍把 Evidence SQL 描述为已有 volume expand-only migration，并要求已有 volume migration 验收。 | 与 clean-slate、无旧数据兼容决策冲突，可能导致部署方错误依赖旧 schema upgrade。 | Evidence migration/init 都作为空库 fresh-bootstrap 路径；删除旧 volume upgrade/expand-only 承诺与对应验收，只验证 MySQL init 与空库 `db:migrate` 结果等价。 | Batch 4 Tech 已同步；实现/空库验证待 Batch 4 |
+| P3-ISSUE-031 | 复审 / P3-06、README | 当前 flat `k8s/kustomization.yaml` 同时包含应用 Deployments 与只执行 migration apply 的 Job，没有独立 verify stage。 | 应用可能在 migration 或 schema verification 前启动，且 migration 镜像 tag 未绑定已验制品。 | 分阶段 provision/bootstrap → pinned migration Job → 独立 `db:verify` Job/process → application Deployments；verify 成功前不得启动应用，并固定迁移/验证所用 image digest。 | Tech/README 已同步；staged resource sets 与 pipeline gate 待 P3-06 |
+| P3-ISSUE-032 | 复审 / P3-06、P3-07 | 报告只关联 `catalogRevision` 不能证明 Gate 检查的 source commit 与最终部署的 Gateway/业务镜像一致。 | Java-only 改动不一定改变 Catalog revision；用 tag 部署还可能覆盖已验证制品。 | Report 携带 `sourceCommitSha`；外部 release attestation 绑定 required-check commit、被测服务 image digest map 与 final report SHA-256；部署只提升 attested immutable digests，digest 变化重新验证/关联。 | 设计已定并同步；CI provenance/deployment enforcement 待 P3-06/07 |
 
 ## 8. 执行更新记录
 
@@ -343,6 +367,7 @@ P3-00R 已定稿 `P3-ISSUE-007`～`026` 的处理方案。实现仍须按下表�
 | 2026-09-24 CST | P3-00R：二次设计/任务覆盖复审 | 再核对当前 `product.md`、`tech.md`、P3-00R/P3-01～07 与 API、Coordinator、Repository 和 Operator 事件投影，登记 P3-ISSUE-015/016；补充 P3-ISSUE-007/008/010/012 的 owner 名称、旧 Run 安全停止、跨服务 runtime 能力和当前 schema 校验前幂等回放边界，并分别映射到 P3-00R、P3-05～07 的完成证据。 | 仅更新任务记录，未修改未定稿设计或业务代码；P3-00R 仍为 1/10。P3-ISSUE-008/012/014 等需方案决定，设计未达到直接实施条件。 |
 | 2026-09-26 CST | P3-00R：用户决策同步与跨文档对齐 | 将 clean-slate/NOT NULL、Phase 3 revision vs Batch 4 capture snapshot、Catalog 派生策略、Batch 4 Evidence DSL、Batch 5.0 Alert/receipt reference、预算边界、同部署幂等、API-only warn/enforce、外部 CI 和 disposable Reconciliation-OFF canary 同步到 Product、Tech、Phase 3 roadmap、Batch 4/5 Tech 与任务清单；将 P3-00R 更新为 12/12，并收敛 P3-ISSUE-002/006/007～016。 | 文档范围完成；无运行时代码、旧库 migration 或 GitHub Actions workflow 变更。`git diff --check` 通过。P3-01～07 仍未实施；下一步按任务清单开始 P3-01。 |
 | 2026-09-28 CST | P3-00R：设计复审选项决议同步 | 按用户选项定稿完整 `contractRevision` 与 Evidence `contractHash` 分离、精确 replay bypass 新 admission、全 required checks 后 finalize、三态报告、Phase 3 唯一 Evidence DSL、5.1/5.2 RCA/Evaluator 职责、heap unbounded exception 及 disposable hard gate、Web-only mode/scope parser 和外部完整 clean-slate reset。更新 Product/Tech/task/Phase 3 roadmap、Batch 4/5.1/5.2 handoff 与 README reset说明；新增 P3-ISSUE-017～026。 | 仅文档变更，无运行时代码、DB migration 或 wipe 脚本；reset 具体执行步骤由外部部署/运维流程负责并留痕。P3-00R 22/22；P3-01～07 仍未实施。 |
+| 2026-09-28 CST | P3-00R：复审缺口补齐与跨文档对齐 | 将具名 admission 错误及固定 HTTP/envelope 映射、lifecycle event/action 与 Evidence recipe 职责、Worker persisted concurrency=128 hard limit、Batch 4 fresh-only schema、Kubernetes migration/verify 顺序和 commit/image/report provenance 写入 Tech/Product/任务/Phase 3 roadmap/Batch 4 Tech/README；新增 P3-ISSUE-027～032，并更新任务映射、测试和退出条件。 | 仅文档变更；`git diff --check` 通过。P3-00R 更新为 28/28；P3-01～07 的运行时代码仍未实施，Kubernetes staged resource sets 与外部 provenance enforcement 待 P3-06/07。 |
 
 ## 9. 每次任务更新模板
 

@@ -1,6 +1,6 @@
 # 批次 3：Scenario Contract 产品规格
 
-> 状态：产品规格 v1.2，按 2026-09-28 复审决议对齐
+> 状态：产品规格 v1.3，按 2026-09-28 复审决议对齐
 > 对应路线阶段：阶段 3
 > 依赖：批次 2
 > 技术设计：[tech.md](./tech.md)
@@ -72,6 +72,7 @@ Contract 至少覆盖：
 资源预算的已确认边界：
 
 - `BROWSE_SURGE` 与 `ORDER_QUERY_SURGE` 的每 Run `concurrency` 上限为 `128`。
+- 该上限同时由 Catalog/API admission 与 Worker execution enforce；Worker 对 persisted 参数二次校验。超限或非法值必须 fail closed，不 clamp，不创建 worker/session，也不发 Gateway 请求。
 - `NOTIFICATION_STORAGE_APPEND.totalBytes` 保持为可配置目标，不设静态绝对上限；真实写入继续受目标服务 filesystem usable-space guard 约束，`minFreeBytes` 范围为 `1 MiB`–`1 GiB`。
 - `NOTIFICATION_HEAP_PRESSURE` 不设每 Run 累计 heap cap；虽保留单次分配、请求间隔和 duration 参数边界，仍接受 OOM/服务重启可能，作为明确的 non-releasing 预算例外，仅在 disposable 环境演练。
 - Web/API 通过 `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE=disposable|retained` 明确环境范围，缺失默认为 `retained`；heap pressure 新 Run 在任何 validation mode 下仅 `disposable` 可创建。
@@ -91,6 +92,8 @@ invalidAlertContract
 ```
 
 `NOT_EXPECTED` 表示不要求场景专属告警或 Fault Run 关联（`faultRunCorrelation=not_required`），不关闭平台通用 Alertmanager receipt 接收；所有场景引用 Batch 5.0 的全局 `alert-receipt.v1` policy。内部 `sendResolvedToControlPlane` 与外部 Agent receiver 的 readiness/`send_resolved` 属于不同配置事实。Phase 3 不定义 RCA submission 或 Evaluator close/expiry rules：提交拒绝语义归 Batch 5.1，评估关闭归 Batch 5.2。
+
+新 Run 准入拒绝使用具名错误和固定安全 Operator 响应：`SCENARIO_CONTRACT_INVALID` 返回 HTTP/envelope 503，`SCENARIO_CONTRACT_DEPLOYMENT_SCOPE_RESTRICTED` 返回 409。不得回显原始 validator details 或 stack；拒绝不得持久化 Run/action 或调用 prepare。
 
 ## 6. 产品验收
 

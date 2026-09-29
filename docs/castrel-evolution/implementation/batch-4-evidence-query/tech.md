@@ -1,6 +1,6 @@
 # 批次 4：实时 Evidence Query 技术设计
 
-> 状态：技术设计 v1.2，已按 2026-09-28 Phase 3 复审决议对齐（待实施）<br>
+> 状态：技术设计 v1.3，已按 2026-09-28 Phase 3 复审决议及 clean-slate schema 边界对齐（待实施）<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 对应路线阶段：阶段 4<br>
 > 前置条件：阶段 0～3 的退出门槛已满足，尤其是批次 3 已提供并阻断式校验完整的 Scenario Evidence Contract<br>
@@ -380,11 +380,11 @@ Evidence 数据库只保存查询协议、受控生命周期投影、执行元�
 
 新增表必须同时写入：
 
-- `traffic-control-plane/src/lib/fault-run-schema.ts` 的幂等 schema statements；
-- `traffic-control-plane/src/lib/migrations/00N-evidence-query.sql`，其中 `00N` 是批次 3 migration 之后的下一个未使用顺序号，用于已有 volume；
-- `infra/mysql/init/0N-evidence-query-schema.sql`，其中 `0N` 是批次 3 fresh-install script 之后的下一个未使用顺序号，用于 fresh install。
+- `traffic-control-plane/src/lib/fault-run-schema.ts` 的 schema creation statements；
+- `traffic-control-plane/src/lib/migrations/00N-evidence-query.sql`，其中 `00N` 是下一个未使用顺序号，仅供 clean-slate reset 后的空数据库执行 `db:migrate` 时创建 Evidence schema；
+- `infra/mysql/init/0N-evidence-query-schema.sql`，其中 `0N` 是 fresh-install script 的下一个未使用顺序号，仅用于空数据库初始化。
 
-本批次是 expand-only migration：不修改现有 `fault_runs` state enum、不删除列、不改变 active-run uniqueness，也不引入跨服务 schema 依赖。
+本批次只支持 clean-database bootstrap，不支持已有 volume/schema 的升级。migration SQL 与 init SQL 是两条 fresh-install 路径，不是对既有数据的 expand/upgrade migration；实现和验收不得承诺旧 volume 兼容。`db:migrate` 路径与 MySQL init 路径都必须从空数据库得到等价 schema。
 
 ### 7.2 `evidence_contract_snapshots`
 
@@ -437,7 +437,7 @@ CREATE TABLE evidence_query_manifests (
 
 `timeline_json` 是第 6.1 节的严格 schema，不复制原始 `fault_run_events.payload`。`windows_json` 和 `recipes_json` 是 copyable query protocol；它们不包含 provider response。`source_run_retained` 在现有 Fault Run retention 删除源行之前切换为 `0`，使 UI 能解释数据来源仍是冻结 Manifest 而非仍存在的 Fault Run。
 
-当前版本刻意不对 `snapshot_id` 或 `source_fault_run_id` 添加会随着 Fault Run 删除而级联删除的 foreign key。未来阶段 5 关联 incident/case 时，必须通过独立 expand migration 添加 nullable 关联，不能就地改写已经被 report 引用的 Manifest。
+当前版本刻意不对 `snapshot_id` 或 `source_fault_run_id` 添加会随着 Fault Run 删除而级联删除的 foreign key。未来阶段 5 若要关联 incident/case，必须作为独立 schema 变更并保留现有 Manifest 不可变；在当前 clean-slate 部署策略下，新字段需进入两条 fresh-bootstrap 路径。若未来改为保留数据库部署，需另行决策并验证升级策略，不能把当前设计视为已有 volume migration 承诺。
 
 ### 7.4 Attempt、单项状态和 Note
 
@@ -832,8 +832,8 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 | `src/lib/evidence-business-checks.ts` | 固定的正常 Gateway GET read-check adapter |
 | `src/lib/evidence-report-service.ts` | preflight、并发、deadline、摘要、状态聚合 |
 | `src/lib/evidence-view.ts` | 安全 UI DTO 投影 |
-| `src/lib/migrations/00N-evidence-query.sql` | 批次 3 之后的下一个已有 volume expand migration |
-| `infra/mysql/init/0N-evidence-query-schema.sql` | 批次 3 之后的下一个 fresh-install DDL |
+| `src/lib/migrations/00N-evidence-query.sql` | 批次 3 之后的下一个 clean-database bootstrap DDL；不用于升级已有 volume |
+| `infra/mysql/init/0N-evidence-query-schema.sql` | 批次 3 之后的 fresh-install DDL |
 | `src/app/internal/fault-runs/[faultRunId]/evidence/route.ts` | Manifest GET |
 | `src/app/internal/fault-runs/[faultRunId]/evidence/reports/route.ts` | attempt history GET 与 live report POST |
 | `src/app/internal/fault-runs/[faultRunId]/evidence/notes/route.ts` | note GET/POST |
@@ -844,7 +844,7 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 
 | 文件 | 变更 |
 | --- | --- |
-| `src/lib/fault-run-schema.ts` | 加入与 migration/init 等价的幂等 DDL |
+| `src/lib/fault-run-schema.ts` | 加入与 clean-bootstrap migration/init 等价的 DDL；运行时建表语句不代表支持升级已有 schema |
 | `src/lib/fault-run-repository.ts` | 在 run create transaction 写 snapshot；retention 前 materialize latest Manifest；安全读取 evidence data |
 | `src/lib/fault-run-coordinator.ts` | 写入 `PREPARE_STARTED`、`STOP_REQUESTED`；不推断 effect observed |
 | `src/app/internal/fault-runs/route.ts` | capture failure 使用正常错误 envelope；不泄露 contract 内容 |
@@ -888,7 +888,7 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 
 ### 14.2 Repository 和路由集成测试
 
-- fresh MySQL init 和已有 volume migration 都可幂等执行。
+- 空数据库分别经 MySQL init 与 `db:migrate` bootstrap 后得到等价的 Evidence schema；不测试已有 volume upgrade，也不以重复执行 SQL 证明旧 schema 兼容。
 - `fault_runs + CREATED event + evidence_contract_snapshot` 成功或同时回滚。
 - 相同 timeline 只产生一条 Manifest；不同 cleanup timeline 产生递增 revision。
 - attempt 的重复 idempotency key 不再次调用 mock source。
@@ -927,7 +927,7 @@ git diff --check
 
 ### 15.1 发布顺序
 
-1. **Expand schema**：部署 runtime schema、migration 和 fresh-install SQL，不打开任何 flag。
+1. **Fresh schema bootstrap**：完成获批的 clean-slate reset；使用 MySQL init 或 `db:migrate` 的空库路径创建等价 schema，并运行独立 `db:verify`。不得把 migration 路径用于升级既有 volume；不打开任何 flag。
 2. **Capture canary**：在隔离 Compose 环境开启 `EVIDENCE_MANIFEST_CAPTURE_ENABLED`；确认新运行有 frozen snapshot，现有运行不受影响。
 3. **Manifest-only**：开启 `EVIDENCE_QUERY_ENABLED`、保持 execution 关闭；核验窗口、revision、UI 和 audit，不产生外部 source 查询。
 4. **Execution pilot**：配置内部 source endpoint，单环境、单场景、单 Operator 开启 `EVIDENCE_QUERY_EXECUTION_ENABLED`。
