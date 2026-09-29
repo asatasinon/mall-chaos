@@ -5,6 +5,7 @@ import com.castrel.chaos.common.coordination.OperationRunContext;
 import com.castrel.chaos.common.coordination.OperationRunGuard;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -49,7 +50,8 @@ public class NotificationRetentionState {
         requestIntervalMs = bounded(parameters, "requestIntervalMs", 100, 0, 60000);
         totalStorageBytes = bounded(parameters, "totalBytes", 10L * 1024 * 1024 * 1024, 1024, Long.MAX_VALUE);
         appendBytes = bounded(parameters, "appendBytes", 16L * 1024 * 1024, 1, 64L * 1024 * 1024);
-        minFreeBytes = bounded(parameters, "minFreeBytes", 1L * 1024 * 1024, 1, 1073741824);
+        minFreeBytes = bounded(parameters, "minFreeBytes", 1L * 1024 * 1024,
+                1L * 1024 * 1024, 1024L * 1024 * 1024);
         storageWriter.prepare(context.runId());
         storageRun = context;
         lastAppendedAt = 0;
@@ -61,6 +63,12 @@ public class NotificationRetentionState {
         guard.release(context);
         clearRetention(context);
         clearStorage(context);
+    }
+
+    public synchronized void cleanupRetention(OperationRunContext context, OperationRunGuard guard) {
+        context.validateForCleanup();
+        guard.release(context);
+        clearRetention(context);
     }
 
     public synchronized void stopAllStorageOperations(OperationRunGuard guard) {
@@ -139,7 +147,16 @@ public class NotificationRetentionState {
 
     private long bounded(Map<String, Object> parameters, String name, long defaultValue, long min, long max) {
         Object value = parameters == null ? null : parameters.get(name);
-        long result = value instanceof Number number ? number.longValue() : defaultValue;
+        if (value == null) return defaultValue;
+        if (!(value instanceof Number number)) {
+            throw new BizException("INVALID_NOTIFICATION_PARAMETER", name + " is out of range");
+        }
+        long result;
+        try {
+            result = new BigDecimal(number.toString()).longValueExact();
+        } catch (NumberFormatException | ArithmeticException exception) {
+            throw new BizException("INVALID_NOTIFICATION_PARAMETER", name + " is out of range");
+        }
         if (result < min || result > max) {
             throw new BizException("INVALID_NOTIFICATION_PARAMETER", name + " is out of range");
         }

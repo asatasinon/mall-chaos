@@ -15,6 +15,7 @@ const FAILURE_CODES = new Set([
   'CONTROL_PLANE_VALIDATION_FAILED',
   'CONTROL_PLANE_STORAGE_FAILED',
   'WORKER_SETUP_FAILED',
+  'INVALID_SURGE_CONCURRENCY',
   'WORKER_REQUEST_FAILED',
   'WORKER_SUMMARY_MISSING',
   'WORKER_DRAIN_INCOMPLETE',
@@ -46,6 +47,8 @@ const SUMMARY_EVENT_META: Record<string, {
   SCENARIO_REQUEST_FAILED: { source: 'scenario-worker', phase: 'effect', status: 'FAILED' },
 };
 
+export type FaultRunSummaryEventType = keyof typeof SUMMARY_EVENT_META;
+
 const CAPTURE_EVENT_META: Record<string, {
   phase: 'control' | 'effect' | 'recovery';
   status: 'STARTED' | 'COMPLETED' | 'FAILED' | 'UNKNOWN';
@@ -58,10 +61,12 @@ const CAPTURE_EVENT_META: Record<string, {
   BASELINE_CAPTURE_FAILED: { phase: 'control', status: 'FAILED' },
 };
 
+export const FAULT_RUN_DRAIN_COMPLETED_EVENT_TYPE = 'DRAIN_COMPLETED' as const;
+
 export const SAFE_RUNTIME_RECOVERY_EVENT_TYPES = [
   'STOP_REQUESTED',
   'DRAIN_STARTED',
-  'DRAIN_COMPLETED',
+  FAULT_RUN_DRAIN_COMPLETED_EVENT_TYPE,
   'DRAIN_TIMED_OUT',
   'DRAIN_LATE_COMPLETED',
   'DRAIN_FAILED',
@@ -92,7 +97,7 @@ const RECOVERY_EVENT_META: Record<FaultRunRecoveryEventType, {
 }> = {
   STOP_REQUESTED: { phase: 'command', status: 'REQUESTED' },
   DRAIN_STARTED: { phase: 'drain', status: 'STARTED' },
-  DRAIN_COMPLETED: { phase: 'drain', status: 'COMPLETED' },
+  [FAULT_RUN_DRAIN_COMPLETED_EVENT_TYPE]: { phase: 'drain', status: 'COMPLETED' },
   DRAIN_TIMED_OUT: { phase: 'drain', status: 'TIMED_OUT' },
   DRAIN_LATE_COMPLETED: { phase: 'drain', status: 'COMPLETED' },
   DRAIN_FAILED: { phase: 'drain', status: 'FAILED' },

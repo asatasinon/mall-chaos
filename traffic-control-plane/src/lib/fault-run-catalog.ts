@@ -111,6 +111,7 @@ const boundedConcurrency: FaultRunParameterDefinition = {
 };
 
 export const TRAFFIC_SURGE_MAX_PAGE_SIZE = 100;
+export const TRAFFIC_SURGE_MAX_CONCURRENCY = 128;
 
 const trafficSurgeConcurrency: FaultRunParameterDefinition = {
   name: 'concurrency',
@@ -118,7 +119,7 @@ const trafficSurgeConcurrency: FaultRunParameterDefinition = {
   required: false,
   default: 4,
   min: 1,
-  max: 128,
+  max: TRAFFIC_SURGE_MAX_CONCURRENCY,
 };
 
 const requestInterval: FaultRunParameterDefinition = {

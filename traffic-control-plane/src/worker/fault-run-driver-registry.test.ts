@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { getFaultRunDrivers } from './fault-run-driver-registry';
+import { listScenarioDefinitions, validateScenarioParameters } from '../lib/fault-run-catalog';
+import type { FaultRunRecord } from '../lib/fault-run-repository';
+import {
+  FAULT_RUN_DRAIN_COMPLETED_EVENT_TYPE,
+  normalizeFaultRunRecoveryEventPayload,
+  normalizeFaultRunSummaryEventPayload,
+} from '../lib/fault-run-event-contract';
+import { resolveScenarioContract } from '../lib/scenario-contract';
+import { getTrafficScenarioTarget, TRAFFIC_SCENARIO_TARGETS } from '../lib/fault-run-targets';
+import { getFaultRunDriverDescriptors, getFaultRunDrivers } from './fault-run-driver-registry';
+import { FAULT_RUN_DRIVER_EXECUTION } from './fault-run-reconciler';
+import { faultRunDrainParticipantForOwner } from './fault-run-drain-registry';
 
 test('driver registry contains distinct real-path owners', () => {
   const drivers = getFaultRunDrivers();
@@ -9,3 +20,70 @@ test('driver registry contains distinct real-path owners', () => {
     ['REPORT_SCENARIO_WORKER', 'TRAFFIC_SURGE_EXECUTOR', 'SCENARIO_WORKERS', 'RUNNER_ENGINE'],
   );
 });
+
+test('real driver coverage matches resolved Catalog owner and summary capability', () => {
+  const descriptors = getFaultRunDriverDescriptors();
+  const definitions = listScenarioDefinitions();
+  assert.equal(new Set(descriptors.map((descriptor) => descriptor.name)).size, descriptors.length);
+
+  for (const definition of definitions) {
+    const run = runForScenario(definition.scenario);
+    const matches = descriptors.filter((descriptor) => descriptor.supports(run));
+    assert.equal(matches.length, 1, `${definition.scenario} must have exactly one driver`);
+    const descriptor = matches[0];
+    assert.ok(descriptor);
+    const contract = resolveScenarioContract(definition);
+    assert.equal(descriptor.name, contract.dispatchOwner);
+    assert.equal(descriptor.drainOwner, contract.recoveryPolicy.workerDrain.owner);
+    assert.equal(descriptor.executionState, FAULT_RUN_DRIVER_EXECUTION.mode);
+    assert.equal(descriptor.terminalSummaryEvent, FAULT_RUN_DRAIN_COMPLETED_EVENT_TYPE);
+    assert.ok(faultRunDrainParticipantForOwner(descriptor.drainOwner));
+    assert.doesNotThrow(() => normalizeFaultRunSummaryEventPayload(descriptor.summaryEventType, {}));
+    assert.doesNotThrow(() => normalizeFaultRunRecoveryEventPayload(
+      descriptor.terminalSummaryEvent,
+      { participants: 1, completed: 1, inFlightAtFinish: 0 },
+    ));
+  }
+});
+
+test('local surge scenarios stay on their Worker target map outside Gateway operations', () => {
+  const localScenarios = listScenarioDefinitions()
+    .filter((definition) => resolveScenarioContract(definition).targetLifecycleMode === 'LOCAL_WORKER')
+    .map(({ scenario }) => scenario)
+    .sort();
+
+  assert.deepEqual(localScenarios, Object.keys(TRAFFIC_SCENARIO_TARGETS).sort());
+  for (const scenario of localScenarios) {
+    const target = getTrafficScenarioTarget(scenario);
+    assert.equal(target.scenario, scenario);
+    assert.match(target.path, /^\/api\//);
+  }
+});
+
+function runForScenario(scenario: FaultRunRecord['scenario']): FaultRunRecord {
+  const definition = listScenarioDefinitions().find((candidate) => candidate.scenario === scenario);
+  assert.ok(definition);
+  return {
+    faultRunId: '123e4567-e89b-12d3-a456-426614174000',
+    scenario,
+    targetService: definition.targetService,
+    targetOperation: definition.targetOperation,
+    state: 'ACTIVE',
+    parameters: validateScenarioParameters(scenario, {
+      durationSec: 30,
+      ...(scenario === 'PSP_PROVIDER_OUTCOME' ? { providerOutcome: 'TIMEOUT' } : {}),
+    }),
+    idempotencyKey: `driver-contract-${scenario.toLowerCase()}`,
+    fencingToken: 1,
+    startedAt: '2026-09-29T00:00:00.000Z',
+    expiresAt: '2026-09-29T01:00:00.000Z',
+    stoppedAt: null,
+    stopReason: null,
+    recoveryResult: null,
+    recoveryError: null,
+    operatorAuditId: null,
+    traceId: null,
+    createdAt: '2026-09-29T00:00:00.000Z',
+    updatedAt: '2026-09-29T00:00:00.000Z',
+  };
+}

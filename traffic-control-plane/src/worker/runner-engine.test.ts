@@ -87,6 +87,7 @@ function createHarness(
     = async () => result(),
   executeStorageGrowth: Pick<TrafficActionOrchestrator, 'executeStorageGrowth'>['executeStorageGrowth']
     = async () => result({ resultCode: 'STORAGE_APPEND_COMPLETE' }),
+  safeRuntimeEnabled = true,
 ): Harness {
   let loadedRun: FaultRunRecord | null = null;
   let runLoader = async (): Promise<FaultRunRecord | null> => loadedRun;
@@ -120,7 +121,7 @@ function createHarness(
     statusWriter: async () => undefined,
     orchestrator,
     drainRegistry: registry,
-    safeRuntimeEnabled: true,
+    safeRuntimeEnabled,
     now: () => now,
     createTrafficRunId: () => 'traffic-run-1',
   });
@@ -161,6 +162,24 @@ test('runner does not attach Fault Run context to customer lifecycle requests', 
 
     assert.equal('faultRunContext' in (harness.lifecycleOptions.at(-1) ?? {}), false);
     assert.deepEqual(harness.events, ['RUNNER_LIFECYCLE_SUMMARY']);
+  } finally {
+    await harness.engine.stop();
+  }
+});
+
+test('legacy runner does not execute scenario-specific effects for a RECOVERING Run', async () => {
+  const harness = createHarness(undefined, undefined, false);
+  harness.setRun(createRun({
+    scenario: 'NOTIFICATION_STORAGE_APPEND',
+    state: 'RECOVERING',
+  }));
+
+  harness.engine.start();
+  try {
+    await harness.engine.tick();
+
+    assert.equal(harness.storageOptions.length, 0);
+    assert.deepEqual(harness.events, []);
   } finally {
     await harness.engine.stop();
   }

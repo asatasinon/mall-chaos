@@ -25,6 +25,7 @@ import {
 } from './fault-run-drain-registry';
 
 const log = pino({ name: 'report-scenario-worker' });
+const REPORT_SCENARIO_TERMINAL_SUMMARY_EVENT = 'REPORT_WORKER_STOPPED' as const;
 
 interface ReportScenarioWorkerDependencies {
   gateway: GatewayClient;
@@ -220,8 +221,8 @@ export class ReportScenarioWorker {
       }
       await this.appendEvent(
         run.faultRunId,
-        'REPORT_WORKER_STOPPED',
-        normalizeFaultRunSummaryEventPayload('REPORT_WORKER_STOPPED', {
+        REPORT_SCENARIO_TERMINAL_SUMMARY_EVENT,
+        normalizeFaultRunSummaryEventPayload(REPORT_SCENARIO_TERMINAL_SUMMARY_EVENT, {
           requests,
           successes,
           failures,
@@ -238,6 +239,7 @@ export class ReportScenarioWorker {
 export class ReportScenarioFaultRunDriver implements OwnedFaultRunDriver {
   readonly name = 'REPORT_SCENARIO_WORKER';
   readonly drainOwner = 'REPORT_SCENARIO_WORKER' as const;
+  readonly summaryEventType = REPORT_SCENARIO_TERMINAL_SUMMARY_EVENT;
 
   constructor(private readonly worker: ReportScenarioWorker = new ReportScenarioWorker()) {}
 

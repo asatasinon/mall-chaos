@@ -1,6 +1,7 @@
 import type { FaultRunRecord } from '../lib/fault-run-repository';
 import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
 import type { FaultRunWorkerDrainOwner } from '../lib/fault-run-catalog';
+import type { FaultRunSummaryEventType } from '../lib/fault-run-event-contract';
 
 export type OwnedRunStopReason =
   | 'MANUAL'
@@ -23,8 +24,9 @@ export interface OwnedRunHandle {
 }
 
 export interface OwnedFaultRunDriver {
-  name: string;
-  drainOwner: FaultRunWorkerDrainOwner;
+  readonly name: string;
+  readonly drainOwner: FaultRunWorkerDrainOwner;
+  readonly summaryEventType: FaultRunSummaryEventType;
   supports(run: FaultRunRecord): boolean;
   start(input: {
     run: FaultRunRecord;

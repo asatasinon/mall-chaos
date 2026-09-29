@@ -139,7 +139,7 @@ public class NotificationController {
     public ApiResponse<Map<String, Object>> cleanupRetention(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
         OperationRunContext context = OperationRunContext.fromHeaders(headers);
-        retentionState.release(context, runGuard);
+        retentionState.cleanupRetention(context, runGuard);
         long deleted = customerNotificationRepository.deleteByOperationRunId(context.runId());
         return ApiResponse.ok(Map.of("cleaned", true, "deletedNotifications", deleted));
     }

@@ -100,6 +100,12 @@ public class CouponReservationConsistencyService {
         activeRunId = null;
     }
 
+    public synchronized void cleanupPreparedReservation(OperationRunContext context) {
+        context.validateForCleanup();
+        runGuard.release(context);
+        removePreparedReservation(context);
+    }
+
     private void lockCouponThenReservation(CyclicBarrier barrier) throws Exception {
         runConsistencyTransaction(barrier, true);
     }

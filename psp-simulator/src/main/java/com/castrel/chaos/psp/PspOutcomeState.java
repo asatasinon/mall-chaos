@@ -54,6 +54,12 @@ public class PspOutcomeState {
         clear(context);
     }
 
+    public synchronized void cleanup(OperationRunContext context) {
+        context.validateForCleanup();
+        runGuard.release(context);
+        clear(context);
+    }
+
     private synchronized void clear(OperationRunContext context) {
         if (activeRun != null && activeRun.runId().equals(context.runId())) {
             activeRun = null;

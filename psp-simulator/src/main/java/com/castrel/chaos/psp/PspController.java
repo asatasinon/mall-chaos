@@ -60,7 +60,7 @@ public class PspController {
     public ApiResponse<Map<String, Object>> cleanupOutcome(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
         OperationRunContext context = OperationRunContext.fromHeaders(headers);
-        state.release(context);
+        state.cleanup(context);
         return ApiResponse.ok(Map.of("cleaned", true));
     }
 

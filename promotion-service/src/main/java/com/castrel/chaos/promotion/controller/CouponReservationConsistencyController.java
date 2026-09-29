@@ -37,7 +37,7 @@ public class CouponReservationConsistencyController {
     public ApiResponse<Map<String, Object>> remove(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
         OperationRunContext context = OperationRunContext.fromHeaders(headers);
-        reservationConsistencyService.removePreparedReservation(context);
+        reservationConsistencyService.cleanupPreparedReservation(context);
         return ApiResponse.ok(Map.of("cleaned", true));
     }
 

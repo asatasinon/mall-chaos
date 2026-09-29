@@ -30,7 +30,7 @@ public class OrderReportOperationsController {
     @PostMapping("/internal/orders/reports/order-query/cleanup")
     public ApiResponse<Map<String, Object>> cleanupOrderQueryReport(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
-        OperationRunContext.fromHeaders(headers).validateForRelease();
+        OperationRunContext.fromHeaders(headers).validateForCleanup();
         return ApiResponse.ok(Map.of("cleaned", true));
     }
 }

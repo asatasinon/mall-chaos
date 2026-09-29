@@ -5,7 +5,7 @@ import {
   type GatewayResponse,
   type GatewayClient,
 } from '../lib/gateway-client';
-import { extractFaultRunTargetSummary } from '../lib/fault-run-repository';
+import { extractFaultRunTargetSummary, type FaultRunRecord } from '../lib/fault-run-repository';
 import {
   ScenarioRequestCacheError,
   ScenarioRequestTimeoutError,
@@ -315,4 +315,93 @@ test('cart dependency worker uses the authenticated cart business path through G
   assert.equal(events.includes('SCENARIO_WORKER_STARTED'), true);
   assert.equal(events.includes('SCENARIO_WORKER_STOPPED'), true);
   assert.equal(events.includes('SCENARIO_WORKER_DRAINED'), true);
+});
+
+test('legacy ScenarioWorkers does not issue business requests for recovering or terminal runs', async () => {
+  const inactiveRuns: FaultRunRecord[] = [
+    {
+      faultRunId: '123e4567-e89b-12d3-a456-426614174098',
+      scenario: 'CATALOG_REDIS_LARGE_VALUE',
+      targetService: 'catalog-service',
+      targetOperation: 'product-detail-cache',
+      state: 'RECOVERING',
+      parameters: { durationSec: 30, concurrency: 1, requestIntervalMs: 0 },
+      idempotencyKey: 'scenario-recovering-test',
+      fencingToken: 1,
+      startedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 1_000).toISOString(),
+      stoppedAt: null,
+      stopReason: null,
+      recoveryResult: null,
+      recoveryError: null,
+      operatorAuditId: null,
+      traceId: 'trace-recovering-test',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      faultRunId: '123e4567-e89b-12d3-a456-426614174097',
+      scenario: 'CART_CATALOG_DEPENDENCY',
+      targetService: 'catalog-service',
+      targetOperation: 'cart-product-validation',
+      state: 'STOPPED',
+      parameters: { durationSec: 30 },
+      idempotencyKey: 'scenario-stopped-test',
+      fencingToken: 1,
+      startedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 1_000).toISOString(),
+      stoppedAt: new Date().toISOString(),
+      stopReason: 'MANUAL',
+      recoveryResult: null,
+      recoveryError: null,
+      operatorAuditId: null,
+      traceId: 'trace-stopped-test',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ];
+  let gatewayCalls = 0;
+  let targetSummaryCalls = 0;
+  let sessionOpens = 0;
+  let eventWrites = 0;
+  const worker = new ScenarioWorkers({
+    gateway: {
+      async getWithMetadata() {
+        gatewayCalls++;
+        throw new Error('NON_ACTIVE_RUN_MUST_NOT_REQUEST');
+      },
+      async customerPost() {
+        gatewayCalls++;
+        throw new Error('NON_ACTIVE_RUN_MUST_NOT_REQUEST');
+      },
+    } as unknown as GatewayClient,
+    listRunnableRuns: async () => inactiveRuns,
+    loadTargetSummary: async () => {
+      targetSummaryCalls++;
+      return null;
+    },
+    appendEvent: async () => {
+      eventWrites++;
+    },
+    registerRunDrain: () => () => undefined,
+    sessions: {
+      async openSession() {
+        sessionOpens++;
+        throw new Error('NON_ACTIVE_RUN_MUST_NOT_OPEN_SESSION');
+      },
+      async closeSession() {
+        return undefined;
+      },
+    },
+    safeRuntimeEnabled: false,
+  });
+
+  worker.start();
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  await worker.stop();
+
+  assert.equal(gatewayCalls, 0);
+  assert.equal(targetSummaryCalls, 0);
+  assert.equal(sessionOpens, 0);
+  assert.equal(eventWrites, 0);
 });

@@ -34,6 +34,7 @@ import {
   updateOwnedFaultRunExecution,
   type FaultRunExecutionRecord,
 } from '../lib/fault-run-execution-repository';
+import { FAULT_RUN_DRAIN_COMPLETED_EVENT_TYPE } from '../lib/fault-run-event-contract';
 import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
 import {
   getScenarioDefinition,
@@ -825,7 +826,7 @@ export class FaultRunRecoveryExecutor {
         outcome: projection.outcome,
         residuals: projection.residuals,
         lastError: projection.lastError,
-      }, 'DRAIN_COMPLETED');
+      }, FAULT_RUN_DRAIN_COMPLETED_EVENT_TYPE);
       await this.setRecoveryDrainState(run.faultRunId, 'NOT_APPLICABLE');
       return 'CONTINUE';
     }
@@ -927,7 +928,7 @@ export class FaultRunRecoveryExecutor {
         outcome: projection.outcome,
         residuals: projection.residuals,
         lastError: projection.lastError,
-      }, 'DRAIN_COMPLETED', {
+      }, FAULT_RUN_DRAIN_COMPLETED_EVENT_TYPE, {
         participant: result.participant,
         ...(result.metrics ?? {}),
         completedAt,

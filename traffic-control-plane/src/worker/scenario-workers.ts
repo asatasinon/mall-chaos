@@ -33,6 +33,8 @@ import {
   type FaultRunWorkPermit,
 } from './fault-run-drain-registry';
 
+const SCENARIO_WORKER_TERMINAL_SUMMARY_EVENT = 'SCENARIO_WORKER_DRAINED' as const;
+
 interface ScenarioWorkerDependencies {
   gateway: GatewayClient;
   listRunnableRuns: () => Promise<FaultRunRecord[]>;
@@ -435,8 +437,8 @@ export class ScenarioWorkers {
         unregisterDrain();
         await this.appendEvent(
           run.faultRunId,
-          'SCENARIO_WORKER_DRAINED',
-          normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_DRAINED', worker.snapshot()),
+          SCENARIO_WORKER_TERMINAL_SUMMARY_EVENT,
+          normalizeFaultRunSummaryEventPayload(SCENARIO_WORKER_TERMINAL_SUMMARY_EVENT, worker.snapshot()),
         ).catch(() => undefined);
         await closeCustomerSession();
         this.workers.delete(run.faultRunId);
@@ -451,6 +453,7 @@ export class ScenarioWorkers {
 export class ScenarioFaultRunDriver implements OwnedFaultRunDriver {
   readonly name = 'SCENARIO_WORKERS';
   readonly drainOwner = 'SCENARIO_WORKERS' as const;
+  readonly summaryEventType = SCENARIO_WORKER_TERMINAL_SUMMARY_EVENT;
 
   constructor(private readonly workers: ScenarioWorkers = new ScenarioWorkers()) {}
 

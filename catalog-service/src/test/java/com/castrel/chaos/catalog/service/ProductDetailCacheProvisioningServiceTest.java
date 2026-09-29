@@ -243,6 +243,20 @@ class ProductDetailCacheProvisioningServiceTest {
         verify(redisTemplate).delete(RUN_HASH);
     }
 
+    @Test
+    void cleanupAcceptsMinimalGatewayContextAndReleasesTheRunFence() {
+        OperationRunContext cleanupContext = new OperationRunContext(RUN_ID, null, 7, null);
+        when(redisTemplate.execute(any(org.springframework.data.redis.core.script.DefaultRedisScript.class),
+                anyList(), any(Object[].class))).thenReturn(0L);
+
+        Map<String, Object> result = provisioningService.cleanup(cleanupContext);
+
+        assertThat(result).containsEntry("released", true)
+                .containsEntry("markerRemoved", false)
+                .containsEntry("hashRemoved", false);
+        verify(runGuard).release(cleanupContext);
+    }
+
         private OperationRunContext context() {
                 return new OperationRunContext(
                 RUN_ID, Instant.now().plusSeconds(600), 7, "phase-d-test-001");

@@ -50,6 +50,18 @@ class PspOutcomeStateTest {
                 .hasMessage("effectPercentage must be an integer between 0 and 100");
     }
 
+    @Test
+    void cleanupAcceptsMinimalGatewayContextAndClearsTheRunState() {
+        OperationRunContext activeContext = context();
+        state.prepare(activeContext, Map.of("providerOutcome", "DECLINED"));
+        OperationRunContext cleanupContext = new OperationRunContext(
+                activeContext.runId(), null, activeContext.fencingToken(), null);
+
+        state.cleanup(cleanupContext);
+
+        assertThat(state.authorize()).isEqualTo("AUTHORIZED");
+    }
+
     private OperationRunContext context() {
         return new OperationRunContext(
                 UUID.randomUUID().toString(), Instant.now().plusSeconds(60), 1, "psp-test-run");

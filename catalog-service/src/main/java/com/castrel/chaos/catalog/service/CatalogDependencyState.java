@@ -27,6 +27,12 @@ public class CatalogDependencyState {
         stopIfOwned(context);
     }
 
+    public synchronized void stopForCleanup(OperationRunContext context, OperationRunGuard guard) {
+        context.validateForCleanup();
+        guard.release(context);
+        stopIfOwned(context);
+    }
+
     public boolean isUnavailable() {
         return activeRunId != null;
     }

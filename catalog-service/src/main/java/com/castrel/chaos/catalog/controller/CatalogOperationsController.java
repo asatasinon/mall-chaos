@@ -82,7 +82,7 @@ public class CatalogOperationsController {
     @PostMapping("/internal/catalog/reports/product-browse/cleanup")
     public ApiResponse<Map<String, Object>> cleanupProductBrowseReport(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
-        OperationRunContext.fromHeaders(headers).validateForRelease();
+        OperationRunContext.fromHeaders(headers).validateForCleanup();
         return ApiResponse.ok(Map.of("cleaned", true));
     }
 
@@ -93,15 +93,15 @@ public class CatalogOperationsController {
         OperationRunContext context = OperationRunContext.fromHeaders(headers);
         context.validateForCleanup();
         requireOperationControl(request);
-        return ApiResponse.ok(productDetailProvisioning.cleanup(context.runId(), context.fencingToken()));
+        return ApiResponse.ok(productDetailProvisioning.cleanup(context));
     }
 
     @PostMapping("/internal/catalog/dependencies/cart-product-validation/cleanup")
     public ApiResponse<Map<String, Object>> cleanupCartProductValidation(
             @RequestHeader org.springframework.http.HttpHeaders headers) {
         OperationRunContext context = OperationRunContext.fromHeaders(headers);
-        context.validateForRelease();
-        dependencyState.stop(context, runGuard);
+        context.validateForCleanup();
+        dependencyState.stopForCleanup(context, runGuard);
         return ApiResponse.ok(Map.of("cleaned", true));
     }
 

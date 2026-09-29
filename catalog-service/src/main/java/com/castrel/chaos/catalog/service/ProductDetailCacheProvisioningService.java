@@ -171,7 +171,7 @@ public class ProductDetailCacheProvisioningService {
 
     public Map<String, Object> stop(OperationRunContext context) {
         context.validateForRelease();
-        Map<String, Object> result = cleanup(context);
+        Map<String, Object> result = cleanup(context.runId(), context.fencingToken());
         try {
             runGuard.release(context);
         } catch (RuntimeException exception) {
@@ -181,8 +181,10 @@ public class ProductDetailCacheProvisioningService {
     }
 
     public Map<String, Object> cleanup(OperationRunContext context) {
-        context.validateForRelease();
-        return cleanup(context.runId(), context.fencingToken());
+        context.validateForCleanup();
+        Map<String, Object> result = cleanup(context.runId(), context.fencingToken());
+        runGuard.release(context);
+        return result;
     }
 
     public Map<String, Object> cleanup(String runId, long fencingToken) {
@@ -302,7 +304,7 @@ public class ProductDetailCacheProvisioningService {
 
     private void cleanupQuietly(OperationRunContext context) {
         try {
-            cleanup(context);
+            cleanup(context.runId(), context.fencingToken());
         } catch (RuntimeException ignored) {
         }
     }

@@ -207,3 +207,31 @@ test('report owned driver only supports report scenarios', () => {
   const fence = new FaultRunOwnerFence(createRun('BROWSE_REPORT_SQL').faultRunId, 'worker-a', 1);
   assert.equal(fence.isLocallyCurrent(), true);
 });
+
+test('legacy ReportScenarioWorker ignores recovering and terminal runs', async () => {
+  let accountLoads = 0;
+  let eventWrites = 0;
+  const inactiveRuns: FaultRunRecord[] = [
+    { ...createRun('BROWSE_REPORT_SQL'), state: 'RECOVERING' },
+    { ...createRun('ORDER_REPORT_SQL'), state: 'STOPPED' },
+  ];
+  const worker = new ReportScenarioWorker({
+    gateway: {} as GatewayClient,
+    listRunnableRuns: async () => inactiveRuns,
+    appendEvent: async () => {
+      eventWrites++;
+    },
+    loadAccounts: () => {
+      accountLoads++;
+      return [account];
+    },
+    safeRuntimeEnabled: false,
+  });
+
+  worker.start();
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  await worker.stop();
+
+  assert.equal(accountLoads, 0);
+  assert.equal(eventWrites, 0);
+});

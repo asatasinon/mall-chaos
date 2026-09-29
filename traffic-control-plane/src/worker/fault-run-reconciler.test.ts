@@ -54,6 +54,7 @@ function driver(started: string[], stopped: string[]): OwnedFaultRunDriver {
   return {
     name: 'test-driver',
     drainOwner: 'REPORT_SCENARIO_WORKER',
+    summaryEventType: 'REPORT_WORKER_STOPPED',
     supports: () => true,
     start: async () => {
       started.push(run.faultRunId);
@@ -111,6 +112,42 @@ test('reconciler claims an initial owner and starts one supported driver', async
   assert.deepEqual(reconciler.getOwnedRunIds(), [run.faultRunId]);
   await reconciler.stop();
   assert.deepEqual(stopped, [run.faultRunId]);
+});
+
+test('reconciler never claims or starts an effect driver for recovering or terminal runs', async () => {
+  const starts: string[] = [];
+  let claims = 0;
+  const reconciler = new FaultRunReconciler({
+    listCandidates: async () => [
+      { ...run, state: 'RECOVERING' },
+      { ...run, faultRunId: '123e4567-e89b-12d3-a456-426614174001', state: 'STOPPED' },
+    ],
+    loadExecution: async () => execution(),
+    claimExecution: async () => {
+      claims++;
+      return null;
+    },
+    heartbeatExecution: async () => true,
+    markLeaseLost: async () => true,
+    updateExecution: async () => true,
+    relinquishExecution: async () => true,
+    appendEvent: async () => undefined,
+    drivers: [driver(starts, [])],
+    now: () => new Date('2026-09-21T01:00:00.000Z'),
+    logger: { warn: () => undefined, info: () => undefined },
+  }, {
+    mode: 'TAKEOVER',
+    ownerId: 'worker-a',
+    leaseTtlMs: 30_000,
+    heartbeatMs: 5_000,
+    reconcileIntervalMs: 1_000,
+  });
+
+  await reconciler.scan();
+
+  assert.equal(claims, 0);
+  assert.deepEqual(starts, []);
+  await reconciler.stop();
 });
 
 test('quiesce waits for scans but leaves owned drivers available to recovery', async () => {
@@ -188,6 +225,7 @@ test('recovery drain keeps the owner lease for RecoveryExecutor', async () => {
     drivers: [{
       name: 'recovery-drain-test-driver',
       drainOwner: 'REPORT_SCENARIO_WORKER',
+      summaryEventType: 'REPORT_WORKER_STOPPED',
       supports: () => true,
       start: async () => ({
         stop: async ({ reason }) => {
@@ -337,6 +375,7 @@ test('heartbeat loss fences and drains the owned driver', async () => {
     drivers: [{
       name: 'heartbeat-test-driver',
       drainOwner: 'REPORT_SCENARIO_WORKER',
+      summaryEventType: 'REPORT_WORKER_STOPPED',
       supports: () => true,
       start: async () => ({
         stop: async () => {

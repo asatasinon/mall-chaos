@@ -20,19 +20,6 @@ import java.util.UUID;
 @RequestMapping("/internal/gateway")
 public class OperationDispatchController {
 
-    private static final Map<String, Target> TARGETS = Map.ofEntries(
-            Map.entry("products-browse-report", new Target("catalog-service", "/internal/catalog/reports/product-browse/prepare", "/internal/catalog/reports/product-browse/release", "/internal/catalog/reports/product-browse/cleanup")),
-            Map.entry("orders-query-report", new Target("order-service", "/internal/orders/reports/order-query/prepare", "/internal/orders/reports/order-query/release", "/internal/orders/reports/order-query/cleanup")),
-            Map.entry("product-detail-cache", new Target("catalog-service", "/internal/catalog/product-details/cache/prepare", "/internal/catalog/product-details/cache/release", "/internal/catalog/product-details/cache/cleanup")),
-            Map.entry("cart-product-validation", new Target("catalog-service", "/internal/catalog/dependencies/cart-product-validation/prepare", "/internal/catalog/dependencies/cart-product-validation/release", "/internal/catalog/dependencies/cart-product-validation/cleanup")),
-            Map.entry("notification-retention", new Target("notification-service", "/internal/notification/retention/prepare", "/internal/notification/retention/release", "/internal/notification/retention/cleanup")),
-            Map.entry("notification-storage", new Target("notification-service", "/internal/notification/storage/prepare", "/internal/notification/storage/release", "/internal/notification/storage/cleanup")),
-            Map.entry("coupon-reservation-consistency", new Target("promotion-service", "/internal/promotion/coupons/reservations/prepare", "/internal/promotion/coupons/reservations/release", "/internal/promotion/coupons/reservations/remove")),
-            Map.entry("inventory-availability-report", new Target("inventory-service", "/internal/inventory/availability/prepare", "/internal/inventory/availability/release", "/internal/inventory/availability/remove")),
-            Map.entry("inventory-reservation-summary", new Target("inventory-service", "/internal/inventory/reservations/prepare", "/internal/inventory/reservations/release", "/internal/inventory/reservations/remove")),
-            Map.entry("provider-outcome", new Target("psp-simulator", "/internal/psp/provider-outcome/prepare", "/internal/psp/provider-outcome/release", "/internal/psp/provider-outcome/cleanup"))
-    );
-
     private static final Set<String> REQUIRED_FIELDS = Set.of(
             "runId", "operation", "parameters", "expiresAt", "fencingToken", "idempotencyKey");
     private static final Set<String> CLEANUP_FIELDS = Set.of("runId", "operation", "fencingToken");
@@ -53,7 +40,7 @@ public class OperationDispatchController {
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
         Validation validation = validate(body, false);
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
-        Target target = validation.target();
+        OperationTargetRegistry.Target target = validation.target();
         return dispatchService.prepare(target.service(), target.preparePath(), body, traceIdOrEmpty(traceId))
             .map(ApiResponse::ok);
     }
@@ -64,7 +51,7 @@ public class OperationDispatchController {
             @RequestHeader(value = TraceContext.TRACE_ID_HEADER, required = false) String traceId) {
         Validation validation = validate(body, false);
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
-        Target target = validation.target();
+        OperationTargetRegistry.Target target = validation.target();
         return dispatchService.release(target.service(), target.releasePath(), body, traceIdOrEmpty(traceId))
             .map(ApiResponse::ok);
     }
@@ -78,7 +65,7 @@ public class OperationDispatchController {
         }
         Validation validation = validate(body, true);
         if (!validation.valid()) return Mono.just(ApiResponse.error(400, validation.message()));
-        Target target = validation.target();
+        OperationTargetRegistry.Target target = validation.target();
         return dispatchService.cleanup(target.service(), target.cleanupPath(), body, traceIdOrEmpty(traceId))
             .map(ApiResponse::ok);
     }
@@ -156,7 +143,7 @@ public class OperationDispatchController {
         }
         Validation identity = validateIdentity(body, !cleanup);
         if (!identity.valid()) return identity;
-        Target target = TARGETS.get(body.get("operation"));
+        OperationTargetRegistry.Target target = OperationTargetRegistry.find(body.get("operation"));
         if (target == null) return Validation.invalid("Unknown operation");
         return new Validation(true, "", target);
     }
@@ -208,11 +195,8 @@ public class OperationDispatchController {
         return traceId == null ? "" : traceId;
     }
 
-    private record Target(String service, String preparePath, String releasePath, String cleanupPath) {
-    }
-
-    private record Validation(boolean valid, String message, Target target) {
-        static Validation valid(Target target) {
+    private record Validation(boolean valid, String message, OperationTargetRegistry.Target target) {
+        static Validation valid(OperationTargetRegistry.Target target) {
             return new Validation(true, "", target);
         }
 

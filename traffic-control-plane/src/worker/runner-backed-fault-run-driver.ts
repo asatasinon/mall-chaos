@@ -9,6 +9,8 @@ import type { OwnedFaultRunDriver, OwnedRunHandle } from './fault-run-driver';
 import type { RunnerExecutionConfig, RunnerActionResult, TrafficActionOrchestrator } from './traffic-action-orchestrator';
 import { TrafficActionOrchestrator as DefaultTrafficActionOrchestrator } from './traffic-action-orchestrator';
 
+const RUNNER_TERMINAL_SUMMARY_EVENT = 'RUNNER_LIFECYCLE_SUMMARY' as const;
+
 interface RunnerBackedDriverDependencies {
   loadConfig: typeof loadRunnerConfigFromDb;
   orchestrator: Pick<TrafficActionOrchestrator, 'executeLifecycle' | 'executeStorageGrowth'>;
@@ -18,6 +20,7 @@ interface RunnerBackedDriverDependencies {
 export class RunnerBackedFaultRunDriver implements OwnedFaultRunDriver {
   readonly name = 'RUNNER_ENGINE';
   readonly drainOwner = 'RUNNER_ENGINE' as const;
+  readonly summaryEventType = RUNNER_TERMINAL_SUMMARY_EVENT;
   private readonly loadConfig: RunnerBackedDriverDependencies['loadConfig'];
   private readonly orchestrator: RunnerBackedDriverDependencies['orchestrator'];
   private readonly appendEvent: RunnerBackedDriverDependencies['appendEvent'];
@@ -95,8 +98,8 @@ export class RunnerBackedFaultRunDriver implements OwnedFaultRunDriver {
   ): Promise<void> {
     await this.appendEvent(
       run.faultRunId,
-      'RUNNER_LIFECYCLE_SUMMARY',
-      normalizeFaultRunSummaryEventPayload('RUNNER_LIFECYCLE_SUMMARY', {
+      RUNNER_TERMINAL_SUMMARY_EVENT,
+      normalizeFaultRunSummaryEventPayload(RUNNER_TERMINAL_SUMMARY_EVENT, {
         resultStatus: result.status,
         success: result.success,
         latencyMs,

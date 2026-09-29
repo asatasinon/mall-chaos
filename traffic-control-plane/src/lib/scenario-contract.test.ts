@@ -21,10 +21,18 @@ test('resolved contract derives dispatch and target lifecycle from Catalog polic
 
   assert.equal(resolvedSurge.dispatchOwner, 'TRAFFIC_SURGE_EXECUTOR');
   assert.equal(resolvedSurge.targetLifecycleMode, 'LOCAL_WORKER');
+  assert.equal(resolvedSurge.recoveryPolicy.targetRelease, 'NOT_APPLICABLE');
   assert.equal(resolvedTargetBacked.dispatchOwner, 'SCENARIO_WORKERS');
   assert.equal(resolvedTargetBacked.targetLifecycleMode, 'GATEWAY');
   assert.equal(resolvedTargetBacked.recoveryPolicy.targetRelease, 'REQUIRED');
   assert.deepEqual(resolvedTargetBacked.recoveryPolicy, targetBacked.recoveryPolicy);
+
+  const heap = resolveScenarioContract(getScenarioDefinition('NOTIFICATION_HEAP_PRESSURE'));
+  const storage = resolveScenarioContract(getScenarioDefinition('NOTIFICATION_STORAGE_APPEND'));
+  assert.equal(heap.recoveryPolicy.targetRelease, 'FORBIDDEN');
+  assert.ok(heap.lifecycle.nonReleasingReason);
+  assert.equal(storage.recoveryPolicy.cleanup, 'OPERATOR_CONFIRMED');
+  assert.deepEqual(storage.lifecycle.cleanupActionTypes, ['CLEANUP']);
 });
 
 test('resolved contract owns frozen copies of Catalog parameters and supplement data', () => {

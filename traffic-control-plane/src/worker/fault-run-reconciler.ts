@@ -33,6 +33,17 @@ import {
   type FaultRunDrainRegistry,
 } from './fault-run-drain-registry';
 
+export const FAULT_RUN_DRIVER_EXECUTION = Object.freeze({
+  state: 'ACTIVE',
+  mode: 'ACTIVE_ONLY',
+} as const);
+
+export function isFaultRunDriverExecutionEligible(
+  run: Pick<FaultRunRecord, 'state'>,
+): boolean {
+  return run.state === FAULT_RUN_DRIVER_EXECUTION.state;
+}
+
 export interface FaultRunReconcilerDependencies {
   listCandidates: () => Promise<FaultRunRecord[]>;
   loadRun?: typeof loadFaultRun;
@@ -203,7 +214,8 @@ export class FaultRunReconciler {
       if (!this.dependencies.loadRun || !this.dependencies.requestStop) return;
       for (const owned of [...this.owned.values()]) {
         const run = await this.dependencies.loadRun(owned.run.faultRunId);
-        if (!run || run.state !== 'ACTIVE' || Date.parse(run.expiresAt) > this.dependencies.now().getTime()) {
+        if (!run || !isFaultRunDriverExecutionEligible(run)
+          || Date.parse(run.expiresAt) > this.dependencies.now().getTime()) {
           continue;
         }
         const input: RequestFaultRunStopInput = {
@@ -218,7 +230,7 @@ export class FaultRunReconciler {
   }
 
   private async reconcileCandidate(run: FaultRunRecord): Promise<void> {
-    if (run.state !== 'ACTIVE' && run.state !== 'CREATING') return;
+    if (!isFaultRunDriverExecutionEligible(run) && run.state !== 'CREATING') return;
     const execution = await this.dependencies.loadExecution(run.faultRunId);
     if (!execution) return;
     const now = this.dependencies.now().getTime();
@@ -307,14 +319,15 @@ export class FaultRunReconciler {
     try {
       if (run.state === 'CREATING') {
         const activated = await this.prepareCreating(run, claimed, fence);
-        if (!activated || activated.state !== 'ACTIVE'
+        if (!activated || !isFaultRunDriverExecutionEligible(activated)
           || !fence.isLocallyCurrent()
           || Date.parse(activated.expiresAt) <= this.dependencies.now().getTime()) return;
         run = activated;
         starting.run = run;
         starting.phase = 'STARTING';
       }
-      if (!fence.isLocallyCurrent()
+      if (!isFaultRunDriverExecutionEligible(run)
+        || !fence.isLocallyCurrent()
         || Date.parse(run.expiresAt) <= this.dependencies.now().getTime()
         || Date.parse(claimed.leaseExpiresAt) <= this.dependencies.now().getTime()) return;
       const handle = await driver.start({ run, fence });

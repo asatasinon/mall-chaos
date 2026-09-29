@@ -76,14 +76,14 @@ Operator creates Fault Run
 
 | 发现 | 当前事实 | Contract 处理与上线条件 |
 | --- | --- | --- |
-| Catalog 与 Gateway 的关系 | Catalog 有 12 个场景；Gateway `OperationDispatchController.TARGETS` 有 10 个 target-backed operation；两种 surge operation 是本地 Worker bypass。 | 校验 target-backed operation 的 service/operation 一致性，并明确声明本地 Worker bypass。不能把“Gateway 找不到 operation”误判为所有场景错误。 |
+| Catalog 与 Gateway 的关系 | Catalog 有 12 个场景；Gateway `OperationTargetRegistry` 有 10 个 target-backed operation；两种 surge operation 是本地 Worker bypass。 | 校验 target-backed operation 的 service/operation 一致性，并明确声明本地 Worker bypass。不能把“Gateway 找不到 operation”误判为所有场景错误；registry 是唯一固定 service/path 映射，Contract test 输入从 Catalog 生成。 |
 | Worker dispatch | Phase 2 提供 `OwnedFaultRunDriver` 的 `supports(run)` / `drainOwner`，由 `getFaultRunDrivers()` 注册四类 driver；`WorkerRuntime` 在 safe-runtime + reconciliation mode 非 `OFF` 时启动 Reconciler 并跳过旧 report/surge/scenario scanners。 | Contract 补充 validator-facing capability metadata 并对实际 `supports()`、ACTIVE admission、drain participant 和 summary event 做覆盖测试；不新增第二套 scenario list 或 Worker dispatcher。 |
 | `CART_CATALOG_DEPENDENCY` | `ScenarioWorkers.startOwned()` 已创建 customer session、选择商品，并通过 Gateway 调用真实 `POST /api/cart/items`；Catalog recovery policy 的 drain owner 是 `SCENARIO_WORKERS`。 | Contract 从已有 Catalog/driver 派生 owner/path；尚未完成的运行证据和 verification 保持 `UNKNOWN` / `NOT_CONFIGURED`，不能称为没有 dispatch。 |
 | runnable state | Repository 提供 `listRunnableFaultRuns()`；Reconciler 可处理 `CREATING` 的 target prepare，但只在成功激活为 `ACTIVE` 后启动 driver。`RECOVERING` 不作为 effect driver 的 runnable state。 | Contract 检查必须确认所有效果只在 ACTIVE 生效，并覆盖 CREATING prepare 与 RECOVERING 禁止启动；这是对已交付行为的校验，不是重做 Phase 1/2 gate。 |
 | worker drain | Owned drivers 声明 `drainOwner`，Reconciler 启动后把 owner participant 注册至 `FaultRunDrainRegistry`；每个 driver 通过受控 stop/handle 完成 bounded drain。 | Contract 将 Catalog `recoveryPolicy.workerDrain.owner` 与真实 driver、drain registry 和结果事件交叉验证；不另建 run drain Map 或 Coordinator hook。 |
 | recovery strategy | Catalog 已定义 `recoveryPolicy`，`resolveFaultRunRecoveryPolicy()` 做组合校验；`FaultRunRecoveryExecutor` 使用该 policy 决定 drain、target release、manual cleanup 和结果记录。`WorkerRuntime` 在 legacy、safe-runtime 与 Reconciler mode 下采用不同接线。 | Contract 复用该 resolver 和 executor 行为；只补齐跨层静态 coverage。不得把 legacy `FaultRunCoordinator` 单独作为当前所有部署模式的 recovery 描述。 |
 | manual cleanup | `cleanup-scenario` 路由当前明确拒绝 runless cleanup（`SCENARIO_CLEANUP_REQUIRES_RUN`）；允许的 cleanup 通过 per-run confirmed endpoint/action journal 执行。Catalog 的 `OPERATOR_CONFIRMED` 表示需 Operator 确认，不表示 scenario-wide cleanup。 | Contract 的 cleanup capability 使用 `NONE`、`OPTIONAL_PER_RUN`、`OPERATOR_CONFIRMED`；校验 run id/operation/fence 和 action owner，不再设计 `SCENARIO_WIDE` 路径或修复已删除的旧路由。 |
-| cleanup wire compatibility | Gateway cleanup 只发送 `runId`、`operation`、`fencingToken`，而 target cleanup handler 的上下文校验并不完全一致。 | Gateway registry test 和 target endpoint test 必须证明声明的 cleanup mode 与实际 wire contract 兼容。 |
+| cleanup wire compatibility | Gateway cleanup body 只接受并转发 `runId`、`operation`、`fencingToken`；下游以 operation 选固定 target path，并提供 `runId`/`fencingToken` cleanup context。 | Target cleanup handler 使用 `validateForCleanup()`，不要求 prepare/release 专用 expiry 或 idempotency 字段；资源与 fencing owner cleanup 都必须可幂等执行。Gateway registry contract 与十个 target-backed Java controller/wire tests 分别验证路由声明及真实 target contract；普通 consumer path 移除全部 operation-run headers。 |
 | evidence | runbook 有展示用 Tempo recipe，但没有 run-relative PromQL/LogQL/TraceQL、业务检查或 `evidence_unavailable` 声明。 | 所有场景必须增加结构化 evidence recipe；不可将 `now-1h to now` 的 UI 提示冒充阶段 4 Manifest。 |
 | alert delivery | P0-13 已补齐内部 webhook route、service-key credentials file 和低基数 receipt；当前仍为 generic receiver，尚无阶段 5 专用 child route、告警关联和外部 Agent receiver。 | 每个场景必须有完整 alert declaration；当 delivery 为 `NOT_ENABLED_YET` 或尚未完成真实 receipt 时静态 Contract 可通过，但 readiness 报告必须说明未可投递/未核验。 |
 | Contract revision | `fault_runs`、`fault_run_events` 和 API record 中没有 per-run revision；已有 `getCatalogRevision()` 是 global Catalog revision。 | clean schema 增加 `contract_revision NOT NULL`；部署不保留旧 Run 或跨部署幂等 key。 |
@@ -434,13 +434,19 @@ canonicalization 的规则如下：
 Contract 复用现有 `OwnedFaultRunDriver` registry，而不是再建立一个静态场景数组。每个 driver 已有 `name`、`drainOwner`、`supports(run)` 和 `start()`；Contract validator 对 Catalog 生成的只读 Run fixture 求值 `supports()`，并从 driver capability 与测试结果获取 drain/terminal-summary 事实。可增加 descriptor 字段，但不得以第二份 `scenario -> owner` 表替换现有注册关系：
 
 ```ts
-export interface ScenarioDispatchDescriptor extends OwnedFaultRunDriver {
+export type ScenarioDispatchDescriptor = {
+  driver: OwnedFaultRunDriver;
+  name: OwnedFaultRunDriver['name'];
+  drainOwner: OwnedFaultRunDriver['drainOwner'];
   executionState: 'ACTIVE_ONLY';
-  terminalSummaryEvent: string;
-}
+  summaryEventType: FaultRunSummaryEventType;
+  terminalSummaryEvent: 'DRAIN_COMPLETED';
+  supports: OwnedFaultRunDriver['supports'];
+  start: OwnedFaultRunDriver['start'];
+};
 ```
 
-descriptor 应附着在既有 driver 实例或其纯 capability projection 上；`name` 和 `drainOwner` 均使用现有真实 owner id，且后者与 `recoveryPolicy.workerDrain.owner` 相同；owner 不在 Contract supplement 中重新存储。现有 owner 和 coverage 分布如下：
+descriptor 附着在既有 driver 实例的纯 capability projection 上；`name` 和 `drainOwner` 均从实际注册实例复制，且后者与 `recoveryPolicy.workerDrain.owner` 相同；owner 不在 Catalog supplement 中重新存储。`executionState` 来自 Reconciler 的真实 ACTIVE gate；`summaryEventType` 是 driver 实际写入并由 summary normalizer 接受的终态/运行摘要类型；`terminalSummaryEvent` 指 recovery drain writer 写入的 `DRAIN_COMPLETED`。现有 owner 和 coverage 分布如下：
 
 | 现有 driver | 真实 `supports(run)` 场景覆盖 |
 | --- | --- |
@@ -465,10 +471,28 @@ Validator 需断言：
 Gateway 的 `TARGETS` 不能被 TypeScript 直接导入，也不应新增一个运行时 JSON map。实现采用一个不改变生产协议的测试边界：
 
 1. 将 Java controller 的手工 map 抽取为 `OperationTargetRegistry`；Controller 继续从该 registry 路由，registry 是 Gateway operation/path 的唯一代码来源。
-2. `validate:contract` 从 resolved Catalog 输出只包含 target-backed operation、预期 service、lifecycle/cleanup mode 的临时 JSON 输入。
-3. `gateway-service` 的 `OperationDispatchContractTest` 读取该输入，并断言 registry 中 operation 存在、service 一致、prepare/release/cleanup path 与声明 capability 兼容。
-4. Java test 同时通过 Spring mapping 或 controller-level test 验证 registry 指向的 target endpoint contract；它不能仅比较两个手工字符串表。
-5. 本地 Worker scenario 不写入 Gateway expectation 输入；Java test 必须拒绝“标为 Gateway 但无 registry entry”的 scenario。
+2. `validate:contract` 从 resolved Catalog 输出只包含 target-backed operation、预期 service、lifecycle/cleanup mode 的临时 JSON 输入：
+
+   ```json
+   {
+     "schemaVersion": "scenario-contract-gateway.v1",
+     "catalogRevision": "<64-character lowercase SHA-256>",
+     "operations": [{
+       "scenario": "BROWSE_REPORT_SQL",
+       "operation": "products-browse-report",
+       "service": "catalog-service",
+       "targetPrepare": "REQUIRED",
+       "targetRelease": "REQUIRED",
+       "cleanup": "NONE"
+     }]
+   }
+   ```
+
+   `operations` 只列 `targetLifecycleMode=GATEWAY` 的 Catalog 场景；local Worker bypass 不进入此文件。
+3. `gateway-service` 的 `OperationDispatchContractTest` 通过 `-Dscenario.contract.expected=...` 读取该输入，并断言 registry 中 operation 集合完全相同、service 一致、prepare/release/cleanup mode 合法且相关固定 path 存在。
+4. 如果设置 `-Dscenario.contract.checksDir=...`，测试在全部断言通过后写入含 `checkId`、`status`、`catalogRevision`、operation 数量及可选 source commit 的结构化结果；缺少 expected input 时仅跳过本地 contract test，required release gate 必须提供该输入。
+5. Java test 同时通过 Spring mapping 或 controller-level test 验证 registry 指向的 target endpoint contract；它不能仅比较两个手工字符串表。
+6. 本地 Worker scenario 不写入 Gateway expectation 输入；Java test 必须拒绝“标为 Gateway 但无 registry entry”的 scenario。
 
 根级脚本负责先生成临时输入，再运行 Maven 测试。临时文件位于忽略的 `tmp/scenario-contract/`，不能提交为另一份 source of truth。
 

@@ -12,14 +12,22 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
 
+import java.util.Arrays;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -86,7 +94,7 @@ class CatalogOperationsControllerTest {
             RUN_ID, Instant.parse(headers.getFirst("X-Operation-Run-Expires-At")), 7,
                 "phase-d-controller-001");
         when(provisioningService.stop(context)).thenReturn(Map.of("released", true));
-        when(provisioningService.cleanup(RUN_ID, 7)).thenReturn(Map.of("hashRemoved", true));
+        when(provisioningService.cleanup(context)).thenReturn(Map.of("hashRemoved", true));
 
         var releaseResponse = controller.releaseProductDetailCache(headers, request);
         var cleanupResponse = controller.cleanupProductDetailCache(headers, request);
@@ -94,7 +102,7 @@ class CatalogOperationsControllerTest {
         assertThat(releaseResponse.getData()).containsEntry("released", true);
         assertThat(cleanupResponse.getData()).containsEntry("hashRemoved", true);
         verify(provisioningService).stop(context);
-        verify(provisioningService).cleanup(RUN_ID, 7L);
+        verify(provisioningService).cleanup(context);
     }
 
     @Test
@@ -102,12 +110,122 @@ class CatalogOperationsControllerTest {
         HttpHeaders cleanupHeaders = new HttpHeaders();
         cleanupHeaders.set("X-Operation-Run-Id", RUN_ID);
         cleanupHeaders.set("X-Operation-Run-Fencing-Token", "7");
-        when(provisioningService.cleanup(RUN_ID, 7L)).thenReturn(Map.of(
+        OperationRunContext cleanupContext = OperationRunContext.fromHeaders(cleanupHeaders);
+        when(provisioningService.cleanup(cleanupContext)).thenReturn(Map.of(
                 "released", true, "hashRemoved", false));
 
         var response = controller.cleanupProductDetailCache(cleanupHeaders, request);
 
         assertThat(response.getData()).containsEntry("released", true);
-        verify(provisioningService).cleanup(RUN_ID, 7L);
+        verify(provisioningService).cleanup(cleanupContext);
+    }
+
+    @Test
+    void exposesFixedPrepareReleaseAndCleanupRoutesForCatalogOperations() {
+        assertThat(postRoutes(CatalogOperationsController.class)).contains(
+                "/internal/catalog/reports/product-browse/prepare",
+                "/internal/catalog/reports/product-browse/release",
+                "/internal/catalog/reports/product-browse/cleanup",
+                "/internal/catalog/product-details/cache/prepare",
+                "/internal/catalog/product-details/cache/release",
+                "/internal/catalog/product-details/cache/cleanup",
+                "/internal/catalog/dependencies/cart-product-validation/prepare",
+                "/internal/catalog/dependencies/cart-product-validation/release",
+                "/internal/catalog/dependencies/cart-product-validation/cleanup");
+    }
+
+    @Test
+    void reportAndCartOperationsUseExpectedContextAndEnvelope() {
+        OperationRunContext context = OperationRunContext.fromHeaders(headers);
+
+        var browsePrepare = controller.prepareProductBrowseReport(headers);
+        var cartPrepare = controller.prepareCartProductValidation(headers);
+        var browseRelease = controller.releaseProductBrowseReport(headers);
+        var cartRelease = controller.releaseCartProductValidation(headers);
+
+        assertEnvelope(browsePrepare.getCode(), browsePrepare.getMessage());
+        assertThat(browsePrepare.getData())
+                .containsEntry("accepted", true)
+                .containsEntry("operation", "products-browse-report");
+        assertEnvelope(cartPrepare.getCode(), cartPrepare.getMessage());
+        assertThat(cartPrepare.getData())
+                .containsEntry("accepted", true)
+                .containsEntry("operation", "cart-product-validation");
+        assertEnvelope(browseRelease.getCode(), browseRelease.getMessage());
+        assertThat(browseRelease.getData())
+                .containsEntry("released", true)
+                .containsEntry("operation", "products-browse-report");
+        assertEnvelope(cartRelease.getCode(), cartRelease.getMessage());
+        verify(dependencyState).start(context, runGuard);
+        verify(dependencyState).stop(context, runGuard);
+    }
+
+    @Test
+    void catalogCleanupAcceptsGatewayMinimalRunContext() {
+        HttpHeaders cleanupHeaders = new HttpHeaders();
+        cleanupHeaders.set("X-Operation-Run-Id", RUN_ID);
+        cleanupHeaders.set("X-Operation-Run-Fencing-Token", "7");
+        OperationRunContext cleanupContext = OperationRunContext.fromHeaders(cleanupHeaders);
+
+        var browseResponse = controller.cleanupProductBrowseReport(cleanupHeaders);
+        var cartResponse = controller.cleanupCartProductValidation(cleanupHeaders);
+
+        assertEnvelope(browseResponse.getCode(), browseResponse.getMessage());
+        assertThat(browseResponse.getData()).containsEntry("cleaned", true);
+        assertEnvelope(cartResponse.getCode(), cartResponse.getMessage());
+        assertThat(cartResponse.getData()).containsEntry("cleaned", true);
+        verify(dependencyState).stopForCleanup(cleanupContext, runGuard);
+    }
+
+    @Test
+    void actualCartCleanupValidatesMinimalContextBeforeReleasingTheFence() {
+        OperationRunGuard guard = mock(OperationRunGuard.class);
+        var realController = new CatalogOperationsController(
+                new CatalogDependencyState(), guard, provisioningService);
+        HttpHeaders cleanupHeaders = new HttpHeaders();
+        cleanupHeaders.set("X-Operation-Run-Id", RUN_ID);
+        cleanupHeaders.set("X-Operation-Run-Fencing-Token", "7");
+        OperationRunContext cleanupContext = OperationRunContext.fromHeaders(cleanupHeaders);
+
+        var response = realController.cleanupCartProductValidation(cleanupHeaders);
+
+        assertEnvelope(response.getCode(), response.getMessage());
+        assertThat(response.getData()).containsEntry("cleaned", true);
+        verify(guard).release(cleanupContext);
+
+        HttpHeaders invalidContext = new HttpHeaders();
+        invalidContext.set("X-Operation-Run-Id", RUN_ID);
+        assertThatThrownBy(() -> realController.cleanupCartProductValidation(invalidContext))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid operation cleanup context");
+        verifyNoMoreInteractions(guard);
+    }
+
+    @Test
+    void prepareRejectsMissingOperationContextBeforeReturningAccepted() {
+        HttpHeaders missingContext = new HttpHeaders();
+        missingContext.set("X-Operation-Run-Id", RUN_ID);
+        missingContext.set("X-Operation-Run-Fencing-Token", "7");
+
+        assertThatThrownBy(() -> controller.prepareProductBrowseReport(missingContext))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid operation context");
+    }
+
+    private static Set<String> postRoutes(Class<?> controllerType) {
+        RequestMapping controllerMapping = controllerType.getAnnotation(RequestMapping.class);
+        String prefix = controllerMapping == null || controllerMapping.value().length == 0
+                ? "" : controllerMapping.value()[0];
+        return Arrays.stream(controllerType.getDeclaredMethods())
+                .map(method -> method.getAnnotation(PostMapping.class))
+                .filter(Objects::nonNull)
+                .flatMap(mapping -> Arrays.stream(mapping.value()))
+                .map(path -> prefix + path)
+                .collect(Collectors.toSet());
+    }
+
+    private static void assertEnvelope(int code, String message) {
+        assertThat(code).isEqualTo(200);
+        assertThat(message).isEqualTo("OK");
     }
 }

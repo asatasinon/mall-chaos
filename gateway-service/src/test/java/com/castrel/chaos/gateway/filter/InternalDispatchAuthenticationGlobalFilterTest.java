@@ -93,6 +93,8 @@ class InternalDispatchAuthenticationGlobalFilterTest {
 
         assertThat(forwarded.get()).isNotNull();
         assertThat(forwarded.get().getRequest().getHeaders().getFirst("X-Operation-Run-Id")).isNull();
+        assertThat(forwarded.get().getRequest().getHeaders().getFirst("X-Operation-Run-Expires-At")).isNull();
         assertThat(forwarded.get().getRequest().getHeaders().getFirst("X-Operation-Run-Fencing-Token")).isNull();
+        assertThat(forwarded.get().getRequest().getHeaders().getFirst("X-Operation-Run-Idempotency-Key")).isNull();
     }
 }

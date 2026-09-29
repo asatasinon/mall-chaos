@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import pino from 'pino';
 import { forwardAbortSignal, throwIfAborted } from '../lib/abort-signal';
 import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
 import {
@@ -6,7 +7,10 @@ import {
   listRunnableFaultRuns,
   type FaultRunRecord,
 } from '../lib/fault-run-repository';
-import { TRAFFIC_SURGE_MAX_PAGE_SIZE } from '../lib/fault-run-catalog';
+import {
+  TRAFFIC_SURGE_MAX_CONCURRENCY,
+  TRAFFIC_SURGE_MAX_PAGE_SIZE,
+} from '../lib/fault-run-catalog';
 import { getGatewayClient, type CustomerRequestContext } from '../lib/gateway-client';
 import { getTrafficScenarioTarget } from '../lib/fault-run-targets';
 import { normalizeFaultRunSummaryEventPayload } from '../lib/fault-run-event-contract';
@@ -22,6 +26,10 @@ import {
   type FaultRunDrainRegistry,
   type FaultRunWorkPermit,
 } from './fault-run-drain-registry';
+
+const TRAFFIC_SURGE_TERMINAL_SUMMARY_EVENT = 'SCENARIO_WORKER_DRAINED' as const;
+const INVALID_SURGE_CONCURRENCY = 'INVALID_SURGE_CONCURRENCY' as const;
+const log = pino({ name: 'traffic-surge-executor' });
 
 interface TrafficSurgeExecutorDependencies {
   gateway: ReturnType<typeof getGatewayClient>;
@@ -71,8 +79,21 @@ export class TrafficSurgeExecutor {
   }
 
   async startOwned(run: FaultRunRecord, fence: FaultRunOwnerFence): Promise<OwnedRunHandle> {
+    let concurrency: number;
+    try {
+      concurrency = requireSurgeConcurrency(run.parameters.concurrency);
+    } catch (error) {
+      if (!(error instanceof InvalidSurgeConcurrencyError)) throw error;
+      await this.appendEvent(
+        run.faultRunId,
+        'SCENARIO_WORKER_SETUP_FAILED',
+        normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_SETUP_FAILED', {
+          failureCode: INVALID_SURGE_CONCURRENCY,
+        }),
+      );
+      throw error;
+    }
     const target = getTrafficScenarioTarget(run.scenario);
-    const concurrency = boundedInteger(run.parameters.concurrency, 1, undefined, 1);
     const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
     const pageSize = boundedInteger(run.parameters.pageSize, 1, TRAFFIC_SURGE_MAX_PAGE_SIZE, 20);
     const controller = new AbortController();
@@ -80,6 +101,7 @@ export class TrafficSurgeExecutor {
     let session: CustomerRequestContext | null = null;
     let sessionManager: CustomerSessionManager | null = null;
     let setupFailed = false;
+    let terminalSummary: Promise<void> | null = null;
     const request = async (signal: AbortSignal) => {
       throwIfAborted(signal);
       if (run.scenario === 'BROWSE_SURGE') {
@@ -100,6 +122,7 @@ export class TrafficSurgeExecutor {
     const worker = new ControlledScenarioWorker(
       run,
       { concurrency, requestIntervalMs, request, signal: controller.signal },
+      this.appendEvent,
     );
     const task = (async () => {
       try {
@@ -127,18 +150,30 @@ export class TrafficSurgeExecutor {
     return {
       stop: async ({ reason }) => {
         controller.abort(reason);
-        const stats = await worker.stop(reason);
-        await task;
-        if (session && sessionManager) {
-          await sessionManager.closeSession(session.lifecycleId, session.traceId, controller.signal)
-            .catch(() => undefined);
+        try {
+          const stats = await worker.stop(reason);
+          await task;
+          if (session && sessionManager) {
+            await sessionManager.closeSession(session.lifecycleId, session.traceId, controller.signal)
+              .catch(() => undefined);
+          }
+          terminalSummary ??= this.appendEvent(
+            run.faultRunId,
+            TRAFFIC_SURGE_TERMINAL_SUMMARY_EVENT,
+            normalizeFaultRunSummaryEventPayload(
+              TRAFFIC_SURGE_TERMINAL_SUMMARY_EVENT,
+              worker.snapshot(),
+            ),
+          ).then(() => undefined);
+          await terminalSummary;
+          return {
+            drained: !setupFailed && stats.inFlight === 0,
+            inFlight: stats.inFlight,
+            ...(setupFailed ? { errorCode: 'SURGE_WORKER_SETUP_FAILED' } : {}),
+          };
+        } finally {
+          removeFenceAbortListener();
         }
-        removeFenceAbortListener();
-        return {
-          drained: !setupFailed && stats.inFlight === 0,
-          inFlight: stats.inFlight,
-          ...(setupFailed ? { errorCode: 'SURGE_WORKER_SETUP_FAILED' } : {}),
-        };
       },
     };
   }
@@ -166,8 +201,25 @@ export class TrafficSurgeExecutor {
 
   private startRun(run: FaultRunRecord): void {
     if (this.stopping) return;
+    let concurrency: number;
+    try {
+      concurrency = requireSurgeConcurrency(run.parameters.concurrency);
+    } catch (error) {
+      if (!(error instanceof InvalidSurgeConcurrencyError)) throw error;
+      this.blockedRunIds.add(run.faultRunId);
+      void this.appendEvent(
+        run.faultRunId,
+        'SCENARIO_WORKER_SETUP_FAILED',
+        normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_SETUP_FAILED', {
+          failureCode: INVALID_SURGE_CONCURRENCY,
+        }),
+      ).catch(() => {
+        log.warn({ faultRunId: run.faultRunId, failureCode: INVALID_SURGE_CONCURRENCY },
+          'Failed to record Traffic Surge concurrency rejection');
+      });
+      return;
+    }
     const target = getTrafficScenarioTarget(run.scenario);
-    const concurrency = boundedInteger(run.parameters.concurrency, 1, undefined, 1);
     const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
     const pageSize = boundedInteger(run.parameters.pageSize, 1, TRAFFIC_SURGE_MAX_PAGE_SIZE, 20);
     const runController = new AbortController();
@@ -258,8 +310,8 @@ export class TrafficSurgeExecutor {
         unregisterDrain();
         await this.appendEvent(
           run.faultRunId,
-          'SCENARIO_WORKER_DRAINED',
-          normalizeFaultRunSummaryEventPayload('SCENARIO_WORKER_DRAINED', worker.snapshot()),
+          TRAFFIC_SURGE_TERMINAL_SUMMARY_EVENT,
+          normalizeFaultRunSummaryEventPayload(TRAFFIC_SURGE_TERMINAL_SUMMARY_EVENT, worker.snapshot()),
         ).catch(() => undefined);
         await closeSession();
         this.workers.delete(run.faultRunId);
@@ -273,6 +325,7 @@ export class TrafficSurgeExecutor {
 export class TrafficSurgeFaultRunDriver implements OwnedFaultRunDriver {
   readonly name = 'TRAFFIC_SURGE_EXECUTOR';
   readonly drainOwner = 'TRAFFIC_SURGE_EXECUTOR' as const;
+  readonly summaryEventType = TRAFFIC_SURGE_TERMINAL_SUMMARY_EVENT;
 
   constructor(private readonly executor: TrafficSurgeExecutor = new TrafficSurgeExecutor()) {}
 
@@ -303,6 +356,23 @@ async function appendWorkerFailure(
 function boundedInteger(value: number | string | undefined, min: number, max: number | undefined, fallback: number): number {
   const numeric = typeof value === 'number' ? value : Number(value);
   return Number.isSafeInteger(numeric) && numeric >= min && (max === undefined || numeric <= max) ? numeric : fallback;
+}
+
+function requireSurgeConcurrency(value: unknown): number {
+  if (typeof value !== 'number'
+      || !Number.isSafeInteger(value)
+      || value < 1
+      || value > TRAFFIC_SURGE_MAX_CONCURRENCY) {
+    throw new InvalidSurgeConcurrencyError();
+  }
+  return value;
+}
+
+class InvalidSurgeConcurrencyError extends Error {
+  constructor() {
+    super(INVALID_SURGE_CONCURRENCY);
+    this.name = 'InvalidSurgeConcurrencyError';
+  }
 }
 
 function deferredVoid(): { promise: Promise<void>; resolve: () => void } {

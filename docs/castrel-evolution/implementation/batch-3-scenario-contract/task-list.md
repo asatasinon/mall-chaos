@@ -4,8 +4,8 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | P3-00R 决策及复审缺口已同步；Phase 3 Contract 实施已启动，当前进行 P3-01 |
-| 版本 | 2.2 |
+| 状态 | P3-00R、P3-01 与 P3-02 已完成；P3-03 未开始 |
+| 版本 | 2.5 |
 | 更新时间 | 2026-09-29 CST |
 | 路线阶段 | [阶段 3：Scenario Contract](../../roadmap/phases/phase-3-scenario-contract.md) |
 | 产品规格 | [product.md](./product.md) |
@@ -98,9 +98,9 @@
 
 ## 3. 总体进度
 
-- **总体状态：** P3-00R 决策与复审缺口已同步；P3-01 Catalog Contract 与 revision 实施已完成，12 个场景均有可解析合同。
-- **当前任务：** P3-01 已完成（7/7）；下一项为 P3-02 Gateway/Worker capability 与 recovery coverage。
-- **下一步：** 开始 P3-02，以实际 driver registry、ACTIVE gate、drain/summary writers 验证声明；Web-only heap hard gate 仍由 P3-05/07 完成，Batch 4 renderer/query fixtures 由 Batch 4/P3-04 完成。
+- **总体状态：** P3-00R、P3-01 与 P3-02 已完成；12 场景真实 driver capability、Gateway registry、10 个 target-backed Java contracts 和 surge concurrency hard limit 均已覆盖。
+- **当前任务：** P3-02 已关闭，进入 P3-03 前的阶段切换点。
+- **下一步：** P3-03 实现纯函数 Contract validator、稳定 issue/report schema 与八类负向 fixtures；`missingDispatch` diagnostics 在 validator 中落实。
 - **进度口径：** 仅按 `[x]` 子任务统计；代码存在但当前任务未验证的能力不能提前计入完成。
 
 | 任务组 | 目标 | 状态 | 进度 | 前置依赖 |
@@ -108,7 +108,7 @@
 | P3-00 | 现状基线与技术设计对齐 | 已完成（1 项被用户决策替代） | 6 / 7 | 当前仓库 |
 | P3-00R | 设计复审整改与跨阶段接口定稿 | 已完成 | 28 / 28 | P3-00 |
 | P3-01 | Catalog Contract supplement 与 revision | 已完成 | 7 / 7 | P3-00R |
-| P3-02 | Gateway/Worker capability 对照与 recovery coverage | 未开始 | 1 / 9 | P3-00R、P3-01 |
+| P3-02 | Gateway/Worker capability 对照与 recovery coverage | 已完成 | 9 / 9 | P3-00R、P3-01 |
 | P3-03 | 纯函数 Contract validator 与稳定诊断 | 未开始 | 0 / 7 | P3-01、P3-02 |
 | P3-04 | Runbook、i18n、evidence、alert、术语工件 | 未开始 | 0 / 9 | P3-01、P3-03 |
 | P3-05 | Fresh schema、revision 事务持久化与 Operator 读面 | 未开始 | 0 / 9 | P3-00R、P3-01、P3-03 |
@@ -234,14 +234,14 @@ P3-00R 已定稿 `P3-ISSUE-007`～`032` 的处理方案。实现仍须按下表�
 **目标：** 验证 Catalog 声明与真实执行者、固定目标、生命周期动作的覆盖关系；不建立新的运行时调度器。
 
 - [x] 复核 Phase 2 已有四类 `OwnedFaultRunDriver`、`getFaultRunDrivers()`、owner fence 和 Catalog `recoveryPolicy`；其现状由批次 2 P2-05/P2-09 和 `fault-run-driver-registry.test.ts` 覆盖。
-- [ ] 从现有 `getFaultRunDrivers()` / `OwnedFaultRunDriver` 及实际事件 writer 投影 owner/name、ACTIVE-only、drain owner 和终态 summary capability；使用真实 `supports(run)` 对 Catalog fixture 求覆盖，不建立第二份 `scenario -> owner` 数组。
-- [ ] 用 12 场景矩阵证明恰好一个真实 driver 匹配；缺失、重复、孤儿 owner 均报 `missingDispatch`；Cart 的 `ScenarioWorkers` customer-session / Gateway 路径必须覆盖，不得标为 Runner/no-op。
-- [ ] 对 legacy `OFF` 与 Reconciler 非 `OFF` 两种执行路径分别证明 effect driver 仅对 `ACTIVE` 发请求：`CREATING` 可执行已声明 PREPARE，`RECOVERING`/终态禁止新请求；owner 丢失后停止接收、取消并 bounded drain，不把公开请求当作可被 target fence 撤回。
-- [ ] 逐场景对照 `recoveryPolicy.workerDrain.owner`、driver `drainOwner`、`FaultRunDrainRegistry` participant 和终态事件；缺席、超时或 `OUTCOME_UNKNOWN` 不得标成已 drained 或已恢复。
-- [ ] 复用 `resolveFaultRunRecoveryPolicy()` 验证 PREPARE、RELEASE、`OPTIONAL_PER_RUN` / `OPERATOR_CONFIRMED` cleanup 与 `NON_RELEASING`；两个 local surge 的 target release 应为 `NOT_APPLICABLE`，但须有可验证 stop/drain 边界；不新增平行 resolver（P3-ISSUE-011）。
-- [ ] 从 Gateway 真实 operation registry 建立只读测试 seam：十个 target-backed operation 的 service/prepare/release/cleanup 固定路径与 Catalog 对齐，两个 local surge 仅校验自己的 Worker target map；不能只比较两份手写字符串。
-- [ ] 对十个 target-backed operation 的各目标服务添加/复用独立 controller mapping 与 wire-contract 测试，覆盖适用 prepare/release/cleanup 请求字段、上下文校验、`accepted`/业务 envelope 和 Storage `minFreeBytes` 的 1 MiB–1 GiB 两端/越界；普通消费接口不得接收场景身份，Gateway 测试不能冒充跨服务验证（P3-ISSUE-010/014）。
-- [ ] 对 owned 与 legacy surge Worker 入口均实施 persisted `concurrency` 的第二道 `1..128` 硬校验；128 正常执行，129/非整数/非法值 fail closed，不 clamp，并在创建 `ControlledScenarioWorker`、customer session 或 Gateway request 前拒绝。仅记录稳定 failure code，不记录原始值；测试确认超限时没有 session 或 Gateway 请求（P3-ISSUE-029）。
+- [x] 从现有 `getFaultRunDrivers()` / `OwnedFaultRunDriver` 及实际事件 writer 投影 owner/name、ACTIVE-only、drain owner 和终态 summary capability；使用真实 `supports(run)` 对 Catalog fixture 求覆盖，不建立第二份 `scenario -> owner` 数组。
+- [x] 用 12 场景矩阵和真实 `supports(run)` 证明恰好一个 driver 匹配；Cart 的 `ScenarioWorkers` customer-session / Gateway 路径通过现有行为测试覆盖，不得标为 Runner/no-op。缺失、重复、孤儿 owner 的 `missingDispatch` 负向分类由 P3-03 fixture/gate 负责。
+- [x] 对 legacy `OFF` 与 Reconciler 非 `OFF` 两种执行路径分别证明 effect driver 仅对 `ACTIVE` 发请求：`CREATING` 可执行已声明 PREPARE，`RECOVERING`/终态禁止新请求；owner 丢失后停止接收、取消并 bounded drain，不把公开请求当作可被 target fence 撤回。
+- [x] 逐场景对照 `recoveryPolicy.workerDrain.owner`、driver `drainOwner`、`FaultRunDrainRegistry` participant 和终态事件；缺席、超时或 `OUTCOME_UNKNOWN` 不得标成已 drained 或已恢复。
+- [x] 复用 `resolveFaultRunRecoveryPolicy()` 验证 PREPARE、RELEASE、`OPTIONAL_PER_RUN` / `OPERATOR_CONFIRMED` cleanup 与 `NON_RELEASING`；两个 local surge 的 target release 应为 `NOT_APPLICABLE`，但须有可验证 stop/drain 边界；不新增平行 resolver（P3-ISSUE-011）。
+- [x] 从 Gateway 真实 operation registry 建立只读测试 seam：十个 target-backed operation 的 service/prepare/release/cleanup 固定路径与 Catalog 对齐，两个 local surge 仅校验自己的 Worker target map；不能只比较两份手写字符串。`OperationTargetRegistry` 是唯一固定路由表；Catalog-generated expected input 驱动 `OperationDispatchContractTest`，不维护手写副本。
+- [x] 对十个 target-backed operation 的各目标服务添加/复用独立 controller mapping 与 wire-contract 测试，覆盖适用 prepare/release/cleanup 请求字段、上下文校验、`accepted`/业务 envelope 和 Storage `minFreeBytes` 的 1 MiB–1 GiB 两端/越界；普通消费接口不得接收场景身份，Gateway 测试不能冒充跨服务验证（P3-ISSUE-010/014）。Catalog、Order、Notification、Promotion、Inventory、PSP 各自覆盖 target controller；storage reserve 接受 1 MiB/1 GiB、拒绝低于/高于范围及 fractional bytes；target cleanup 接受 Gateway 仅含 `runId`/`fencingToken` 的上下文。
+- [x] 对 owned 与 legacy surge Worker 入口均实施 persisted `concurrency` 的第二道 `1..128` 硬校验；128 正常执行，129/非整数/非法值 fail closed，不 clamp，并在创建 `ControlledScenarioWorker`、customer session 或 Gateway request 前拒绝。仅记录稳定 failure code，不记录原始值；测试确认超限时没有 session 或 Gateway 请求（P3-ISSUE-029）。上下限来自 Catalog 导出的 `TRAFFIC_SURGE_MAX_CONCURRENCY`，不是第二份配置。
 
 ### P3-03：纯函数 Contract validator 与稳定诊断
 
@@ -339,11 +339,11 @@ P3-00R 已定稿 `P3-ISSUE-007`～`032` 的处理方案。实现仍须按下表�
 | P3-ISSUE-007 | 设计复审 / P3-01 | supplement 的 `dispatch.owner`、`requiresDrain`、`targetLifecycle.prepareRequired/release/cleanup` 重复 Catalog 的 `targetPrepare` 和 `recoveryPolicy`；示例 `REPORT_WORKER` 与实际 driver `REPORT_SCENARIO_WORKER` 不同；canonicalization 不可受参数显示顺序影响。 | 产生第二份可变策略；两个报表场景可能误报缺失 owner，UI 排序变化使 Catalog revision 漂移。 | supplement 只保留新增检查、证据、告警和消费者信息；owner 从 Catalog/driver name 派生；global Catalog hash 保持既有按参数名排序语义，UI 顺序不参与任何 revision。 | 已解决（设计修订；实现待 P3-01/03） |
 | P3-ISSUE-008 | 设计复审 / P3-05 | Phase 3 revision hash 不能还原旧 Contract；早期技术设计曾要求在创建时冻结完整 Evidence snapshot。 | 容易误把 hash 当 archive，或在 Phase 3/4 重复保存 snapshot；但当前部署整体 reset、不保留 Run。 | Phase 3 只写两种 revision；Batch 4 仅在 capture flag 启用时冻结 Evidence snapshot。部署前停止旧进程并整体 reset DB/业务资源，不做旧 Run per-run gate 或跨部署恢复。未来保留数据另行设计。 | 已解决（用户决策与 Batch 4 对齐） |
 | P3-ISSUE-009 | 设计复审 / P3-01/P3-04 | 旧 Evidence 字段未能满足 Batch 4 对窗口、受限模板/scope/predicate/projection、`CURRENT` read-check 和 `effectRule` 的要求。 | Batch 4 若另建 schema 会形成第二份查询事实源。 | Phase 3 Catalog supplement 采用 Batch 4 DSL；`runbook.ts` Tempo 服务/路由/查询数据从同一 Contract 派生，不允许任意 query string。 | 已解决（接口定稿；实现待 P3-01/04） |
-| P3-ISSUE-010 | 设计复审 / P3-02/P3-06 | 最终 report 依赖 Gateway 和 10 个 target-backed operation 的 Java endpoint tests；control-plane runtime 不含 Gateway Java map。 | 只跑 TS 或 Gateway 测试会假报 12/12；runtime enforce 无法校验跨服务映射。 | TS preflight 与 Gateway/target-service test 分阶段产出同 revision 结果，finalize 缺任一 required result 即 fail；外部 CI 调脚本并设 blocking，runtime 仅校验本进程 admission。 | 设计已解决；pipeline 接入待 P3-06 |
+| P3-ISSUE-010 | 设计复审 / P3-02/P3-06 | 最终 report 依赖 Gateway 和 10 个 target-backed operation 的 Java endpoint tests；control-plane runtime 不含 Gateway Java map。 | 只跑 TS 或 Gateway 测试会假报 12/12；runtime enforce 无法校验跨服务映射。 | TS preflight 与 Gateway/target-service test 分阶段产出同 revision 结果，finalize 缺任一 required result 即 fail；外部 CI 调脚本并设 blocking，runtime 仅校验本进程 admission。 | P3-02 Gateway/target tests 已覆盖；finalizer/CI aggregation 待 P3-06 |
 | P3-ISSUE-011 | 设计复审 / P3-07 | 本地 surge 没有 Gateway target release；P2-10 多 Worker/TAKEOVER 尚有独立验收。 | 强制 target release 会拒绝合法 Worker-only 运行；把 P2-10 作为本 canary 条件会造成无关阻塞。 | `WORKER` 用 stop/drain/verification 满足适用 recovery；target release 可 `NOT_APPLICABLE`。P3 canary 允许在 disposable 单 Worker、Reconciliation OFF 下独立执行，不替代 P2-10。 | 已解决（用户决策与设计已同步） |
 | P3-ISSUE-012 | 设计复审 / P3-05/P3-06 | 当前 API/Coordinator 先按当前 Catalog 校验、标准化，再用幂等 key 查重。 | 跨部署 schema 变化会改变请求等价性；用户明确不要求兼容跨部署 replay。 | 只支持同部署：先按当前 Catalog normalize，匹配同 key/same signature 返回原 revision，不重派发；不同输入冲突；clean reset 清除 key。Contract enforce 只用于新 admission。 | 已解决（范围限定；测试待 P3-05） |
 | P3-ISSUE-013 | 设计复审 / P3-01/P3-04 | Phase 3 旧 alert type 缺少 Batch 5.0 correlation fields，且将场景 receipt policy 与平台 webhook 状态机混在一起。 | 两阶段会重复或不兼容维护 receipt semantics；`NOT_EXPECTED` 容易被误解为不接收通用 receipt。 | 复用 `AlertCorrelationContract`，用全局 `alert-receipt.v1` 引用 Batch 5.0 retention/upsert/resolved 语义；`NOT_EXPECTED`=`NOT_REQUIRED` correlation 但保留 generic receipt，外部 Agent readiness 独立。 | 已解决（接口定稿；实现待 P3-01/04） |
-| P3-ISSUE-014 | 设计复审 / P3-01/P3-03 | surge `concurrency` 与 storage `totalBytes` 需要预算上界或运行时 guard。 | 静态 gate 可能漏掉没有明确保护的资源使用。 | 固定 surge `concurrency.max=128`；storage `totalBytes` 不设绝对 max，目标 free-space guard 强制写后保留 `minFreeBytes`；该范围为 `1 MiB`–`1 GiB` 并同步 Catalog/Java。 | 已解决（边界定稿；实现与测试待 P3-01/07） |
+| P3-ISSUE-014 | 设计复审 / P3-01/P3-03 | surge `concurrency` 与 storage `totalBytes` 需要预算上界或运行时 guard。 | 静态 gate 可能漏掉没有明确保护的资源使用。 | 固定 surge `concurrency.max=128`；storage `totalBytes` 不设绝对 max，目标 free-space guard 强制写后保留 `minFreeBytes`；该范围为 `1 MiB`–`1 GiB` 并同步 Catalog/Java。 | Catalog/Java/Worker 边界与 fail-closed tests 已完成；纯 validator checks 待 P3-03，live storage guard 验收待 P3-07 |
 | P3-ISSUE-015 | 二次复审 / P3-00R/P3-06 | per-run Contract revision 与 global Catalog revision 格式/作用域不同，不能互作 drift 对照。 | 同一场景未变或仅别的场景变化会被错误报告 drift。 | 根据 clean-slate reset 不保留跨部署 Run，不实施 Worker revision drift scan/metric；保留两种 revision 各自用途与格式。 | 已解决（用户决策与设计已同步） |
 | P3-ISSUE-016 | 二次复审 / P3-05 | 现有 `sanitizeFaultRunEventPayload()` 未处理 `CREATED`，Operator timeline 看不到新 revision。 | 仅落库不能满足 Operator 追踪，直接透传 payload 会扩大数据暴露。 | P3-05 扩展 `CREATED` 的严格 schema/allowlist projection，仅输出格式合法的 `contractRevision`/`catalogRevision`；fresh schema 无 null/legacy branch，非法 payload 不伪造字段。 | 设计已解决；实现与读面测试待 P3-05 |
 | P3-ISSUE-017 | 复审 / P3-01、P3-05、Batch 4 | Phase 3 将 `contractRevision` 定义为完整 Resolved Contract hash，Batch 4 曾按 Evidence 子集重算同名 revision。 | 除 Evidence 外的字段变更会令 Phase 3 row/event revision 与 Evidence snapshot revision 语义不同，无法可靠相等校验。 | Phase 3 owns full `contractRevision`；Batch 4 原样引用；Evidence plan 使用独立 `contractHash`，Manifest 再用 `manifestHash`。 | 设计已解决；实现/测试待 P3-01、P3-05、Batch 4 |
@@ -358,7 +358,7 @@ P3-00R 已定稿 `P3-ISSUE-007`～`032` 的处理方案。实现仍须按下表�
 | P3-ISSUE-026 | 复审 / P3-01、P3-05～07 | Heap pressure 选择不设 aggregate cap，但此前只写 disposable exception，未定义创建时如何执行该范围限制。 | `warn` 仍可能允许在 retained/shared 部署创建该 non-releasing OOM 风险场景。 | 增加 Web-only `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE`，缺省 `retained`；无论 validation mode 为何，heap scenario 仅在显式 `disposable` scope 接受新建；replay 不会重新触发新效果。 | 决策已定；runtime gate/config/test 待 P3-01、P3-05～07 |
 | P3-ISSUE-027 | 复审 / P3-05、P3-07 | Fault Run POST route 对未识别的 admission rejection 会走通用 500，Contract validator 诊断也缺少 Operator-safe mapping。 | scope 冲突与 Contract 缺陷无法被稳定区分；原始诊断若直接回显还会扩大信息暴露。 | 使用具名内部错误码及固定 envelope：`SCENARIO_CONTRACT_INVALID` → 503，`SCENARIO_CONTRACT_DEPLOYMENT_SCOPE_RESTRICTED` → 409；拒绝在 Run/action/prepare 前发生，response 不含 validator detail/stack，并为 route 加契约测试。 | 设计已定并同步；route/error types/tests 待 P3-05/07 |
 | P3-ISSUE-028 | 复审 / P3-01～04 | lifecycle 字段中 event/action IDs 与 Evidence recipe IDs 的来源和职责边界此前未足够明确，可能复制相同的 check map。 | 无效或不可写入的 ID 会被静态合同误认为已覆盖；cleanup/recovery 证据容易与控制动作混为一谈。 | Prepare/stop/cleanup refs 限于受控 event/action types 并验证写入路径；stop/drain/release/verification 由 recovery refs 覆盖；recovery/side-effect refs 指向 Evidence recipes；cleanup result 用 `window=cleanup` recipe 表达，不另建 check map。 | 设计已定并同步；resolver/validator/fixture 待 P3-01～04 |
-| P3-ISSUE-029 | 复审 / P3-01～03、P3-07 | Catalog/API 的 surge 上限若未由 Worker 对 persisted 参数再次执行，非法行仍可能通过无上限的 `boundedInteger` 进入执行路径。 | `concurrency > 128` 会绕过资源预算；当前 fallback 还可能将异常值静默改成低并发继续运行。 | API Catalog max=128；owned 与 legacy Worker entrypoints 在创建 worker/session/request 前校验 persisted concurrency，非法值 fail closed、不 clamp、不发 Gateway request；failure 只记录稳定 code，不记录原值。 | 设计已定并同步；Worker guard/tests 待 P3-02/07 |
+| P3-ISSUE-029 | 复审 / P3-01～03、P3-07 | Catalog/API 的 surge 上限若未由 Worker 对 persisted 参数再次执行，非法行仍可能通过无上限的 `boundedInteger` 进入执行路径。 | `concurrency > 128` 会绕过资源预算；当前 fallback 还可能将异常值静默改成低并发继续运行。 | API Catalog max=128；owned 与 legacy Worker entrypoints 在创建 worker/session/request 前校验 persisted concurrency，非法值 fail closed、不 clamp、不发 Gateway request；failure 只记录稳定 code，不记录原值。 | P3-02 owned/legacy guard 与 128/invalid/no-session/no-request tests 已完成；P3-03 静态预算 validator 和 P3-07 canary 仍待执行 |
 | P3-ISSUE-030 | 复审 / Batch 4 Tech、P3-06 | Batch 4 Tech 仍把 Evidence SQL 描述为已有 volume expand-only migration，并要求已有 volume migration 验收。 | 与 clean-slate、无旧数据兼容决策冲突，可能导致部署方错误依赖旧 schema upgrade。 | Evidence migration/init 都作为空库 fresh-bootstrap 路径；删除旧 volume upgrade/expand-only 承诺与对应验收，只验证 MySQL init 与空库 `db:migrate` 结果等价。 | Batch 4 Tech 已同步；实现/空库验证待 Batch 4 |
 | P3-ISSUE-031 | 复审 / P3-06、README | 当前 flat `k8s/kustomization.yaml` 同时包含应用 Deployments 与只执行 migration apply 的 Job，没有独立 verify stage。 | 应用可能在 migration 或 schema verification 前启动，且 migration 镜像 tag 未绑定已验制品。 | 分阶段 provision/bootstrap → pinned migration Job → 独立 `db:verify` Job/process → application Deployments；verify 成功前不得启动应用，并固定迁移/验证所用 image digest。 | Tech/README 已同步；staged resource sets 与 pipeline gate 待 P3-06 |
 | P3-ISSUE-032 | 复审 / P3-06、P3-07 | 报告只关联 `catalogRevision` 不能证明 Gate 检查的 source commit 与最终部署的 Gateway/业务镜像一致。 | Java-only 改动不一定改变 Catalog revision；用 tag 部署还可能覆盖已验证制品。 | Report 携带 `sourceCommitSha`；外部 release attestation 绑定 required-check commit、被测服务 image digest map 与 final report SHA-256；部署只提升 attested immutable digests，digest 变化重新验证/关联。 | 设计已定并同步；CI provenance/deployment enforcement 待 P3-06/07 |
@@ -385,6 +385,16 @@ P3-00R 已定稿 `P3-ISSUE-007`～`032` 的处理方案。实现仍须按下表�
 | 2026-09-29 CST | P3-01：预算与 Evidence Contract 实现进展 | Catalog budgets 覆盖 surge concurrency、Redis logical bytes、storage filesystem reserve 和 heap disposable/non-releasing exception；12 场景 Evidence plans 已含 Run Event/Prometheus/Loki/Tempo recipes、固定 current read-check 与 cleanup window，并为 PSP/storage 使用新批准的有限 templates。`pnpm test:runner` 243/243、targeted Catalog/Contract/revision tests 19/19、`pnpm typecheck` 全部通过。 | P3-01 为 3/7，Evidence 合同继续复核 predicate/window/read-check 边界；Batch 4 renderer/query fixtures 待 Batch 4 实施，P3-05/07 的 heap API hard gate 未涉及本阶段。 |
 
 | 2026-09-29 CST | P3-01：Catalog Contract 阶段完成 | 12 个 required Catalog supplements、resolver/lifecycle refs、parameter consumers、预算/guard、Evidence/Alert plans、alert timing 与完整/per-Evidence revisions 已落实；批次 4 模板 handoff 明确新增三种固定 metric templates。`pnpm test:runner` 243/243、`pnpm typecheck` 通过；`pnpm lint` 通过且仅剩一条既有 `runner-backed-fault-run-driver.ts` unused-import warning。 | P3-01 更新为 7/7；下一任务 P3-02 driver/ACTIVE/drain capability 与剩余 Worker/Java wire coverage。Batch 4 renderer/query fixtures、P3-05 heap admission hard gate 尚未实施。 |
+
+| 2026-09-29 CST | P3-02：Gateway/Worker capability coverage（启动） | P3-01 完成后进入下一依赖组；已定位 `getFaultRunDrivers()`、四类 driver、Reconciler ACTIVE gate、drain registry 和现有 summary event normalizers，开始设计基于真实 `supports(run)` 的投影/fixture。 | 当前只标记 P3-02 第二子任务进行中；尚未添加第二份 `scenario -> owner` 映射，也未修改 Worker/Java behavior。 |
+| 2026-09-29 CST | P3-02：driver coverage、ACTIVE gate 与 drain recovery | 为真实 driver 注册实例增加 capability projection：12 场景由真实 `supports(run)` 恰好命中一个，`name`/`drainOwner` 与 resolved policy 对齐；Reconciler 的 `ACTIVE_ONLY` gate、`DRAIN_COMPLETED` terminal summary 与各 driver summary writers 有直接 seam。补充 legacy scanners 对 `RECOVERING`/terminal runs 不发起场景请求、CREATING prepare 后才启动 driver、owner loss abort/drain 和 Cart Gateway path 覆盖。`pnpm test:runner` 250/250、`pnpm typecheck` 通过。 | P3-02 为 6/9；Gateway Java operation/controller contract seam 与 persisted surge concurrency fail-closed 仍待后续子任务。 |
+
+| 2026-09-29 CST | P3-02：driver capability projection 与 summary writer | `OwnedFaultRunDriver` 现暴露 ACTIVE-only 与实际 summary event；registry 提供不含 scenario-owner map 的 capability projection，dispatch owner/name 与 `supports(run)` 来自真实 driver；terminal summary 绑定 Reconciler 实际写出的 `DRAIN_COMPLETED`。Owned surge stop 现在也注入 event writer 并记录 `SCENARIO_WORKER_DRAINED`。`pnpm exec tsx --test src/worker/fault-run-driver-registry.test.ts src/worker/fault-run-reconciler.test.ts src/worker/traffic-surge-executor.test.ts src/worker/runner-backed-fault-run-driver.test.ts src/worker/scenario-workers.test.ts src/worker/report-scenario-worker.test.ts` 38/38 通过；`pnpm typecheck` 通过。 | P3-02 进度 2/9；12 场景负向 dispatch/Cart path 与 owner lost/Java endpoint tests 尚待后续子任务。 |
+
+| 2026-09-29 CST | P3-02：真实 driver capability 与 dispatch coverage | 新增 dispatch descriptor projection，直接读取四个真实 driver 的 name/drainOwner/supports/summaryEventType；executionState 由 Reconciler 的 ACTIVE gate 提供，terminal summary 指向 recovery writer 的 `DRAIN_COMPLETED`。Traffic Surge owned path now writes its declared `SCENARIO_WORKER_DRAINED` summary. Registry/Cart/recovery targeted tests 38/38 与 `pnpm typecheck` 通过。 | P3-02 为 3/9；ACTIVE-only 的两种接线/owner-loss 测试继续进行，`missingDispatch` 负例由 P3-03 实现，Java target wire tests 仍待后续。 |
+| 2026-09-29 CST | P3-02：Gateway operation registry contract seam | Gateway 的 10 个 operation service/path、prepare/release/cleanup policy 由 Catalog 生成的 `scenario-contract-gateway.v1` 输入与真实 `OperationTargetRegistry` 对照；`OperationDispatchContractTest` 按 `catalogRevision` 写入检查结果。`mvn -pl gateway-service -Dtest=OperationTargetRegistryTest,OperationDispatchControllerTest,OperationDispatchContractTest -Dscenario.contract.expected=/tmp/p3-02-gateway-expected.json -Dscenario.contract.checksDir=/tmp/p3-02-gateway-checks test` 7/7 通过。 | P3-02 为 7/9；目标服务检查发现部分 cleanup handler 仍要求 release-only expiry/idempotency headers，且 Storage Java `minFreeBytes` 下限仍为 1 byte；下一子任务按已定 wire contract 改为最小 cleanup context 并统一 1 MiB 下限。 |
+| 2026-09-29 CST | P3-02：目标服务 controller/wire contracts | 十个 target-backed operation 在 Catalog、Order、Notification、Promotion、Inventory、PSP 的真实 controller mapping 与直接请求/响应 seam 均有覆盖；修正 browse/order/cart/notification-retention/PSP cleanup 仅要求 `runId`/`fencingToken`，并让 cache/coupon cleanup 释放 target fence。Storage `minFreeBytes` Java guard 与 Catalog 对齐为 1 MiB–1 GiB，并改为拒绝小数截断。目标服务 Maven targeted tests 40/40 通过；Gateway registry、dispatch、public consumer operation-header isolation tests 12/12 通过。 | P3-02 为 8/9；尚待 owned 与 legacy surge Worker 并发上限的 fail-closed 验证。 |
+| 2026-09-29 CST | P3-02：surge persisted concurrency hard limit 与批次完成 | 将 Catalog `max=128` 抽为导出的 `TRAFFIC_SURGE_MAX_CONCURRENCY`，供 owned `startOwned` 和 legacy `startRun` 共用；两入口在创建 worker/session/request 前严格只接受整数 `1..128`，非法数据拒绝且不 clamp。拒绝事件只含稳定 `INVALID_SURGE_CONCURRENCY` code。owned/legacy 128 执行、129/1.5/0/string/missing 拒绝且无 session/Gateway request 的测试通过。`pnpm test:runner` 256/256、`pnpm typecheck` 通过、`pnpm lint` 0 errors（保留既有 `runner-backed-fault-run-driver.ts` unused-import warning）、目标服务 Maven 40/40、Gateway Maven 12/12、`git diff --check` 通过。 | P3-02 更新为 9/9 并关闭；Catalog validator、negative fixtures 和 report schema 进入 P3-03。 |
 
 ## 9. 每次任务更新模板
 
