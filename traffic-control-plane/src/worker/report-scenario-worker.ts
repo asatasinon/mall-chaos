@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import pino from 'pino';
 import { forwardAbortSignal, throwIfAborted } from '../lib/abort-signal';
 import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
-import type { OwnedFaultRunDriver, OwnedRunHandle } from './fault-run-driver';
+import type {
+  FaultRunDriverRecord,
+  OwnedFaultRunDriver,
+  OwnedRunHandle,
+} from './fault-run-driver';
 import {
   getGatewayClient,
   type CustomerRequestContext,
@@ -23,9 +27,12 @@ import {
   type FaultRunDrainRegistry,
   type FaultRunWorkPermit,
 } from './fault-run-drain-registry';
+import {
+  REPORT_SCENARIO_TERMINAL_SUMMARY_EVENT,
+  supportsFaultRunScenario,
+} from './fault-run-driver-capabilities';
 
 const log = pino({ name: 'report-scenario-worker' });
-const REPORT_SCENARIO_TERMINAL_SUMMARY_EVENT = 'REPORT_WORKER_STOPPED' as const;
 
 interface ReportScenarioWorkerDependencies {
   gateway: GatewayClient;
@@ -74,7 +81,7 @@ export class ReportScenarioWorker {
     await Promise.allSettled([...this.running.values()]);
   }
 
-  async startOwned(run: FaultRunRecord, fence: FaultRunOwnerFence): Promise<OwnedRunHandle> {
+  async startOwned(run: FaultRunDriverRecord, fence: FaultRunOwnerFence): Promise<OwnedRunHandle> {
     const task = this.execute(run, fence.signal);
     return {
       stop: async () => {
@@ -114,7 +121,7 @@ export class ReportScenarioWorker {
     }
   }
 
-  private startRun(run: FaultRunRecord): void {
+  private startRun(run: FaultRunDriverRecord): void {
     if (this.stopping) return;
     const controller = new AbortController();
     const completion = deferredVoid();
@@ -159,7 +166,7 @@ export class ReportScenarioWorker {
     this.running.set(run.faultRunId, task);
   }
 
-  private async execute(run: FaultRunRecord, signal: AbortSignal): Promise<void> {
+  private async execute(run: FaultRunDriverRecord, signal: AbortSignal): Promise<void> {
     let requests = 0;
     let successes = 0;
     let failures = 0;
@@ -243,11 +250,11 @@ export class ReportScenarioFaultRunDriver implements OwnedFaultRunDriver {
 
   constructor(private readonly worker: ReportScenarioWorker = new ReportScenarioWorker()) {}
 
-  supports(run: FaultRunRecord): boolean {
-    return run.scenario === 'BROWSE_REPORT_SQL' || run.scenario === 'ORDER_REPORT_SQL';
+  supports(run: FaultRunDriverRecord): boolean {
+    return supportsFaultRunScenario('REPORT_SCENARIO_WORKER', run.scenario);
   }
 
-  start(input: { run: FaultRunRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle> {
+  start(input: { run: FaultRunDriverRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle> {
     return this.worker.startOwned(input.run, input.fence);
   }
 }

@@ -12,6 +12,7 @@ import { getTrafficScenarioTarget, TRAFFIC_SCENARIO_TARGETS } from '../lib/fault
 import { getFaultRunDriverDescriptors, getFaultRunDrivers } from './fault-run-driver-registry';
 import { FAULT_RUN_DRIVER_EXECUTION } from './fault-run-reconciler';
 import { faultRunDrainParticipantForOwner } from './fault-run-drain-registry';
+import { FAULT_RUN_DRIVER_CAPABILITIES } from './fault-run-driver-capabilities';
 
 test('driver registry contains distinct real-path owners', () => {
   const drivers = getFaultRunDrivers();
@@ -25,6 +26,10 @@ test('real driver coverage matches resolved Catalog owner and summary capability
   const descriptors = getFaultRunDriverDescriptors();
   const definitions = listScenarioDefinitions();
   assert.equal(new Set(descriptors.map((descriptor) => descriptor.name)).size, descriptors.length);
+  assert.deepEqual(
+    descriptors.map(({ name }) => name),
+    FAULT_RUN_DRIVER_CAPABILITIES.map(({ name }) => name),
+  );
 
   for (const definition of definitions) {
     const run = runForScenario(definition.scenario);
@@ -43,6 +48,20 @@ test('real driver coverage matches resolved Catalog owner and summary capability
       descriptor.terminalSummaryEvent,
       { participants: 1, completed: 1, inFlightAtFinish: 0 },
     ));
+  }
+
+  for (const capability of FAULT_RUN_DRIVER_CAPABILITIES) {
+    const descriptor = descriptors.find(({ name }) => name === capability.name);
+    assert.ok(descriptor);
+    const actualScenarios = definitions
+      .filter(({ scenario }) => descriptor.supports(runForScenario(scenario)))
+      .map(({ scenario }) => scenario)
+      .sort();
+    assert.deepEqual(actualScenarios, [...capability.supportedScenarios].sort());
+    assert.equal(descriptor.drainOwner, capability.drainOwner);
+    assert.equal(descriptor.executionState, capability.executionState);
+    assert.equal(descriptor.summaryEventType, capability.summaryEventType);
+    assert.equal(descriptor.terminalSummaryEvent, capability.terminalSummaryEvent);
   }
 });
 
@@ -73,6 +92,7 @@ function runForScenario(scenario: FaultRunRecord['scenario']): FaultRunRecord {
       durationSec: 30,
       ...(scenario === 'PSP_PROVIDER_OUTCOME' ? { providerOutcome: 'TIMEOUT' } : {}),
     }),
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: `driver-contract-${scenario.toLowerCase()}`,
     fencingToken: 1,
     startedAt: '2026-09-29T00:00:00.000Z',

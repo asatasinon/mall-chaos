@@ -2,7 +2,6 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PATTERN='故障注入|故障演练|故障场景|场景码|fault[ -]?injection|fault[ -]?exercise|fault[ -]?scenario|chaos[ -]?scenario|fault[ -]?run|faultRunId|fault_run_id|recovery[_-]?result|recovery[_-]?error|BROWSE_REPORT_SQL|ORDER_REPORT_SQL|BROWSE_SURGE|ORDER_QUERY_SURGE|CATALOG_REDIS_LARGE_VALUE|CART_CATALOG_DEPENDENCY|NOTIFICATION_HEAP_PRESSURE|NOTIFICATION_STORAGE_APPEND|PROMOTION_LOCK_CONTENTION|INVENTORY_TABLE_EXCLUSIVE|INVENTORY_ROW_LOCK|PSP_PROVIDER_OUTCOME'
 
 fail() {
   printf 'check-runtime-terminology: %s\n' "$1" >&2
@@ -10,6 +9,26 @@ fail() {
 }
 
 command -v rg >/dev/null 2>&1 || fail 'required command not found: rg'
+command -v pnpm >/dev/null 2>&1 || fail 'required command not found: pnpm'
+
+if ! TERMINOLOGY_PATTERNS="$(pnpm --dir "$REPO_ROOT/traffic-control-plane" exec tsx -e '
+import { listScenarioDefinitions } from "./src/lib/fault-run-catalog.ts";
+import { resolveScenarioContract } from "./src/lib/scenario-contract.ts";
+import { generateScenarioContractTerminologyInput } from "./src/lib/scenario-contract-artifacts.ts";
+
+const contracts = listScenarioDefinitions().map((definition) => resolveScenarioContract(definition));
+const input = generateScenarioContractTerminologyInput(contracts);
+process.stdout.write([...input.reviewedTermPatterns, ...input.scenarioIdPatterns].join("\n"));
+')"; then
+  fail 'could not derive terminology patterns from the Catalog'
+fi
+
+[[ -n "$TERMINOLOGY_PATTERNS" ]] || fail 'Catalog-derived terminology input is empty'
+PATTERN=''
+while IFS= read -r terminology_pattern; do
+  [[ -n "$terminology_pattern" ]] || continue
+  PATTERN="${PATTERN:+$PATTERN|}${terminology_pattern}"
+done <<< "$TERMINOLOGY_PATTERNS"
 
 cd "$REPO_ROOT"
 if matches="$(rg -n -i --glob '!**/target/**' --glob '!traffic-control-plane/**' --glob '**/src/**' "$PATTERN" .)"; then

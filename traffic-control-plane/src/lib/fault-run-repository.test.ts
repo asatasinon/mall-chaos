@@ -5,6 +5,7 @@ import {
   FaultRunCommandError,
   hashFaultRunCommandIdempotencyKey,
   isRunnableFaultRun,
+  mapFaultRunRow,
   mergeFaultRunRecoveryStep,
   planFaultRunStop,
   startFaultRunManualCleanup,
@@ -20,6 +21,7 @@ const requestedAt = '2026-09-17T10:00:00.000Z';
 const drainAt = '2026-09-17T10:00:30.000Z';
 const recoveryAt = '2026-09-17T10:01:00.000Z';
 const completedAt = '2026-09-17T10:00:10.000Z';
+const contractRevision = 'sc.v1:sha256:' + 'a'.repeat(64);
 
 function createRun(overrides: Partial<FaultRunRecord> = {}): FaultRunRecord {
   return {
@@ -29,6 +31,7 @@ function createRun(overrides: Partial<FaultRunRecord> = {}): FaultRunRecord {
     targetOperation: 'products-browse-report',
     state: 'ACTIVE',
     parameters: { durationSec: 60 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'create-request-001',
     fencingToken: 1,
     startedAt: requestedAt,
@@ -82,6 +85,40 @@ function retryableReleaseFailureProjection(): FaultRunRecoveryProjection {
     },
   };
 }
+
+test('maps only a format-valid required contract revision from the row', () => {
+  const row = {
+    fault_run_id: '123e4567-e89b-12d3-a456-426614174000',
+    scenario: 'BROWSE_REPORT_SQL',
+    target_service: 'catalog-service',
+    target_operation: 'products-browse-report',
+    state: 'ACTIVE',
+    parameters_json: JSON.stringify({ durationSec: 60 }),
+    contract_revision: contractRevision,
+    idempotency_key: 'create-request-001',
+    fencing_token: 1,
+    started_at: requestedAt,
+    expires_at: '2026-09-17T10:10:00.000Z',
+    stopped_at: null,
+    stop_reason: null,
+    recovery_result: null,
+    recovery_error: null,
+    operator_audit_id: null,
+    trace_id: 'trace-1',
+    created_at: requestedAt,
+    updated_at: requestedAt,
+  };
+
+  assert.equal(mapFaultRunRow(row).contractRevision, contractRevision);
+  assert.throws(
+    () => mapFaultRunRow({ ...row, contract_revision: null }),
+    /FAULT_RUN_CONTRACT_REVISION_INVALID/,
+  );
+  assert.throws(
+    () => mapFaultRunRow({ ...row, contract_revision: 'not-a-revision' }),
+    /FAULT_RUN_CONTRACT_REVISION_INVALID/,
+  );
+});
 
 test('treats only ACTIVE records as runnable', () => {
   for (const state of ['CREATING', 'RECOVERING', 'RECOVERED', 'STOPPED', 'FAILED', 'SERVICE_UNAVAILABLE'] as const) {

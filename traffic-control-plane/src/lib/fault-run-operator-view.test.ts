@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildFaultRunOperatorDetails,
+  buildFaultRunOperatorEvent,
   buildFaultRunOperatorRun,
 } from './fault-run-operator-view';
 import {
@@ -22,6 +23,7 @@ function createRun(overrides: Partial<FaultRunRecord> = {}): FaultRunRecord {
     targetService: 'catalog-service',
     targetOperation: 'product-detail-cache',
     state: 'RECOVERING',
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     parameters: {
       durationSec: 60,
       concurrency: 1,
@@ -71,6 +73,66 @@ test('builds a strict recovery view without server-only identifiers or request-k
     assert.equal(view.recovery.projection.stop.reason, 'MANUAL');
     assert.equal('requestKeyHash' in view.recovery.projection.cleanup, false);
   }
+});
+
+test('projects only a format-valid contract revision on Operator runs', () => {
+  const valid = buildFaultRunOperatorRun(createRun());
+  assert.equal(valid.contractRevision, 'sc.v1:sha256:' + '0'.repeat(64));
+  assert.equal('catalogRevision' in valid, false);
+
+  const invalid = buildFaultRunOperatorRun(createRun({
+    contractRevision: 'invalid-private-value',
+  }));
+  assert.equal('contractRevision' in invalid, false);
+  assert.equal(JSON.stringify(invalid).includes('invalid-private-value'), false);
+});
+
+test('CREATED timeline projects both valid revisions and drops all other payload fields', () => {
+  const run = createRun({ contractRevision: 'sc.v1:sha256:' + '1'.repeat(64) });
+  const event = buildFaultRunOperatorEvent(run, {
+    id: 1,
+    faultRunId,
+    eventType: 'CREATED',
+    payload: {
+      scenario: 'CATALOG_REDIS_LARGE_VALUE',
+      contractRevision: 'sc.v1:sha256:' + '1'.repeat(64),
+      catalogRevision: '2'.repeat(64),
+      password: 'must-not-be-exposed',
+      customerId: 123,
+      alertLabels: { secret: 'must-not-be-exposed' },
+    },
+    createdAt: requestedAt,
+  });
+
+  assert.deepEqual(event.payload, {
+    contractRevision: 'sc.v1:sha256:' + '1'.repeat(64),
+    catalogRevision: '2'.repeat(64),
+  });
+  for (const payload of [
+    { contractRevision: 'invalid', catalogRevision: '2'.repeat(64) },
+    { contractRevision: 'sc.v1:sha256:' + '1'.repeat(64), catalogRevision: 'invalid' },
+    { contractRevision: 'sc.v1:sha256:' + '1'.repeat(64) },
+  ]) {
+    const rejected = buildFaultRunOperatorEvent(createRun(), {
+      id: 2,
+      faultRunId,
+      eventType: 'CREATED',
+      payload,
+      createdAt: requestedAt,
+    });
+    assert.deepEqual(rejected.payload, {});
+  }
+  const mismatched = buildFaultRunOperatorEvent(createRun(), {
+    id: 3,
+    faultRunId,
+    eventType: 'CREATED',
+    payload: {
+      contractRevision: 'sc.v1:sha256:' + '1'.repeat(64),
+      catalogRevision: '2'.repeat(64),
+    },
+    createdAt: requestedAt,
+  });
+  assert.deepEqual(mismatched.payload, {});
 });
 
 test('does not infer recovery success from malformed or legacy recovery data', () => {

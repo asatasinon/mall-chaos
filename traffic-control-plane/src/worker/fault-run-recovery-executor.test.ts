@@ -39,6 +39,7 @@ function createRun(overrides: Partial<FaultRunRecord> = {}): FaultRunRecord {
     targetOperation: 'products-browse-report',
     state: 'RECOVERING',
     parameters: { durationSec: 60 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'create-request-001',
     fencingToken: 1,
     startedAt: now.toISOString(),

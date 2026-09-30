@@ -15,6 +15,7 @@ function createRun(scenario: FaultRunRecord['scenario']): FaultRunRecord {
     targetOperation: 'browse-api-worker',
     state: 'ACTIVE',
     parameters: { durationSec: 60, concurrency: 1, requestIntervalMs: 0, pageSize: 20 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'surge-gate-test-001',
     fencingToken: 1,
     startedAt: new Date().toISOString(),

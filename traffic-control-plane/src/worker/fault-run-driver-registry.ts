@@ -1,9 +1,13 @@
 import type { OwnedFaultRunDriver } from './fault-run-driver';
 import { FAULT_RUN_DRAIN_COMPLETED_EVENT_TYPE } from '../lib/fault-run-event-contract';
-import type { FaultRunRecord } from '../lib/fault-run-repository';
-import { FAULT_RUN_DRIVER_EXECUTION } from './fault-run-reconciler';
+import { FAULT_RUN_DRIVER_EXECUTION } from './fault-run-driver-capabilities';
 import type { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
-import type { OwnedRunHandle } from './fault-run-driver';
+import {
+  toFaultRunDriverRecord,
+  type FaultRunDriverRecord,
+  type OwnedRunHandle,
+} from './fault-run-driver';
+import type { FaultRunRecord } from '../lib/fault-run-repository';
 import { ReportScenarioFaultRunDriver, getReportScenarioWorker } from './report-scenario-worker';
 import { TrafficSurgeFaultRunDriver, getTrafficSurgeExecutor } from './traffic-surge-executor';
 import { ScenarioFaultRunDriver, getScenarioWorkers } from './scenario-workers';
@@ -19,7 +23,7 @@ export interface ScenarioDispatchDescriptor {
   readonly summaryEventType: OwnedFaultRunDriver['summaryEventType'];
   readonly terminalSummaryEvent: typeof FAULT_RUN_DRAIN_COMPLETED_EVENT_TYPE;
   supports(run: FaultRunRecord): boolean;
-  start(input: { run: FaultRunRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle>;
+  start(input: { run: FaultRunDriverRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle>;
 }
 
 export function getFaultRunDrivers(): readonly OwnedFaultRunDriver[] {
@@ -42,7 +46,7 @@ export function getFaultRunDriverDescriptors(): readonly ScenarioDispatchDescrip
     executionState: FAULT_RUN_DRIVER_EXECUTION.mode,
     summaryEventType: driver.summaryEventType,
     terminalSummaryEvent: FAULT_RUN_DRAIN_COMPLETED_EVENT_TYPE,
-    supports: (run: FaultRunRecord) => driver.supports(run),
-    start: (input: { run: FaultRunRecord; fence: FaultRunOwnerFence }) => driver.start(input),
+    supports: (run: FaultRunRecord) => driver.supports(toFaultRunDriverRecord(run)),
+    start: (input: { run: FaultRunDriverRecord; fence: FaultRunOwnerFence }) => driver.start(input),
   })));
 }

@@ -63,17 +63,17 @@ class OperationDispatchContractTest {
         assertThat(expectedOperations).containsExactlyInAnyOrderElementsOf(
                 OperationTargetRegistry.entries().keySet());
 
+        String sourceCommitSha = System.getProperty("scenario.contract.sourceCommitSha");
+        assertThat(sourceCommitSha).matches("(?i)([a-f0-9]{40}|[a-f0-9]{64})");
         Path checksPath = Path.of(checksDirectory);
         Files.createDirectories(checksPath);
         ObjectNode result = objectMapper.createObjectNode();
+        result.put("schemaVersion", "scenario-contract-check-result.v1");
         result.put("checkId", "gateway-service.operation-dispatch");
         result.put("status", "PASSED");
         result.put("catalogRevision", catalogRevision);
         result.put("operationCount", expectedOperations.size());
-        String sourceCommitSha = System.getProperty("scenario.contract.sourceCommitSha");
-        if (sourceCommitSha != null && !sourceCommitSha.isBlank()) {
-            result.put("sourceCommitSha", sourceCommitSha);
-        }
+        result.put("sourceCommitSha", sourceCommitSha);
         objectMapper.writeValue(checksPath.resolve("gateway-operation-dispatch.json").toFile(), result);
     }
 

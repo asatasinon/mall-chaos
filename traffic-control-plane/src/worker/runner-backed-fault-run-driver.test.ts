@@ -13,6 +13,7 @@ function run(scenario: FaultRunRecord['scenario']): FaultRunRecord {
     targetOperation: 'notification-retention',
     state: 'ACTIVE',
     parameters: { durationSec: 60 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'runner-driver-test-key',
     fencingToken: 1,
     startedAt: new Date().toISOString(),

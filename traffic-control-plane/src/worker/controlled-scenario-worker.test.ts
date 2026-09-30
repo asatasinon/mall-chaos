@@ -10,6 +10,7 @@ const run = {
   targetOperation: 'browse-api-worker',
   state: 'ACTIVE',
   parameters: { durationSec: 1 },
+  contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
   idempotencyKey: 'controlled-worker-test',
   fencingToken: 1,
   startedAt: new Date().toISOString(),

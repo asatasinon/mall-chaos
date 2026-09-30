@@ -47,6 +47,14 @@ export default async function RunbookWorkspace({
   const scenarioLabel = getScenarioLabel(entry.scenario, translateScenario);
   const entriesByScenario = new Map(entries.map((item) => [item.scenario, item]));
   const cleanupLabel = entry.allowManualCleanup ? t('manualCleanup') : t('automaticRecovery');
+  const tempoQueryLabel = (template: RunbookEntry['tempoQueries'][number]['template']) => {
+    switch (template) {
+      case 'SERVICE_REQUESTS': return t('serviceQuery');
+      case 'SERVICE_ERRORS': return t('errorQuery');
+      case 'SERVICE_SLOW_REQUESTS': return t('slowQuery');
+      case 'SERVICE_ROUTE_REQUESTS': return t('routeQuery');
+    }
+  };
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-5">
@@ -177,16 +185,13 @@ export default async function RunbookWorkspace({
                     <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t('serviceQueries')}</p>
                     <div className="overflow-hidden rounded-md border border-border/80 bg-background/60 px-3">
                       {entry.tempoQueries.map((query) => (
-                        <div key={`${query.serviceName}-${query.route || 'service'}`} className="border-t border-border/70 first:border-t-0">
+                        <div key={query.recipeId} className="border-t border-border/70 first:border-t-0">
                           <div className="flex flex-wrap items-center gap-2 py-2.5">
                             <span className="font-mono text-xs font-medium">{query.serviceName}</span>
                             {query.route && <Badge variant="secondary" className="max-w-full break-all font-mono text-[10px]">{query.route}</Badge>}
                           </div>
-                          <QueryRow label={t('serviceQuery')} value={query.serviceQuery} />
-                          <QueryRow label={t('errorQuery')} value={query.errorQuery} />
-                          <QueryRow label={t('slowQuery')} value={query.slowQuery} />
-                          {query.routeQuery && <>
-                            <QueryRow label={t('routeQuery')} value={query.routeQuery} />
+                          <QueryRow label={tempoQueryLabel(query.template)} value={query.query} />
+                          {query.template === 'SERVICE_ROUTE_REQUESTS' && <>
                             <p className="pb-2.5 text-[11px] leading-4 text-muted-foreground">{t('routeHint')}</p>
                           </>}
                         </div>

@@ -57,6 +57,7 @@ function run(overrides: Partial<FaultRunRecord> = {}): FaultRunRecord {
     targetOperation: 'notification-heap-retention',
     state: 'RECOVERING',
     parameters: { durationSec: 60 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'server-only-key',
     fencingToken: 1,
     startedAt: '2026-09-18T00:00:00.000Z',

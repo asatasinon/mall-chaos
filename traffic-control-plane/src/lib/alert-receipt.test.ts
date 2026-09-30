@@ -18,8 +18,13 @@ const baseAlert = {
   fingerprint: 'abc123',
 };
 
-test('parses firing and resolved Alertmanager alerts into low-cardinality receipts', () => {
+test('parses firing/resolved receipts and gives duplicate fingerprints stable idempotency keys', () => {
   const firing = parseAlertmanagerWebhook({
+    status: 'firing',
+    receiver: 'critical-receiver',
+    alerts: [{ ...baseAlert, status: 'firing' }],
+  });
+  const duplicate = parseAlertmanagerWebhook({
     status: 'firing',
     receiver: 'critical-receiver',
     alerts: [{ ...baseAlert, status: 'firing' }],
@@ -49,6 +54,7 @@ test('parses firing and resolved Alertmanager alerts into low-cardinality receip
   assert.equal(resolved[0].status, 'resolved');
   assert.equal(resolved[0].endsAt?.toISOString(), '2026-09-16T10:05:00.000Z');
   assert.equal(Object.keys(resolved[0]).includes('annotations'), false);
+  assert.equal(createReceiptKey(firing[0]), createReceiptKey(duplicate[0]));
   assert.notEqual(createReceiptKey(firing[0]), createReceiptKey(resolved[0]));
 });
 

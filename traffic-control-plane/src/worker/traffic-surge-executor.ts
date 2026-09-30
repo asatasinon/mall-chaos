@@ -19,15 +19,22 @@ import { loadLifecycleAccounts } from '../lib/lifecycle-accounts';
 import { env } from '../lib/env';
 import { CustomerSessionManager } from './customer-session-manager';
 import { ControlledScenarioWorker } from './controlled-scenario-worker';
-import type { OwnedFaultRunDriver, OwnedRunHandle } from './fault-run-driver';
+import type {
+  FaultRunDriverRecord,
+  OwnedFaultRunDriver,
+  OwnedRunHandle,
+} from './fault-run-driver';
 import {
   getFaultRunDrainRegistry,
   type FaultRunDrainParticipant,
   type FaultRunDrainRegistry,
   type FaultRunWorkPermit,
 } from './fault-run-drain-registry';
+import {
+  supportsFaultRunScenario,
+  TRAFFIC_SURGE_TERMINAL_SUMMARY_EVENT,
+} from './fault-run-driver-capabilities';
 
-const TRAFFIC_SURGE_TERMINAL_SUMMARY_EVENT = 'SCENARIO_WORKER_DRAINED' as const;
 const INVALID_SURGE_CONCURRENCY = 'INVALID_SURGE_CONCURRENCY' as const;
 const log = pino({ name: 'traffic-surge-executor' });
 
@@ -78,7 +85,7 @@ export class TrafficSurgeExecutor {
     await Promise.allSettled(activeWorkers.map(({ promise }) => promise));
   }
 
-  async startOwned(run: FaultRunRecord, fence: FaultRunOwnerFence): Promise<OwnedRunHandle> {
+  async startOwned(run: FaultRunDriverRecord, fence: FaultRunOwnerFence): Promise<OwnedRunHandle> {
     let concurrency: number;
     try {
       concurrency = requireSurgeConcurrency(run.parameters.concurrency);
@@ -199,7 +206,7 @@ export class TrafficSurgeExecutor {
     }
   }
 
-  private startRun(run: FaultRunRecord): void {
+  private startRun(run: FaultRunDriverRecord): void {
     if (this.stopping) return;
     let concurrency: number;
     try {
@@ -329,18 +336,18 @@ export class TrafficSurgeFaultRunDriver implements OwnedFaultRunDriver {
 
   constructor(private readonly executor: TrafficSurgeExecutor = new TrafficSurgeExecutor()) {}
 
-  supports(run: FaultRunRecord): boolean {
-    return run.scenario === 'BROWSE_SURGE' || run.scenario === 'ORDER_QUERY_SURGE';
+  supports(run: FaultRunDriverRecord): boolean {
+    return supportsFaultRunScenario('TRAFFIC_SURGE_EXECUTOR', run.scenario);
   }
 
-  start(input: { run: FaultRunRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle> {
+  start(input: { run: FaultRunDriverRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle> {
     return this.executor.startOwned(input.run, input.fence);
   }
 }
 
 async function appendWorkerFailure(
   appendEvent: TrafficSurgeExecutorDependencies['appendEvent'],
-  run: FaultRunRecord,
+  run: FaultRunDriverRecord,
   error: unknown,
 ): Promise<void> {
   await appendEvent(

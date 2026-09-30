@@ -12,6 +12,15 @@ import type { FaultRunRecoveryEventType as FaultRunRecoveryEventTypeSource } fro
 import { resolveFaultRunRecoveryPolicy } from './fault-run-recovery-policy';
 
 export const SCENARIO_CONTRACT_SCHEMA_VERSION = 'scenario-contract.v1' as const;
+export const ALERT_RECEIPT_POLICY_ID = 'alert-receipt.v1' as const;
+export const SCENARIO_CONTRACT_REVISION_PATTERN = /^sc\.v1:sha256:[a-f0-9]{64}$/;
+
+export class ScenarioContractRevisionError extends Error {
+  constructor() {
+    super('SCENARIO_CONTRACT_REVISION_FAILED');
+    this.name = 'ScenarioContractRevisionError';
+  }
+}
 
 export type ParameterConsumer = 'ADMISSION' | 'TARGET_PREPARE' | 'WORKER_EXECUTION';
 export type EvidenceSource =
@@ -144,13 +153,13 @@ export type ScenarioAlertContract =
       readonly reason: string;
       readonly faultRunCorrelation: 'not_required';
       readonly missingAlertTreatment: 'EFFECT_CAN_STILL_BE_OBSERVED';
-      readonly receiptPolicyId: 'alert-receipt.v1';
+      readonly receiptPolicyId: typeof ALERT_RECEIPT_POLICY_ID;
     }
   | {
       readonly expectation: 'CONDITIONAL' | 'REQUIRED_FOR_PILOT';
       readonly allowedAlerts: readonly AlertCorrelationContract[];
       readonly missingAlertTreatment: 'EFFECT_CAN_STILL_BE_OBSERVED' | 'EVIDENCE_UNAVAILABLE';
-      readonly receiptPolicyId: 'alert-receipt.v1';
+      readonly receiptPolicyId: typeof ALERT_RECEIPT_POLICY_ID;
     };
 
 export type AgentDeliveryReadiness =
@@ -365,7 +374,7 @@ function canonicalizeJson(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error('SCENARIO_CONTRACT_REVISION_FAILED');
+    if (!Number.isFinite(value)) throw new ScenarioContractRevisionError();
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
@@ -379,7 +388,7 @@ function canonicalizeJson(value: unknown): string {
       .map(([key, item]) => `${JSON.stringify(key)}:${canonicalizeJson(item)}`)
       .join(',')}}`;
   }
-  throw new Error('SCENARIO_CONTRACT_REVISION_FAILED');
+  throw new ScenarioContractRevisionError();
 }
 
 function compareStrings(left: string, right: string): number {

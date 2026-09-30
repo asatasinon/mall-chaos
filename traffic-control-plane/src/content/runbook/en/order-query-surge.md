@@ -6,6 +6,8 @@
 
 This scenario generates controlled authenticated traffic for `GET /api/orders`. It targets the normal customer order-list path, not the historical report path. The worker opens a session for an enabled lifecycle account whose expected customer ID is not `19` and sends requests through `gateway-service`.
 
+The fixed worker target operation is `order-query-worker`.
+
 This is a worker scenario. It does not call Gateway operation prepare or release.
 
 ## Actual implementation

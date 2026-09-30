@@ -6,6 +6,8 @@
 
 本场景为 `GET /api/products` 生成受控的正常流量。请求生产者是控制面的 `TrafficSurgeExecutor`，每个请求经 `gateway-service` 发送，不调用目标侧 prepare 或 release。
 
+固定 worker 目标操作为 `browse-api-worker`。
+
 每个请求使用 `page=0`、`size=<pageSize>` 和 `sort=latest`；`pageSize` 受 catalog 限制，目前最大为 `100`。
 
 ## 实际实现逻辑

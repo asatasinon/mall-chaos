@@ -1,0 +1,203 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: castrel
+spec:
+  selector:
+    matchLabels:
+      component: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node
+        component: node-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9100"
+    spec:
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: node-exporter
+          image: harbor.cloudwise.com/noname/node-exporter:v1.9.1
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/rootfs
+            - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)
+          ports:
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: rootfs
+              mountPath: /rootfs
+              mountPropagation: HostToContainer
+              readOnly: true
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+            type: Directory
+        - name: sys
+          hostPath:
+            path: /sys
+            type: Directory
+        - name: rootfs
+          hostPath:
+            path: /
+            type: Directory
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysqld-exporter
+  namespace: castrel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: mysqld-exporter
+  template:
+    metadata:
+      labels:
+        app: mysql
+        component: mysqld-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9104"
+    spec:
+      containers:
+        - name: mysqld-exporter
+          image: harbor.cloudwise.com/noname/mysqld-exporter:v0.15.1
+          args:
+            - --config.my-cnf=/etc/mysqld-exporter/.my.cnf
+            - --collect.global_status
+            - --collect.global_variables
+            - --collect.info_schema.innodb_metrics
+            - --collect.info_schema.tables
+            - --collect.info_schema.processlist
+            - --collect.slave_status
+            - --collect.perf_schema.eventsstatements
+            - --collect.perf_schema.eventsstatementssum
+            - --collect.perf_schema.eventswaits
+            - --collect.perf_schema.file_events
+            - --collect.perf_schema.indexiowaits
+            - --collect.perf_schema.tableiowaits
+            - --collect.perf_schema.tablelocks
+          ports:
+            - name: metrics
+              containerPort: 9104
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: exporter-config
+              mountPath: /etc/mysqld-exporter
+              readOnly: true
+      volumes:
+        - name: exporter-config
+          secret:
+            secretName: mysqld-exporter-secret
+            defaultMode: 0444
+            items:
+              - key: .my.cnf
+                path: .my.cnf
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-exporter
+  namespace: castrel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: redis-exporter
+  template:
+    metadata:
+      labels:
+        app: redis
+        component: redis-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9121"
+    spec:
+      containers:
+        - name: redis-exporter
+          image: oliver006/redis_exporter:v1.67.0
+          env:
+            - name: REDIS_ADDR
+              value: redis://redis:6379
+          ports:
+            - name: metrics
+              containerPort: 9121
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

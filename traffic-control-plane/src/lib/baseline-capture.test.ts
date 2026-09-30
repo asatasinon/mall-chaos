@@ -15,6 +15,7 @@ const run: FaultRunRecord = {
   targetOperation: 'browse-api-worker',
   state: 'RECOVERED',
   parameters: { durationSec: 60, concurrency: 4 },
+  contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
   idempotencyKey: 'baseline-capture-test',
   fencingToken: 1,
   startedAt: '2026-09-16T10:00:01.000Z',

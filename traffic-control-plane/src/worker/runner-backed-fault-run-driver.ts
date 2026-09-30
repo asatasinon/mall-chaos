@@ -3,13 +3,19 @@ import { forwardAbortSignal, throwIfAborted } from '../lib/abort-signal';
 import { createFaultRunContext } from '../lib/fault-run-context';
 import { normalizeFaultRunSummaryEventPayload } from '../lib/fault-run-event-contract';
 import { loadRunnerConfigFromDb, type RunnerConfig } from '../lib/runner-config';
-import { appendFaultRunEvent, type FaultRunRecord } from '../lib/fault-run-repository';
+import { appendFaultRunEvent } from '../lib/fault-run-repository';
 import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
-import type { OwnedFaultRunDriver, OwnedRunHandle } from './fault-run-driver';
+import type {
+  FaultRunDriverRecord,
+  OwnedFaultRunDriver,
+  OwnedRunHandle,
+} from './fault-run-driver';
+import {
+  RUNNER_TERMINAL_SUMMARY_EVENT,
+  supportsFaultRunScenario,
+} from './fault-run-driver-capabilities';
 import type { RunnerExecutionConfig, RunnerActionResult, TrafficActionOrchestrator } from './traffic-action-orchestrator';
 import { TrafficActionOrchestrator as DefaultTrafficActionOrchestrator } from './traffic-action-orchestrator';
-
-const RUNNER_TERMINAL_SUMMARY_EVENT = 'RUNNER_LIFECYCLE_SUMMARY' as const;
 
 interface RunnerBackedDriverDependencies {
   loadConfig: typeof loadRunnerConfigFromDb;
@@ -31,13 +37,11 @@ export class RunnerBackedFaultRunDriver implements OwnedFaultRunDriver {
     this.appendEvent = dependencies.appendEvent ?? appendFaultRunEvent;
   }
 
-  supports(run: FaultRunRecord): boolean {
-    return run.scenario === 'NOTIFICATION_HEAP_PRESSURE'
-      || run.scenario === 'NOTIFICATION_STORAGE_APPEND'
-      || run.scenario === 'PSP_PROVIDER_OUTCOME';
+  supports(run: FaultRunDriverRecord): boolean {
+    return supportsFaultRunScenario('RUNNER_ENGINE', run.scenario);
   }
 
-  async start(input: { run: FaultRunRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle> {
+  async start(input: { run: FaultRunDriverRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle> {
     const controller = new AbortController();
     const removeFenceAbortListener = forwardAbortSignal(input.fence.signal, controller);
     const trafficRunId = `fault-run-${input.run.faultRunId}`;
@@ -58,7 +62,7 @@ export class RunnerBackedFaultRunDriver implements OwnedFaultRunDriver {
   }
 
   private async execute(
-    run: FaultRunRecord,
+    run: FaultRunDriverRecord,
     trafficRunId: string,
     signal: AbortSignal,
   ): Promise<void> {
@@ -92,7 +96,7 @@ export class RunnerBackedFaultRunDriver implements OwnedFaultRunDriver {
   }
 
   private async recordSummary(
-    run: FaultRunRecord,
+    run: FaultRunDriverRecord,
     result: RunnerActionResult,
     latencyMs = 0,
   ): Promise<void> {

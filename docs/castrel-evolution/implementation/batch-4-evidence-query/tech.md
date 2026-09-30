@@ -1,10 +1,14 @@
 # 批次 4：实时 Evidence Query 技术设计
 
-> 状态：技术设计 v1.4，已按 2026-09-28 Phase 3 复审决议、clean-slate schema 边界及 P3-ISSUE-034 对齐（待实施）<br>
+> 状态：技术设计 v1.6，已按 2026-09-28 Phase 3 复审决议、clean-slate schema 边界及 P3-ISSUE-034 对齐；P3-04 最小 consumer seam 已实现，Batch 4 完整运行时仍未实施<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 对应路线阶段：阶段 4<br>
 > 前置条件：阶段 0～3 的退出门槛已满足，尤其是批次 3 已提供并阻断式校验完整的 Scenario Evidence Contract<br>
 > 设计原则：合同单一事实来源、运行级不可变查询协议、实时只读查询、结果不落库、控制/效果/恢复/清理事实严格分离
+
+### P3-04 implementation handoff (2026-09-30)
+
+The user approved and the implementation completed the two blocked handoffs as a deliberately narrow Batch 4 consumer seam in `traffic-control-plane`. `evidence-contract-snapshot.ts` imports the Phase 3 `EvidenceContractPlan`, reuses its canonicalizer/hash, persists only the Evidence plan JSON alongside the unchanged full `contractRevision`, and fails missing snapshots with `CONTRACT_SNAPSHOT_UNAVAILABLE` rather than consulting current Catalog data. `evidence-query-prometheus-renderer.ts` implements only the three approved fixed templates, retaining the Catalog predicate and enforcing fixed service/filesystem scope and 5m/15m metric windows; metric fixtures cover the emitted Payment counters and node-exporter series. This is not the full Batch 4 runtime: capture flags, Fault Run transaction wiring, database tables, manifests, live provider clients, routes, UI, and CLI remain unimplemented. Phase 3 remains the sole source of Evidence types and mutable Catalog facts; renderer inputs remain typed Catalog recipes with no free-form query slot.
 
 ## 1. 设计结论
 

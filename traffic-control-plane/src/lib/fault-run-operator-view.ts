@@ -4,6 +4,7 @@ import {
   validateScenarioParameters,
   type FaultRunState,
 } from './fault-run-catalog';
+import { CATALOG_REVISION_PATTERN } from './fault-run-catalog-revision';
 import {
   normalizeFaultRunRecoveryEventPayload,
   normalizeFaultRunSummaryEventPayload,
@@ -28,6 +29,7 @@ import type {
 } from './fault-run-repository';
 import type { FaultRunActionRecord } from './fault-run-action-repository';
 import type { FaultRunExecutionRecord } from './fault-run-execution-repository';
+import { SCENARIO_CONTRACT_REVISION_PATTERN } from './scenario-contract';
 
 const CACHE_RESULT_KEYS = [
   'CACHE_HIT',
@@ -78,6 +80,7 @@ export interface FaultRunOperatorRun {
   targetOperation: string;
   state: FaultRunState;
   parameters: Record<string, number | string>;
+  contractRevision?: string;
   parameterStatus: 'VALIDATED' | 'LEGACY' | 'UNKNOWN';
   parameterIssue: string | null;
   startedAt: string | null;
@@ -169,6 +172,9 @@ export function buildFaultRunOperatorRun(
     targetOperation: definition.targetOperation,
     state: run.state,
     parameters: parameterReadModel.parameters,
+    ...(SCENARIO_CONTRACT_REVISION_PATTERN.test(run.contractRevision)
+      ? { contractRevision: run.contractRevision }
+      : {}),
     parameterStatus: parameterReadModel.status,
     parameterIssue: parameterReadModel.issue,
     startedAt: run.startedAt,
@@ -376,6 +382,19 @@ function sanitizeFaultRunEventPayload(
   run: FaultRunRecord,
   event: FaultRunEventRecord,
 ): Record<string, unknown> {
+  if (event.eventType === 'CREATED') {
+    const payload = asRecord(event.payload);
+    const contractRevision = payload.contractRevision;
+    const catalogRevision = payload.catalogRevision;
+    if (typeof contractRevision !== 'string'
+      || !SCENARIO_CONTRACT_REVISION_PATTERN.test(contractRevision)
+      || contractRevision !== run.contractRevision
+      || typeof catalogRevision !== 'string'
+      || !CATALOG_REVISION_PATTERN.test(catalogRevision)) {
+      return {};
+    }
+    return { contractRevision, catalogRevision };
+  }
   if (event.eventType === 'ACTION_OUTCOME_UNKNOWN') {
     return { reason: 'OUTCOME_UNKNOWN' };
   }

@@ -40,6 +40,8 @@ interface MigrationConnection {
   query: (sql: string, values?: unknown[]) => Promise<[unknown, unknown]>;
 }
 
+export type MigrationSchemaQuery = MigrationConnection['query'];
+
 export async function applyMigrations(): Promise<MigrationResult> {
   const connection = await getPool().getConnection();
   let lockAcquired = false;
@@ -192,6 +194,29 @@ async function verifyRequiredTables(
   );
   const missing = REQUIRED_TABLES.filter((table) => !found.has(table));
   if (missing.length > 0) throw new Error(`MIGRATION_REQUIRED_TABLE_MISSING:${missing.join(',')}`);
+  await verifyFaultRunContractRevisionColumn((sql, values) => connection.query(sql, values));
+}
+
+export async function verifyFaultRunContractRevisionColumn(
+  query: MigrationSchemaQuery,
+): Promise<void> {
+  const [rows] = await query(
+    `SELECT data_type, character_maximum_length, is_nullable
+       FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = ?
+        AND column_name = ?`,
+    ['fault_runs', 'contract_revision'],
+  );
+  const columns = Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
+  const column = columns.length === 1 ? columns[0] : undefined;
+  if (column
+    && String(column.data_type).toLowerCase() === 'varchar'
+    && Number(column.character_maximum_length) === 128
+    && String(column.is_nullable).toUpperCase() === 'NO') {
+    return;
+  }
+  throw new Error('MIGRATION_REQUIRED_COLUMN_INVALID:fault_runs.contract_revision');
 }
 
 function normalizeSql(sql: string): string {

@@ -27,16 +27,20 @@ import {
   type RequestFaultRunStopInput,
 } from '../lib/fault-run-repository';
 import { FaultRunOwnerFence } from '../lib/fault-run-owner-fence';
-import type { OwnedFaultRunDriver, OwnedRunDrainResult, OwnedRunHandle, OwnedRunStopReason } from './fault-run-driver';
+import {
+  toFaultRunDriverRecord,
+  type OwnedFaultRunDriver,
+  type OwnedRunDrainResult,
+  type OwnedRunHandle,
+  type OwnedRunStopReason,
+} from './fault-run-driver';
+import { FAULT_RUN_DRIVER_EXECUTION } from './fault-run-driver-capabilities';
 import {
   faultRunDrainParticipantForOwner,
   type FaultRunDrainRegistry,
 } from './fault-run-drain-registry';
 
-export const FAULT_RUN_DRIVER_EXECUTION = Object.freeze({
-  state: 'ACTIVE',
-  mode: 'ACTIVE_ONLY',
-} as const);
+export { FAULT_RUN_DRIVER_EXECUTION };
 
 export function isFaultRunDriverExecutionEligible(
   run: Pick<FaultRunRecord, 'state'>,
@@ -290,7 +294,9 @@ export class FaultRunReconciler {
       return;
     }
 
-    const driver = this.dependencies.drivers.find((candidate) => candidate.supports(run));
+    const driver = this.dependencies.drivers.find((candidate) => (
+      candidate.supports(toFaultRunDriverRecord(run))
+    ));
     if (!driver) return;
     const claimed = await this.dependencies.claimExecution({
       faultRunId: run.faultRunId,
@@ -330,7 +336,7 @@ export class FaultRunReconciler {
         || !fence.isLocallyCurrent()
         || Date.parse(run.expiresAt) <= this.dependencies.now().getTime()
         || Date.parse(claimed.leaseExpiresAt) <= this.dependencies.now().getTime()) return;
-      const handle = await driver.start({ run, fence });
+      const handle = await driver.start({ run: toFaultRunDriverRecord(run), fence });
       if (!fence.isLocallyCurrent()) {
         try {
           await handle.stop({ reason: 'OWNER_LOST', signal: fence.signal });

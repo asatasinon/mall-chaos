@@ -29,6 +29,7 @@ import type {
   ParameterConsumer,
   ResolvedScenarioContract,
 } from './scenario-contract';
+import { ALERT_RECEIPT_POLICY_ID } from './scenario-contract';
 
 export const SCENARIO_CONTRACT_REPORT_SCHEMA_VERSION = 'scenario-contract-report.v1' as const;
 
@@ -277,7 +278,7 @@ export interface ScenarioContractValidationInput {
   readonly requireAgentDeliveryLive?: boolean;
 }
 
-const REQUIRED_RUNBOOK_HEADINGS: readonly ScenarioRunbookHeadingId[] = [
+export const SCENARIO_CONTRACT_REQUIRED_RUNBOOK_HEADINGS: readonly ScenarioRunbookHeadingId[] = [
   'PURPOSE_AND_FIXED_TARGET',
   'ACTUAL_IMPLEMENTATION',
   'PARAMETERS_AND_LIFECYCLE',
@@ -304,7 +305,6 @@ const PARAMETER_CONSUMERS = new Set<ParameterConsumer>([
   'TARGET_PREPARE',
   'WORKER_EXECUTION',
 ]);
-const ALERT_RECEIPT_POLICY_ID = 'alert-receipt.v1';
 const VALID_COMMIT_SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/iu;
 const VALID_CATALOG_REVISION = /^[a-f0-9]{64}$/iu;
 const VALID_CHECK_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/u;
@@ -1624,7 +1624,7 @@ function validateRunbookContract(
     && localeFacts.every((localeFact) => (
       localeFact.allowlisted
       && localeFact.contentAvailable
-      && REQUIRED_RUNBOOK_HEADINGS.every((heading) => localeFact.headingIds.includes(heading))
+      && SCENARIO_CONTRACT_REQUIRED_RUNBOOK_HEADINGS.every((heading) => localeFact.headingIds.includes(heading))
     ));
   if (!fact.metadataPresent
     || fact.metadataEntryCount !== 1
@@ -1915,7 +1915,25 @@ function validateAlertConfiguration(
   }
 
   const readiness = config.agentDeliveryReadiness;
-  if (readiness.state === 'NOT_ENABLED_YET') return;
+  if (readiness.state === 'NOT_ENABLED_YET') {
+    const undeclaredExternalRoute = deployments.some(({ externalAgent }) => (
+      externalAgent.childRouteConfigured
+      || externalAgent.receiverConfigured
+      || externalAgent.routeTreeSha256 !== null
+    ));
+    if (undeclaredExternalRoute) {
+      addIssue(issues, {
+        category: 'invalidAlertContract',
+        code: 'AGENT_ROUTE_CONFIGURED_WHILE_NOT_ENABLED',
+        artifact: 'alertmanager',
+        fieldPath: 'externalAgent',
+        expected: 'NO_EXTERNAL_AGENT_ROUTE_OR_RECEIVER',
+        actual: 'UNDECLARED_EXTERNAL_DELIVERY',
+        remediation: 'Keep Agent delivery unset until its deployment-managed route and receiver are explicitly declared.',
+      });
+    }
+    return;
+  }
   if (readiness.state !== 'ENABLED') {
     addIssue(issues, {
       category: 'invalidAlertContract',

@@ -23,6 +23,7 @@ function createRun(scenario: FaultRunRecord['scenario']): FaultRunRecord {
     targetOperation: 'report-operation',
     state: 'ACTIVE',
     parameters: { durationSec: 60 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'report-gate-test-001',
     fencingToken: 1,
     startedAt: new Date().toISOString(),

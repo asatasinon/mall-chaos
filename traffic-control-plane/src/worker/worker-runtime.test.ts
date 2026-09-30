@@ -14,6 +14,7 @@ function createRun(overrides: Partial<FaultRunRecord> = {}): FaultRunRecord {
     targetOperation: 'storage-append',
     state: 'ACTIVE',
     parameters: { durationSec: 60 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'worker-runtime-test-key',
     fencingToken: 1,
     startedAt: '2026-09-18T09:59:00.000Z',

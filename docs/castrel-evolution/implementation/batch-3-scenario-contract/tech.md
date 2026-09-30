@@ -1,6 +1,6 @@
 # 批次 3：Scenario Contract 技术设计
 
-> 状态：技术设计 v1.7，按 2026-09-28 复审决议及 P3-01 告警关联窗口/Evidence 模板决议对齐；实施中<br>
+> 状态：技术设计 v1.9，按 2026-09-28 复审决议及 P3-01 告警关联窗口/Evidence 模板决议对齐；P3-06 CLI 与 Java result artifacts 已实现，根级 gate 与部署接线仍待实施<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 对应路线阶段：阶段 3<br>
 > 前置条件：批次 0～2 的运行事实、drain、owner/reconcile 语义已可验证<br>
@@ -490,7 +490,7 @@ Gateway 的 `TARGETS` 不能被 TypeScript 直接导入，也不应新增一个�
 
    `operations` 只列 `targetLifecycleMode=GATEWAY` 的 Catalog 场景；local Worker bypass 不进入此文件。
 3. `gateway-service` 的 `OperationDispatchContractTest` 通过 `-Dscenario.contract.expected=...` 读取该输入，并断言 registry 中 operation 集合完全相同、service 一致、prepare/release/cleanup mode 合法且相关固定 path 存在。
-4. 如果设置 `-Dscenario.contract.checksDir=...`，测试在全部断言通过后写入含 `checkId`、`status`、`catalogRevision`、operation 数量及可选 source commit 的结构化结果；缺少 expected input 时仅跳过本地 contract test，required release gate 必须提供该输入。
+4. 如果设置 `-Dscenario.contract.checksDir=...`，测试在全部断言通过后写入 `scenario-contract-check-result.v1`，含 `checkId`、`status`、`catalogRevision`、operation 数量和必需的 source commit；缺少 expected input 或 check directory 时仅跳过本地 contract test，required release gate 必须提供二者以及 source commit。
 5. Java test 同时通过 Spring mapping 或 controller-level test 验证 registry 指向的 target endpoint contract；它不能仅比较两个手工字符串表。
 6. 本地 Worker scenario 不写入 Gateway expectation 输入；Java test 必须拒绝“标为 Gateway 但无 registry entry”的 scenario。
 
@@ -706,9 +706,12 @@ contract_revision VARCHAR(128) NOT NULL
 | console form metadata | 参数类型、单位、默认值、范围、选项、必填性。 | 为未来表单重构提供输入；当前 UI 仍读取 Catalog。 |
 | runbook checklist | 每场景所需 lifecycle/evidence/alert/cleanup section。 | 指导维护者；不自动覆盖 Markdown。 |
 | smoke matrix | 场景、启动前提、最小 lifecycle/evidence assertion、是否适合 live smoke。 | 未来 smoke harness 输入；不是已执行测试结果。 |
-| terminology input | Catalog scenario ID 加经过审查的固定控制面术语。 | 驱动 runtime terminology 检查，避免 shell 正则遗漏新场景。 |
+| terminology input | Catalog scenario ID 的安全转义 pattern 加经过审查的固定控制面术语。 | 驱动 runtime terminology 检查，避免 shell 正则遗漏新场景。 |
+| contract-test scaffold | 每场景的 contract revision、target/parameter/evidence/lifecycle/receipt assertions。 | 生成的测试期望清单；不覆盖生产测试源文件。 |
 
 所有生成文件包含 schema version，不包含 `generatedAt` 等非确定性字段；输出目录使用 `tmp/scenario-contract/`。若将 manifest 提交供发布审查，必须用显式 `--check` 模式验证其和当前 Catalog 一致，运行时不得读取该提交副本。
+
+P3-04 的 `scenario-contract-artifacts.ts` 只返回由 resolved contracts 与预解析 validation/runbook facts 构成的 typed、schema-versioned 内存 bundle；它不读文件、环境、数据库或网络，不写临时/生产路径。P3-06 的 CLI/CI wrapper 才负责序列化到 `tmp/scenario-contract/` 并上传 artifact。生成器只接受 `PREFLIGHT` 输入，不得将自身的预检输出包装成 Java checks 已完成或 release `VALID`。
 
 ### 9.2 package 与根级命令
 
@@ -717,17 +720,19 @@ contract_revision VARCHAR(128) NOT NULL
 ```json
 {
   "scripts": {
-    "test:contract": "tsx --test src/lib/scenario-contract.test.ts",
+    "test:contract": "tsx --test src/lib/fault-run-catalog.test.ts src/lib/fault-run-catalog-revision.test.ts src/lib/scenario-contract.test.ts src/lib/scenario-contract-admission.test.ts src/lib/scenario-contract-validator.test.ts src/lib/scenario-contract-deployment-facts.test.ts src/lib/scenario-contract-artifacts.test.ts src/lib/scenario-contract-cli-facts.test.ts src/lib/scenario-contract-cli.test.ts src/lib/evidence-contract-snapshot.test.ts src/lib/evidence-query-prometheus-renderer.test.ts src/worker/fault-run-driver-registry.test.ts",
     "validate:contract:preflight": "tsx scripts/validate-scenario-contract.ts --stage=preflight",
     "validate:contract:finalize": "tsx scripts/validate-scenario-contract.ts --stage=finalize"
   }
 }
 ```
 
+Initial CLI implementation uses a fixed 14-ID required-check plan, including a preflight report gate, and `scenario-contract-check-result.v1` projections. `--source-commit-sha` is explicit; the CLI does not execute Git or read `process.env`. PREFLIGHT writes a clearly labeled non-release report plus the Catalog-derived Gateway expectation. FINAL reads the matching preflight report and fixed per-check artifact filenames; missing, malformed, failed, revision-mismatched, or commit-mismatched checks produce a persisted `BLOCKED` report and non-zero exit. These commands do not open a database, call external services, or run scenario smoke. Root orchestration and external CI wiring remain separate P3-06 tasks.
+
 根级 `scripts/test-scenario-contract.sh` 由外部 CI 调用，分阶段执行并汇总：
 
 1. 运行 Contract unit tests 和 `validate:contract:preflight`，生成带 `catalogRevision` 的期望文件；预检不得输出 release `valid`。
-2. 运行 runbook、i18n、terminology、typecheck、lint 和 Gateway/target Java endpoint tests。Maven 测试模块为 `gateway-service,catalog-service,order-service,notification-service,promotion-service,inventory-service,psp-simulator`；用 `OperationDispatchContractTest` 和 `ScenarioTargetEndpointContractTest` 对照同一份期望。
+2. 运行 runbook、i18n、terminology、typecheck、lint 和 Gateway/target Java endpoint tests。Maven 测试模块为 `gateway-service,catalog-service,order-service,notification-service,promotion-service,inventory-service,psp-simulator`；Gateway 用 `OperationDispatchContractTest`/`OperationTargetRegistryTest`，target services 用 `CatalogOperationsControllerTest`、`OrderReportOperationsControllerContractTest`、`NotificationOperationControllerContractTest`、`CouponReservationConsistencyControllerContractTest`、`InventoryOperationsControllerContractTest` 和 `PspControllerContractTest` 对照同一份 Catalog expectation，并输出各自带 revision/commit 的结构化结果。
 3. 每步无论成功/失败都写入带 `catalogRevision` 的结构化 check result 和受限日志摘要。根脚本不得在第一项失败时退出；它应继续执行剩余检查。
 4. 所有 required checks 落盘后再运行 `validate:contract:finalize -- --checks "$TMP/scenario-contract/checks/" --scope STATIC_CONTRACT`。finalize 将结果汇总为整体及逐场景 `VALID`/`BLOCKED`/`LIMITED`；任一 required result 缺失、失败或 revision 不匹配均为 `BLOCKED`。外部 blocking release gate 只有整体 `VALID` 才通过；`BLOCKED`/`LIMITED` 均在报告写出后以非零退出。`LIMITED` 仅用于 non-release canary/live-scope 报告，不可提升为静态 gate success。
 5. 外部 CI 使用 always-run artifact upload，成功/失败都上传去敏的 manifest、preflight、checks 和 final report；若执行器被强制中断、无法产生 final report，则 pipeline 仍必须失败并保留已产生的 preflight/check artifacts。

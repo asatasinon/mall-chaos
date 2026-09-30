@@ -16,6 +16,7 @@ function createRun(): FaultRunRecord {
     targetOperation: 'products-browse-report',
     state: 'RECOVERING',
     parameters: { durationSec: 60 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'create-request-001',
     fencingToken: 1,
     startedAt: '2026-09-18T00:00:00.000Z',

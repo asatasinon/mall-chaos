@@ -4,7 +4,7 @@ import { classifyPrepareResponse, FaultRunReconciler } from './fault-run-reconci
 import { toFaultRunAction } from '../lib/fault-run-action-repository';
 import type { FaultRunExecutionRecord } from '../lib/fault-run-execution-repository';
 import type { FaultRunRecord } from '../lib/fault-run-repository';
-import type { OwnedFaultRunDriver } from './fault-run-driver';
+import type { FaultRunDriverRecord, OwnedFaultRunDriver } from './fault-run-driver';
 
 const run: FaultRunRecord = {
   faultRunId: '123e4567-e89b-12d3-a456-426614174000',
@@ -13,6 +13,7 @@ const run: FaultRunRecord = {
   targetOperation: 'products-browse-report',
   state: 'ACTIVE',
   parameters: { durationSec: 60 },
+  contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
   idempotencyKey: 'reconciler-test-key',
   fencingToken: 1,
   startedAt: '2026-09-21T01:00:00.000Z',
@@ -50,13 +51,18 @@ function execution(overrides: Partial<FaultRunExecutionRecord> = {}): FaultRunEx
   };
 }
 
-function driver(started: string[], stopped: string[]): OwnedFaultRunDriver {
+function driver(
+  started: string[],
+  stopped: string[],
+  onStart?: (run: FaultRunDriverRecord) => void,
+): OwnedFaultRunDriver {
   return {
     name: 'test-driver',
     drainOwner: 'REPORT_SCENARIO_WORKER',
     summaryEventType: 'REPORT_WORKER_STOPPED',
     supports: () => true,
-    start: async () => {
+    start: async ({ run: driverRun }) => {
+      onStart?.(driverRun);
       started.push(run.faultRunId);
       return {
         stop: async () => {
@@ -73,8 +79,10 @@ test('reconciler claims an initial owner and starts one supported driver', async
   const started: string[] = [];
   const stopped: string[] = [];
   const claims: string[] = [];
+  const driverRuns: FaultRunDriverRecord[] = [];
+  const runWithCatalogRevision = { ...run, catalogRevision: 'b'.repeat(64) };
   const reconciler = new FaultRunReconciler({
-    listCandidates: async () => [run],
+    listCandidates: async () => [runWithCatalogRevision],
     loadExecution: async () => current,
     claimExecution: async (input) => {
       if (current.ownerId !== null) return null;
@@ -93,7 +101,7 @@ test('reconciler claims an initial owner and starts one supported driver', async
     updateExecution: async () => true,
     relinquishExecution: async () => true,
     appendEvent: async () => undefined,
-    drivers: [driver(started, stopped)],
+    drivers: [driver(started, stopped, (driverRun) => driverRuns.push(driverRun))],
     now: () => new Date('2026-09-21T01:00:00.000Z'),
     logger: { warn: () => undefined, info: () => undefined },
   }, {
@@ -109,6 +117,8 @@ test('reconciler claims an initial owner and starts one supported driver', async
 
   assert.deepEqual(claims, ['worker-a']);
   assert.deepEqual(started, [run.faultRunId]);
+  assert.equal('contractRevision' in (driverRuns[0] ?? {}), false);
+  assert.equal('catalogRevision' in (driverRuns[0] ?? {}), false);
   assert.deepEqual(reconciler.getOwnedRunIds(), [run.faultRunId]);
   await reconciler.stop();
   assert.deepEqual(stopped, [run.faultRunId]);

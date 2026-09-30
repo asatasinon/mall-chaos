@@ -1,7 +1,7 @@
 import { appendFaultRunEvent } from '../lib/fault-run-repository';
 import { normalizeFaultRunSummaryEventPayload } from '../lib/fault-run-event-contract';
-import type { FaultRunRecord } from '../lib/fault-run-repository';
 import { forwardAbortSignal } from '../lib/abort-signal';
+import type { FaultRunDriverRecord } from './fault-run-driver';
 
 export interface ScenarioWorkerStats {
   requests: number;
@@ -76,7 +76,7 @@ export class ControlledScenarioWorker {
   private removeParentAbortListener: (() => void) | null = null;
 
   constructor(
-    private readonly run: FaultRunRecord,
+    private readonly run: FaultRunDriverRecord,
     private readonly options: ControlledScenarioOptions,
     private readonly eventWriter: (runId: string, eventType: string, payload?: unknown) => Promise<void> = appendFaultRunEvent,
   ) {}

@@ -1,4 +1,5 @@
 import { assertFaultRunRecoveryPolicy } from './fault-run-recovery-policy';
+import { ALERT_RECEIPT_POLICY_ID } from './scenario-contract';
 import type {
   AlertCorrelationContract,
   EvidenceContractPlan,
@@ -548,7 +549,7 @@ function conditionalAlerts(...allowedAlerts: readonly AlertCorrelationContract[]
     expectation: 'CONDITIONAL',
     allowedAlerts,
     missingAlertTreatment: 'EFFECT_CAN_STILL_BE_OBSERVED',
-    receiptPolicyId: 'alert-receipt.v1',
+    receiptPolicyId: ALERT_RECEIPT_POLICY_ID,
   };
 }
 

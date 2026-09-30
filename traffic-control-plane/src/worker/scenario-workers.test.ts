@@ -125,6 +125,7 @@ test('scenario scanner refuses a Run already closed by the local drain gate', as
     targetOperation: 'cart-product-validation',
     state: 'ACTIVE',
     parameters: { concurrency: 1, requestIntervalMs: 0 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'scenario-gate-test-001',
     fencingToken: 1,
     startedAt: new Date().toISOString(),
@@ -179,6 +180,7 @@ test('scenario worker reads only persisted member SKUs and does not create a cus
     targetOperation: 'product-detail-cache',
     state: 'ACTIVE',
     parameters: { concurrency: 1, requestIntervalMs: 0 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'phase-e-worker-001',
     fencingToken: 1,
     startedAt: new Date().toISOString(),
@@ -240,6 +242,8 @@ test('cart dependency worker uses the authenticated cart business path through G
     targetOperation: 'cart-product-validation',
     state: 'ACTIVE',
     parameters: { durationSec: 1, concurrency: 1, requestIntervalMs: 0 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
+    catalogRevision: 'b'.repeat(64),
     idempotencyKey: 'cart-worker-test-1234',
     fencingToken: 2,
     startedAt: new Date().toISOString(),
@@ -312,6 +316,8 @@ test('cart dependency worker uses the authenticated cart business path through G
   const addItem = calls.find((call) => call.path === '/api/cart/items');
   assert.equal(typeof addItem?.body, 'object');
   assert.equal((addItem?.body as { sku?: string }).sku, 'SKU-CART-001');
+  assert.equal(JSON.stringify(calls).includes('contractRevision'), false);
+  assert.equal(JSON.stringify(calls).includes('catalogRevision'), false);
   assert.equal(events.includes('SCENARIO_WORKER_STARTED'), true);
   assert.equal(events.includes('SCENARIO_WORKER_STOPPED'), true);
   assert.equal(events.includes('SCENARIO_WORKER_DRAINED'), true);
@@ -326,6 +332,7 @@ test('legacy ScenarioWorkers does not issue business requests for recovering or 
       targetOperation: 'product-detail-cache',
       state: 'RECOVERING',
       parameters: { durationSec: 30, concurrency: 1, requestIntervalMs: 0 },
+      contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
       idempotencyKey: 'scenario-recovering-test',
       fencingToken: 1,
       startedAt: new Date().toISOString(),
@@ -346,6 +353,7 @@ test('legacy ScenarioWorkers does not issue business requests for recovering or 
       targetOperation: 'cart-product-validation',
       state: 'STOPPED',
       parameters: { durationSec: 30 },
+      contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
       idempotencyKey: 'scenario-stopped-test',
       fencingToken: 1,
       startedAt: new Date().toISOString(),

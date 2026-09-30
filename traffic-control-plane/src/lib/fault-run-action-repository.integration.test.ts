@@ -25,9 +25,12 @@ import {
   startOwnedFaultRunRelease,
 } from './fault-run-repository';
 import { getScenarioDefinition, validateScenarioParameters } from './fault-run-catalog';
+import { getCatalogRevision } from './fault-run-catalog-revision';
+import { getScenarioContractRevision, resolveScenarioContract } from './scenario-contract';
 import { parseFaultRunRecoveryProjection } from './fault-run-recovery';
 
 const enabled = process.env.RUN_MYSQL_INTEGRATION === 'true';
+const TEST_CONTRACT_REVISION = 'sc.v1:sha256:' + '0'.repeat(64);
 
 test('action journal preserves idempotency and marks stale dispatch unknown', {
   skip: enabled ? false : 'Set RUN_MYSQL_INTEGRATION=true against a disposable control-plane database',
@@ -48,10 +51,10 @@ test('action journal preserves idempotency and marks stale dispatch unknown', {
     await pool.execute(
       `INSERT INTO fault_runs
         (fault_run_id, scenario, target_service, target_operation, state, parameters_json,
-         idempotency_key, fencing_token, expires_at, trace_id)
+         contract_revision, idempotency_key, fencing_token, expires_at, trace_id)
        VALUES (?, 'BROWSE_REPORT_SQL', 'catalog-service', 'products-browse-report',
-               'ACTIVE', ?, ?, 999999995, DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL 60 SECOND), ?)`,
-      [runId, JSON.stringify({ durationSec: 60 }), idempotencyKey, `trace-${runId}`],
+               'ACTIVE', ?, ?, ?, 999999995, DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL 60 SECOND), ?)`,
+      [runId, JSON.stringify({ durationSec: 60 }), TEST_CONTRACT_REVISION, idempotencyKey, `trace-${runId}`],
     );
     await pool.execute(
       `INSERT INTO fault_run_executions (fault_run_id, execution_mode)
@@ -159,10 +162,10 @@ test('owner-fenced recovery action unknown atomically requires manual interventi
     await pool.execute(
       `INSERT INTO fault_runs
         (fault_run_id, scenario, target_service, target_operation, state, parameters_json,
-         idempotency_key, fencing_token, expires_at, trace_id)
+         contract_revision, idempotency_key, fencing_token, expires_at, trace_id)
        VALUES (?, 'BROWSE_REPORT_SQL', 'catalog-service', 'products-browse-report',
-               'ACTIVE', ?, ?, 999999993, DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL 60 SECOND), ?)`,
-      [runId, JSON.stringify({ durationSec: 60 }), `unknown-${runId}`, `trace-${runId}`],
+               'ACTIVE', ?, ?, ?, 999999993, DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL 60 SECOND), ?)`,
+      [runId, JSON.stringify({ durationSec: 60 }), TEST_CONTRACT_REVISION, `unknown-${runId}`, `trace-${runId}`],
     );
     await pool.execute(
       `INSERT INTO fault_run_executions (fault_run_id, execution_mode)
@@ -235,13 +238,21 @@ test('create transaction persists one PREPARE intent only when the catalog requi
       const input = {
         scenario, targetService: definition.targetService, targetOperation: definition.targetOperation,
         parameters: validateScenarioParameters(scenario, { durationSec: 60 }),
+        contractRevision: getScenarioContractRevision(resolveScenarioContract(definition)),
+        catalogRevision: getCatalogRevision(),
         idempotencyKey, expiresAt: new Date(Date.now() + 60_000), traceId: `trace-${randomUUID()}`,
         ...(executionMode ? { executionMode } : {}),
       };
       const result = await createFaultRun(input);
       runIds.push(result.run.faultRunId);
       assert.equal(result.run.state, 'CREATING');
+      assert.equal(result.run.contractRevision, input.contractRevision);
       assert.equal(result.run.execution?.executionMode ?? null, executionMode ?? null);
+      const createdEvent = (await loadFaultRunEvents(result.run.faultRunId))
+        .find((event) => event.eventType === 'CREATED');
+      assert.ok(createdEvent);
+      assert.equal((createdEvent.payload as Record<string, unknown>).contractRevision, input.contractRevision);
+      assert.equal((createdEvent.payload as Record<string, unknown>).catalogRevision, input.catalogRevision);
       const actions = await listFaultRunActions(result.run.faultRunId);
       assert.equal(actions.length, expectedCount);
       assert.equal(result.action?.actionId ?? null, actions[0]?.actionId ?? null);
@@ -314,13 +325,15 @@ test('stopping a CREATING run cancels its undispatched PREPARE intent', {
       throw new Error('ACTION_JOURNAL_TEST_REQUIRES_NO_ACTIVE_RUN');
     }
 
-    const scenario = 'BROWSE_REPORT_SQL';
+    const scenario = 'BROWSE_REPORT_SQL' as const;
     const definition = getScenarioDefinition(scenario);
     const created = await createFaultRun({
       scenario,
       targetService: definition.targetService,
       targetOperation: definition.targetOperation,
       parameters: validateScenarioParameters(scenario, { durationSec: 60 }),
+      contractRevision: getScenarioContractRevision(resolveScenarioContract(definition)),
+      catalogRevision: getCatalogRevision(),
       idempotencyKey: `p2-stop-${randomUUID()}`,
       expiresAt: new Date(Date.now() + 60_000),
       traceId: `trace-${randomUUID()}`,
@@ -339,6 +352,55 @@ test('stopping a CREATING run cancels its undispatched PREPARE intent', {
     const actions = await listFaultRunActions(runId);
     assert.equal(actions[0]?.actionState, 'CANCELLED');
     assert.equal(actions[0]?.errorCode, 'PREPARE_CANCELLED_BEFORE_DISPATCH');
+  } finally {
+    if (runId) await pool.query('DELETE FROM fault_runs WHERE fault_run_id = ?', [runId]).catch(() => undefined);
+    await closePool();
+  }
+});
+
+test('concurrent create transactions replay one matching signature and reject a mismatched signature', {
+  skip: enabled ? false : 'Set RUN_MYSQL_INTEGRATION=true against a disposable control-plane database',
+}, async () => {
+  const pool = getPool();
+  let runId: string | null = null;
+  try {
+    const [activeRows] = await pool.query(
+      `SELECT COUNT(*) AS count FROM fault_runs WHERE state IN ('CREATING', 'ACTIVE', 'RECOVERING')`,
+    );
+    if (Number((activeRows as Record<string, unknown>[])[0]?.count ?? 0) !== 0) {
+      throw new Error('ACTION_JOURNAL_TEST_REQUIRES_NO_ACTIVE_RUN');
+    }
+
+    const scenario = 'BROWSE_REPORT_SQL' as const;
+    const definition = getScenarioDefinition(scenario);
+    const input = {
+      scenario,
+      targetService: definition.targetService,
+      targetOperation: definition.targetOperation,
+      parameters: validateScenarioParameters(scenario, { durationSec: 60 }),
+      contractRevision: getScenarioContractRevision(resolveScenarioContract(definition)),
+      catalogRevision: getCatalogRevision(),
+      idempotencyKey: `p3-concurrent-create-${randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+      traceId: `trace-${randomUUID()}`,
+      executionMode: 'TAKEOVER' as const,
+    };
+    const results = await Promise.all([createFaultRun(input), createFaultRun(input)]);
+    const created = results.find((result) => result.created);
+    assert.ok(created);
+    runId = created.run.faultRunId;
+    assert.equal(results.filter((result) => result.created).length, 1);
+    assert.ok(results.every((result) => result.run.faultRunId === created.run.faultRunId
+      && result.run.contractRevision === input.contractRevision));
+    assert.equal((await listFaultRunActions(runId)).filter(({ actionType }) => actionType === 'PREPARE').length, 1);
+    assert.equal((await loadFaultRunEvents(runId)).filter(({ eventType }) => eventType === 'CREATED').length, 1);
+    await assert.rejects(
+      () => createFaultRun({
+        ...input,
+        parameters: validateScenarioParameters(scenario, { durationSec: 61 }),
+      }),
+      IdempotencyKeyReuseError,
+    );
   } finally {
     if (runId) await pool.query('DELETE FROM fault_runs WHERE fault_run_id = ?', [runId]).catch(() => undefined);
     await closePool();
@@ -364,10 +426,10 @@ test('release action settlement atomically updates the recovery projection under
     await pool.execute(
       `INSERT INTO fault_runs
         (fault_run_id, scenario, target_service, target_operation, state, parameters_json,
-         idempotency_key, fencing_token, expires_at, trace_id)
+         contract_revision, idempotency_key, fencing_token, expires_at, trace_id)
        VALUES (?, 'BROWSE_REPORT_SQL', 'catalog-service', 'products-browse-report',
-               'ACTIVE', ?, ?, 999999995, DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL 60 SECOND), ?)`,
-      [runId, JSON.stringify({ durationSec: 60 }), `create-${runId}`, `trace-${runId}`],
+               'ACTIVE', ?, ?, ?, 999999995, DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL 60 SECOND), ?)`,
+      [runId, JSON.stringify({ durationSec: 60 }), TEST_CONTRACT_REVISION, `create-${runId}`, `trace-${runId}`],
     );
     await pool.execute(
       `INSERT INTO fault_run_executions (fault_run_id, execution_mode) VALUES (?, 'TAKEOVER')`,
@@ -537,11 +599,12 @@ test('terminal operator cleanup is claimable and settles its action event under 
     await pool.execute(
       `INSERT INTO fault_runs
         (fault_run_id, scenario, target_service, target_operation, state, parameters_json,
-         idempotency_key, fencing_token, expires_at, recovery_result, trace_id)
+         contract_revision, idempotency_key, fencing_token, expires_at, recovery_result, trace_id)
        VALUES (?, 'CATALOG_REDIS_LARGE_VALUE', 'catalog-service', 'product-detail-cache',
-               'RECOVERED', ?, ?, 999999994,
+               'RECOVERED', ?, ?, ?, 999999994,
                DATE_SUB(CURRENT_TIMESTAMP(3), INTERVAL 1 SECOND), JSON_OBJECT(), ?)`,
-      [runId, JSON.stringify({ durationSec: 60 }), `terminal-${runId}`, `trace-${runId}`],
+      [runId, JSON.stringify({ durationSec: 60 }), TEST_CONTRACT_REVISION,
+        `terminal-${runId}`, `trace-${runId}`],
     );
     await pool.execute(
       `INSERT INTO fault_run_executions (fault_run_id, execution_mode, drain_state)

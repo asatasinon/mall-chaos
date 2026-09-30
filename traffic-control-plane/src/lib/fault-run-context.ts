@@ -7,7 +7,9 @@ export interface FaultRunContext {
   idempotencyKey: string;
 }
 
-export function createFaultRunContext(run: FaultRunRecord): FaultRunContext {
+export function createFaultRunContext(
+  run: Pick<FaultRunRecord, 'faultRunId' | 'expiresAt' | 'fencingToken' | 'idempotencyKey'>,
+): FaultRunContext {
   return {
     faultRunId: run.faultRunId,
     expiresAt: run.expiresAt,

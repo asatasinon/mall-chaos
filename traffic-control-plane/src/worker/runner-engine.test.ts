@@ -28,6 +28,7 @@ function createRun(overrides: Partial<FaultRunRecord> = {}): FaultRunRecord {
     targetOperation: 'heap-retention',
     state: 'ACTIVE',
     parameters: { durationSec: 60 },
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'runner-test-key',
     fencingToken: 1,
     startedAt: '2026-09-18T09:59:00.000Z',

@@ -5,7 +5,7 @@ import {
   canonicalizeCatalogDefinitions,
   getCatalogRevision,
 } from './fault-run-catalog-revision';
-import type { ScenarioContractSupplement } from './scenario-contract';
+import { ALERT_RECEIPT_POLICY_ID, type ScenarioContractSupplement } from './scenario-contract';
 
 test('catalog revision is stable when scenarios, parameters, or options are reordered', () => {
   const definitions = listScenarioDefinitions();
@@ -191,7 +191,7 @@ function contractSupplement(
       reason: 'Revision test fixture.',
       faultRunCorrelation: 'not_required',
       missingAlertTreatment: 'EFFECT_CAN_STILL_BE_OBSERVED',
-      receiptPolicyId: 'alert-receipt.v1',
+      receiptPolicyId: ALERT_RECEIPT_POLICY_ID,
     },
   };
 }

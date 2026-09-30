@@ -7,7 +7,11 @@ import {
   validateScenarioParameters,
 } from './fault-run-catalog';
 import { SAFE_RUNTIME_RECOVERY_EVENT_TYPES } from './fault-run-event-contract';
-import { getScenarioContractRevision, resolveScenarioContract } from './scenario-contract';
+import {
+  ALERT_RECEIPT_POLICY_ID,
+  getScenarioContractRevision,
+  resolveScenarioContract,
+} from './scenario-contract';
 
 test('catalog exposes one fixed target for every scenario', () => {
   const definitions = listScenarioDefinitions();
@@ -92,7 +96,7 @@ test('catalog provides a complete resolved Scenario Contract for every scenario'
       recipesById.get(id)?.window === 'active'
         && definition.contract.evidence.effectRule.recipeIds.includes(id)
     )));
-    assert.equal(definition.contract.alert.receiptPolicyId, 'alert-receipt.v1');
+    assert.equal(definition.contract.alert.receiptPolicyId, ALERT_RECEIPT_POLICY_ID);
     if ('allowedAlerts' in definition.contract.alert) {
       assert.ok(definition.contract.alert.allowedAlerts.length > 0);
       for (const alert of definition.contract.alert.allowedAlerts) {

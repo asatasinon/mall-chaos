@@ -2,11 +2,14 @@ import { getGatewayClient } from './gateway-client';
 import {
   appendFaultRunEvent,
   createFaultRun,
+  loadCreatedFaultRunByIdempotencyKey,
   loadFaultRun,
   listActiveFaultRuns,
   listExpiredActiveFaultRuns,
   requestFaultRunStop,
   transitionFaultRun,
+  IdempotencyKeyReuseError,
+  matchesFaultRunCreateSignature,
   type CreateFaultRunInput,
   type CreatedFaultRun,
   type FaultRunCommandResult,
@@ -21,6 +24,10 @@ import {
 } from './fault-run-catalog';
 import { env } from './env';
 import type { FaultRunExecutionMode } from './fault-run-execution-repository';
+import {
+  admitScenarioContract,
+  type ScenarioContractAdmissionConfig,
+} from './scenario-contract-admission';
 
 export interface FaultRunTargetAdapter {
   start(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown>;
@@ -30,6 +37,7 @@ export interface FaultRunTargetAdapter {
 }
 
 export interface FaultRunStore {
+  loadByIdempotencyKey(key: string): Promise<CreatedFaultRun | null>;
   create(input: CreateFaultRunInput): Promise<CreatedFaultRun>;
   load(faultRunId: string): Promise<FaultRunRecord | null>;
   listActive(): Promise<FaultRunRecord[]>;
@@ -45,6 +53,7 @@ export interface FaultRunStore {
 }
 
 export class SqlFaultRunStore implements FaultRunStore {
+  loadByIdempotencyKey(key: string) { return loadCreatedFaultRunByIdempotencyKey(key); }
   create(input: CreateFaultRunInput) { return createFaultRun(input); }
   load(faultRunId: string) { return loadFaultRun(faultRunId); }
   listActive() { return listActiveFaultRuns(); }
@@ -57,11 +66,13 @@ export class SqlFaultRunStore implements FaultRunStore {
 }
 
 export class GatewayFaultRunTargetAdapter implements FaultRunTargetAdapter {
+  constructor(private readonly gateway = getGatewayClient()) {}
+
   async start(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown> {
     if (getScenarioDefinition(run.scenario).targetPrepare === 'NOT_APPLICABLE') {
       return { accepted: true, target: 'worker' };
     }
-    return getGatewayClient().postInternal(
+    return this.gateway.postInternal(
       '/internal/gateway/operations/prepare',
       toGatewayPayload(run),
       run.traceId ?? undefined,
@@ -73,7 +84,7 @@ export class GatewayFaultRunTargetAdapter implements FaultRunTargetAdapter {
     if (getScenarioDefinition(run.scenario).recoveryPolicy.targetRelease === 'NOT_APPLICABLE') {
       return { stopped: true, target: 'worker' };
     }
-    return getGatewayClient().postInternal(
+    return this.gateway.postInternal(
       '/internal/gateway/operations/release',
       toGatewayPayload(run),
       run.traceId ?? undefined,
@@ -82,7 +93,7 @@ export class GatewayFaultRunTargetAdapter implements FaultRunTargetAdapter {
   }
 
   async cleanup(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown> {
-    return getGatewayClient().postInternal(
+    return this.gateway.postInternal(
       '/internal/gateway/operations/cleanup',
       toGatewayCleanupPayload(run),
       run.traceId ?? undefined,
@@ -101,18 +112,21 @@ export interface CreateFaultRunCommand {
   idempotencyKey: string;
   traceId: string;
   executionMode?: FaultRunExecutionMode;
+  scenarioContractAdmission?: ScenarioContractAdmissionConfig;
 }
 
 export interface FaultRunCoordinatorOptions {
   safeRuntimeEnabled?: boolean;
   drainTimeoutMs?: number;
   recoveryTimeoutMs?: number;
+  admitContract?: typeof admitScenarioContract;
 }
 
 export class FaultRunCoordinator {
   private readonly safeRuntimeEnabled: boolean;
   private readonly drainTimeoutMs: number;
   private readonly recoveryTimeoutMs: number;
+  private readonly admitContract: typeof admitScenarioContract;
 
   constructor(
     private readonly targetAdapter: FaultRunTargetAdapter = new GatewayFaultRunTargetAdapter(),
@@ -122,6 +136,7 @@ export class FaultRunCoordinator {
     this.safeRuntimeEnabled = options.safeRuntimeEnabled ?? env.FAULT_RUN_SAFE_RUNTIME_ENABLED;
     this.drainTimeoutMs = options.drainTimeoutMs ?? env.FAULT_RUN_DRAIN_TIMEOUT_MS;
     this.recoveryTimeoutMs = options.recoveryTimeoutMs ?? env.FAULT_RUN_RECOVERY_TIMEOUT_MS;
+    this.admitContract = options.admitContract ?? admitScenarioContract;
   }
 
   async create(command: CreateFaultRunCommand): Promise<CreatedFaultRun> {
@@ -130,19 +145,43 @@ export class FaultRunCoordinator {
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(command.idempotencyKey)) {
       throw new Error('INVALID_IDEMPOTENCY_KEY');
     }
+    const existing = await this.store.loadByIdempotencyKey(command.idempotencyKey);
+    const signature = { scenario: definition.scenario, parameters };
+    if (existing) {
+      if (!matchesFaultRunCreateSignature(existing.run, signature)) {
+        throw new IdempotencyKeyReuseError();
+      }
+      return existing;
+    }
+
+    const revision = this.admitContract(
+      definition,
+      parameters,
+      command.scenarioContractAdmission ?? {
+        validationMode: 'warn',
+        deploymentScope: 'retained',
+      },
+    );
     const durationSec = Number(parameters.durationSec);
     const input: CreateFaultRunInput = {
       scenario: definition.scenario,
       targetService: definition.targetService,
       targetOperation: definition.targetOperation,
       parameters,
+      contractRevision: revision.contractRevision,
+      catalogRevision: revision.catalogRevision,
       idempotencyKey: command.idempotencyKey,
       expiresAt: new Date(Date.now() + durationSec * 1000),
       traceId: command.traceId,
       executionMode: command.executionMode,
     };
     const result = await this.store.create(input);
-    if (!result.created) return result;
+    if (!result.created) {
+      if (!matchesFaultRunCreateSignature(result.run, signature)) {
+        throw new IdempotencyKeyReuseError();
+      }
+      return result;
+    }
     if (command.executionMode !== undefined) return result;
 
     let targetResponse: unknown;

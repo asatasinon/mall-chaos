@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
+import yaml from 'js-yaml';
 import {
   getCatalogRevision,
 } from './fault-run-catalog-revision';
@@ -11,9 +14,11 @@ import {
   validateScenarioParameters,
 } from './fault-run-catalog';
 import {
+  ALERT_RECEIPT_POLICY_ID,
   resolveScenarioContract,
   type ResolvedScenarioContract,
 } from './scenario-contract';
+import { parseScenarioContractDeploymentFacts } from './scenario-contract-deployment-facts';
 import {
   SCENARIO_CONTRACT_REPORT_SCHEMA_VERSION,
   validateScenarioContracts,
@@ -99,6 +104,50 @@ function fixture(
   };
 }
 
+async function readVersionControlledAlertFacts() {
+  const repositoryRoot = path.resolve(process.cwd(), '..');
+  const read = (file: string) => readFile(path.resolve(repositoryRoot, file), 'utf8');
+  const kustomization = yaml.load(await read('k8s/kustomization.yaml'));
+  const resources = kustomization && typeof kustomization === 'object'
+    ? (kustomization as Record<string, unknown>).resources
+    : null;
+  const workloadPaths = Array.isArray(resources)
+    ? resources.filter((resource): resource is string => (
+      typeof resource === 'string'
+      && (resource.startsWith('services/') || resource === 'infra/exporters.yaml')
+    ))
+    : [];
+  const workloadManifests = await Promise.all(workloadPaths.map(
+    (resource) => read(path.posix.join('k8s', resource)),
+  ));
+  const [
+    composeFile,
+    prometheusConfig,
+    prometheusRules,
+    alertmanagerConfig,
+    prometheusManifest,
+    prometheusRulesManifest,
+    alertmanagerManifest,
+  ] = await Promise.all([
+    read('docker-compose.yml'),
+    read('infra/prometheus/prometheus.yml'),
+    read('infra/prometheus/rules/alert-rules.yml'),
+    read('infra/alertmanager/alertmanager.yml'),
+    read('k8s/infra/prometheus.yaml'),
+    read('k8s/configmap/prometheus-alert-rules.yaml'),
+    read('k8s/infra/alertmanager.yaml'),
+  ]);
+  return parseScenarioContractDeploymentFacts({
+    compose: { composeFile, prometheusConfig, prometheusRules, alertmanagerConfig },
+    kubernetes: {
+      prometheusManifest,
+      prometheusRulesManifest,
+      alertmanagerManifest,
+      workloadManifests,
+    },
+  });
+}
+
 function makeDispatchFacts(
   contracts: readonly ResolvedScenarioContract[],
 ): ScenarioDispatchValidationDescriptor[] {
@@ -128,6 +177,7 @@ function runForScenario(contract: ResolvedScenarioContract): FaultRunRecord {
     targetOperation: contract.targetOperation,
     state: 'ACTIVE',
     parameters,
+    contractRevision: 'sc.v1:sha256:' + '0'.repeat(64),
     idempotencyKey: 'scenario-contract-validator-001',
     fencingToken: 1,
     startedAt: timestamp,
@@ -341,7 +391,7 @@ function makeAlertConfiguration(
     internalReceipt: {
       routeConfigured: true,
       receiverConfigured: true,
-      receiptPolicyId: 'alert-receipt.v1',
+      receiptPolicyId: ALERT_RECEIPT_POLICY_ID,
       sendResolved: true,
       routeTreeSha256: 'd'.repeat(64),
     },
@@ -938,6 +988,88 @@ test('rejects alert contract/config mismatches and enabled Agent routes without 
     validateScenarioContracts({ ...input, alertConfiguration: enabledAgentConfig }),
     'invalidAlertContract',
   );
+});
+
+test('rejects undeclared external delivery while Agent readiness is NOT_ENABLED_YET', () => {
+  const input = fixture();
+  const alertConfiguration: ScenarioAlertConfigurationFacts = {
+    ...input.alertConfiguration,
+    alertmanager: input.alertConfiguration.alertmanager.map((deployment) => ({
+      ...deployment,
+      externalAgent: {
+        childRouteConfigured: true,
+        receiverConfigured: true,
+        childRouteName: 'UNDECLARED_EXTERNAL_CHILD_ROUTE',
+        receiverName: 'UNDECLARED_EXTERNAL_RECEIVER',
+        credentialSource: null,
+        sendResolved: null,
+        routeTreeSha256: 'f'.repeat(64),
+      },
+    })),
+  };
+  const report = validateScenarioContracts({ ...input, alertConfiguration });
+
+  assert.equal(input.alertConfiguration.agentDeliveryReadiness.state, 'NOT_ENABLED_YET');
+  assert.ok(report.blockingIssues.some(
+    (issue) => issue.code === 'AGENT_ROUTE_CONFIGURED_WHILE_NOT_ENABLED',
+  ));
+});
+
+test('NOT_EXPECTED scenarios retain the shared generic receipt route', () => {
+  const contracts = replaceScenario('BROWSE_SURGE', (contract) => ({
+    ...contract,
+    alert: {
+      expectation: 'NOT_EXPECTED',
+      reason: 'No scenario-specific alert is expected for this fixture.',
+      faultRunCorrelation: 'not_required',
+      missingAlertTreatment: 'EFFECT_CAN_STILL_BE_OBSERVED',
+      receiptPolicyId: ALERT_RECEIPT_POLICY_ID,
+    },
+  }));
+  const input = fixture({ contracts });
+  const validReport = validateScenarioContracts(input);
+
+  assert.equal(validReport.status, 'VALID');
+  assert.equal(validReport.blockingIssues.some((issue) => (
+    issue.category === 'invalidAlertContract'
+  )), false);
+
+  const disabledReceipt: ScenarioAlertConfigurationFacts = {
+    ...input.alertConfiguration,
+    alertmanager: input.alertConfiguration.alertmanager.map((deployment) => ({
+      ...deployment,
+      internalReceipt: {
+        ...deployment.internalReceipt,
+        routeConfigured: false,
+        receiverConfigured: false,
+        receiptPolicyId: null,
+        sendResolved: null,
+        routeTreeSha256: null,
+      },
+    })),
+  };
+  assertIssue(
+    validateScenarioContracts({ ...input, alertConfiguration: disabledReceipt }),
+    'invalidAlertContract',
+  );
+});
+
+test('validates tracked Compose/Kubernetes alert inputs with exported service labels', async () => {
+  const alertConfiguration = await readVersionControlledAlertFacts();
+  const compose = alertConfiguration.prometheus.find(({ variant }) => variant === 'COMPOSE');
+  const kubernetes = alertConfiguration.prometheus.find(({ variant }) => variant === 'KUBERNETES');
+  assert.ok(compose);
+  assert.ok(kubernetes);
+  for (const service of ['node', 'mysql', 'redis']) {
+    assert.ok(compose.serviceLabelValues.includes(service), `COMPOSE:${service}`);
+    assert.ok(kubernetes.serviceLabelValues.includes(service), `KUBERNETES:${service}`);
+  }
+
+  const report = validateScenarioContracts(fixture({ alertConfiguration }));
+  assert.equal(report.status, 'VALID', JSON.stringify(report.blockingIssues));
+  assert.equal(report.blockingIssues.some(
+    (issue) => issue.category === 'invalidAlertContract',
+  ), false);
 });
 
 test('keeps NOT_ENABLED_YET as static readiness and separates unavailable evidence', () => {

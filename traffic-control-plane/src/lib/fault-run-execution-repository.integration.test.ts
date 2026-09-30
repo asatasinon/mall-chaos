@@ -12,6 +12,7 @@ import {
 } from './fault-run-execution-repository';
 
 const enabled = process.env.RUN_MYSQL_INTEGRATION === 'true';
+const TEST_CONTRACT_REVISION = 'sc.v1:sha256:' + '0'.repeat(64);
 
 test('execution lease rejects stale owners and advances epoch after relinquish', {
   skip: enabled ? false : 'Set RUN_MYSQL_INTEGRATION=true against a disposable control-plane database',
@@ -31,10 +32,10 @@ test('execution lease rejects stale owners and advances epoch after relinquish',
     await pool.execute(
       `INSERT INTO fault_runs
         (fault_run_id, scenario, target_service, target_operation, state, parameters_json,
-         idempotency_key, fencing_token, expires_at, trace_id)
+         contract_revision, idempotency_key, fencing_token, expires_at, trace_id)
        VALUES (?, 'BROWSE_REPORT_SQL', 'catalog-service', 'products-browse-report',
-               'ACTIVE', ?, ?, 999999999, DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL 60 SECOND), ?)`,
-      [runId, JSON.stringify({ durationSec: 60 }), idempotencyKey, `trace-${runId}`],
+               'ACTIVE', ?, ?, ?, 999999999, DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL 60 SECOND), ?)`,
+      [runId, JSON.stringify({ durationSec: 60 }), TEST_CONTRACT_REVISION, idempotencyKey, `trace-${runId}`],
     );
     await pool.execute(
       `INSERT INTO fault_run_executions (fault_run_id, execution_mode)

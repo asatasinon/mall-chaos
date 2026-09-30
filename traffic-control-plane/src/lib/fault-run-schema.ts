@@ -19,6 +19,7 @@ const SCHEMA_STATEMENTS = [
     target_operation VARCHAR(128) NOT NULL,
     state VARCHAR(32) NOT NULL,
     parameters_json JSON NOT NULL,
+    contract_revision VARCHAR(128) NOT NULL,
     idempotency_key VARCHAR(128) NOT NULL,
     fencing_token BIGINT UNSIGNED NOT NULL,
     started_at DATETIME(3) NULL,

@@ -6,6 +6,8 @@
 
 This scenario generates controlled normal traffic for `GET /api/products`. The request producer is the `traffic-control-plane` `TrafficSurgeExecutor`; it sends each request through `gateway-service` and does not call a target-side prepare or release endpoint.
 
+The fixed worker target operation is `browse-api-worker`.
+
 Each request uses `page=0`, `size=<pageSize>` and `sort=latest`. `pageSize` is bounded by the catalog limit, currently at most `100`.
 
 ## Actual implementation

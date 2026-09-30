@@ -3,6 +3,7 @@ import test from 'node:test';
 import { getCatalogRevision } from './fault-run-catalog-revision';
 import { getScenarioDefinition, listScenarioDefinitions } from './fault-run-catalog';
 import {
+  ALERT_RECEIPT_POLICY_ID,
   getEvidenceContractHash,
   getScenarioContractRevision,
   resolveScenarioContract,
@@ -275,7 +276,7 @@ function contractDefinition(
       reason: 'No scenario-specific alert is required by this resolver fixture.',
       faultRunCorrelation: 'not_required',
       missingAlertTreatment: 'EFFECT_CAN_STILL_BE_OBSERVED',
-      receiptPolicyId: 'alert-receipt.v1',
+      receiptPolicyId: ALERT_RECEIPT_POLICY_ID,
     },
   };
   return { ...definition, contract };

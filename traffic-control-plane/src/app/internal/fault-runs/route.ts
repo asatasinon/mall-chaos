@@ -1,26 +1,18 @@
 import { NextRequest } from 'next/server';
 import { jsonError, jsonOk } from '@/lib/api-response';
-import { isCsrfRequest } from '@/lib/csrf';
 import { env } from '@/lib/env';
 import {
   FaultRunValidationError,
   getScenarioDefinition,
   listScenarioDefinitions,
-  validateScenarioParameters,
   type FaultRunState,
   type FaultRunScenario,
 } from '@/lib/fault-run-catalog';
-import { getFaultRunCoordinator } from '@/lib/fault-run-coordinator';
-import {
-  ActiveFaultRunError,
-  IdempotencyKeyReuseError,
-  attachOperatorAudit,
-  listFaultRuns,
-} from '@/lib/fault-run-repository';
-import { getOrCreateTraceId } from '@/lib/trace';
-import { recordOperatorAudit } from '@/lib/operator-audit';
-import { buildFaultRunOperatorAction, buildFaultRunOperatorRun } from '@/lib/fault-run-operator-view';
-import { verifyFaultRunOwnershipSchema } from '@/lib/fault-run-schema';
+import { listFaultRuns } from '@/lib/fault-run-repository';
+import { buildFaultRunOperatorRun } from '@/lib/fault-run-operator-view';
+import { createFaultRunCreateRouteHandler } from '@/lib/fault-run-create-route-handler';
+
+export const POST = createFaultRunCreateRouteHandler();
 
 export async function GET(request: NextRequest) {
   const state = request.nextUrl.searchParams.get('state') || undefined;
@@ -40,87 +32,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     return jsonError(400, errorMessage(error), 400);
-  }
-}
-
-export async function POST(request: NextRequest) {
-  if (!isCsrfRequest(request)) return jsonError(403, 'CSRF validation failed', 403);
-  let body: Record<string, unknown>;
-  try {
-    const parsed = await request.json();
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('REQUEST_BODY_MUST_BE_OBJECT');
-    body = parsed as Record<string, unknown>;
-  } catch (error) {
-    return jsonError(400, errorMessage(error), 400);
-  }
-
-  const scenario = typeof body.scenario === 'string' ? body.scenario : '';
-  const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : '';
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(idempotencyKey)) {
-    return jsonError(400, 'A valid idempotencyKey is required', 400);
-  }
-  if (body.confirmed !== true) return jsonError(400, 'Confirmation is required', 400);
-
-  try {
-    getScenarioDefinition(scenario);
-    const parameters = validateScenarioParameters(scenario, body.parameters);
-    if (env.FAULT_RUN_RECONCILIATION_MODE !== 'OFF') {
-      await verifyFaultRunOwnershipSchema();
-    }
-    const traceId = getOrCreateTraceId(request.headers);
-    const result = await getFaultRunCoordinator().create({
-      scenario,
-      parameters,
-      idempotencyKey,
-      traceId,
-      ...(env.FAULT_RUN_RECONCILIATION_MODE === 'OFF'
-        ? {}
-        : { executionMode: env.FAULT_RUN_RECONCILIATION_MODE }),
-    });
-    const auditId = await recordOperatorAudit({
-      request,
-      action: 'FAULT_RUN_CREATE',
-      target: scenario,
-      parameters,
-      result: 'SUCCESS',
-      correlationId: traceId,
-    });
-    await attachOperatorAudit(result.run.faultRunId, auditId);
-    const projection = buildFaultRunOperatorRun(result.run, {
-      safeRuntimeEnabled: env.FAULT_RUN_SAFE_RUNTIME_ENABLED,
-    });
-    return jsonOk(result.run.execution
-      ? { ...projection, action: result.action ? buildFaultRunOperatorAction(result.action) : null }
-      : projection, result.created ? 201 : 200);
-  } catch (error) {
-    const message = errorMessage(error);
-    await recordOperatorAudit({
-      request,
-      action: 'FAULT_RUN_CREATE',
-      target: scenario || undefined,
-      parameters: body.parameters,
-      result: 'FAILURE',
-      correlationId: getOrCreateTraceId(request.headers),
-    }).catch(() => undefined);
-    if (error instanceof FaultRunValidationError) return jsonError(400, message, 400);
-    if (error instanceof ActiveFaultRunError) {
-      return Response.json(
-        {
-          code: 409,
-          message: 'An active Fault Run already exists',
-          data: buildFaultRunOperatorRun(error.activeRun, {
-            safeRuntimeEnabled: env.FAULT_RUN_SAFE_RUNTIME_ENABLED,
-          }),
-        },
-        { status: 409 },
-      );
-    }
-    if (error instanceof IdempotencyKeyReuseError) return jsonError(409, message, 409);
-    if (message.startsWith('FAULT_RUN_OWNERSHIP_MIGRATION_REQUIRED')) {
-      return jsonError(503, 'Fault Run ownership schema is not ready', 503);
-    }
-    if (message === 'FAULT_RUN_TARGET_START_FAILED') return jsonError(502, 'Fault Run target could not be started', 502);
-    return jsonError(500, 'Failed to create Fault Run', 500);
   }
 }
 

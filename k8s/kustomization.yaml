@@ -12,11 +12,13 @@ resources:
   - configmap/mysql-config.yaml
   - configmap/prometheus-alert-rules.yaml
   - secrets/db-secret.yaml
+  - secrets/mysqld-exporter-secret.yaml
   - secrets/traffic-lifecycle-secret.yaml
 
   # Infrastructure
   - infra/mysql.yaml
   - infra/redis.yaml
+  - infra/exporters.yaml
   - infra/prometheus.yaml
   - infra/alertmanager.yaml
   - infra/grafana.yaml
@@ -26,6 +28,7 @@ resources:
   # Business Services
   - services/gateway/deployment.yaml
   - services/user/deployment.yaml
+  - services/cart/deployment.yaml
   - services/catalog/deployment.yaml
   - services/inventory/deployment.yaml
   - services/order/deployment.yaml
@@ -50,6 +53,8 @@ images:
   - name: castrel/gateway-service
     newTag: latest
   - name: castrel/user-service
+    newTag: latest
+  - name: castrel/cart-service
     newTag: latest
   - name: castrel/catalog-service
     newTag: latest

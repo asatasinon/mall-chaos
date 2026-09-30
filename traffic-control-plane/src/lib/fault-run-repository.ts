@@ -48,6 +48,8 @@ import {
   type FaultRunActionType,
   type FaultRunActionRecord,
 } from './fault-run-action-repository';
+import { SCENARIO_CONTRACT_REVISION_PATTERN } from './scenario-contract';
+import { CATALOG_REVISION_PATTERN } from './fault-run-catalog-revision';
 
 export interface FaultRunRecord {
   faultRunId: string;
@@ -56,6 +58,7 @@ export interface FaultRunRecord {
   targetOperation: string;
   state: FaultRunState;
   parameters: Record<string, number | string>;
+  readonly contractRevision: string;
   idempotencyKey: string;
   fencingToken: number;
   startedAt: string | null;
@@ -114,6 +117,8 @@ export interface CreateFaultRunInput {
   targetService: string;
   targetOperation: string;
   parameters: Record<string, number | string>;
+  readonly contractRevision: string;
+  readonly catalogRevision: string;
   idempotencyKey: string;
   expiresAt: Date;
   traceId: string;
@@ -127,6 +132,14 @@ export interface CreatedFaultRun {
 }
 
 export const FAULT_RUN_COMMAND_IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
+
+export function matchesFaultRunCreateSignature(
+  run: Pick<FaultRunRecord, 'scenario' | 'parameters'>,
+  input: Pick<CreateFaultRunInput, 'scenario' | 'parameters'>,
+): boolean {
+  return run.scenario === input.scenario
+    && stableJson(run.parameters) === stableJson(input.parameters);
+}
 
 export interface FaultRunCommandAuditInput {
   operatorId: number | null;
@@ -271,6 +284,12 @@ export class IdempotencyKeyReuseError extends Error {
 export async function createFaultRun(
   input: CreateFaultRunInput,
 ): Promise<CreatedFaultRun> {
+  if (!SCENARIO_CONTRACT_REVISION_PATTERN.test(input.contractRevision)) {
+    throw new Error('FAULT_RUN_CONTRACT_REVISION_INVALID');
+  }
+  if (!CATALOG_REVISION_PATTERN.test(input.catalogRevision)) {
+    throw new Error('FAULT_RUN_CATALOG_REVISION_INVALID');
+  }
   await ensureFaultRunSchema();
   const pool = getPool();
   const connection = await pool.getConnection();
@@ -286,8 +305,7 @@ export async function createFaultRun(
     const existing = asRecords(existingRows)[0];
     if (existing) {
       const existingRun = toFaultRun(existing);
-      if (existingRun.scenario !== input.scenario
-        || stableJson(existingRun.parameters) !== stableJson(input.parameters)) {
+      if (!matchesFaultRunCreateSignature(existingRun, input)) {
         throw new IdempotencyKeyReuseError();
       }
       existingRunId = existingRun.faultRunId;
@@ -303,14 +321,15 @@ export async function createFaultRun(
       await connection.query(
         `INSERT INTO fault_runs
           (fault_run_id, scenario, target_service, target_operation, state, parameters_json,
-           idempotency_key, fencing_token, expires_at, trace_id)
-         VALUES (?, ?, ?, ?, 'CREATING', ?, ?, ?, ?, ?)`,
+           contract_revision, idempotency_key, fencing_token, expires_at, trace_id)
+         VALUES (?, ?, ?, ?, 'CREATING', ?, ?, ?, ?, ?, ?)`,
         [
           faultRunId,
           input.scenario,
           input.targetService,
           input.targetOperation,
           JSON.stringify(input.parameters),
+          input.contractRevision,
           input.idempotencyKey,
           fencingToken,
           input.expiresAt,
@@ -323,6 +342,8 @@ export async function createFaultRun(
         targetOperation: input.targetOperation,
         expiresAt: input.expiresAt.toISOString(),
         fencingToken,
+        contractRevision: input.contractRevision,
+        catalogRevision: input.catalogRevision,
       });
       if (input.executionMode !== undefined) {
         await createFaultRunExecution(connection, faultRunId, input.executionMode);
@@ -349,8 +370,7 @@ export async function createFaultRun(
   if (duplicateError) {
     const existingRun = await loadFaultRunByIdempotencyKey(input.idempotencyKey);
     if (existingRun) {
-      if (existingRun.scenario !== input.scenario
-        || stableJson(existingRun.parameters) !== stableJson(input.parameters)) {
+      if (!matchesFaultRunCreateSignature(existingRun, input)) {
         throw new IdempotencyKeyReuseError();
       }
       return loadCreatedFaultRun(existingRun.faultRunId, false);
@@ -365,10 +385,13 @@ export async function createFaultRun(
 async function loadCreatedFaultRun(faultRunId: string, created: boolean): Promise<CreatedFaultRun> {
   const run = await loadFaultRun(faultRunId);
   if (!run) throw new Error('FAULT_RUN_CREATE_READBACK_FAILED');
-  const action = run.execution && getScenarioDefinition(run.scenario).targetPrepare === 'REQUIRED'
-    ? (await listFaultRunActions(faultRunId)).find((candidate) => candidate.actionType === 'PREPARE') ?? null
+  return { run, created, action: await loadCreateAction(run) };
+}
+
+async function loadCreateAction(run: FaultRunRecord): Promise<FaultRunActionRecord | null> {
+  return run.execution && getScenarioDefinition(run.scenario).targetPrepare === 'REQUIRED'
+    ? (await listFaultRunActions(run.faultRunId)).find((candidate) => candidate.actionType === 'PREPARE') ?? null
     : null;
-  return { run, created, action };
 }
 
 export async function activateOwnedCreatingRun(input: {
@@ -512,6 +535,12 @@ export async function loadFaultRunByIdempotencyKey(key: string): Promise<FaultRu
   const [rows] = await getPool().query('SELECT * FROM fault_runs WHERE idempotency_key = ?', [key]);
   const row = asRecords(rows)[0];
   return row ? attachExecution(toFaultRun(row)) : null;
+}
+
+export async function loadCreatedFaultRunByIdempotencyKey(key: string): Promise<CreatedFaultRun | null> {
+  const run = await loadFaultRunByIdempotencyKey(key);
+  if (!run) return null;
+  return { run, created: false, action: await loadCreateAction(run) };
 }
 
 export async function loadActiveFaultRun(): Promise<FaultRunRecord | null> {
@@ -2143,6 +2172,10 @@ async function insertEvent(
 }
 
 function toFaultRun(row: Record<string, unknown>): FaultRunRecord {
+  const contractRevision = row.contract_revision;
+  if (typeof contractRevision !== 'string' || !SCENARIO_CONTRACT_REVISION_PATTERN.test(contractRevision)) {
+    throw new Error('FAULT_RUN_CONTRACT_REVISION_INVALID');
+  }
   return {
     faultRunId: String(row.fault_run_id),
     scenario: String(row.scenario) as FaultRunScenario,
@@ -2150,6 +2183,7 @@ function toFaultRun(row: Record<string, unknown>): FaultRunRecord {
     targetOperation: String(row.target_operation),
     state: String(row.state) as FaultRunState,
     parameters: parseJson(row.parameters_json) as Record<string, number | string>,
+    contractRevision,
     idempotencyKey: String(row.idempotency_key),
     fencingToken: Number(row.fencing_token),
     startedAt: row.started_at ? toIso(row.started_at) : null,
@@ -2163,6 +2197,10 @@ function toFaultRun(row: Record<string, unknown>): FaultRunRecord {
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
+}
+
+export function mapFaultRunRow(row: Record<string, unknown>): FaultRunRecord {
+  return toFaultRun(row);
 }
 
 function asRecords(value: unknown): Record<string, unknown>[] {

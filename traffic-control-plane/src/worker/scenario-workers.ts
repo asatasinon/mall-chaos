@@ -25,15 +25,21 @@ import {
   ScenarioRequestResult,
   ScenarioRequestTimeoutError,
 } from './controlled-scenario-worker';
-import type { OwnedFaultRunDriver, OwnedRunHandle } from './fault-run-driver';
+import type {
+  FaultRunDriverRecord,
+  OwnedFaultRunDriver,
+  OwnedRunHandle,
+} from './fault-run-driver';
 import {
   getFaultRunDrainRegistry,
   type FaultRunDrainParticipant,
   type FaultRunDrainRegistry,
   type FaultRunWorkPermit,
 } from './fault-run-drain-registry';
-
-const SCENARIO_WORKER_TERMINAL_SUMMARY_EVENT = 'SCENARIO_WORKER_DRAINED' as const;
+import {
+  SCENARIO_WORKER_TERMINAL_SUMMARY_EVENT,
+  supportsFaultRunScenario,
+} from './fault-run-driver-capabilities';
 
 interface ScenarioWorkerDependencies {
   gateway: GatewayClient;
@@ -137,7 +143,7 @@ export class ScenarioWorkers {
     ]);
   }
 
-  async startOwned(run: FaultRunRecord, fence: FaultRunOwnerFence): Promise<OwnedRunHandle> {
+  async startOwned(run: FaultRunDriverRecord, fence: FaultRunOwnerFence): Promise<OwnedRunHandle> {
     throwIfAborted(fence.signal);
     const concurrency = boundedInteger(run.parameters.concurrency, 1, 32, 1);
     const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
@@ -273,7 +279,7 @@ export class ScenarioWorkers {
     }
   }
 
-  private async startRun(run: FaultRunRecord): Promise<void> {
+  private async startRun(run: FaultRunDriverRecord): Promise<void> {
     if (this.stopping) return;
     const concurrency = boundedInteger(run.parameters.concurrency, 1, 32, 1);
     const requestIntervalMs = boundedInteger(run.parameters.requestIntervalMs, 0, 60_000, 100);
@@ -457,22 +463,18 @@ export class ScenarioFaultRunDriver implements OwnedFaultRunDriver {
 
   constructor(private readonly workers: ScenarioWorkers = new ScenarioWorkers()) {}
 
-  supports(run: FaultRunRecord): boolean {
-    return run.scenario === 'CATALOG_REDIS_LARGE_VALUE'
-      || run.scenario === 'PROMOTION_LOCK_CONTENTION'
-      || run.scenario === 'INVENTORY_TABLE_EXCLUSIVE'
-      || run.scenario === 'INVENTORY_ROW_LOCK'
-      || run.scenario === 'CART_CATALOG_DEPENDENCY';
+  supports(run: FaultRunDriverRecord): boolean {
+    return supportsFaultRunScenario('SCENARIO_WORKERS', run.scenario);
   }
 
-  start(input: { run: FaultRunRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle> {
+  start(input: { run: FaultRunDriverRecord; fence: FaultRunOwnerFence }): Promise<OwnedRunHandle> {
     return this.workers.startOwned(input.run, input.fence);
   }
 }
 
 async function appendWorkerFailure(
   appendEvent: ScenarioWorkerDependencies['appendEvent'],
-  run: FaultRunRecord,
+  run: FaultRunDriverRecord,
   error: unknown,
 ): Promise<void> {
   await appendEvent(
@@ -487,7 +489,7 @@ async function appendWorkerFailure(
 
 async function appendScenarioWorkerSetupFailure(
   appendEvent: ScenarioWorkerDependencies['appendEvent'],
-  run: FaultRunRecord,
+  run: FaultRunDriverRecord,
   error: unknown,
 ): Promise<void> {
   await appendEvent(

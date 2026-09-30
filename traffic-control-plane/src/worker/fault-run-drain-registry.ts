@@ -4,6 +4,8 @@ import {
   appendFaultRunEvent,
   type FaultRunRecord,
 } from '../lib/fault-run-repository';
+import { faultRunDrainParticipantForOwner } from './fault-run-driver-capabilities';
+export { faultRunDrainParticipantForOwner };
 import {
   normalizeFaultRunRecoveryEventPayload,
 } from '../lib/fault-run-event-contract';
@@ -14,13 +16,6 @@ import type {
 
 const log = pino({ name: 'fault-run-drain-registry' });
 const MAX_RECOVERY_COUNTER = 2_147_483_647;
-
-const PARTICIPANT_BY_OWNER: Record<FaultRunWorkerDrainOwner, FaultRunDrainParticipantKind> = {
-  REPORT_SCENARIO_WORKER: 'REPORT',
-  TRAFFIC_SURGE_EXECUTOR: 'SURGE',
-  SCENARIO_WORKERS: 'SCENARIO',
-  RUNNER_ENGINE: 'RUNNER',
-};
 
 export type FaultRunDrainGateResult =
   | {
@@ -595,12 +590,6 @@ export class FaultRunDrainRegistry implements FaultRunDrainController {
     }
     return counters;
   }
-}
-
-export function faultRunDrainParticipantForOwner(
-  owner: FaultRunWorkerDrainOwner,
-): FaultRunDrainParticipantKind {
-  return PARTICIPANT_BY_OWNER[owner];
 }
 
 function incrementCounter(counters: ParticipantCounters, field: keyof ParticipantCounters): void {

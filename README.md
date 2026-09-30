@@ -171,7 +171,7 @@ Phase 3 adds `fault_runs.contract_revision NOT NULL` to fresh schema and does no
 
 1. Stop all Web/API, Worker, Gateway and business-service processes that may write state.
 2. Reset the MySQL application database and migration history, Redis runtime state, and the explicitly inventoried scenario-owned persistent resources (including run-scoped notification storage files).
-3. Run `pnpm db:migrate` and `pnpm db:verify` against the fresh database; start only one matching Web/API/Worker release after both succeed. `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE` defaults to `retained`; for the Phase 3 heap-pressure disposable canary only, set it to `disposable` on Web/API. The Worker does not receive this variable, and changing scope requires another complete reset.
+3. Run `pnpm db:migrate` and `pnpm db:verify` against the fresh database; start only one matching Web/API/Worker release after both succeed. Web/API `SCENARIO_CONTRACT_VALIDATION_MODE` defaults to `warn`, and `SCENARIO_CONTRACT_DEPLOYMENT_SCOPE` defaults to `retained`; both are Web/API-only settings and must not be added to the Worker/shared `env.ts`. For the Phase 3 heap-pressure disposable canary only, set scope to `disposable` on Web/API. Changing scope requires another complete reset.
 4. Record the reset scope, completion time, and verification result in the external deployment record. This reset intentionally destroys application/run state; it is not Fault Run recovery or per-Run cleanup.
 
 This is an external deployment responsibility; the repository does not provide a full-platform wipe command. `scripts/mysql-reset.sh` resets the MySQL databases and seed data, but explicitly leaves Redis and service bind-mounted data in place, so it is not sufficient by itself for this gate. Do not apply the clean-slate procedure to shared or data-retaining environments; those require a separately designed migration and active-Run transition plan.
@@ -267,9 +267,10 @@ COMPOSE_PROFILES=skywalking TRACING_MODE=both ./scripts/compose-up.sh -s hub
 
 1. 在 [k8s/secrets/db-secret.yaml](k8s/secrets/db-secret.yaml) 替换数据库凭据、`CASTREL_JWT_SECRET` 和 `CASTREL_INTERNAL_SERVICE_KEY` 的开发值。
 2. 在 [k8s/secrets/traffic-lifecycle-secret.yaml](k8s/secrets/traffic-lifecycle-secret.yaml) 配置非空的 `TRAFFIC_LIFECYCLE_ACCOUNTS`、包含有效 Sam 账号的 `TRAFFIC_SCENARIO_ACCOUNTS`，以及随机的 `NOTIFICATION_RESTART_BROKER_KEY`。
-3. 当前两个 Secret 模板没有定义 `CONTROL_PLANE_USERNAME`、`CONTROL_PLANE_PASSWORD` 或 `CONTROL_PLANE_SESSION_SECRET`。因此 Web/API 会使用内置的开发登录值，并将会话签名回退到 `CASTREL_JWT_SECRET`。共享环境必须将这三个变量加入受管 Secret，并注入 `traffic-control-plane` Deployment。
-4. 在 [k8s/kustomization.yaml](k8s/kustomization.yaml) 的 `images` 段为所有发布镜像 pin 不可变 digest；默认 `latest` tag 不能作为发布身份。先运行渲染校验，并确保发布 provenance 将源 commit、被测服务 image digest 映射和最终 Contract report SHA-256 绑定。
-5. 通过外部发布 pipeline 分阶段部署：先仅 provision namespace/config/secrets 与 MySQL/Redis 等基础设施，按上文执行并记录完整 clean-slate reset；再运行 pin 到同一控制面 image digest 的 migration Job 和独立 `db:verify` Job/process；两者成功后才部署应用。当前 `k8s/kustomization.yaml` 是扁平资源集合，包含应用 Deployments 与 migration Job，不能在 reset/migration/verify 前整体 apply。
+3. `db-secret.yaml` 与 `traffic-lifecycle-secret.yaml` 没有定义 `CONTROL_PLANE_USERNAME`、`CONTROL_PLANE_PASSWORD` 或 `CONTROL_PLANE_SESSION_SECRET`。因此 Web/API 会使用内置的开发登录值，并将会话签名回退到 `CASTREL_JWT_SECRET`。共享环境必须将这三个变量加入受管 Secret，并注入 `traffic-control-plane` Deployment。
+4. 在 [k8s/secrets/mysqld-exporter-secret.yaml](k8s/secrets/mysqld-exporter-secret.yaml) 注入仅供 `mysqld-exporter` 使用的受管 MySQL 监控账号；不要提交真实凭据。Kubernetes 的 Prometheus 通过带 scrape annotations 的 exporter Pods 发现 `node`、`mysql` 和 `redis` 指标；`node-exporter` 只读挂载主机 `/proc`、`/sys` 和根文件系统，部署前必须审核集群的 `hostPath` 安全策略。
+5. 在 [k8s/kustomization.yaml](k8s/kustomization.yaml) 的 `images` 段为所有发布镜像 pin 不可变 digest；默认 `latest` tag 不能作为发布身份。先运行渲染校验，并确保发布 provenance 将源 commit、被测服务 image digest 映射和最终 Contract report SHA-256 绑定。
+6. 通过外部发布 pipeline 分阶段部署：先仅 provision namespace/config/secrets 与 MySQL/Redis 等基础设施，按上文执行并记录完整 clean-slate reset；再运行 pin 到同一控制面 image digest 的 migration Job 和独立 `db:verify` Job/process；两者成功后才部署应用。当前 `k8s/kustomization.yaml` 是扁平资源集合，包含应用 Deployments 与 migration Job，不能在 reset/migration/verify 前整体 apply。
 
 ```bash
 kubectl kustomize k8s >/dev/null
@@ -282,7 +283,7 @@ kubectl -n castrel port-forward svc/shopfront 13090:3090
 
 部署时只允许提升与已通过 required Contract gate 的 source commit 和 image digest map 完全一致的制品；不得用同名 tag 代替 digest。镜像重建后 digest 变化，须重新关联验证结果并更新 provenance。
 
-Kubernetes 维持独立的 Web/API 与 worker Deployment，并仅部署 Prometheus、Alertmanager、Grafana、Loki 与 Tempo；SkyWalking 是 Compose 专用 profile。broker 使用专用 `notification-restart-broker` ServiceAccount，Role 仅允许对 `castrel` 命名空间中名为 `notification-service` 的 Deployment 执行 `get` 和 `patch`；控制面本身没有 Kubernetes API 权限。
+Kubernetes 维持独立的 Web/API 与 worker Deployment，并部署 Prometheus、Alertmanager、Grafana、Loki、Tempo，以及 node/MySQL/Redis exporters；SkyWalking 是 Compose 专用 profile。Exporters 不开放宿主机端口，Prometheus 只抓取受限的集群内 targets。broker 使用专用 `notification-restart-broker` ServiceAccount，Role 仅允许对 `castrel` 命名空间中名为 `notification-service` 的 Deployment 执行 `get` 和 `patch`；控制面本身没有 Kubernetes API 权限。
 
 ## 数据预热、时间与清理边界
 

@@ -28,6 +28,13 @@ scrape_configs:
         labels:
           service: 'user-service'
 
+  - job_name: 'cart-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['cart-service:8091']
+        labels:
+          service: 'cart-service'
+
   - job_name: 'catalog-service'
     metrics_path: '/actuator/prometheus'
     static_configs:
@@ -55,6 +62,13 @@ scrape_configs:
       - targets: ['payment-service:8085']
         labels:
           service: 'payment-service'
+
+  - job_name: 'psp-simulator'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['psp-simulator:8092']
+        labels:
+          service: 'psp-simulator'
 
   - job_name: 'promotion-service'
     metrics_path: '/actuator/prometheus'

@@ -7,11 +7,20 @@ import {
 } from './fault-run-catalog';
 import { normalizeScenarioContractSupplement } from './scenario-contract';
 
+export const CATALOG_REVISION_PATTERN = /^[a-f0-9]{64}$/;
+
+export class CatalogRevisionError extends Error {
+  constructor() {
+    super('CATALOG_REVISION_FAILED');
+    this.name = 'CatalogRevisionError';
+  }
+}
+
 function canonicalize(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error('CATALOG_REVISION_FAILED');
+    if (!Number.isFinite(value)) throw new CatalogRevisionError();
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) return `[${value.map((item) => canonicalize(item)).join(',')}]`;
@@ -21,7 +30,7 @@ function canonicalize(value: unknown): string {
       .sort(([left], [right]) => left.localeCompare(right));
     return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalize(item)}`).join(',')}}`;
   }
-  throw new Error('CATALOG_REVISION_FAILED');
+  throw new CatalogRevisionError();
 }
 
 function canonicalParameter(parameter: FaultRunParameterDefinition): Record<string, unknown> {

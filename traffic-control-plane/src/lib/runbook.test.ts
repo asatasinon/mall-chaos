@@ -15,33 +15,20 @@ import {
   RunbookContentError,
 } from './runbook-content';
 
-const REQUIRED_ARTICLE_HEADINGS = {
-  en: [
-    'Purpose and fixed target',
-    'Actual implementation',
-    'Parameters and lifecycle',
-    'Impact and exclusions',
-    'Evidence',
-    'Tempo investigation',
-    'Recovery and verification',
-    'Limits and safe interpretation',
-  ],
-  'zh-CN': [
-    '目的与固定目标',
-    '实际实现逻辑',
-    '参数与生命周期',
-    '影响范围与排除项',
-    '证据与判断',
-    'Tempo 排障',
-    '恢复与验证',
-    '限制与安全解释',
-  ],
-} as const;
 import {
   getScenarioDefinition,
   listScenarioDefinitions,
 } from './fault-run-catalog';
+import { generateScenarioContractRunbookChecklist } from './scenario-contract-artifacts';
+import { resolveScenarioContract } from './scenario-contract';
+import { SCENARIO_CONTRACT_RUNBOOK_HEADING_TEXT } from './scenario-contract-runbook-headings';
+import { SCENARIO_CONTRACT_REQUIRED_RUNBOOK_HEADINGS } from './scenario-contract-validator';
 import { getMarkdownCodeLanguage, isMermaidCodeBlock } from '@/components/runbook/RunbookArticle';
+
+const REQUIRED_ARTICLE_HEADINGS = {
+  en: Object.values(SCENARIO_CONTRACT_RUNBOOK_HEADING_TEXT.en),
+  'zh-CN': Object.values(SCENARIO_CONTRACT_RUNBOOK_HEADING_TEXT['zh-CN']),
+} as const;
 
 test('runbook metadata covers the catalog exactly once', () => {
   const definitions = listScenarioDefinitions();
@@ -87,44 +74,68 @@ test('scenario query resolution only accepts a known scalar scenario', () => {
   assert.equal(resolveRunbookScenario(['../../etc/passwd']), DEFAULT_RUNBOOK_SCENARIO);
 });
 
-test('Tempo queries are derived from static service targets', () => {
+test('Tempo queries are derived from active Catalog recipes and typed predicates', () => {
   for (const definition of listScenarioDefinitions()) {
     const entry = getRunbookEntry(definition.scenario);
-    assert.equal(entry.tempoQueries.length, entry.tempo.targets.length, definition.scenario);
+    const contract = resolveScenarioContract(definition);
+    const tempoRecipes = contract.evidence.recipes.filter(
+      ({ source, window }) => source === 'TEMPO' && window === 'active',
+    );
+    assert.equal(entry.tempoQueries.length, tempoRecipes.length, definition.scenario);
     assert.equal(entry.tempo.timeRange, 'now-1h to now', definition.scenario);
-    assert.match(entry.tempo.slowThreshold, /^\d+(?:ms|s)$/u, definition.scenario);
     assert.ok(entry.tempo.businessPath.length > 0, definition.scenario);
     assert.ok(entry.tempo.waterfallChecks.length > 0, definition.scenario);
 
     for (const query of entry.tempoQueries) {
-      assert.match(query.serviceQuery, /^\{ resource\.service\.name = ".+" \}$/u, definition.scenario);
-      assert.match(query.errorQuery, /status = error/u, definition.scenario);
-      assert.match(query.slowQuery, /duration > \d+(?:ms|s)/u, definition.scenario);
-      if (query.route !== undefined) {
-        assert.match(query.routeQuery || '', /span\.http\.route/u, definition.scenario);
+      const recipe = tempoRecipes.find(({ id }) => id === query.recipeId);
+      assert.ok(recipe, `${definition.scenario}:${query.recipeId}`);
+      assert.equal(query.template, recipe.template, definition.scenario);
+      assert.equal(query.serviceName, recipe.scope.service, definition.scenario);
+      assert.equal(query.route, recipe.scope.route, definition.scenario);
+      assert.deepEqual(query.predicate, recipe.predicate, definition.scenario);
+      assert.match(query.query, /^\{ resource\.service\.name = ".+"(?: && .+)? \}$/u, definition.scenario);
+      assert.equal(/https?:\/\//.test(query.query), false, definition.scenario);
+      if (recipe.template === 'SERVICE_SLOW_REQUESTS') {
+        assert.equal(recipe.predicate.kind, 'COMPARISON', definition.scenario);
+        if (recipe.predicate.kind === 'COMPARISON') {
+          const threshold = Number.isSafeInteger(recipe.predicate.value * 1000)
+            && recipe.predicate.value * 1000 < 1000
+            ? `${recipe.predicate.value * 1000}ms`
+            : `${recipe.predicate.value}s`;
+          assert.ok(query.query.includes(`duration ${{
+            GT: '>',
+            GTE: '>=',
+            LT: '<',
+            LTE: '<=',
+            EQ: '=',
+          }[recipe.predicate.operator]} ${threshold}`), definition.scenario);
+        }
       }
-      assert.equal(/https?:\/\//.test(query.serviceQuery), false, definition.scenario);
     }
   }
 });
 
-test('Tempo query builder does not accept user query text', () => {
-  const queries = buildTempoQueries({
-    targets: [{ serviceName: 'catalog-service', route: '/api/products/{sku}' }],
-    businessPath: ['GET /api/products/{sku}'],
-    timeRange: 'now-1h to now',
-    slowThreshold: '2s',
-    waterfallChecks: ['HTTP'],
-  });
+test('Tempo query builder consumes only resolved recipes, not ad hoc query text', () => {
+  const contract = resolveScenarioContract(getScenarioDefinition('BROWSE_REPORT_SQL'));
+  const queries = buildTempoQueries(contract);
+  const recipe = contract.evidence.recipes.find(({ source, template, window }) => (
+    source === 'TEMPO' && template === 'SERVICE_SLOW_REQUESTS' && window === 'active'
+  ));
 
-  assert.deepEqual(queries, [{
-    serviceName: 'catalog-service',
-    route: '/api/products/{sku}',
-    serviceQuery: '{ resource.service.name = "catalog-service" }',
-    errorQuery: '{ resource.service.name = "catalog-service" && status = error }',
-    slowQuery: '{ resource.service.name = "catalog-service" && duration > 2s }',
-    routeQuery: '{ resource.service.name = "catalog-service" && span.http.route = "/api/products/{sku}" }',
-  }]);
+  assert.ok(recipe);
+  assert.equal(queries.length, contract.evidence.recipes.filter(
+    ({ source, window }) => source === 'TEMPO' && window === 'active',
+  ).length);
+  assert.deepEqual(queries.find(({ recipeId }) => recipeId === recipe.id), {
+    recipeId: recipe.id,
+    template: recipe.template,
+    serviceName: recipe.scope.service,
+    route: recipe.scope.route,
+    predicate: recipe.predicate,
+    query: '{ resource.service.name = "catalog-service" && span.http.route = "/api/reports/product-browse" && duration > 2s }',
+  });
+  assert.equal(JSON.stringify(RUNBOOK_METADATA.BROWSE_REPORT_SQL).includes('slowThreshold'), false);
+  assert.equal(JSON.stringify(RUNBOOK_METADATA.BROWSE_REPORT_SQL).includes('serviceName'), false);
 });
 
 test('catalog lookup remains the source of fixed target data', () => {
@@ -167,8 +178,9 @@ test('all bilingual articles are complete, paired, and use balanced Mermaid fenc
     for (const locale of ['en', 'zh-CN'] as const) {
       const markdown = await loadRunbookMarkdown(locale, entry.scenario);
       assert.ok(markdown.trim().length > 0, `${locale}:${entry.scenario}`);
-      assert.match(markdown, new RegExp(entry.scenario, 'u'), `${locale}:${entry.scenario}`);
-      assert.match(markdown, new RegExp(entry.targetService.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'u'), `${locale}:${entry.scenario}`);
+      assert.ok(markdown.includes(entry.scenario), `${locale}:${entry.scenario}:scenario`);
+      assert.ok(markdown.includes(entry.targetService), `${locale}:${entry.scenario}:targetService`);
+      assert.ok(markdown.includes(entry.targetOperation), `${locale}:${entry.scenario}:targetOperation`);
       for (const heading of REQUIRED_ARTICLE_HEADINGS[locale]) {
         assert.equal(markdown.includes(`## ${heading}`), true, `${locale}:${entry.scenario}:${heading}`);
       }
@@ -187,6 +199,31 @@ test('bilingual article file sets match the metadata allowlist', async () => {
       path.resolve(process.cwd(), 'src', 'content', 'runbook', locale),
     ));
     assert.deepEqual(new Set(entries), expectedFiles, locale);
+  }
+});
+
+test('generated manual checklist covers each resolved Catalog contract and allowlisted article', () => {
+  const entries = listRunbookEntries();
+  const contracts = listScenarioDefinitions().map((definition) => resolveScenarioContract(definition));
+  const checklist = generateScenarioContractRunbookChecklist(
+    contracts,
+    entries.map(({ scenario, articleFile }) => ({ scenario, articleFile })),
+  );
+
+  assert.equal(checklist.scenarios.length, contracts.length);
+  assert.deepEqual(checklist.scenarios.map(({ scenario }) => scenario),
+    contracts.map(({ scenario }) => scenario).sort());
+  for (const item of checklist.scenarios) {
+    const contract = contracts.find(({ scenario }) => scenario === item.scenario);
+    const entry = entries.find(({ scenario }) => scenario === item.scenario);
+    assert.ok(contract);
+    assert.ok(entry);
+    assert.equal(item.articleFile, entry.articleFile, item.scenario);
+    assert.equal(item.targetService, contract.targetService, item.scenario);
+    assert.equal(item.targetOperation, contract.targetOperation, item.scenario);
+    assert.deepEqual(item.requiredHeadings, SCENARIO_CONTRACT_REQUIRED_RUNBOOK_HEADINGS);
+    assert.equal(item.lifecycle.alertSectionRequired, true, item.scenario);
+    assert.deepEqual(item.lifecycle.activeEffectRecipeIds, contract.evidence.effectRule.recipeIds.slice().sort());
   }
 });
 

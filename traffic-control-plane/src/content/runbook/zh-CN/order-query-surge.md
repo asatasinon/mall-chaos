@@ -6,6 +6,8 @@
 
 本场景为 `GET /api/orders` 生成受控的认证流量。它针对正常客户订单列表路径，不是历史报表路径。worker 为一个 `expectedCustomerId` 不为 `19` 的启用 lifecycle account 建立会话，再经 `gateway-service` 发送请求。
 
+固定 worker 目标操作为 `order-query-worker`。
+
 这是 worker 场景，不调用 Gateway operation prepare 或 release。
 
 ## 实际实现逻辑

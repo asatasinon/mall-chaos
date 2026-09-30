@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  IdempotencyKeyReuseError,
+  matchesFaultRunCreateSignature,
   planFaultRunStop,
   type CreateFaultRunInput,
   type FaultRunCommandResult,
@@ -12,6 +14,10 @@ import {
   parseFaultRunRecoveryProjection,
 } from './fault-run-recovery';
 import { FaultRunCoordinator, type FaultRunStore, type FaultRunTargetAdapter } from './fault-run-coordinator';
+import {
+  admitScenarioContract,
+  ScenarioContractAdmissionError,
+} from './scenario-contract-admission';
 import { LegacyFaultRunRecovery } from './legacy-fault-run-recovery';
 import type { FaultRunState } from './fault-run-catalog';
 
@@ -19,10 +25,18 @@ const runId = '123e4567-e89b-12d3-a456-426614174000';
 
 class MemoryFaultRunStore implements FaultRunStore {
   run: FaultRunRecord | null = null;
+  createCalls = 0;
   events: string[] = [];
   eventPayloads: unknown[] = [];
 
+  async loadByIdempotencyKey(key: string) {
+    return this.run?.idempotencyKey === key
+      ? { run: this.run, created: false, action: null }
+      : null;
+  }
+
   async create(input: CreateFaultRunInput) {
+    this.createCalls++;
     if (this.run) return { run: this.run, created: false };
     this.run = {
       faultRunId: runId,
@@ -31,6 +45,7 @@ class MemoryFaultRunStore implements FaultRunStore {
       targetOperation: input.targetOperation,
       state: 'CREATING',
       parameters: input.parameters,
+      contractRevision: input.contractRevision,
       idempotencyKey: input.idempotencyKey,
       fencingToken: 1,
       startedAt: null,
@@ -45,7 +60,10 @@ class MemoryFaultRunStore implements FaultRunStore {
       updatedAt: new Date().toISOString(),
     };
     this.events.push('CREATED');
-    this.eventPayloads.push(undefined);
+    this.eventPayloads.push({
+      contractRevision: input.contractRevision,
+      catalogRevision: input.catalogRevision,
+    });
     return { run: this.run, created: true };
   }
 
@@ -158,7 +176,127 @@ test('non-OFF create persists CREATING intent without preparing or compensating 
     assert.equal(target.starts, 0);
     assert.equal(target.compensations, 0);
     assert.deepEqual(store.events, ['CREATED']);
+    const createdPayload = store.eventPayloads[0] as {
+      contractRevision: string;
+      catalogRevision: string;
+    };
+    assert.equal(result.run.contractRevision, createdPayload.contractRevision);
+    assert.match(createdPayload.catalogRevision, /^[a-f0-9]{64}$/);
   }
+});
+
+test('exact replay returns the stored revision before admission and scope checks', async () => {
+  const store = new MemoryFaultRunStore();
+  const target = new MemoryTargetAdapter();
+  let admissions = 0;
+  const coordinator = new FaultRunCoordinator(target, store, {
+    admitContract: (definition, parameters, config, logger) => {
+      admissions++;
+      if (admissions > 1) throw new ScenarioContractAdmissionError('SCENARIO_CONTRACT_INVALID');
+      return admitScenarioContract(definition, parameters, config, logger);
+    },
+  });
+  const command = {
+    scenario: 'NOTIFICATION_HEAP_PRESSURE',
+    parameters: {
+      durationSec: 30,
+      retainedBytesPerNotification: 1024,
+      requestIntervalMs: 100,
+    },
+    idempotencyKey: 'heap-replay-key-001',
+    traceId: 'trace-heap-replay',
+    scenarioContractAdmission: {
+      validationMode: 'warn' as const,
+      deploymentScope: 'disposable' as const,
+    },
+  };
+
+  const created = await coordinator.create(command);
+  const replay = await coordinator.create({
+    ...command,
+    scenarioContractAdmission: { validationMode: 'enforce', deploymentScope: 'retained' },
+  });
+
+  assert.equal(created.created, true);
+  assert.equal(replay.created, false);
+  assert.equal(replay.run.contractRevision, created.run.contractRevision);
+  assert.equal(admissions, 1);
+  assert.equal(store.createCalls, 1);
+  assert.equal(target.starts, 1);
+  assert.equal(store.events.filter((event) => event === 'CREATED').length, 1);
+  assert.equal(store.events.filter((event) => event === 'TARGET_CONFIRMED').length, 1);
+});
+
+test('Contract admission rejection occurs before Run persistence or target prepare', async () => {
+  const store = new MemoryFaultRunStore();
+  const target = new MemoryTargetAdapter();
+  const coordinator = new FaultRunCoordinator(target, store, {
+    admitContract: () => {
+      throw new ScenarioContractAdmissionError('SCENARIO_CONTRACT_INVALID');
+    },
+  });
+
+  await assert.rejects(() => coordinator.create({
+    scenario: 'BROWSE_REPORT_SQL',
+    parameters: { durationSec: 30 },
+    idempotencyKey: 'admission-reject-key-001',
+    traceId: 'trace-admission-reject',
+    scenarioContractAdmission: { validationMode: 'enforce', deploymentScope: 'retained' },
+  }), (error: unknown) => error instanceof ScenarioContractAdmissionError
+    && error.code === 'SCENARIO_CONTRACT_INVALID');
+
+  assert.equal(store.createCalls, 0);
+  assert.deepEqual(store.events, []);
+  assert.equal(target.starts, 0);
+});
+
+test('concurrent same-key creates persist and prepare once; racing signature mismatch conflicts', async () => {
+  const sameKeyStore = new MemoryFaultRunStore();
+  const sameKeyTarget = new MemoryTargetAdapter();
+  const sameKeyCoordinator = new FaultRunCoordinator(sameKeyTarget, sameKeyStore);
+  const command = {
+    scenario: 'BROWSE_REPORT_SQL',
+    parameters: { durationSec: 30 },
+    idempotencyKey: 'concurrent-same-key-001',
+    traceId: 'trace-concurrent-same',
+  };
+
+  const sameKeyResults = await Promise.all([
+    sameKeyCoordinator.create(command),
+    sameKeyCoordinator.create(command),
+  ]);
+
+  assert.deepEqual(sameKeyResults.map(({ created }) => created).sort(), [false, true]);
+  assert.equal(new Set(sameKeyResults.map(({ run }) => run.contractRevision)).size, 1);
+  assert.equal(sameKeyStore.events.filter((event) => event === 'CREATED').length, 1);
+  assert.equal(sameKeyTarget.starts, 1);
+
+  const differentSignatureStore = new MemoryFaultRunStore();
+  const differentSignatureTarget = new MemoryTargetAdapter();
+  const differentSignatureCoordinator = new FaultRunCoordinator(differentSignatureTarget, differentSignatureStore);
+  const mismatchedResults = await Promise.allSettled([
+    differentSignatureCoordinator.create({
+      ...command,
+      idempotencyKey: 'concurrent-conflict-key-001',
+      parameters: { durationSec: 30 },
+    }),
+    differentSignatureCoordinator.create({
+      ...command,
+      idempotencyKey: 'concurrent-conflict-key-001',
+      parameters: { durationSec: 31 },
+    }),
+  ]);
+
+  assert.equal(mismatchedResults.filter(({ status }) => status === 'fulfilled').length, 1);
+  const rejected = mismatchedResults.find(({ status }) => status === 'rejected');
+  assert.ok(rejected && rejected.status === 'rejected');
+  assert.ok(rejected.reason instanceof IdempotencyKeyReuseError);
+  assert.equal(differentSignatureStore.events.filter((event) => event === 'CREATED').length, 1);
+  assert.equal(differentSignatureTarget.starts, 1);
+  assert.equal(matchesFaultRunCreateSignature(
+    { scenario: 'BROWSE_REPORT_SQL', parameters: { durationSec: 30, concurrency: 2 } },
+    { scenario: 'BROWSE_REPORT_SQL', parameters: { concurrency: 2, durationSec: 30 } },
+  ), true);
 });
 
 async function waitFor(assertion: () => boolean): Promise<void> {
@@ -183,15 +321,18 @@ test('coordinator completes active, manual stop, and expiry lifecycles without a
   });
   assert.equal(created.run.state, 'ACTIVE');
   assert.equal(target.starts, 1);
+  const contractRevision = created.run.contractRevision;
 
   recovery.registerRunDrain(runId, async () => ({}));
   const stopped = await recovery.stop(runId);
   assert.equal(stopped?.state, 'STOPPED');
+  assert.equal(stopped?.contractRevision, contractRevision);
   assert.equal(target.stops, 1);
   assert.deepEqual(store.events.slice(-2), ['RECOVERY_STARTED', 'RECOVERY_COMPLETED']);
 
   const repeated = await recovery.stop(runId);
   assert.equal(repeated?.state, 'STOPPED');
+  assert.equal((await store.load())?.contractRevision, contractRevision);
   assert.equal(target.stops, 1);
 });
 
@@ -432,6 +573,7 @@ test('safe runtime preserves a service-unavailable Run for Worker recovery', asy
     parameters: { durationSec: 30, retainedBytesPerNotification: 1024, requestIntervalMs: 100 },
     idempotencyKey: 'safe-unavailable-001',
     traceId: 'trace-safe-unavailable',
+    scenarioContractAdmission: { validationMode: 'warn', deploymentScope: 'disposable' },
   });
 
   const unavailable = await coordinator.markServiceUnavailable(created.run.faultRunId, {
@@ -461,6 +603,7 @@ test('service recovery persists only its closed summary', async () => {
     parameters: { durationSec: 30, retainedBytesPerNotification: 1024, requestIntervalMs: 100 },
     idempotencyKey: 'service-summary-001',
     traceId: 'trace-service-summary',
+    scenarioContractAdmission: { validationMode: 'warn', deploymentScope: 'disposable' },
   });
   store.run = { ...store.run!, state: 'SERVICE_UNAVAILABLE' };
 

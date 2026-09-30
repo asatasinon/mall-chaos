@@ -31,6 +31,10 @@ spec:
           env:
             - name: GATEWAY_BASE_URL
               value: "http://gateway-service:8080"
+            - name: SCENARIO_CONTRACT_VALIDATION_MODE
+              value: "warn"
+            - name: SCENARIO_CONTRACT_DEPLOYMENT_SCOPE
+              value: "retained"
             - name: NOTIFICATION_RESTART_BROKER_URL
               value: "http://notification-restart-broker:8095"
             - name: NOTIFICATION_RESTART_BROKER_KEY
