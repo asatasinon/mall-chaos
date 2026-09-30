@@ -134,6 +134,8 @@ const requestInterval: FaultRunParameterDefinition = {
 const CATALOG_LARGE_VALUE_CLEANUP_GRACE_SEC = 60;
 const CATALOG_LARGE_VALUE_MAX_LOGICAL_BYTES = 512 * 1024 * 1024;
 export const CATALOG_LARGE_VALUE_MIN_MEMBER_SIZE_BYTES = 1024;
+export const NOTIFICATION_STORAGE_MIN_FREE_BYTES = 1024 ** 2;
+export const NOTIFICATION_STORAGE_MAX_FREE_BYTES = 1024 ** 3;
 
 const BYTE_UNIT_MULTIPLIERS: Record<string, number> = {
   B: 1,
@@ -145,11 +147,11 @@ const BYTE_UNIT_MULTIPLIERS: Record<string, number> = {
   GB: 1024 ** 3,
 };
 
-const ALERT_CORRELATION_TIMING = {
+export const ALERT_CORRELATION_TIMING = Object.freeze({
   correlationWindowSec: 900,
   activeGraceBeforeSec: 900,
   recentGraceAfterSec: 900,
-} as const;
+} as const);
 
 const EVIDENCE_WINDOWS = {
   baselineBeforeActiveSec: 300,
@@ -990,7 +992,8 @@ const CATALOG: Record<FaultRunScenario, FaultRunScenarioDefinition> = {
     parameters: [duration, requestInterval,
       { name: 'totalBytes', kind: 'integer', unit: 'bytes', default: '10G', min: 1024 },
       { name: 'appendBytes', kind: 'integer', unit: 'bytes', default: '16M', min: 1, max: 64 * 1024 * 1024 },
-      { name: 'minFreeBytes', kind: 'integer', unit: 'bytes', default: '1M', min: 1024 ** 2, max: 1073741824 }],
+      { name: 'minFreeBytes', kind: 'integer', unit: 'bytes', default: '1M',
+        min: NOTIFICATION_STORAGE_MIN_FREE_BYTES, max: NOTIFICATION_STORAGE_MAX_FREE_BYTES }],
   }, {
     targetPrepareParameters: ['totalBytes', 'appendBytes', 'minFreeBytes'],
     workerExecutionParameters: ['requestIntervalMs', 'totalBytes'],
