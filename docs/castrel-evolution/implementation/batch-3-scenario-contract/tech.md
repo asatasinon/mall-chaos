@@ -1,6 +1,6 @@
 # 批次 3：Scenario Contract 技术设计
 
-> 状态：技术设计 v1.9，按 2026-09-28 复审决议及 P3-01 告警关联窗口/Evidence 模板决议对齐；P3-06 CLI 与 Java result artifacts 已实现，根级 gate 与部署接线仍待实施<br>
+> 状态：技术设计 v2.0，按 2026-09-28 复审决议及 P3-01 告警关联窗口/Evidence 模板决议对齐；P3-06 provider-neutral gate、Java results、Web-only config、Kubernetes stages 与 attestation validator 已实现；外部 CI 接线和 disposable canary 尚未完成<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 对应路线阶段：阶段 3<br>
 > 前置条件：批次 0～2 的运行事实、drain、owner/reconcile 语义已可验证<br>
@@ -720,14 +720,17 @@ P3-04 的 `scenario-contract-artifacts.ts` 只返回由 resolved contracts 与�
 ```json
 {
   "scripts": {
-    "test:contract": "tsx --test src/lib/fault-run-catalog.test.ts src/lib/fault-run-catalog-revision.test.ts src/lib/scenario-contract.test.ts src/lib/scenario-contract-admission.test.ts src/lib/scenario-contract-validator.test.ts src/lib/scenario-contract-deployment-facts.test.ts src/lib/scenario-contract-artifacts.test.ts src/lib/scenario-contract-cli-facts.test.ts src/lib/scenario-contract-cli.test.ts src/lib/evidence-contract-snapshot.test.ts src/lib/evidence-query-prometheus-renderer.test.ts src/worker/fault-run-driver-registry.test.ts",
     "validate:contract:preflight": "tsx scripts/validate-scenario-contract.ts --stage=preflight",
-    "validate:contract:finalize": "tsx scripts/validate-scenario-contract.ts --stage=finalize"
+    "validate:contract:finalize": "tsx scripts/validate-scenario-contract.ts --stage=finalize",
+    "create:contract:attestation": "tsx scripts/create-scenario-contract-release-attestation.ts",
+    "validate:contract:release": "tsx scripts/validate-scenario-contract-release.ts"
   }
 }
 ```
 
-Initial CLI implementation uses a fixed 14-ID required-check plan, including a preflight report gate, and `scenario-contract-check-result.v1` projections. `--source-commit-sha` is explicit; the CLI does not execute Git or read `process.env`. PREFLIGHT writes a clearly labeled non-release report plus the Catalog-derived Gateway expectation. FINAL reads the matching preflight report and fixed per-check artifact filenames; missing, malformed, failed, revision-mismatched, or commit-mismatched checks produce a persisted `BLOCKED` report and non-zero exit. These commands do not open a database, call external services, or run scenario smoke. Root orchestration and external CI wiring remain separate P3-06 tasks.
+`test:contract` is separately defined in `traffic-control-plane/package.json` and covers Catalog/resolver/validator/deployment/CLI, Evidence consumer, and Worker capability fixtures.
+
+Initial CLI implementation uses a fixed 14-ID required-check plan, including a preflight report gate, and `scenario-contract-check-result.v1` projections. `--source-commit-sha` is explicit; the CLI does not execute Git or read `process.env`. PREFLIGHT writes a clearly labeled non-release report plus the Catalog-derived Gateway expectation. FINAL reads the matching preflight report and fixed per-check artifact filenames; missing, malformed, failed, revision-mismatched, or commit-mismatched checks produce a persisted `BLOCKED` report and non-zero exit. `create:contract:attestation` produces an independent provider-neutral artifact binding a VALID final report's raw SHA-256, source commit, Catalog revision, required check-run identifier and immutable image digest map. `validate:contract:release` verifies that artifact against the raw report, every Deployment image in the rendered application manifest set and the selected control-plane digest. These commands do not open a database, call external services, or run scenario smoke. Provider-specific attestation storage/signing and external CI wiring remain deferred.
 
 根级 `scripts/test-scenario-contract.sh` 由外部 CI 调用，分阶段执行并汇总：
 
@@ -739,7 +742,7 @@ Initial CLI implementation uses a fixed 14-ID required-check plan, including a p
 
 Maven 测试通过固定 `-Dscenario.contract.expected=...` 和 `-Dscenario.contract.checksDir=...` 接收期望并输出逐模块结构化结果；普通 `Surefire` 文本或 exit code 不能代替 finalizer 所需的 operation/service/controller/path assertion。不能以 Gateway map 字符串对比替代目标服务 endpoint test。
 
-最终报告必须记录执行时的 Git `sourceCommitSha`，并验证 required TS/Java check artifacts 都来自该 commit。镜像 digest 在 build 后才确定，由外部 CI 产生独立 `ScenarioContractReleaseAttestation`，至少绑定：
+最终报告必须记录执行时的 Git `sourceCommitSha`，并验证 required TS/Java check artifacts 都来自该 commit。镜像 digest 在 build 后才确定；provider-neutral `create:contract:attestation` 生成独立 `ScenarioContractReleaseAttestation`，至少绑定：
 
 ```text
 sourceCommitSha
@@ -749,7 +752,7 @@ tested/deployable image digest by service
 required check run identifier
 ```
 
-待测服务镜像必须由同一 source commit 构建，target Java tests 也必须运行于该 commit。部署 pipeline 只可提升 attestation 中列出的不可变 digest；若重建产生新 digest 或 source commit 变化，必须重新跑相应 gate 并生成新 attestation。`finalReportSha256` 存在外部 attestation，不能自包含在其所哈希的 report 内。
+待测服务镜像必须由同一 source commit 构建，target Java tests 也必须运行于该 commit。Kubernetes application stage 必须校验 attestation 与 raw final report 哈希一致、application Deployment image map 全部被 attested，且 Web/API 与 Worker digest 匹配 migration/verify digest；mutable tags 一律拒绝。若重建产生新 digest 或 source commit 变化，必须重新跑相应 gate 并生成新 attestation。`finalReportSha256` 存在独立 attestation，不能自包含在其所哈希的 report 内。该 JSON attestation 是内容绑定/一致性校验，不是数字签名；实际来源信任由获批外部 CI artifact store 保障，当前因用户决定尚未接线。
 
 仓库目前没有 GitHub Actions workflow；按用户决策，本批次不新建 GitHub workflow。外部 CI 必须调用根脚本并将它设为 blocking/required，成功或失败都上传去敏 manifest、预检和最终报告；任务证据要确认 pipeline 已实际接线，不能只以脚本存在代表阻断已启用。MySQL 与 live scenario smoke 只在可丢弃环境独立执行。
 
@@ -806,7 +809,7 @@ Contract validator 读取 `infra/prometheus/rules/alert-rules.yml`、`infra/aler
 | Kubernetes 部署流程 | 先部署 namespace/config/secrets/MySQL/Redis，不创建应用；完成 reset、migration Job 和独立 `db:verify` 后，再部署业务服务、Web/API 与 Worker。 |
 | Compose / 外部部署说明 | Compose 的 Web/API 与 Worker 可由运维分步启动；外部 clean-slate reset、`db:migrate`/`db:verify` 和 release provenance 均需保存执行记录。 |
 
-当前 `k8s/kustomization.yaml` 将基础设施、migration Job 和应用 Deployments 放在同一资源集合中；不能在 migration/verify 前直接 `kubectl apply -k k8s`。P3-06 必须提供或接入分阶段资源集合：基础设施/bootstrap、migration Job、独立 verify Job/process、最后应用 Deployments。migration 与 verify 使用同一已 pin 的 control-plane image digest；verify 成功前不得创建或启动应用 Deployment。
+Kubernetes root `k8s/kustomization.yaml` 是 bootstrap-only，只包含 namespace、config/secrets 和 infrastructure；它不包含 Jobs、services 或 ingress。`scripts/k8s-deploy.sh` 提供 `bootstrap`、`migrate`、`verify`、`application` 四个阶段：production migrate 要求外部 reset record 和不可变 control-plane `name@sha256:digest`；migration 与 verify 用 release-specific Job name 和同一镜像 digest；verify 调用只读 `db:verify` CLI；stage receipts 将 release ID、image digest、reset-record hash 和实际 Job UID 绑定。Application stage 校验迁移/验证 Job UID 与 digest、验证结果完成和所有外部渲染 app images 均 pinned，再且仅再 apply services/ingress。重复 release ID 不能重用 Job；跨 CI worker stage 必须通过 artifact 传递 `stage-record-dir`。Application manifest digest map 必须来自同 commit attestation；此 provider-neutral staging script 不表示外部 CI required gate 已启用。不得添加全平台 reset 命令，也不在没有 reset approval 时运行任何 reset。
 
 本批次不新增密码、token、service key 或 Agent credential。Alert delivery 的凭据来源仅作为 Contract 声明，真实 Secret 由阶段 5 部署管理。
 

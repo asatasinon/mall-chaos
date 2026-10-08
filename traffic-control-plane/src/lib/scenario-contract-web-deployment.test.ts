@@ -70,8 +70,63 @@ test('Kubernetes migration Job does not receive Web-only admission settings', as
   }
 });
 
+test('root Kustomization is bootstrap-only and does not include jobs or application workloads', async () => {
+  const kustomization = asRecord(yaml.load(await readRepoFile('k8s/kustomization.yaml')));
+  const resources = Array.isArray(kustomization?.resources)
+    ? kustomization.resources.filter((resource): resource is string => typeof resource === 'string')
+    : [];
+
+  assert.ok(resources.includes('namespace.yaml'));
+  assert.ok(resources.includes('infra/mysql.yaml'));
+  assert.ok(resources.includes('infra/redis.yaml'));
+  assert.ok(resources.includes('infra/exporters.yaml'));
+  assert.equal(resources.some((resource) => (
+    resource.startsWith('services/') || resource.startsWith('jobs/') || resource.startsWith('ingress/')
+  )), false);
+});
+
+test('migration and verification Job templates use the same required image placeholder', async () => {
+  const migration = asRecord(yaml.load(
+    await readRepoFile('k8s/jobs/traffic-control-plane-migrate.yaml'),
+  ));
+  const verify = asRecord(yaml.load(
+    await readRepoFile('k8s/jobs/traffic-control-plane-verify.yaml'),
+  ));
+  const migrationContainer = getFirstContainer(migration);
+  const verifyContainer = getFirstContainer(verify);
+
+  assert.equal(
+    asRecord(migration?.metadata)?.name,
+    'traffic-control-plane-migrate-__RELEASE_ID__',
+  );
+  assert.equal(
+    asRecord(verify?.metadata)?.name,
+    'traffic-control-plane-verify-__RELEASE_ID__',
+  );
+  assert.equal(migrationContainer.image, '__CONTROL_PLANE_IMAGE__');
+  assert.equal(verifyContainer.image, '__CONTROL_PLANE_IMAGE__');
+  assert.deepEqual(
+    migrationContainer.command,
+    ['node', 'node_modules/tsx/dist/cli.mjs', 'src/lib/migrations/cli.ts', 'apply'],
+  );
+  assert.deepEqual(
+    verifyContainer.command,
+    ['node', 'node_modules/tsx/dist/cli.mjs', 'src/lib/migrations/cli.ts', 'verify'],
+  );
+});
+
 async function readRepoFile(relativePath: string): Promise<string> {
   return readFile(path.resolve(REPOSITORY_ROOT, relativePath), 'utf8');
+}
+
+function getFirstContainer(workload: Record<string, unknown> | null): Record<string, unknown> {
+  const spec = asRecord(workload?.spec);
+  const template = asRecord(spec?.template);
+  const podSpec = asRecord(template?.spec);
+  const containers = Array.isArray(podSpec?.containers) ? podSpec.containers : [];
+  const container = asRecord(containers[0]);
+  assert.ok(container);
+  return container;
 }
 
 function kubernetesContainerEnvironment(

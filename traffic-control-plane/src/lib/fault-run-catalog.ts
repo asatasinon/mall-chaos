@@ -1,5 +1,5 @@
 import { assertFaultRunRecoveryPolicy } from './fault-run-recovery-policy';
-import { ALERT_RECEIPT_POLICY_ID } from './scenario-contract';
+import { ALERT_RECEIPT_POLICY_ID } from './scenario-contract-constants';
 import type {
   AlertCorrelationContract,
   EvidenceContractPlan,

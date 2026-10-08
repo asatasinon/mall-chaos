@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import yaml from 'js-yaml';
 import { ALERT_RECEIPT_POLICY_ID } from './scenario-contract';
 import { parseScenarioContractDeploymentFacts, type ScenarioContractDeploymentYamlSources } from './scenario-contract-deployment-facts';
+import { loadScenarioContractKubernetesWorkloadManifests } from './scenario-contract-kubernetes-sources';
 
 const ROOT = path.resolve(process.cwd(), '..');
 
@@ -200,20 +200,7 @@ spec:
 
 async function versionControlledSources(): Promise<ScenarioContractDeploymentYamlSources> {
   const read = (file: string) => readFile(path.resolve(ROOT, file), 'utf8');
-  const kustomizationText = await read('k8s/kustomization.yaml');
-  const kustomization = yaml.load(kustomizationText);
-  const resources = (kustomization && typeof kustomization === 'object'
-    ? (kustomization as Record<string, unknown>).resources
-    : null);
-  const workloadPaths = Array.isArray(resources)
-    ? resources.filter((resource): resource is string => (
-      typeof resource === 'string'
-      && (resource.startsWith('services/') || resource === 'infra/exporters.yaml')
-    ))
-    : [];
-  const workloadManifests = await Promise.all(workloadPaths.map(
-    (resource) => read(path.posix.join('k8s', resource)),
-  ));
+  const workloadManifests = await loadScenarioContractKubernetesWorkloadManifests(ROOT);
   const [
     composeFile,
     prometheusConfig,

@@ -1,6 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# Bootstrap only. Workloads, Jobs and ingress are applied by explicit release stages.
 namespace: castrel
 
 resources:
@@ -24,59 +25,3 @@ resources:
   - infra/grafana.yaml
   - infra/loki.yaml
   - infra/tempo.yaml
-
-  # Business Services
-  - services/gateway/deployment.yaml
-  - services/user/deployment.yaml
-  - services/cart/deployment.yaml
-  - services/catalog/deployment.yaml
-  - services/inventory/deployment.yaml
-  - services/order/deployment.yaml
-  - services/payment/deployment.yaml
-  - services/psp-simulator/deployment.yaml
-  - services/traffic-control-plane/restart-broker.yaml
-  - services/traffic-control-plane/deployment.yaml
-  - services/traffic-control-plane/worker-deployment.yaml
-  - jobs/traffic-control-plane-migrate.yaml
-  - services/promotion/deployment.yaml
-  - services/risk/deployment.yaml
-  - services/fulfillment/deployment.yaml
-  - services/notification/deployment.yaml
-  - services/shopfront/deployment.yaml
-
-  # Ingress
-  - ingress/gateway-ingress.yaml
-  - ingress/shopfront-ingress.yaml
-
-# Image overrides — update tags for each release
-images:
-  - name: castrel/gateway-service
-    newTag: latest
-  - name: castrel/user-service
-    newTag: latest
-  - name: castrel/cart-service
-    newTag: latest
-  - name: castrel/catalog-service
-    newTag: latest
-  - name: castrel/inventory-service
-    newTag: latest
-  - name: castrel/order-service
-    newTag: latest
-  - name: castrel/payment-service
-    newTag: latest
-  - name: castrel/psp-simulator
-    newTag: latest
-  - name: castrel/notification-restart-broker
-    newTag: latest
-  - name: castrel/traffic-control-plane
-    newTag: latest
-  - name: castrel/promotion-service
-    newTag: latest
-  - name: castrel/risk-service
-    newTag: latest
-  - name: castrel/fulfillment-service
-    newTag: latest
-  - name: castrel/notification-service
-    newTag: latest
-  - name: castrel/shopfront
-    newTag: latest

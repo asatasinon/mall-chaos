@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ALERT_RECEIPT_POLICY_ID } from './scenario-contract-constants';
 import type {
   FaultRunParameterDefinition,
   FaultRunRecoveryPolicy,
@@ -12,7 +13,7 @@ import type { FaultRunRecoveryEventType as FaultRunRecoveryEventTypeSource } fro
 import { resolveFaultRunRecoveryPolicy } from './fault-run-recovery-policy';
 
 export const SCENARIO_CONTRACT_SCHEMA_VERSION = 'scenario-contract.v1' as const;
-export const ALERT_RECEIPT_POLICY_ID = 'alert-receipt.v1' as const;
+export { ALERT_RECEIPT_POLICY_ID } from './scenario-contract-constants';
 export const SCENARIO_CONTRACT_REVISION_PATTERN = /^sc\.v1:sha256:[a-f0-9]{64}$/;
 
 export class ScenarioContractRevisionError extends Error {

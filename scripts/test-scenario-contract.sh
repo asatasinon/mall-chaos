@@ -36,7 +36,11 @@ fi
 cd "$REPO_ROOT"
 
 run_command() {
-  if "$@"; then
+  local step_id="$1"
+  shift
+  local output_path
+  output_path="$(mktemp "${TMPDIR:-/tmp}/scenario-contract-step.XXXXXX")"
+  if "$@" >"$output_path" 2>&1; then
     LAST_STATUS='PASSED'
     LAST_EXIT_CODE=0
   else
@@ -44,6 +48,8 @@ run_command() {
     LAST_STATUS='FAILED'
     GLOBAL_FAILURE=1
   fi
+  if ! rm -f "$output_path"; then GLOBAL_FAILURE=1; fi
+  printf 'scenario-contract: %s %s (exit %s)\n' "$step_id" "$LAST_STATUS" "$LAST_EXIT_CODE"
 }
 
 write_step_result() {
@@ -90,14 +96,14 @@ write_check_result() {
 run_step() {
   local step_id="$1"
   shift
-  run_command "$@"
+  run_command "$step_id" "$@"
   write_step_result "$step_id" "$LAST_STATUS" "$LAST_EXIT_CODE"
 }
 
 run_check() {
   local check_id="$1"
   shift
-  run_command "$@"
+  run_command "$check_id" "$@"
   write_check_result "$check_id" "$LAST_STATUS"
   write_step_result "$check_id" "$LAST_STATUS" "$LAST_EXIT_CODE"
 }

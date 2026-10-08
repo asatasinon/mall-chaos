@@ -232,17 +232,65 @@ FAULT_RUN_RECONCILIATION_MODE=OFF \
 REGISTRY=castrel docker compose up -d --no-build --pull never --force-recreate
 ```
 
-For Kubernetes, do not use `kubectl apply -k k8s` as the migration step:
-the current flat Kustomize resource set includes infrastructure, the
-migration Job, and application Deployments, so that command can start
-applications before schema verification. The external release pipeline must
-apply resources in separate stages: provision namespace/config/secrets and
-database infrastructure without application Deployments; run the migration
-Job pinned to the release's immutable control-plane image digest; run a
-separate `db:verify` Job/process with that same digest; only then create or
-update business-service, Web/API, and Worker Deployments. Wait for the
-migration and verification stages to succeed before proceeding. The checked-in
-migration Job currently runs `apply` only; it is not the verification step.
+For Kubernetes, `k8s/kustomization.yaml` is bootstrap-only; it does not include
+business services, jobs, or ingress. Use the explicit deployment stages rather
+than applying service manifests before schema verification:
+
+```bash
+./scripts/k8s-deploy.sh bootstrap
+# Complete the externally approved clean-slate reset and retain its record.
+./scripts/k8s-deploy.sh migrate \
+  --control-plane-image 'castrel/traffic-control-plane@sha256:<64-hex-digest>' \
+  --release-id <unique-release-id> \
+  --reset-record <path-to-external-reset-record> \
+  --stage-record-dir <shared-release-artifact-directory>
+./scripts/k8s-deploy.sh verify \
+  --control-plane-image 'castrel/traffic-control-plane@sha256:<same-64-hex-digest>' \
+  --release-id <same-unique-release-id> \
+  --reset-record <same-reset-record> \
+  --stage-record-dir <same-shared-release-artifact-directory>
+./scripts/k8s-deploy.sh application \
+  --control-plane-image 'castrel/traffic-control-plane@sha256:<same-64-hex-digest>' \
+  --release-id <same-unique-release-id> \
+  --reset-record <same-reset-record> \
+  --stage-record-dir <same-shared-release-artifact-directory> \
+  --final-report <validated-final-report.json> \
+  --release-attestation <release-attestation.json> \
+  --application-manifests <externally-rendered-digest-pinned-manifest-directory>
+```
+
+Use a unique release ID for each rollout. Migration and verification create
+distinct Jobs (an existing release ID fails closed) with the same immutable
+control-plane image digest; the verification Job runs the read-only
+`db:verify` CLI. Files in `--stage-record-dir` bind the release ID, image
+digest, reset-record hash and Job UIDs across stages. The application stage
+requires matching migration and verification records, confirms both Jobs are
+complete, and checks that every application image is digest-pinned and the
+Web/API and Worker use the tested control-plane digest before applying services
+and ingress. If pipeline stages run on different workers, transfer
+`--stage-record-dir` as a pipeline artifact. The checked-in service manifests
+are templates; the release pipeline must render a digest-pinned application
+directory from the attested image map. Do not treat a successful local stage
+command as proof that an external required release gate is enabled.
+
+After a `VALID` final report and immutable service image map are available, a
+provider-neutral artifact can be generated with:
+
+```bash
+pnpm --dir traffic-control-plane create:contract:attestation -- \
+  --final-report <final-report.json> \
+  --image-digests <service-image-digests.json> \
+  --required-check-run-id <provider-run-id> \
+  --out <release-attestation.json>
+```
+
+The application stage re-hashes the report and verifies every rendered
+Deployment image against that artifact. The JSON is a content-binding
+attestation, not a cryptographic signature; its provenance depends on the
+authorized CI artifact store. This repository does not currently wire the
+command into an external CI provider, so P3 release gating remains disabled
+until that provider is configured as a required check and uploads artifacts on
+both success and failure.
 
 If the rollout is reverted, first stop new owner claims, preserve active
 `CREATING`/`RECOVERING` runs for reconciliation or manual handling, and keep
@@ -269,8 +317,8 @@ COMPOSE_PROFILES=skywalking TRACING_MODE=both ./scripts/compose-up.sh -s hub
 2. 在 [k8s/secrets/traffic-lifecycle-secret.yaml](k8s/secrets/traffic-lifecycle-secret.yaml) 配置非空的 `TRAFFIC_LIFECYCLE_ACCOUNTS`、包含有效 Sam 账号的 `TRAFFIC_SCENARIO_ACCOUNTS`，以及随机的 `NOTIFICATION_RESTART_BROKER_KEY`。
 3. `db-secret.yaml` 与 `traffic-lifecycle-secret.yaml` 没有定义 `CONTROL_PLANE_USERNAME`、`CONTROL_PLANE_PASSWORD` 或 `CONTROL_PLANE_SESSION_SECRET`。因此 Web/API 会使用内置的开发登录值，并将会话签名回退到 `CASTREL_JWT_SECRET`。共享环境必须将这三个变量加入受管 Secret，并注入 `traffic-control-plane` Deployment。
 4. 在 [k8s/secrets/mysqld-exporter-secret.yaml](k8s/secrets/mysqld-exporter-secret.yaml) 注入仅供 `mysqld-exporter` 使用的受管 MySQL 监控账号；不要提交真实凭据。Kubernetes 的 Prometheus 通过带 scrape annotations 的 exporter Pods 发现 `node`、`mysql` 和 `redis` 指标；`node-exporter` 只读挂载主机 `/proc`、`/sys` 和根文件系统，部署前必须审核集群的 `hostPath` 安全策略。
-5. 在 [k8s/kustomization.yaml](k8s/kustomization.yaml) 的 `images` 段为所有发布镜像 pin 不可变 digest；默认 `latest` tag 不能作为发布身份。先运行渲染校验，并确保发布 provenance 将源 commit、被测服务 image digest 映射和最终 Contract report SHA-256 绑定。
-6. 通过外部发布 pipeline 分阶段部署：先仅 provision namespace/config/secrets 与 MySQL/Redis 等基础设施，按上文执行并记录完整 clean-slate reset；再运行 pin 到同一控制面 image digest 的 migration Job 和独立 `db:verify` Job/process；两者成功后才部署应用。当前 `k8s/kustomization.yaml` 是扁平资源集合，包含应用 Deployments 与 migration Job，不能在 reset/migration/verify 前整体 apply。
+5. 将经发布 provenance 验证的 image digest map 渲染到独立 application manifest 目录；所有服务都必须 pin 不可变 digest，Web/API 和 Worker 的 digest 必须匹配 migration/verify 使用的控制面 image digest。默认 `latest` tag 不能作为发布身份。发布 provenance 应绑定源 commit、被测服务 image digest 映射和最终 Contract report SHA-256。
+6. 通过 `scripts/k8s-deploy.sh` 的分阶段接口部署：`k8s/kustomization.yaml` 只用于 provision namespace/config/secrets 与 MySQL/Redis/observability 基础设施；按上文执行并记录完整 clean-slate reset；再运行唯一 release ID 的 migration Job 和独立 `db:verify` Job，两者使用同一 pin 到 digest 的控制面镜像；只有两个 Job 均完成且 stage records 与 reset-record/image/release 匹配后才能 apply application manifests。不得在 reset/migration/verify 前 apply 应用 manifests。Root Kustomize 模板校验可运行 `kubectl kustomize k8s`；该命令不部署应用。
 
 ```bash
 kubectl kustomize k8s >/dev/null

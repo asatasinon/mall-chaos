@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: traffic-control-plane-migrate
+  name: traffic-control-plane-migrate-__RELEASE_ID__
   namespace: castrel
   labels:
     app: traffic-control-plane-migrate
@@ -16,7 +16,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: traffic-control-plane-migrate
-          image: castrel/traffic-control-plane:latest
+          image: __CONTROL_PLANE_IMAGE__
           imagePullPolicy: IfNotPresent
           command: ["node", "node_modules/tsx/dist/cli.mjs", "src/lib/migrations/cli.ts", "apply"]
           envFrom:

@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import yaml from 'js-yaml';
 import messages from '../i18n/messages';
 import { SCENARIO_GROUPS, SCENARIO_META } from '../components/scenarios/meta';
 import {
@@ -21,6 +20,10 @@ import {
   type ResolvedScenarioContract,
 } from './scenario-contract';
 import { parseScenarioContractDeploymentFacts } from './scenario-contract-deployment-facts';
+import {
+  loadScenarioContractKubernetesWorkloadManifests,
+  ScenarioContractKubernetesSourcesError,
+} from './scenario-contract-kubernetes-sources';
 import type {
   ScenarioAlertConfigurationFacts,
   ScenarioContractLocale,
@@ -476,7 +479,7 @@ async function readDeploymentAlertConfiguration(
     prometheusManifest,
     prometheusRulesManifest,
     alertmanagerManifest,
-    kustomizationText,
+    workloadManifests,
   ] = await Promise.all([
     readRepositoryText(repositoryRoot, COMPOSE_SOURCES.composeFile),
     readRepositoryText(repositoryRoot, COMPOSE_SOURCES.prometheusConfig),
@@ -485,25 +488,13 @@ async function readDeploymentAlertConfiguration(
     readRepositoryText(repositoryRoot, KUBERNETES_SOURCES.prometheusManifest),
     readRepositoryText(repositoryRoot, KUBERNETES_SOURCES.prometheusRulesManifest),
     readRepositoryText(repositoryRoot, KUBERNETES_SOURCES.alertmanagerManifest),
-    readRepositoryText(repositoryRoot, 'k8s/kustomization.yaml'),
+    loadScenarioContractKubernetesWorkloadManifests(repositoryRoot).catch((error: unknown) => {
+      if (error instanceof ScenarioContractKubernetesSourcesError) {
+        throw new ScenarioContractCliFactsError('STATIC_INPUT_INVALID');
+      }
+      throw error;
+    }),
   ]);
-  const kustomization = loadYaml(kustomizationText);
-  const resources = asRecord(kustomization)?.resources;
-  if (!Array.isArray(resources) || resources.some((resource) => typeof resource !== 'string')) {
-    throw new ScenarioContractCliFactsError('STATIC_INPUT_INVALID');
-  }
-  const workloadPaths = resources
-    .filter((resource): resource is string => (
-      typeof resource === 'string'
-      && (resource.startsWith('services/') || resource === 'infra/exporters.yaml')
-    ))
-    .sort(compareText);
-  if (workloadPaths.some((resource) => !isSafeRelativePath(resource))) {
-    throw new ScenarioContractCliFactsError('STATIC_INPUT_INVALID');
-  }
-  const workloadManifests = await Promise.all(workloadPaths.map((resource) => (
-    readRepositoryText(repositoryRoot, path.posix.join('k8s', resource))
-  )));
 
   return parseScenarioContractDeploymentFacts({
     compose: {
@@ -547,14 +538,6 @@ function resolveRepositoryFile(repositoryRoot: string, relativePath: string): st
 function isSafeRelativePath(value: string): boolean {
   return !path.posix.isAbsolute(value)
     && value.split('/').every((segment) => segment.length > 0 && segment !== '.' && segment !== '..');
-}
-
-function loadYaml(source: string): unknown {
-  try {
-    return yaml.load(source);
-  } catch {
-    throw new ScenarioContractCliFactsError('STATIC_INPUT_INVALID');
-  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

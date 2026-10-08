@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import yaml from 'js-yaml';
 import {
   getCatalogRevision,
 } from './fault-run-catalog-revision';
@@ -32,6 +31,7 @@ import {
 import { getTrafficScenarioTarget } from './fault-run-targets';
 import type { FaultRunRecord } from './fault-run-repository';
 import { getFaultRunDriverDescriptors } from '../worker/fault-run-driver-registry';
+import { loadScenarioContractKubernetesWorkloadManifests } from './scenario-contract-kubernetes-sources';
 
 const DEFINITIONS = listScenarioDefinitions();
 const CONTRACTS = DEFINITIONS.map((definition) => resolveScenarioContract(definition));
@@ -107,19 +107,7 @@ function fixture(
 async function readVersionControlledAlertFacts() {
   const repositoryRoot = path.resolve(process.cwd(), '..');
   const read = (file: string) => readFile(path.resolve(repositoryRoot, file), 'utf8');
-  const kustomization = yaml.load(await read('k8s/kustomization.yaml'));
-  const resources = kustomization && typeof kustomization === 'object'
-    ? (kustomization as Record<string, unknown>).resources
-    : null;
-  const workloadPaths = Array.isArray(resources)
-    ? resources.filter((resource): resource is string => (
-      typeof resource === 'string'
-      && (resource.startsWith('services/') || resource === 'infra/exporters.yaml')
-    ))
-    : [];
-  const workloadManifests = await Promise.all(workloadPaths.map(
-    (resource) => read(path.posix.join('k8s', resource)),
-  ));
+  const workloadManifests = await loadScenarioContractKubernetesWorkloadManifests(repositoryRoot);
   const [
     composeFile,
     prometheusConfig,
