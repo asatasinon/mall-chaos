@@ -24,7 +24,7 @@ batch-0-baseline
 | 1 | [product.md](./batch-1-safe-runtime/product.md) / [tech.md](./batch-1-safe-runtime/tech.md) | 单个 Fault Run 的安全停止、drain、超时和恢复边界 | 批次 0 |
 | 2 | [product.md](./batch-2-reconciliation/product.md) / [tech.md](./batch-2-reconciliation/tech.md) / [task-list.md](./batch-2-reconciliation/task-list.md) | Worker owner lease、heartbeat、接管和重协调 | 批次 1 |
 | 3 | [product.md](./batch-3-scenario-contract/product.md) / [tech.md](./batch-3-scenario-contract/tech.md) / [task-list.md](./batch-3-scenario-contract/task-list.md) | Catalog、Gateway、Worker、证据和告警合同的一致性校验 | 批次 2 |
-| 4 | [product.md](./batch-4-evidence-query/product.md) / [tech.md](./batch-4-evidence-query/tech.md) | 可重复的实时 Evidence Query Manifest 和 Operator 报告 | 批次 3 |
+| 4 | [product.md](./batch-4-evidence-query/product.md) / [tech.md](./batch-4-evidence-query/tech.md) / [task-list.md](./batch-4-evidence-query/task-list.md) | 可重复的实时 Evidence Query Manifest 和 Operator 报告 | 批次 3 |
 | 5.0 | [product.md](./batch-5-0-alert-intake/product.md) / [tech.md](./batch-5-0-alert-intake/tech.md) | Alertmanager 告警接收、去重、关联和生命周期记录 | 批次 4 |
 | 5.1 | [product.md](./batch-5-1-agent-rca-submission/product.md) / [tech.md](./batch-5-1-agent-rca-submission/tech.md) / [Schema](./batch-5-1-agent-rca-submission/agent-rca-report-schema.md) | 选定告警向外部 Agent 投递，以及 AgentRcaReport v1 | 批次 5.0 |
 | 5.2 | [product.md](./batch-5-2-evaluator/product.md) / [tech.md](./batch-5-2-evaluator/tech.md) | 独立 Evaluator、证据复查和分项评估结果 | 批次 5.1 |

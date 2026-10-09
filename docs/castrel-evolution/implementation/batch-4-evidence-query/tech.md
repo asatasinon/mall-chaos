@@ -2,6 +2,7 @@
 
 > 状态：技术设计 v1.6，已按 2026-09-28 Phase 3 复审决议、clean-slate schema 边界及 P3-ISSUE-034 对齐；P3-04 最小 consumer seam 已实现，Batch 4 完整运行时仍未实施<br>
 > 配套产品规格：[product.md](./product.md)<br>
+> 实施任务与进度：[task-list.md](./task-list.md)<br>
 > 对应路线阶段：阶段 4<br>
 > 前置条件：阶段 0～3 的退出门槛已满足，尤其是批次 3 已提供并阻断式校验完整的 Scenario Evidence Contract<br>
 > 设计原则：合同单一事实来源、运行级不可变查询协议、实时只读查询、结果不落库、控制/效果/恢复/清理事实严格分离

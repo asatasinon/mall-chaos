@@ -4,6 +4,7 @@
 > 对应路线阶段：阶段 4
 > 依赖：批次 3
 > 配套技术设计：[tech.md](./tech.md)
+> 实施任务与进度：[task-list.md](./task-list.md)
 > 下一步：完成批次 0～3 门禁后实施 Manifest 与 Operator 查询报告
 
 ## 1. 产品目标
