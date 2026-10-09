@@ -28,6 +28,7 @@
 - 保存 Run Event 时间线和查询窗口。
 - 支持 PromQL、LogQL、TraceQL 和受控业务检查配方。
 - 支持 baseline、active、recovery、cleanup 四类窗口。
+- baseline 使用 active 遥测配方在固定基线窗口复查，仅作对照，不新增效果阈值。
 - 展示查询结果摘要、判断规则、查询时间和证据状态。
 - 查询失败、超时或 retention 不足时返回 `evidence_unavailable`。
 - 支持没有 AgentRcaReport 的 Operator-only 验证。
@@ -43,8 +44,8 @@
 ## 4. 关键用户流程
 
 ```text
-Operator 选择 Fault Run 或告警接收记录
-  -> 系统读取 Run Event 和 Contract revision
+Operator 选择终态 Fault Run（告警接收记录入口属于阶段 5）
+  -> 系统读取已 capture 的合同/查询计划和 Run Event
   -> 生成 baseline/active/recovery/cleanup 查询窗口
   -> 执行只读观测查询和业务检查
   -> 应用预先声明的判断规则
@@ -58,12 +59,16 @@ Evidence 状态至少区分：
 
 | 状态 | 含义 |
 | --- | --- |
-| `AVAILABLE` | 关键查询已返回，可复查 |
+| `AVAILABLE` | 适用查询完整可复查，必要控制事实齐全；不表示效果已发生 |
 | `PARTIAL` | 部分查询可用，部分查询失败或缺数据 |
 | `EVIDENCE_UNAVAILABLE` | 查询超时、数据 retention 已过或观测入口不可用 |
 | `INVALID_QUERY` | 查询配方或窗口不符合 Contract |
 
 观测数据 retention 只决定能否复查证据，不决定 AgentRcaReport 是否还能提交，也不因为数据过期自动关闭评估。
+
+历史遥测、控制事实、当前业务检查和效果判断分开显示。历史遥测全部不可用时，即使 timeline 或当前业务 GET 成功，报告仍为 `EVIDENCE_UNAVAILABLE`。未来窗口先返回部分证据并保留原时间范围，Operator 可稍后主动重查；不会在报告请求里等待整个恢复窗口。
+
+Operator 可以选择旧 Manifest revision 查看其冻结协议并显式复查。网络重试保留原请求和 key；新一轮查询使用新 key。报告历史只保存执行/判断元数据，不重放历史遥测摘要；分析笔记重试不得重复创建。
 
 ## 6. 产品验收
 
@@ -79,5 +84,6 @@ Evidence 状态至少区分：
 - 至少覆盖查询成功、部分失败、超时和 retention 不足。
 - Operator 不依赖 AgentRcaReport 就能完成一次现场验证。
 - Evidence Query Manifest 的 revision 可随运行和 Contract revision 追踪。
+- capture 后修改 renderer 或 Catalog 不改变历史查询计划/窗口上限；baseline、ANY/ALL效果判断、历史revision重查、跨revision重试和中断报告都具有明确验收。
 
 满足退出条件后，进入批次 5.0。

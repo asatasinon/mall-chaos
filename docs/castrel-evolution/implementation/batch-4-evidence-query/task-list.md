@@ -4,11 +4,11 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 任务清单已生成；完整 Phase 4 运行时未开始；真实环境验证与阶段退出阻塞 |
-| 版本 | 1.0 |
+| 状态 | 覆盖复审与设计调整已完成；完整 Phase 4 运行时未开始；真实环境验证与阶段退出阻塞 |
+| 版本 | 1.1 |
 | 更新时间 | 2026-10-09 CST |
 | 产品规格 | [product.md](./product.md) |
-| 技术设计 | [tech.md](./tech.md)，当前 v1.6 |
+| 技术设计 | [tech.md](./tech.md)，当前 v1.7 |
 | 路线阶段 | [阶段 4](../../roadmap/phases/phase-4-evidence-query.md) |
 | 前置清单 | [批次 3 任务清单](../batch-3-scenario-contract/task-list.md) |
 | 场景事实来源 | `traffic-control-plane/src/lib/fault-run-catalog.ts` |
@@ -24,6 +24,12 @@
 - 当前 `test:contract`、`test:runner` 已包含上述 seam 的测试。后续任务扩展现有 runner，不引入另一套测试框架。
 - Phase 3 清单截至 2026-10-08 仍将外部 CI、clean-DB/disposable canary 和 live rollback 列为暂缓或阻塞；环境访问与完整 reset record 尚未提供。不能把已有代码或本地 fixture 视为阶段退出证据。
 - 部署采用用户已确认的 **clean-slate bootstrap**：不支持已有 volume/schema upgrade，不新增仓库 wipe 工具，不自行 reset MySQL、Redis 或业务资源。
+
+### 1.1 2026-10-09 用户确认与复审收敛
+
+用户通过逐项提问确认：baseline 派生仅作对照；capture 同时冻结渲染计划/版本和窗口上限；future tail 返回部分证据并主动重查；deadline 到期的 RUNNING attempt 请求时 CAS 结算，不新增 Worker；active 任一采样、recovery 全部采样，effectRule 按 ALL/ANY 三态组合。
+
+本次同时将遥测/控制状态分离、run-scoped report/note 幂等、旧 Manifest 访问、Gateway bounded read、lookback/Tempo 截断纳入设计和明确验收。问题“设计已解决”不等于实施完成；P4-ISSUE-003～012 保持待实施验收。
 
 ## 2. 状态与进度更新规则
 
@@ -50,8 +56,8 @@
 
 ## 3. 总体进度
 
-- **总体状态：** 清单建立完成；尚未执行 Phase 4 实现。
-- **当前完成：** 3 / 60 个子任务（仅 P4-00 文档规划工作）。
+- **总体状态：** 清单与覆盖复审调整完成；尚未执行 Phase 4 实现。
+- **当前完成：** 6 / 63 个子任务（P4-00、P4-00R 文档工作）。
 - **运行时交付：** 0 / 57 个子任务；已有 Phase 3 seam 不重复计入。
 - **当前任务：** 无进行中的实现任务。
 - **实施起点：** P4-01 复核代码、设计和前置门禁；真实启用必须等待相应门禁通过。
@@ -60,11 +66,12 @@
 | 任务组 | 目标 | 状态 | 完成 | 依赖 |
 | --- | --- | --- | --- | --- |
 | P4-00 | 建立清单与进度机制 | 已完成 | 3 / 3 | 当前设计 |
-| P4-01 | 核对前置门禁与设计差异 | 未开始 | 0 / 3 | P4-00 |
+| P4-00R | 覆盖复审与决策落文档 | 已完成 | 3 / 3 | P4-00、用户决策 |
+| P4-01 | 核对前置门禁与设计差异 | 未开始 | 0 / 3 | P4-00R |
 | P4-02 | 配置与默认关闭开关 | 未开始 | 0 / 3 | P4-01 |
 | P4-03 | 五张 Evidence 表与空库 bootstrap | 未开始 | 0 / 3 | P4-01 |
 | P4-04 | 严格 DTO 与 Repository | 未开始 | 0 / 3 | P4-03 |
-| P4-05 | capture 与创建事务接线 | 未开始 | 0 / 3 | P4-02、P4-04 |
+| P4-05 | capture 与创建事务接线 | 未开始 | 0 / 3 | P4-02、P4-04、P4-07 |
 | P4-06 | 安全时间线与确定性窗口 | 未开始 | 0 / 3 | P4-01、P4-04 |
 | P4-07 | 全量受控查询渲染 | 未开始 | 0 / 3 | P4-01 |
 | P4-08 | 不可变 Manifest 与 revision | 未开始 | 0 / 3 | P4-05～07 |
@@ -104,6 +111,12 @@
 
 完成证据：本清单及配套导航；没有新增运行时代码，也没有启用 flag。
 
+### P4-00R：覆盖复审与设计决策
+
+- [x] **P4-00R.1** 审查设计/任务/实际 DSL，确认 baseline、历史执行协议、predicate/聚合、幂等、历史入口和 Gateway 限制七项缺口及三项未定边界。
+- [x] **P4-00R.2** 通过提问取得五项用户行为决策，落入 tech v1.7、产品和阶段边界；不修改 Phase 3 DSL 或运行代码。
+- [x] **P4-00R.3** 更新实现任务、依赖、问题映射和验收；同步计数/执行记录，保持运行时 0/57。
+
 ### P4-01：前置门禁与设计对齐
 
 - [ ] **P4-01.1** 核对阶段 0～3 清单和现有 Coordinator、Repository、owner/drain/action journal，记录缺失前置证据；明确已有 `PREPARE_STARTED`/`STOP_REQUESTED` 是否可复用，不重复写事件。
@@ -118,63 +131,63 @@
 
 ### P4-03：schema 与 clean-bootstrap
 
-- [ ] **P4-03.1** 实现 snapshot、Manifest、attempt、attempt item、note 五张表和唯一约束、索引、枚举检查；不建 telemetry result/raw error 列，不对 Fault Run 设置 cascade。
+- [ ] **P4-03.1** 实现 snapshot、Manifest、attempt、attempt item、note 五张表；snapshot 增加独立 rendered plan/version/hash/硬上限，attempt 增加 run-scoped key/requestHash/deadline，note 增加 run-scoped key/requestHash；不建 telemetry result/raw error 列，不对 Fault Run 设置 cascade。
 - [ ] **P4-03.2** 检查实际编号，接入 runtime schema、下一顺序号 `src/lib/migrations`、fresh-install init 和已有 `db:verify`；不硬编码规划中的 `00N/0N`。
 - [ ] **P4-03.3** 添加 DDL/schema verifier fixture，证明两条空库 bootstrap 声明等价，非 clean schema fail fast；已有 volume upgrade 和实际 reset 均不在本任务授权范围。真实空库验收见 P4-18.2。
 
 ### P4-04：DTO 与 Repository
 
 - [ ] **P4-04.1** 新增 Manifest/window/attempt/note DTO 与 runtime JSON guard；直接复用 Phase 3 Evidence 类型，严格限制输出字段，校验 snapshot hash/revision。
-- [ ] **P4-04.2** 实现参数化 SQL、snapshot 查询、Manifest revision 分配、attempt/item 写入和有界历史读取；并发同 timeline 只产生一个 revision，事务失败不能部分成功。
+- [ ] **P4-04.2** 实现参数化 SQL、snapshot/plan hash 查询、Manifest revision 分配、按 ID/revision 的有界历史读取、run-scoped attempt/note idem 和 deadline CAS；并发同 timeline 只产生一个 revision，终态 item/attempt/audit 同事务。
 - [ ] **P4-04.3** 为并发冲突、非法 JSON、字段越界和 persistence allowlist 添加测试；拒绝保存 sample、log line、trace/span、business body、endpoint credential 或未校验 event payload。
 
 ### P4-05：capture 与创建事务
 
-- [ ] **P4-05.1** capture 开启时，在原 Fault Run 创建事务中保存 Evidence plan、Evidence-only `contractHash` 和 Phase 3 完整 `contractRevision` 原值；与 Run/CREATED revision 一致。
+- [ ] **P4-05.1** capture 开启时，同一创建事务保存 Evidence DSL/contractHash、Phase 3 contractRevision 原值、独立已渲染计划/renderer与evaluation版本/planHash及创建时硬上限；所有模板在 prepare 前渲染成功。P4-ISSUE-004。
 - [ ] **P4-05.2** 处理 flag 关闭、snapshot 校验/DB 失败与同部署幂等 replay；关闭时不 capture，失败时目标 prepare 尚未执行，replay 不补写或覆盖 snapshot。
-- [ ] **P4-05.3** 添加事务/Coordinator 测试：Run、CREATED、snapshot 同成同败，Catalog 后续变化不改变已冻结 plan，出站 Gateway header/body 不泄露 Evidence/revision。
+- [ ] **P4-05.3** 测试 Run/CREATED/DSL/rendered plan 同成同败；renderer 或 Catalog 改变后首次物化仍用冻结 query/上限，坏 hash/未知协议显式失败，不从当前模板重建；Gateway 不泄露 Evidence/revision。
 
 ### P4-06：时间线与窗口
 
 - [ ] **P4-06.1** 从受控 Run/event/action facts 投影时间线，按 `(created_at,id)` 排序并输出 UTC；缺失为 `null`，禁止从 `Date.now()`、流量首请求或成功 prepare 补造事实。
 - [ ] **P4-06.2** 使用 frozen policy 解析四类窗口，校验硬上限；终态 failed/unavailable 的 active fallback 附限制，recovery/cleanup 缺失分别为 NOT_READY/NOT_APPLICABLE。
-- [ ] **P4-06.3** 添加四类恢复策略、终态、UTC、同毫秒、missing anchor、clock-skew 和窗口上限测试；若未来窗口 end 尚未到达的执行语义未定，在 P4-11 前提问，不能默认为完整覆盖。
+- [ ] **P4-06.3** 测试四类恢复策略、UTC、同毫秒、missing anchor、clock-skew 和冻结上限；future tail 不移动 canonical window，查询已到达范围，标记 PARTIAL/INCONCLUSIVE，零长度不查询。P4-ISSUE-010。
 
 ### P4-07：固定查询渲染
 
 - [ ] **P4-07.1** 扩展现有 Prometheus renderer，覆盖 Catalog 实际使用的全部有限 templates；保留已批准的支付 5m 和 filesystem growth 15m 三项 seam，不复制 Catalog 阈值。
-- [ ] **P4-07.2** 实现 aggregate LogQL、固定 TraceQL 和 CURRENT business-check plan 渲染，保留 DSL 字段；验证 source/template/scope/projection/window 的合法组合。
-- [ ] **P4-07.3** 添加 12 场景 coverage、query escaping、固定 labels、未解析占位符、scope 注入和 effectRule 引用测试；无自由 query/URL/业务 ID 输入。
+- [ ] **P4-07.2** 实现 aggregate LogQL、TraceQL/CURRENT fixed plan 渲染，冻结单位/lookback/predicate解释/归约；从 active WINDOWED 遥测派生 baseline `(originId, baseline)`，不改 DSL 或新增阈值。
+- [ ] **P4-07.3** 测试 12 场景覆盖、escaping、labels、scope注入、planHash/版本、baseline 派生、不进入 effectRule；slow-request 秒阈值渲染为 duration filter，COUNT 是匹配 trace 数，不能比较数与秒。P4-ISSUE-003～005。
 
 ### P4-08：Manifest 物化
 
-- [ ] **P4-08.1** 实现终态 get-or-create：使用 persisted snapshot 和安全 timeline/windows/rendered recipes 生成 timelineHash、manifestHash，拒绝 active states。
+- [ ] **P4-08.1** 终态 get-or-create 仅使用 persisted DSL/冻结渲染计划/上限和安全 timeline；hash 包含执行协议与schema版本，拒绝 active states，不调用当前 renderer 重建。
 - [ ] **P4-08.2** 实现并发幂等、递增 revision、cleanup 新 revision、旧 attempt 保持旧 Manifest；snapshot 缺失显式 unavailable，不按 revision 从当前 Catalog 重建。
-- [ ] **P4-08.3** 测试 hash/revision 稳定、snapshot 损坏、source Run 已删除后的读模型、legacy/capture-off 运行；Manifest 浏览不访问外部 source、不修改控制状态。
+- [ ] **P4-08.3** 测试 hash/revision 稳定、plan 损坏/未知协议、retention后及历史 revision 读模型；source_run_retained 是 hash 外的可变元数据，旧 immutable core 不变，浏览不查询 source。P4-ISSUE-004、008。
 
 ### P4-09：观测客户端
 
 - [ ] **P4-09.1** 实现 Prometheus/Loki range query、Tempo fixed TraceQL search typed adapters；service-side 计算 range/step，限制点数、series、Tempo limit 和内存解析。
 - [ ] **P4-09.2** 接入 AbortSignal、总 deadline、单 source timeout、redirect 拒绝、byte cap、content-type/JSON shape 校验和有限重试；原始 provider 错误映射为稳定安全码。
-- [ ] **P4-09.3** 本地 mock HTTP 测试正确编码、断连/429/5xx/timeout、无重试 400/401/403、超大响应和 malformed body；不能将失败转为空数组/零值。达到 Tempo limit 的覆盖语义若不明确，登记决策后再实现。
+- [ ] **P4-09.3** mock 测试编码、断连/429/5xx/timeout、无重试400/401/403、byte cap和malformed body；Tempo达到100/未完成/完整性未知输出 SEARCH_INCOMPLETE/PARTIAL，不分页成无限查询，不假报精确总体或零。P4-ISSUE-011。
 
 ### P4-10：业务与事件 adapter
 
-- [ ] **P4-10.1** 固定 `CATALOG_PRODUCT_LIST`、`CATALOG_BROWSE_REPORT` 正常 Gateway GET，静态参数，无 Fault Run context/Operator credential；响应仅受控当前检查结果。
+- [ ] **P4-10.1** 固定两项正常 Gateway GET；复用/扩展 bounded read seam，同样执行signal/deadline/redirect拒绝/byte cap/content-type与业务 envelope guard，禁止无界 res.json()；无 runtime context/Operator凭据。P4-ISSUE-009。
 - [ ] **P4-10.2** 实现 Run Event adapter 与 CURRENT/WINDOWED 分离：CURRENT 附 `checkedAt`，不冒充历史效果、清理或窗口内恢复，不让 CURRENT 进入 effectRule。
-- [ ] **P4-10.3** 测试无直接业务 service HTTP、无写调用、无 run-context-bound inventory/promotion/storage endpoint、无业务 body 透传；若 GET 有实际副作用或恢复检查语义不匹配，暂停并提问。
+- [ ] **P4-10.3** 测试无直接service/写/active-context入口/body透传，以及超大/重定向/慢响应/HTTP200业务失败；不能把列表可达等同run-scoped cache或整条业务恢复。实际 GET 副作用与已批准边界冲突时暂停提问。
 
 ### P4-11：覆盖和判断规则
 
-- [ ] **P4-11.1** 使用一次 DB 当前时间按 source retention 做 FULL/PARTIAL/NONE preflight；全部过期不调用后端，部分覆盖不移动 canonical window，缺数据不补零。
-- [ ] **P4-11.2** 实现 DSL predicate、ALL/ANY effectRule、availability/coverage/overall status；NO_DATA、unavailable、invalid query 与内部 FAILED 分开，CURRENT 不掩盖历史证据过期。
-- [ ] **P4-11.3** 增加 truth-table 测试：完整匹配才 OBSERVED、完整明确不匹配才 NOT_OBSERVED，其余 INCONCLUSIVE；未来窗口、range lookback 与截断查询不得产生虚假的 FULL coverage。
+- [ ] **P4-11.1** DB当前时间/retention/冻结lookback preflight，执行范围与 canonical 分离；future/缺sample/NaN/Inf/warning/截断降低coverage，全过期不查，不补零。baseline仅完整兼容数据作当前差值，零基线不计算百分比。
+- [ ] **P4-11.2** 实现单位一致的 active 任一/recovery 全部 predicate、ALL/ANY三态；controlFacts/telemetry/currentChecks 独立，历史遥测全不可用最终unavailable，timeline/CURRENT不掩盖，optional缺口仍partial。P4-ISSUE-005、006。
+- [ ] **P4-11.3** 验收ANY一项MET其余未知可OBSERVED但report PARTIAL，ALL一项NOT_MET其余未知为NOT_OBSERVED；partial单项始终未知，future/lookback/Tempo无伪FULL，baseline/NONE不进入effectRule。P4-ISSUE-003、010、011。
 
 ### P4-12：同步 report service
 
 - [ ] **P4-12.1** 编排 frozen Manifest、preflight、并发 semaphore 和总 deadline；只执行显式请求，不启动 Web 后台任务、evidence worker 或持久队列。
-- [ ] **P4-12.2** 创建 metadata-only attempt 并写终态/item；相同 key 返回 metadata replay 不重复 query，新 key 才重查；中断/存储失败可诊断且不虚报成功。
-- [ ] **P4-12.3** 测试 report 容量 429、取消、deadline、部分失败、idem race 和结果允许字段；进程退出留下 RUNNING attempt 的处置若设计未明确，先提问，禁止自动重复 source reads。
+- [ ] **P4-12.2** run-scoped key/requestHash在latest判断前lookup；相同signature metadata replay，异输入409，新revision使用新key；DB deadline固定total+5s，history/report请求CAS结算过期RUNNING为FAILED/EXECUTION_INTERRUPTED，不自动重查。
+- [ ] **P4-12.3** 测试容量、取消、deadline/late completion CAS、进程退出模拟、cleanup后旧key重试、新Manifest同key冲突、item/attempt/audit原子终态；没有queue/timer/source replay。P4-ISSUE-007、012。
 
 ### P4-13：retention 保全
 
@@ -184,20 +197,20 @@
 
 ### P4-14：Operator API
 
-- [ ] **P4-14.1** 实现 Manifest GET、report history GET 和 live report POST；未知 UUID/Run、非终态、无 snapshot、旧 hash 与源行已删除都有固定 envelope。
+- [ ] **P4-14.1** 实现latest Manifest、manifests有界列表、指定Manifest详情、report history和POST；校验ID归属/hash，明确选择旧revision允许重查，源行删除后仍可读取，非终态/无snapshot明确失败。P4-ISSUE-008。
 - [ ] **P4-14.2** 保持 session、CSRF、confirmation、idempotency、body/分页限制和安全响应 headers；拒绝 query、URL、range、source、operation 等额外输入。
-- [ ] **P4-14.3** route/middleware 测试 401/403/400/404/409/422/429、unavailable 结构化响应与 metadata replay；所有 GET 不执行 live query，所有响应 no-store。
+- [ ] **P4-14.3** route测试401/403/400/404/409/422/429、unknownProtocol/unavailable、错误Manifest归属、idem异signature、指定旧revision重查与no-store；GET只物化/本地惰性结算，不执行source query。
 
 ### P4-15：Note、Audit 与诊断
 
-- [ ] **P4-15.1** 实现 append-only 2,048 字符 plain-text note、查询/创建 API、确认的敏感输入拒绝策略；不支持编辑/删除或遥测导出粘贴。
-- [ ] **P4-15.2** 关联独立 attempt/note audit ID，不调用 `attachOperatorAudit()` 覆盖 Run 审计；结构化 Pino 和 history 只记录安全状态/时长/reason code。
+- [ ] **P4-15.1** append-only 2,048字符note，run-scoped key/signature去重、异正文/Manifest409；确定性显式凭据/HTML/导出拒绝不回显，不静默改正文，不承诺识别全部secret，不新增检测服务。P4-ISSUE-007。
+- [ ] **P4-15.2** note/idem/audit同事务，completion audit与attempt/item终态同事务；独立audit reference不覆盖Run，Pino/history只安全状态，不吞审计失败。
 - [ ] **P4-15.3** 添加 DB/audit/log/DTO 泄露负向测试和诊断运行指引；若要新增 metrics 依赖/端点，必须先提问取得决策，未获批时使用设计允许的 Pino/audit/history。
 
 ### P4-16：Operator UI 与 i18n
 
-- [ ] **P4-16.1** 在现有 RunDetails 集成 EvidencePanel 和防御性 view model；GET-only 浏览，独立展示控制、效果、当前业务恢复、清理、证据与 limitation。
-- [ ] **P4-16.2** 显式确认后执行刷新，新 key 重查，metadata replay 提示再次主动刷新；复制仅 frozen recipe，不保存 response 到 storage/URL，不新增公共查询控制台。
+- [ ] **P4-16.1** RunDetails EvidencePanel包含baseline/active对照、Manifest历史选择、实际执行范围/future/lookback限制，独立control/telemetry/CURRENT/效果状态；浏览不查source。
+- [ ] **P4-16.2** 显式选择ID/hash/key，网络重试保留原请求，不自动切latest；主动重查新key，metadata replay不冒充live summary；复制仅冻结recipe，不存storage/URL，不新增公共控制台。
 - [ ] **P4-16.3** 添加中英文、no-data/unavailable/unknown 状态、CURRENT checkedAt、访问性/复制/错误 UI 测试；仅当前 React memory 有 live summary，页面重载不显示伪历史结果。
 
 ### P4-17：部署声明与指引
@@ -210,7 +223,7 @@
 
 - [ ] **P4-18.1** 执行改动范围对应的 Node tests、Contract/runbook/i18n、typecheck/lint、静态部署和术语边界检查；沿用现有工具，回归不能与修复无关的旧问题混做。
 - [!] **P4-18.2** 在获批可丢弃数据库分别运行 init 与 db:migrate/db:verify 空库路径，验收创建事务、并发 Manifest/attempt、retention 保全。阻塞：P4-ISSUE-001；没有环境授权/reset record 不执行实际 reset。
-- [ ] **P4-18.3** 综合 mock provider/route 流程：重复查询不漂移、partial/timeout/expiry/cancel/idem/no-snapshot、数据库/日志不含遥测；记录与真实 pilot 的差别。
+- [ ] **P4-18.3** 综合验收baseline派生、renderer变更后首次物化、冻结上限、ANY/ALL、telemetry全过期但timeline可用、future/lookback/Tempo截断、Gateway cap、历史revision/跨revision idem/note retry及中断CAS；记录与真实pilot差别。
 
 ### P4-19：pilot、回退与阶段退出
 
@@ -229,21 +242,35 @@
 
 上述问题来自已记录的 Phase 3 状态，本次不擅自改变用户的暂缓决策。到达受影响任务时刷新事实，再通过提问确认。
 
-### 6.2 执行中需关注的决策点
+### 6.2 复审问题与实施关闭门槛
 
-以下是设计待细化的检查点，不是当前已确认的缺陷，也不提前替用户选定实现：
+以下问题的设计方案已落入 tech v1.7，状态为**设计已解决、待实施验收**。只有列出的实现/验收完成后才可标记关闭；不能因为本次文档调整已完成就声称能力已交付。
+
+| ID | 缺口与处理方案 | 实施任务 | 最低关闭证据 |
+| --- | --- | --- | --- |
+| P4-ISSUE-003 | 派生baseline，仅作对照；用户2026-10-09确认，不新增相对阈值 | P4-07、11、16、18 | 实际执行同配方baseline；不改DSL/effectRule、不落库数值；baseline缺失限制、零基线与单位不兼容测试 |
+| P4-ISSUE-004 | capture冻结query plan/版本/硬上限；用户2026-10-09确认 | P4-03～05、07、08 | 修改renderer/Catalog后首次物化仍用原query/上限；未知版本不重建；hash损坏失败 |
+| P4-ISSUE-005 | 单位/归约及ALL/ANY三态；用户确认active任一、recovery全部 | P4-07、11、18 | 含ANY成员未知、ALL否定、COUNT/秒解释、多series/sample、NaN/gap的truth-table |
+| P4-ISSUE-006 | 控制事实与历史遥测分离，optional缺口不隐藏 | P4-11、16、18 | 遥测全过期但timeline/CURRENT成功，最终仍unavailable；缺optional为partial |
+| P4-ISSUE-007 | report/note run-scoped key、requestHash与事务audit | P4-03、04、12、14～16 | cleanup新增revision后旧request replay不二次查询；新输入同key409；note重试不重复 |
+| P4-ISSUE-008 | 历史Manifest有界列表/详情与显式旧revision重查 | P4-04、08、14、16 | 旧attempt可定位旧protocol；retention后仍读；ID/hash/归属校验；不自动换latest |
+| P4-ISSUE-009 | Gateway GET执行同等bounded read与envelope guard | P4-10、12、18 | 大body/慢响应/redirect/非法JSON/HTTP200业务失败测试；无无界res.json或body透传 |
+| P4-ISSUE-010 | future先partial后主动重查；用户确认；lookback纳入retention/coverage | P4-06、07、09、11、16 | canonical不动、executed范围受限；5m/15m输入过期、未settled、零长度/gap不伪FULL |
+| P4-ISSUE-011 | Tempo达到limit/搜索不完整为PARTIAL，不做精确否定 | P4-09、11、18 | 100条/未完成/完整性未知无精确总体或假零；无无限分页；完整空结果才可判断 |
+| P4-ISSUE-012 | DB deadline、请求时CAS结算中断attempt；用户确认 | P4-03、04、12、14、18 | 无后台任务/自动source replay；late completion不能覆盖FAILED；idem replay仍同attempt |
+
+### 6.3 仍需在执行现场确认的范围
+
+五项核心行为选择已经获得用户确认；以下新增范围仍需到相应任务时提问，不因本次优化而自动批准：
 
 | 检查点 | 首次处理任务 | 决策触发条件 |
 | --- | --- | --- |
-| future recovery/active tail 与 PromQL/LogQL lookback 覆盖 | P4-06 / P4-11 | 最新 Contract 与设计不能唯一确定等待、拒绝、部分查询或 coverage 语义 |
-| Tempo 搜索 limit/部分结果 | P4-09 / P4-11 | 无法证明返回的是完整集合，影响 FULL/效果判断 |
-| interrupted RUNNING attempt | P4-12 | 同步取消/进程退出后，历史状态恢复方式需要新增状态或运行职责 |
-| note 敏感内容策略 | P4-15 | 检测方案会引入误拒绝、内容改写或额外依赖，且设计没有明确规定 |
+| note检测扩展 | P4-15 | 超出已有有界显式模式拒绝，要新增检测依赖/服务或改写正文 |
 | feature metrics | P4-15 | 需要增加依赖、metrics route 或 scraper；未决策前使用现有诊断方式 |
 | Kubernetes parity、Secret 与 network/storage | P4-17 | 需要选采集器、持久存储、共享认证或变更已有网络权限 |
 | destructive test 与 pilot 范围 | P4-18 / P4-19 | 要连接真实环境、reset 数据或运行有实际资源影响的场景 |
 
-新的实质问题按 `P4-ISSUE-003` 起递增编号，记录备选方案、推荐、风险、用户回答和落实证据。不要将此表的“检查点”当作已批准的新范围。
+新的实质问题按 `P4-ISSUE-013` 起递增编号，记录备选方案、推荐、风险、用户回答和落实证据。不要将此表的“检查点”当作已批准的新范围。
 
 ## 7. 验收与证据记录约定
 
@@ -267,3 +294,4 @@
 | 日期 | 任务 | 更新 | 完成证据/限制 |
 | --- | --- | --- | --- |
 | 2026-10-09 | P4-00.1～00.3 | 生成 v1.0 清单，建立 20 组/60 子任务、依赖、状态规则和决策登记；同步文档导航 | 按技术设计 v1.6 和实际 Phase 3 consumer seam 拆分；仅文档规划完成，运行时 0/57，未执行 DB reset、live query、canary 或发布 |
+| 2026-10-09 | P4-00R.1～00R.3 | 覆盖复审和五项用户决策落入tech v1.7/task v1.1；补七项缺口和future/lookback、Tempo、中断attempt，新增问题003～012及关闭证据，修正capture依赖renderer | 21组/63子任务，文档6/63、运行时0/57；问题为设计已解决而非实现已关闭；未执行reset/live query/发布 |

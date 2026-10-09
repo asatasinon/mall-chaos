@@ -1,6 +1,6 @@
 # 批次 4：实时 Evidence Query 技术设计
 
-> 状态：技术设计 v1.6，已按 2026-09-28 Phase 3 复审决议、clean-slate schema 边界及 P3-ISSUE-034 对齐；P3-04 最小 consumer seam 已实现，Batch 4 完整运行时仍未实施<br>
+> 状态：技术设计 v1.7；2026-10-09 任务覆盖复审已补齐，关键行为由用户逐项确认；P3-04 最小 consumer seam 已实现，Batch 4 完整运行时仍未实施<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 实施任务与进度：[task-list.md](./task-list.md)<br>
 > 对应路线阶段：阶段 4<br>
@@ -9,13 +9,17 @@
 
 ### P3-04 implementation handoff (2026-09-30)
 
-The user approved and the implementation completed the two blocked handoffs as a deliberately narrow Batch 4 consumer seam in `traffic-control-plane`. `evidence-contract-snapshot.ts` imports the Phase 3 `EvidenceContractPlan`, reuses its canonicalizer/hash, persists only the Evidence plan JSON alongside the unchanged full `contractRevision`, and fails missing snapshots with `CONTRACT_SNAPSHOT_UNAVAILABLE` rather than consulting current Catalog data. `evidence-query-prometheus-renderer.ts` implements only the three approved fixed templates, retaining the Catalog predicate and enforcing fixed service/filesystem scope and 5m/15m metric windows; metric fixtures cover the emitted Payment counters and node-exporter series. This is not the full Batch 4 runtime: capture flags, Fault Run transaction wiring, database tables, manifests, live provider clients, routes, UI, and CLI remain unimplemented. Phase 3 remains the sole source of Evidence types and mutable Catalog facts; renderer inputs remain typed Catalog recipes with no free-form query slot.
+The user approved and the implementation completed the two blocked handoffs as a deliberately narrow Batch 4 consumer seam in `traffic-control-plane`. `evidence-contract-snapshot.ts` imports the Phase 3 `EvidenceContractPlan`, reuses its canonicalizer/hash, persists only the Evidence plan JSON alongside the unchanged full `contractRevision`, and fails missing snapshots with `CONTRACT_SNAPSHOT_UNAVAILABLE` rather than consulting current Catalog data. `evidence-query-prometheus-renderer.ts` implements only the three approved fixed templates, retaining the Catalog predicate and enforcing fixed service/filesystem scope and 5m/15m metric windows; metric fixtures cover the emitted Payment counters and node-exporter series. This is not the full Batch 4 runtime: capture flags, Fault Run transaction wiring, database tables, manifests, live provider clients, routes, and UI remain unimplemented. Phase 3 remains the sole source of Evidence types and mutable Catalog facts; renderer inputs remain typed Catalog recipes with no free-form query slot.
+
+### 2026-10-09 复审决策
+
+用户已分别确认：baseline 从 active 遥测配方派生，仅作对照，不新增相对阈值；capture 时同时冻结独立渲染计划和窗口硬上限；未来窗口不等待、不移动 canonical window，返回部分证据并由 Operator 主动重查；中断 attempt 用数据库 deadline 和请求时 CAS 惰性结算，不新增后台执行器；active predicate 使用任一有效采样，recovery predicate 使用全部有效采样，按 Catalog ALL/ANY 三态组合。下文定义具体落地规则与验收，设计完成不代表运行时代码已实现。
 
 ## 1. 设计结论
 
 批次 4 在 `traffic-control-plane` 内实现一个仅供 Operator 使用的 Evidence Query 子系统。它由三个彼此独立的层组成：
 
-1. **可选的运行创建时冻结合同**：只有 `EVIDENCE_MANIFEST_CAPTURE_ENABLED=true` 时，才在创建 Fault Run 的同一 MySQL 事务保存 Phase 3 `contractRevision` 引用、由 Catalog 派生的 Evidence Contract snapshot 和其 `contractHash`。该 snapshot 是已 capture 运行唯一可信的查询协议，后续 Catalog 修改不会改写它；flag 关闭时不要求也不写 snapshot。
+1. **可选的运行创建时冻结合同**：只有 `EVIDENCE_MANIFEST_CAPTURE_ENABLED=true` 时，才在创建 Fault Run 的同一 MySQL 事务保存 Phase 3 `contractRevision` 引用、Evidence DSL snapshot 及 `contractHash`、独立的已渲染查询计划及其版本/hash和创建时窗口硬上限。后续 Catalog 或 renderer 修改不会改写它；flag 关闭时不要求也不写 snapshot。
 2. **终态按需物化 Manifest**：Operator 首次查看终态运行的证据时，服务端使用 frozen contract 与按 `(created_at, id)` 排序的 Run Event 生成不可变 `EvidenceQueryManifest`。若清理等后续生命周期事实发生，则创建新 revision，绝不原地改写旧 Manifest。
 3. **Operator 显式实时查询**：Operator 主动发起一次有严格时间、并发和响应体上限的同步查询。控制面只向 Prometheus、Loki、Tempo 和既有 Gateway 固定只读检查发请求，结果只在当前 HTTP 响应中以受限摘要返回；数据库、审计、日志和指标只记录状态、判断、时长和安全错误码。
 
@@ -69,7 +73,7 @@ Operator explicitly requests a report
 | Gateway 固定观测入口 | `OperationDispatchController` | 仅复用已经存在、可验证为只读的固定入口；不新增通用代理 |
 | Prometheus、Loki、Tempo | Compose/Kubernetes 观测配置 | 通过服务端内部 endpoint 做实时只读请求，不经浏览器或宿主机暴露端口 |
 
-当前 Catalog 尚未包含完整 `contract.evidence` supplement、Contract revision 或历史 contract snapshot；控制面也没有 PromQL、LogQL、TraceQL 查询客户端。这些是批次 3 和批次 4 必须显式补齐的能力，不能通过路由、组件、Markdown 或 SQL 里的手工映射绕过。
+Phase 3 已实现 `contract.evidence` supplement、Contract revision、Evidence snapshot 内存 seam 和三项 Prometheus renderer。缺少的是 Batch 4 capture 持久化/事务接线、完整渲染计划、Manifest、live clients 和 Operator 入口；不能通过路由、组件、Markdown 或 SQL 里的手工映射绕过。
 
 ### 2.2 开始编码前的阻断门禁
 
@@ -138,7 +142,7 @@ sequenceDiagram
   API->>C: create(command)
   C->>K: validate ResolvedScenarioContract.evidence
   alt EVIDENCE_MANIFEST_CAPTURE_ENABLED=true
-    C->>K: canonicalize exact contract snapshot
+    C->>K: freeze DSL, rendered plan, renderer revision and window bounds
     C->>DB: transaction: fault_runs + CREATED event + contract snapshot
   else capture disabled
     C->>DB: transaction: fault_runs + CREATED event
@@ -155,6 +159,8 @@ sequenceDiagram
 Phase 3 的 `contractRevision` 仅用于识别创建时的场景合同，不是历史快照，也不可用于重建 Evidence DSL。Batch 4 的 Contract snapshot 只记录当次运行应使用的查询协议，不查询任何观测后端。若 capture flag 已开启，snapshot 写入失败必须在任何目标 `prepare` 调用之前使创建失败；否则会产生无法按已批准合同解释的“reportable run”。当 capture flag 关闭时，现有 Fault Run 创建路径保持不变，新运行明确标记为没有 Evidence Contract snapshot。
 
 Batch 4 直接消费 Phase 3 Catalog supplement 中版本化的 `EvidenceContractPlan` 类型/值，包括 `EvidenceWindowPolicy`、`EvidenceRecipeDefinition` 和 `effectRule`。不得维护第二份可变 template/scope/predicate/projection/window 定义，也不做 DSL 类型/字段 rename；snapshot 将同一 `EvidenceContractPlan` 作为 JSON 序列化。
+
+已渲染计划是该 DSL 在 capture 时的不可变派生产物，另存于 `rendered_plan_json`，不是另一份可变 DSL。所有适用模板必须在 target prepare 前完成安全渲染；渲染不支持或校验失败时 capture 失败，不能创建运行后再按最新 renderer 补齐。
 
 ### 4.2 终态 Manifest 物化与实时报告
 
@@ -233,6 +239,8 @@ type EvidenceContractSnapshotRecord = {
 
 `catalogRevision` 仍为完整 Catalog 的 64-hex hash；`contractRevision` 是 Phase 3 的完整 per-run Resolved Contract hash；`contractHash` 是 Batch 4 Evidence snapshot 的 content hash；`manifestHash` 是带 lifecycle timeline/windows 的 Manifest hash。四者用途不同，不可互相赋值或重算替代。
 
+`renderedPlanHash` 另行覆盖冻结的 query/check plan、renderer/evaluation 版本、baseline 派生映射和窗口硬上限；它不替代上述四个 hash。Manifest 的 hash 输入也包含 `renderedPlanHash`、Manifest schema version 和 frozen plan metadata。
+
 Catalog 后续变更只影响新 capture snapshot。已有 snapshot 的运行始终使用自己的冻结 Evidence plan；在 capture flag 关闭时创建的 Run 没有 snapshot，即使有 `contractRevision` 也不得用当前 Catalog 重建其历史 Evidence plan，必须得到 `CONTRACT_SNAPSHOT_UNAVAILABLE`。
 
 ### 5.3 Recipe DSL 与查询渲染
@@ -280,6 +288,25 @@ Catalog 后续变更只影响新 capture snapshot。已有 snapshot 的运行始
 | `PSP_PROVIDER_OUTCOME` | payment failure/timeout rate、payment HTTP latency | `payment-service`、`psp-simulator`、authorization route | 无；授权属于写路径 |
 
 表中 metric 和 route 是 contract authoring 的目标范围，不是生产数据必然存在的承诺。每个 recipe 在 pilot 环境中都要用真实已部署 label/metric 验证。没有实际数据时使用 `NO_DATA` 或 `EVIDENCE_UNAVAILABLE`，不补零。
+
+### 5.4.1 baseline 派生查询与对照
+
+从每条 `window=active`、`observationMode=WINDOWED`、source 为 Prometheus/Loki/Tempo 的 recipe 派生一条 baseline execution item。执行 key 使用 `(originRecipeId, baseline)`，不改 Phase 3 recipe ID/DSL，也不另建 Catalog 场景 map。
+
+- baseline 使用同一冻结 query、scope、单位、step 和 lookback，替换的只有已固定的执行窗口；CURRENT business check、Run Event 和 cleanup recipe 不派生。
+- baseline 是可选对照证据：没有 baseline 不阻止已有 active effectRule 判断，但报告须显示 `BASELINE_UNAVAILABLE` 或对应限制。
+- 仅当 baseline 与 active 都有完整覆盖且具有兼容数值投影时，当前响应展示同单位摘要及差值；基线为零时不算百分比，非有限值或不同投影不比较。
+- NUMERIC 对照使用同名归约字段（例如 max 对 max、latest 对 latest），不比较 max 与 latest。COUNT 的窗口长度可能不同，默认并列显示计数与各自范围，不把未归一化的计数差称为增长率；不额外增加 Catalog 规则。
+- baseline item 的 `predicate_outcome=INCONCLUSIVE`，它不进入 effectRule，不新增相对阈值，不将基线已有异常表述为本次运行造成。
+- 数值、差值和对照只留在当前响应，DB 仅保存执行状态、覆盖、时间和限制。
+
+### 5.4.2 冻结的执行协议
+
+`rendered_plan_json` 保存有限模板派生的 query/check ID、固定 scope、单位、lookback、投影、predicate 解释、归约规则、baseline origin 映射，以及 `rendererRevision`、`evaluationRevision`。计划不得含 endpoint、凭据或遥测结果。
+
+创建时一并冻结窗口硬上限：baseline 900s、active 为当次 Catalog `maxDurationSec + 60s`、recovery 2100s、cleanup 600s。它们是历史 materialization，不是第二个可编辑 Catalog；源 Run 被删除后也不得查当前 Catalog 重算。
+
+Manifest 首次或再次物化都只使用冻结计划，不运行最新 renderer。执行时验证 DSL hash、plan hash、schema/version 和 query allowlist；无法解释的旧执行协议返回 `EVIDENCE_UNAVAILABLE / EXECUTION_PROTOCOL_UNSUPPORTED`，损坏或不安全计划返回 `INVALID_QUERY`，绝不重新渲染后假装使用原配方。持久 query 不能绕过固定 endpoint/check dispatch。
 
 ### 5.5 Gateway business read-check 边界
 
@@ -345,7 +372,7 @@ type EvidenceTimeline = {
 | 窗口 | 默认 start | 默认 end | 硬上限 | 缺失时的行为 |
 | --- | --- | --- | --- | --- |
 | `baseline` | `activeAt - 5m` | `activeAt` | 15m | `NOT_READY: ACTIVE_BOUNDARY_MISSING` |
-| `active` | `activeAt - 30s` | `recoveryStartedAt + 30s` | 场景 max duration + 60s | 若无 recovery start，使用 `terminalAt + 30s` 并附限制；若无 terminal，`NOT_READY` |
+| `active` | `activeAt - 30s` | `recoveryStartedAt + 30s` | capture 时冻结的 max duration + 60s | 若无 recovery start，使用 `terminalAt + 30s` 并附限制；若无 terminal，`NOT_READY` |
 | `recovery` | `recoveryStartedAt - 30s` | `recoveredAt + 5m` | 35m | `NOT_READY: RECOVERY_BOUNDARY_MISSING` |
 | `cleanup` | `cleanupFinishedAt - 5m` | `cleanupFinishedAt` | 10m | 无适用 cleanup 为 `NOT_APPLICABLE`；适用但缺失为 `NOT_READY` |
 
@@ -366,6 +393,8 @@ type EvidenceTimeline = {
 - 新 revision 只影响以后的 live report；旧 attempt 永远指向创建时的 `manifestId`。
 - Manual cleanup 后产生的 revision 只增加 cleanup 相关窗口，不会篡改前一个 revision 对未清理事实的描述。
 - 运行进入现有控制面 retention 前，Worker 在删除前调用同一 materializer 确保至少有最新 Manifest；该维护操作不查询外部观测后端。
+
+`source_run_retained` 是可更新的来源存在性元数据，明确排除在 immutable Manifest core/hash 外；删除源行不能改写时间线、窗口、query plan 或旧 attempt。源运行尚存时，物化与 cleanup/retention 使用共同的数据库锁顺序，避免读取半新时间线。
 
 旧 Fault Run 没有 frozen contract snapshot 时，接口返回：
 
@@ -406,6 +435,10 @@ CREATE TABLE evidence_contract_snapshots (
   contract_revision VARCHAR(128) NOT NULL,
   contract_hash CHAR(64) NOT NULL,
   contract_json JSON NOT NULL,
+  renderer_revision VARCHAR(64) NOT NULL,
+  evaluation_revision VARCHAR(64) NOT NULL,
+  rendered_plan_hash CHAR(64) NOT NULL,
+  rendered_plan_json JSON NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   UNIQUE KEY uq_evidence_contract_source_run (source_fault_run_id),
   INDEX idx_evidence_contract_scenario_revision (scenario, contract_revision)
@@ -413,6 +446,8 @@ CREATE TABLE evidence_contract_snapshots (
 ```
 
 `contract_json` 只含 validated template、scope、predicate、窗口 policy、required 标记和固定 Gateway check ID。它不得包含 endpoint URL、credential、Operator 输入、业务请求 payload 或遥测数据。
+
+`rendered_plan_json` 按第 5.4.2 节保存实际查询协议和窗口硬上限；其 canonical hash 与 `rendered_plan_hash` 一致。已有 `evidence-contract-snapshot.ts` 的 DSL record/seam 保持职责，新的 capture record 组合该 record 与冻结计划，不把 plan 混入 Phase 3 DSL hash。
 
 ### 7.3 `evidence_query_manifests`
 
@@ -452,16 +487,20 @@ CREATE TABLE evidence_query_manifests (
 CREATE TABLE evidence_query_attempts (
   attempt_id CHAR(36) NOT NULL PRIMARY KEY,
   manifest_id CHAR(36) NOT NULL,
+  source_fault_run_id CHAR(36) NOT NULL,
   idempotency_key VARCHAR(128) NOT NULL,
+  request_hash CHAR(64) NOT NULL,
   state VARCHAR(32) NOT NULL,
   evidence_status VARCHAR(32) NULL,
   operator_audit_id BIGINT NULL,
   requested_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  deadline_at DATETIME(3) NOT NULL,
   completed_at DATETIME(3) NULL,
   total_duration_ms INT UNSIGNED NULL,
   failure_code VARCHAR(64) NULL,
-  UNIQUE KEY uq_evidence_attempt_idempotency (manifest_id, idempotency_key),
+  UNIQUE KEY uq_evidence_attempt_idempotency (source_fault_run_id, idempotency_key),
   INDEX idx_evidence_attempt_manifest_time (manifest_id, requested_at),
+  INDEX idx_evidence_attempt_run_deadline (source_fault_run_id, state, deadline_at),
   CHECK (state IN ('RUNNING', 'COMPLETED', 'EVIDENCE_UNAVAILABLE', 'FAILED')),
   CHECK (evidence_status IS NULL OR evidence_status IN
     ('AVAILABLE', 'PARTIAL', 'EVIDENCE_UNAVAILABLE', 'INVALID_QUERY'))
@@ -479,6 +518,8 @@ CREATE TABLE evidence_query_attempt_items (
   reason_code VARCHAR(64) NULL,
   duration_ms INT UNSIGNED NULL,
   queried_at DATETIME(3) NULL,
+  executed_start_at DATETIME(3) NULL,
+  executed_end_at DATETIME(3) NULL,
   UNIQUE KEY uq_evidence_attempt_recipe_window (attempt_id, recipe_id, window_name),
   INDEX idx_evidence_attempt_item_attempt (attempt_id),
   CHECK (source IN ('RUN_EVENT', 'PROMETHEUS', 'LOKI', 'TEMPO',
@@ -492,10 +533,14 @@ CREATE TABLE evidence_query_attempt_items (
 CREATE TABLE evidence_operator_notes (
   note_id CHAR(36) NOT NULL PRIMARY KEY,
   manifest_id CHAR(36) NOT NULL,
+  source_fault_run_id CHAR(36) NOT NULL,
+  idempotency_key VARCHAR(128) NOT NULL,
+  request_hash CHAR(64) NOT NULL,
   operator_audit_id BIGINT NOT NULL,
   note_text VARCHAR(2048) NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   UNIQUE KEY uq_evidence_note_audit (operator_audit_id),
+  UNIQUE KEY uq_evidence_note_idempotency (source_fault_run_id, idempotency_key),
   INDEX idx_evidence_note_manifest_time (manifest_id, created_at, note_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
@@ -575,23 +620,41 @@ X-Idempotency-Key: evidence-{client-id}
 X-CSRF-Token: {csrf-token}
 Content-Type: application/json
 
-{ "manifestHash": "sha256", "confirmed": true }
+{ "manifestId": "uuid", "manifestHash": "sha256", "confirmed": true }
 ```
 
-`manifestHash` 防止页面在读取旧 Manifest 后无意执行新 revision。请求体明确不允许 `promql`、`logql`、`traceql`、`source`、`url`、`window`、`route`、`operation`、`parameters` 或任何业务 ID。
+`manifestId` 必须属于 URL 中的源运行，`manifestHash` 必须匹配该不可变 Manifest。使用明确选中的旧 revision 是合法的历史复查，不要求它是 latest；错误 ID/hash 返回 `409 MANIFEST_REVISION_MISMATCH`。请求体明确不允许 `promql`、`logql`、`traceql`、`source`、`url`、`window`、`route`、`operation`、`parameters` 或任何业务 ID。
 
 | 情况 | HTTP | 结构化结果 |
 | --- | ---: | --- |
-| 所有 required recipe 完整可用 | `200` | `AVAILABLE` |
-| 至少一项不可用，但仍有 required 证据可解释 | `200` | `PARTIAL` |
-| required 证据都不能使用 | `200` | `EVIDENCE_UNAVAILABLE` |
+| 适用查询完整可复查，required 控制事实齐全 | `200` | `AVAILABLE` |
+| 部分项不可用/缺覆盖，但仍有历史遥测可解释 | `200` | `PARTIAL` |
+| 历史遥测都不可用/未就绪，即使 timeline 可读 | `200` | `EVIDENCE_UNAVAILABLE` |
 | frozen Manifest/recipe 不满足内部约束 | `422` | `INVALID_QUERY` |
-| Manifest hash 已过期 | `409` | `MANIFEST_REVISION_MISMATCH` |
+| Manifest ID/hash 不匹配 | `409` | `MANIFEST_REVISION_MISMATCH` |
+| 同一 key 的 request signature 不同 | `409` | `IDEMPOTENCY_KEY_REUSED` |
 | 运行未终态 | `409` | `RUN_NOT_TERMINAL` |
 | 当前并发额度已满 | `429` | `EVIDENCE_QUERY_BUSY` |
 | 无 session/CSRF/格式非法 | 现有 `401`/`403`/`400` | 正常错误 envelope |
 
-每次新 idempotency key 代表一次明确的实时重查。相同 `(manifestId, idempotencyKey)` 绝不再次访问外部 source：若原请求仍在执行则返回已有 attempt metadata；若已结束则返回 metadata-only replay，UI 必须以新 key 发起新的实时查询。由于不保存即时遥测摘要，API 不承诺重放完整 live report；这是一项有意的“不保存现场数据”取舍。
+每次新 idempotency key 代表一次明确的实时重查。report key 的范围是 `(sourceFaultRunId, idempotencyKey)`，`requestHash` 覆盖选中 Manifest ID/hash 和规范化确认字段。同 key/same signature 在最新时间线判断之前查找已有 attempt，返回 metadata-only replay，不访问 source；同 key/different signature 返回 `409 IDEMPOTENCY_KEY_REUSED`。cleanup 创建新 revision 不改变旧请求的 replay；重查新 revision 要新 key。浏览器网络重试保留原 ID/hash/key，不自动换成 latest。无即时遥测摘要重放是有意的“无快照”取舍。
+
+### 8.2.1 中断 attempt 惰性结算
+
+创建 attempt 时用数据库当前时间固定 `deadline_at=requested_at + totalTimeout + 5s`，后者 5s 仅供取消及元数据收尾，不延长 source 查询 deadline。下一次该源运行的 report/history 请求，先将过期的 RUNNING attempt 以 CAS 转为 `FAILED / EXECUTION_INTERRUPTED`，写 `completed_at` 和安全审计。
+
+正常完成、取消和惰性结算共享 `state=RUNNING` 的条件更新，过期完成写入还要校验 deadline；item/attempt/audit 终态事务同成同败。迟到进程不能覆盖已结算状态。相同 key 只回放 FAILED metadata，新查询必须由 Operator 用新 key 发起。这个有限、数据库本地的结算不查询 source、不执行 recovery、不新增 Worker timer/queue；没有后续请求时记录可保持 RUNNING，但 history 在展示前必须结算。
+
+客户端主动取消在仍可写DB时记录 `FAILED / EXECUTION_CANCELLED`；控制面总查询预算耗尽但可形成结构化报告时，未执行完的项记录 `SOURCE_TIMEOUT` 或 `REPORT_DEADLINE_EXCEEDED`，按已有证据聚合为 PARTIAL/EVIDENCE_UNAVAILABLE，不误称进程中断。只有失去正常收尾事实的过期RUNNING才由惰性CAS写EXECUTION_INTERRUPTED。
+
+### 8.2.2 历史 Manifest 入口
+
+```text
+GET /internal/fault-runs/{faultRunId}/evidence/manifests
+GET /internal/fault-runs/{faultRunId}/evidence/manifests/{manifestId}
+```
+
+列表使用有界 limit/cursor，返回 revision/hash/物化时间和限制；详情返回指定 frozen core。所有读取检查 source ownership、Operator session 和 no-store，不执行 source 查询。源 Run 删除后仍通过 retained Manifest 查询。report history 明确关联 revision，UI 可选择旧 Manifest 并用其 ID/hash 发起显式重查；不自动替换旧窗口或显示过去的数值摘要。
 
 ### 8.3 历史与分析笔记
 
@@ -610,6 +673,10 @@ notes 是 Operator 的辅助分析，不能替代任何控制、效果、恢复�
 - 创建后 append-only；首版不支持编辑或删除，避免无法审计的改写；
 - note 正文只保存在 note 表中，审计记录只 hash request metadata，不存正文。
 
+Note body 必须提供选中 `manifestId`、`manifestHash` 和 plain-text `text`，header 提供 idempotency key。规范化只做换行统一，不静默删改正文。key 按 `(sourceFaultRunId, idempotencyKey)` 唯一，`requestHash` 对 ID/hash 与规范化正文计算哈希；同 key/same signature 回放 note metadata，同 key/different signature 返回 409。note、audit 和 idem record 同事务提交，网络重试不能生成重复正文或审计。
+
+敏感内容校验采用有界、确定性的结构/显式凭据模式拒绝，显示固定 reason code，不回显被拒内容；HTML 和遥测/业务 JSON 导出不能作为 note。此校验不保证识别所有自然语言 secret，UI 必须提示勿粘贴敏感内容，默认 HTML escape，不新增外部检测服务或依赖。
+
 ### 8.4 Audit 行为
 
 | 动作 | `operator_audit_logs.action` | `target` | parameters 中允许的字段 |
@@ -626,7 +693,7 @@ notes 是 Operator 的辅助分析，不能替代任何控制、效果、恢复�
 | 模块 | 职责 |
 | --- | --- |
 | `evidence-types.ts` | 严格的 Contract、Manifest、窗口、状态、DTO 和 JSON guard |
-| `evidence-contract.ts` | 从 Catalog evidence 字段 canonicalize、validate、hash 和创建 snapshot |
+| `evidence-contract-snapshot.ts`（已有）与 capture plan 模块 | 复用 Phase 3 DSL seam，组合冻结渲染计划/版本/上限，不镜像定义 |
 | `evidence-manifest.ts` | 安全事件投影、时间线折叠、窗口解析、Manifest hash/revision |
 | `evidence-repository.ts` | snapshot、Manifest、attempt、item、note 的参数化 SQL 与事务 |
 | `evidence-query-clients.ts` | Prometheus、Loki、Tempo 的 typed bounded client |
@@ -635,6 +702,8 @@ notes 是 Operator 的辅助分析，不能替代任何控制、效果、恢复�
 | `evidence-view.ts` | UI 使用的防御性投影，绝不渲染原始 provider payload |
 
 `FaultRunCoordinator` 只在 capture flag 开启时于创建前获得 frozen snapshot，并新增 `PREPARE_STARTED`/`STOP_REQUESTED` 生命周期事件；flag 关闭时不要求 snapshot，也不执行 evidence query。Coordinator 不持有查询执行器。Web route 只编排认证、请求校验、审计和 service 调用；它不持有 query template 或业务路径。
+
+创建、note 和 report audit 需要复用现有审计行为的 transaction-aware seam；不得用 broad catch 吞掉审计失败。诊断不可写入 note text、查询结果或原始错误。
 
 ### 9.2 调用限制
 
@@ -650,6 +719,8 @@ notes 是 Operator 的辅助分析，不能替代任何控制、效果、恢复�
 | 重试 | 最多 1 次 | 仅网络错误、timeout、429、502、503、504；保持在总 deadline 内 |
 
 不重试 `400`/`401`/`403`、静态 recipe 校验失败、retention 过期或 manifest mismatch。所有 `fetch` 必须设置 `AbortSignal`、`redirect: 'error'`、response byte cap 和严格 content-type/JSON shape 校验。
+
+上述网络/资源限制同样适用于 Gateway CURRENT GET，不只适用于观测后端。扩展或抽取 `GatewayClient` 的 bounded read seam，保留已有调用默认行为；检查使用限定 GET、signal、byte cap、redirect 拒绝和严格 envelope guard。不能先 `res.json()` 无界读入再投影；超限/非法/业务 envelope 非成功分别输出安全 unavailable/check-failure，不保存或回显响应正文。
 
 ### 9.3 Source-specific 查询与内存摘要
 
@@ -669,9 +740,23 @@ Provider 失败统一映射为安全 reason code：`SOURCE_UNCONFIGURED`、`SOUR
 
 1. `window.end < now - retention`：窗口完全在已声明 retention 之外；不发出 provider 请求，结果为 `EVIDENCE_UNAVAILABLE / RETENTION_EXPIRED / NONE`。
 2. `window.start < now - retention <= window.end`：保留 canonical 窗口，不向“当前”滑动。可以查询，但结果至少标记 `coverage=PARTIAL`，predicate 只能得到 `INCONCLUSIVE`。
-3. 完全在已声明 retention 内：`coverage=FULL`；后端仍可能无数据或不可用，不能因配置保证其一定可查。
+3. 完全在已声明 retention 内：仅是 eligible-for-full，最终 coverage 还取决于未来尾部、lookback、实际结果完整性及后端状态，不能直接写 `FULL`。
 
 `NO_DATA` 表示后端成功返回但没有匹配材料；它与 `EVIDENCE_UNAVAILABLE` 不同。只有 Manifest 明确给出可判断的 predicate 时，`NO_DATA` 才可能产生 `NOT_MET`；否则必须为 `INCONCLUSIVE`。
+
+未来窗口尾部：保留 canonical start/end，以一次 DB query time 限定 `executedEnd=min(canonicalEnd, queriedAt)`。若 end 尚未到达，附 `WINDOW_NOT_SETTLED`、`coverage=PARTIAL`；尚无正长度范围则不查询。不得等待 5 分钟或滑动 Manifest。该 item predicate 为 INCONCLUSIVE；其他已闭合的 active item 仍独立判断，不让未来 recovery tail 推翻已完整的 active 事实。之后 Operator 新 key 重查。
+
+range lookback：冻结计划记录每个 query 的输入依赖窗口，retention 要从 `canonicalStart-lookbackSec` 检查，而非只从输出 start 检查。返回样本的缺口、NaN/Inf、provider warning/partial metadata、缺 scrape 数据都降低 coverage 或导致 unavailable；不得按 HTTP 200 判定完整。记录 canonical/实际执行范围与安全 coverage reason，仅保存在 attempt 元数据/允许投影中。
+
+Tempo limit 达到 100、后端 search 未完成或无法证明结果完整时输出 `SEARCH_INCOMPLETE / PARTIAL`，不分页扩为无限查询、不计算精确总体计数、不做否定效果判断。仅完整 search 的匹配 trace 集合可以按去重 trace count 判断；不是 span count。空集合只有可确认完整搜索时才可解释为零，不能把未完成搜索当 NO_DATA。
+
+### 9.4.1 单位、归约与 predicate
+
+冻结执行协议明确定义每个模板的 value unit 和 predicate interpretation。NUMERIC 模板使用 query 已有的固定聚合；仍返回多 series 时对每个合法 series/sample 判断，不额外把 ratio/p99 相加。active 的完整有效集合中任一采样满足 Catalog comparison 即 MET，全部不满足才 NOT_MET；recovery 则全部满足才 MET，存在不满足为 NOT_MET。baseline 仅计算 min/max/latest 对照，不产生效果 predicate。
+
+COUNT 模板比较匹配数量与同单位 count 阈值。Loki 滚动 `count_over_time` bucket 按时序 predicate 处理，不能累加重叠 bucket 冒充总日志条数。`SERVICE_SLOW_REQUESTS` 的 Catalog comparison value 单位为秒，冻结为 TraceQL duration filter；输出为匹配慢请求的 trace count，presence 判断是 count > 0，而不是“trace 数 > 秒数”。其他 Tempo count 模板（例如 storage 的 `SERVICE_ROUTE_REQUESTS`）按 Catalog 的 count comparison 判断。未知单位/解释组合 capture 时阻断，不临时更改 DSL 字段或阈值。
+
+NONE predicate 始终 INCONCLUSIVE；CURRENT `CATALOG_PRODUCT_LIST`/`CATALOG_BROWSE_REPORT` 可显示受控 check PASS/FAIL，但不能将列表可达宣称为 run-scoped cache、资源清理或整条业务恢复已证实。
 
 ### 9.5 总体状态与效果判断
 
@@ -686,9 +771,10 @@ attempt state:
   RUNNING | COMPLETED | EVIDENCE_UNAVAILABLE | FAILED
 ```
 
-- 所有 applicable required recipe 有 `FULL` coverage 且后端可解析时，整体为 `AVAILABLE`，即使某个 predicate 为 `NOT_MET`。
-- 一部分 source 无法用、但至少一条 required 证据可解释时，整体为 `PARTIAL`。
-- 所有 required evidence 均不可用，或所有 required window 未就绪时，整体为 `EVIDENCE_UNAVAILABLE`。
+- 分别计算 `controlFactsStatus`、`telemetryStatus`、`currentBusinessChecksStatus` 和最终 `evidenceStatus`。历史遥测指 source 为 Prometheus/Loki/Tempo 的 WINDOWED 项；Run Event 和 CURRENT 不得作为历史遥测可用的替代品。
+- 全部 historical telemetry 均不可用/未就绪时，最终为 `EVIDENCE_UNAVAILABLE`，即使 timeline 或 CURRENT check 成功。完整 search 的 NO_DATA 可作为成功查询的结果保留，但不据此证明正常。
+- 有可解释的历史遥测，但任一已声明 applicable recipe 缺失、部分覆盖或 required 控制事实缺失时，最终为 `PARTIAL`；optional baseline/log/trace 不可用也显示 PARTIAL，不将缺口藏为 AVAILABLE。
+- 所有 applicable 项完整可复查且 required 控制事实齐全时才 `AVAILABLE`，predicate 为 NOT_MET 不影响查询可用性。NOT_APPLICABLE 项不降低状态。
 - 违反 frozen Manifest 内部不变量时才是 `INVALID_QUERY`；不把 provider `400` 或 outage 错误伪装成 contract defect。
 - `FAILED` 只代表本控制面自身无法创建/完成 attempt 元数据等编排或存储故障；provider timeout、不可达和 retention 过期都是结构化 evidence outcome。
 
@@ -698,7 +784,14 @@ attempt state:
 type EffectAssessment = 'OBSERVED' | 'NOT_OBSERVED' | 'INCONCLUSIVE';
 ```
 
-只有所有 effect rule 所需的 recipe 满足其 predicate 且 coverage 完整时才能得到 `OBSERVED`。`NOT_OBSERVED` 也要求完整覆盖且 predicate 明确不满足。其他任何情况均为 `INCONCLUSIVE`。该结果不改变 Fault Run 状态，不写入 `EFFECT_OBSERVED` event，也不替代真实恢复或清理事实。
+单项 partial/unavailable/未定义判断为 INCONCLUSIVE，组合严格使用冻结 Catalog 的 mode：
+
+| Mode | OBSERVED | NOT_OBSERVED | INCONCLUSIVE |
+| --- | --- | --- | --- |
+| ALL | 所有成员都是完整覆盖的 MET | 至少一个完整覆盖的 NOT_MET | 无 NOT_MET 但至少一个成员未知 |
+| ANY | 至少一个完整覆盖的 MET | 所有成员都是完整覆盖的 NOT_MET | 无 MET 但至少一个成员未知 |
+
+这只是该 effectRule 的三态逻辑结果，不能把某个缺失 recipe 的状态改为完整。整体 report 可以 PARTIAL，而 ANY effect 是 OBSERVED；UI 必须同时显示两者。该结果不改变 Fault Run 状态，不写入 EFFECT_OBSERVED event，也不替代真实恢复或清理事实。
 
 ## 10. 安全、隐私和网络边界
 
@@ -818,21 +911,21 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 
 ## 13. 实施拆分与文件职责
 
-### 13.1 前置批次 3 变更
+### 13.1 已交付的 Phase 3 输入与必须复核的门禁
 
 | 文件 | 变更 |
 | --- | --- |
-| `src/lib/fault-run-catalog.ts` | 为每个场景添加必填 `evidence` contract；不建第二份场景 map |
-| `src/lib/scenario-contract.ts`（新） | Contract schema、canonicalization、coverage/安全 validation；只从 Catalog 派生 |
-| `src/lib/fault-run-catalog.test.ts` / `scenario-contract.test.ts` | 12/12 coverage、模板/窗口/read-check/revision 阻断测试 |
-| `src/lib/runbook.ts` | 从 Catalog evidence contract 派生 Tempo 查询展示；保留 runbook prose |
+| `src/lib/fault-run-catalog.ts` | 消费已交付 `contract.evidence`，不建第二份场景 map |
+| `src/lib/scenario-contract.ts` | 复用既有 DSL/schema/canonicalization，所有字段保持 Phase 3 所有权 |
+| `src/lib/fault-run-catalog.test.ts` / `scenario-contract.test.ts` | 复核已交付 coverage/安全门禁，真实发布证据仍按 Phase 3 清单确认 |
+| `src/lib/runbook.ts` | 复用同一 Contract 派生的展示，不把 prose 当查询权威 |
 
 ### 13.2 批次 4 新增文件
 
 | 文件 | 责任 |
 | --- | --- |
 | `src/lib/evidence-types.ts` | 内部和 API 类型、有限状态、JSON guard |
-| `src/lib/evidence-contract.ts` | frozen Contract snapshot 创建和 hash |
+| `src/lib/evidence-capture-plan.ts` | 组合既有 snapshot seam与冻结query/evaluation计划及窗口上限 |
 | `src/lib/evidence-manifest.ts` | 时间线投影、窗口解析、Manifest revision/hash |
 | `src/lib/evidence-repository.ts` | schema 数据访问、原子 snapshot、Manifest/attempt/note 持久化 |
 | `src/lib/evidence-query-clients.ts` | Prometheus/Loki/Tempo bounded read client |
@@ -842,6 +935,8 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 | `src/lib/migrations/00N-evidence-query.sql` | 批次 3 之后的下一个 clean-database bootstrap DDL；不用于升级已有 volume |
 | `infra/mysql/init/0N-evidence-query-schema.sql` | 批次 3 之后的 fresh-install DDL |
 | `src/app/internal/fault-runs/[faultRunId]/evidence/route.ts` | Manifest GET |
+| `src/app/internal/fault-runs/[faultRunId]/evidence/manifests/route.ts` | 历史 revision 有界列表 GET |
+| `src/app/internal/fault-runs/[faultRunId]/evidence/manifests/[manifestId]/route.ts` | 指定历史 Manifest GET |
 | `src/app/internal/fault-runs/[faultRunId]/evidence/reports/route.ts` | attempt history GET 与 live report POST |
 | `src/app/internal/fault-runs/[faultRunId]/evidence/notes/route.ts` | note GET/POST |
 | `src/components/scenarios/evidence-view.ts` | 前端安全视图模型和格式化 |
@@ -852,6 +947,10 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 | 文件 | 变更 |
 | --- | --- |
 | `src/lib/fault-run-schema.ts` | 加入与 clean-bootstrap migration/init 等价的 DDL；运行时建表语句不代表支持升级已有 schema |
+| `src/lib/evidence-contract-snapshot.ts` | 复用/增强既有 DSL snapshot校验，不混入渲染计划改变Evidence hash |
+| `src/lib/evidence-query-prometheus-renderer.ts` | 扩展全部固定模板，接入冻结的单位/lookback/执行解释 |
+| `src/lib/gateway-client.ts` | 为Evidence正常GET提供bounded read选项/seam，保持其他调用行为 |
+| `src/lib/operator-audit.ts` | transaction-aware审计复用，note/attempt/item/audit原子提交，不吞失败 |
 | `src/lib/fault-run-repository.ts` | 在 run create transaction 写 snapshot；retention 前 materialize latest Manifest；安全读取 evidence data |
 | `src/lib/fault-run-coordinator.ts` | 写入 `PREPARE_STARTED`、`STOP_REQUESTED`；不推断 effect observed |
 | `src/app/internal/fault-runs/route.ts` | capture failure 使用正常错误 envelope；不泄露 contract 内容 |
@@ -871,9 +970,9 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 ### 13.4 建议实现顺序
 
 1. 完成批次 3 Contract、revision 与 12 场景 blocking validation。
-2. 添加 schema、repository 和 Contract snapshot 原子写入；保持所有 query/UI flag 关闭。
-3. 实现安全时间线、窗口和 Manifest materializer；使用 fixture 验证 terminal、failed、manual cleanup、non-releasing 和 legacy run。
-4. 实现 source clients、Gateway adapter、in-memory summary 和状态聚合；使用本地 mock HTTP server 测试，不先接真实环境。
+2. 添加 schema/repository/完整固定renderer和baseline派生，随后完成DSL与已渲染计划的原子capture；保持所有query/UI flag关闭。
+3. 实现安全时间线、冻结上限窗口和Manifest；验证terminal、failed、cleanup、non-releasing、capture-off和历史revision。
+4. 实现bounded source/Gateway clients、单位/coverage/三态聚合和同步attempt；使用mock验证lookback、future、Tempo截断和deadline CAS，不先接真实环境。
 5. 添加 protected routes、audit、UI/i18n 和 no-store response。
 6. 将 retention materialization 接入既有 Worker lease；确认不会修改 Fault Run 生命周期。
 7. Compose 单场景 pilot 开启 capture，再开启 execution；Kubernetes 在观测 parity 前保持 execution 关闭。
@@ -893,13 +992,24 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 | Redaction | provider error、token、password、email、URL credential、raw log/trace/body 都不会进入 DTO、DB、audit/log fixture |
 | UI | 不自动执行；清晰区分 unavailable/no-data/unknown；复制 recipe 不含 endpoint；中英文文案完整；未信任字段不渲染 |
 
+新增必测闭环：
+
+- baseline同配方不同窗口，派生key稳定，无相对predicate，数值不落库，零基线/不同单位不比较。
+- capture后修改renderer、模板lookback或Catalog maxDuration，首次及再次物化都保持原query/硬上限；未知协议/坏hash不重建。
+- 多series/sample、active任一/recovery全部、ALL/ANY含未知成员、slow请求秒filter与count结果不混单位。
+- 遥测全过期但timeline/CURRENT成功仍unavailable；optional source缺失为partial。
+- future tail、输入lookback不足、样本gap/NaN、Tempo100条或未完成，不产生伪FULL/否定判断。
+- report在cleanup新增revision后重试仍指向原attempt；新signature复用key冲突；note/audit网络重试原子去重。
+- 历史revision列表/详情/显式重查、源Run删除、错误归属和hash、mutable source-retained metadata不改变immutable core。
+- Gateway body cap/redirect/timeout/envelope guard在解析前生效；中断deadline请求时CAS结算，late writer不能覆盖。
+
 ### 14.2 Repository 和路由集成测试
 
 - 空数据库分别经 MySQL init 与 `db:migrate` bootstrap 后得到等价的 Evidence schema；不测试已有 volume upgrade，也不以重复执行 SQL 证明旧 schema 兼容。
 - `fault_runs + CREATED event + evidence_contract_snapshot` 成功或同时回滚。
 - 相同 timeline 只产生一条 Manifest；不同 cleanup timeline 产生递增 revision。
-- attempt 的重复 idempotency key 不再次调用 mock source。
-- 未登录、CSRF 缺失、非法 UUID、过大 body、旧 manifest hash、非终态运行与未知 route 参数全部返回既有安全 envelope。
+- run-scoped attempt/note idempotency在revision变化和并发重试中不重复query/note/audit，异signature409；deadline CAS与item/audit终态原子提交。
+- 未登录、CSRF 缺失、非法 UUID、过大 body、错误manifest归属/hash、非终态运行与未知route参数使用安全envelope；明确选择旧revision合法。
 - `GET` Manifest/history 和 `POST` report/note 都带 `Cache-Control: no-store`。
 - retention materialization 发生在删除前；不会对没有 snapshot 的旧运行阻断当前删除流程。
 
@@ -968,7 +1078,8 @@ git diff --check
 - 12/12 场景都具有通过批次 3 validation 的固定 Evidence Contract，且不含自由输入查询。
 - capture flag 开启时，新运行对准确 contract revision 的 snapshot 写入与 Fault Run 创建原子完成；flag 关闭时明确没有 snapshot，不能用当前 Catalog 补造。
 - Operator 能对终态运行获得确定性 Manifest，清楚看到 baseline/active/recovery/cleanup 的窗口或限制原因。
-- 同一 Manifest 可在 retention 内多次实时执行，窗口和 recipe 不漂移，响应带新的查询时间。
+- 同一Manifest及选中的历史revision可在retention内多次执行，冻结query/单位/上限不漂移；baseline对照、CURRENT与历史遥测分离，响应带新查询时间。
+- report/note跨revision重试安全幂等；future/lookback/Tempo截断与中断attempt都有明确coverage/终态，ALL/ANY不违背Catalog。
 - 成功、部分失败、source timeout、retention 不足、legacy snapshot 缺失和 invalid contract 都有明确、非成功形状的状态。
 - MySQL、审计、日志、metrics 和 UI 不保存或泄露 raw metrics、log、trace、credential、业务 payload 或 provider error。
 - 所有业务检查经过 Gateway 固定 allowlist，且不会改变业务状态。

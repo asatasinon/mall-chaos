@@ -2,7 +2,8 @@
 
 > 状态：当前优先级；依赖阶段 0～3
 > 配套技术设计：[批次 4 技术设计](../../implementation/batch-4-evidence-query/tech.md)
-> 设计版本：技术设计 v1（未实施）
+> 设计版本：技术设计 v1.7；复审方案已确认，完整运行时未实施
+> 实施进度：[批次 4 任务清单](../../implementation/batch-4-evidence-query/task-list.md)
 > 首次灰度：可丢弃 Compose 环境中的单场景、单 Operator；Kubernetes 观测 parity 完成前保持执行关闭
 > 回退点：先设 `EVIDENCE_QUERY_EXECUTION_ENABLED=false`，再按需关闭 `EVIDENCE_QUERY_ENABLED`；不改变 Fault Run 生命周期
 
@@ -54,6 +55,10 @@ t_cleanup_finished       可选
 
 场景 Contract 可以覆盖默认窗口。数据过期后不能离线复盘，Manifest 不能还原原始观测数据。
 
+baseline 从冻结的 active 遥测配方派生，仅作基线对照，不另建相对效果阈值。capture 同时冻结渲染计划、版本和窗口硬上限，Manifest 不用当前 renderer 重建。未来尾部先返回 PARTIAL，不移动 canonical window、不等待，后续显式重查。
+
+历史 revision 提供列表/详情和按 ID/hash 显式重查；重试幂等按源运行和 key 绑定原请求。历史遥测全不可用时，Run Event 或 CURRENT 业务检查成功不能掩盖 unavailable。active/recovery 单项判断与 Catalog ALL/ANY 三态规则按批次技术设计执行；它们不改写控制状态。
+
 ## 实时查询范围
 
 | 数据类型 | 查询方式 | Manifest 保存内容 |
@@ -68,6 +73,8 @@ t_cleanup_finished       可选
 `faultRunId`、`X-Trace-Id` 和数据库业务关联 ID 不自动等同于 OTel Trace ID，不能只保存自定义 trace ID 作为查询依据。
 
 ## Evaluator v0
+
+阶段 4 仅实现同步 Operator 报告，使用 RUNNING/COMPLETED/EVIDENCE_UNAVAILABLE/FAILED attempt 元数据；中断 attempt 在下次请求时按 DB deadline CAS 结算，不新增队列、Worker 或自动重查。以下 Agent/alert/PENDING Evaluator 能力属于阶段 5，不是本批次的实现或退出门禁。
 
 Evaluator v0 可以在没有外部 Agent 的情况下运行，先生成 Operator 现场验证报告。Operator 选择 Fault Run 或 alert receipt 后显式触发验证；阶段 5 之后再把 `AgentRcaReport` 作为可选输入，并可由合法报告自动排队。
 
