@@ -2,7 +2,7 @@
 
 > 状态：当前优先级；依赖阶段 0～3
 > 配套技术设计：[批次 4 技术设计](../../implementation/batch-4-evidence-query/tech.md)
-> 设计版本：技术设计 v1.7；复审方案已确认，完整运行时未实施
+> 设计版本：技术设计 v1.8；P4-01～P4-03本地交付完成，capture/Manifest/query完整运行时尚未交付
 > 实施进度：[批次 4 任务清单](../../implementation/batch-4-evidence-query/task-list.md)
 > 首次灰度：可丢弃 Compose 环境中的单场景、单 Operator；Kubernetes 观测 parity 完成前保持执行关闭
 > 回退点：先设 `EVIDENCE_QUERY_EXECUTION_ENABLED=false`，再按需关闭 `EVIDENCE_QUERY_ENABLED`；不改变 Fault Run 生命周期

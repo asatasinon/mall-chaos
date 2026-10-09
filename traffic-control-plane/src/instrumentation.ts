@@ -1,6 +1,8 @@
 import { readScenarioContractWebConfig } from './lib/scenario-contract-web-config';
+import { readEvidenceWebConfig } from './lib/evidence-web-config';
 
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME === 'edge') return;
   readScenarioContractWebConfig();
+  readEvidenceWebConfig();
 }

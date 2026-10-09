@@ -4,11 +4,11 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | 覆盖复审与设计调整已完成；完整 Phase 4 运行时未开始；真实环境验证与阶段退出阻塞 |
-| 版本 | 1.1 |
+| 状态 | P4-01～P4-03已完成本地交付；P4-04待开始，真实环境验证与阶段退出阻塞 |
+| 版本 | 1.2 |
 | 更新时间 | 2026-10-09 CST |
 | 产品规格 | [product.md](./product.md) |
-| 技术设计 | [tech.md](./tech.md)，当前 v1.7 |
+| 技术设计 | [tech.md](./tech.md)，当前 v1.8 |
 | 路线阶段 | [阶段 4](../../roadmap/phases/phase-4-evidence-query.md) |
 | 前置清单 | [批次 3 任务清单](../batch-3-scenario-contract/task-list.md) |
 | 场景事实来源 | `traffic-control-plane/src/lib/fault-run-catalog.ts` |
@@ -56,20 +56,20 @@
 
 ## 3. 总体进度
 
-- **总体状态：** 清单与覆盖复审调整完成；尚未执行 Phase 4 实现。
-- **当前完成：** 6 / 63 个子任务（P4-00、P4-00R 文档工作）。
-- **运行时交付：** 0 / 57 个子任务；已有 Phase 3 seam 不重复计入。
-- **当前任务：** 无进行中的实现任务。
-- **实施起点：** P4-01 复核代码、设计和前置门禁；真实启用必须等待相应门禁通过。
+- **总体状态：** P4-01～P4-03本地交付完成；尚未交付完整Evidence运行时。
+- **当前完成：** 15 / 63 个子任务。
+- **实施清单进度：** 9 / 57（前置核对、配置和schema接线；capture/query尚未接线）；已有 Phase 3 seam 不重复计入。
+- **当前任务：** P4-04严格DTO与Repository待开始，无在途实现任务。
+- **下一步：** 默认关闭地实现DTO/Repository；P4-07固定renderer可独立推进。真实启用仍需前置门禁和获批环境。
 - **阶段退出：** 阻塞。外部 CI、环境访问、完整 reset record 和 canary 证据未齐，不能声明 Phase 4 完成或进入 5.0。
 
 | 任务组 | 目标 | 状态 | 完成 | 依赖 |
 | --- | --- | --- | --- | --- |
 | P4-00 | 建立清单与进度机制 | 已完成 | 3 / 3 | 当前设计 |
 | P4-00R | 覆盖复审与决策落文档 | 已完成 | 3 / 3 | P4-00、用户决策 |
-| P4-01 | 核对前置门禁与设计差异 | 未开始 | 0 / 3 | P4-00R |
-| P4-02 | 配置与默认关闭开关 | 未开始 | 0 / 3 | P4-01 |
-| P4-03 | 五张 Evidence 表与空库 bootstrap | 未开始 | 0 / 3 | P4-01 |
+| P4-01 | 核对前置门禁与设计差异 | 已完成（G0本地准备） | 3 / 3 | P4-00R |
+| P4-02 | 配置与默认关闭开关 | 已完成 | 3 / 3 | P4-01 |
+| P4-03 | 五张 Evidence 表与空库 bootstrap | 已完成（声明/fixture） | 3 / 3 | P4-01 |
 | P4-04 | 严格 DTO 与 Repository | 未开始 | 0 / 3 | P4-03 |
 | P4-05 | capture 与创建事务接线 | 未开始 | 0 / 3 | P4-02、P4-04、P4-07 |
 | P4-06 | 安全时间线与确定性窗口 | 未开始 | 0 / 3 | P4-01、P4-04 |
@@ -119,21 +119,23 @@
 
 ### P4-01：前置门禁与设计对齐
 
-- [ ] **P4-01.1** 核对阶段 0～3 清单和现有 Coordinator、Repository、owner/drain/action journal，记录缺失前置证据；明确已有 `PREPARE_STARTED`/`STOP_REQUESTED` 是否可复用，不重复写事件。
-- [ ] **P4-01.2** 对齐设计中仍描述旧代码的段落、模块名和 schema 列；snapshot 复用 `evidence-contract-snapshot.ts`，DSL 只从 Phase 3 import，renderer 扩展已有 seam，禁止镜像定义。
-- [ ] **P4-01.3** 记录 12 场景 template/source/read-check 覆盖和 flags 生效边界；任何实质设计冲突先登记并提问。验收为代码/设计映射及明确的 G0 结论，不默认前置环境门禁已通过。
+- [x] **P4-01.1** 核对阶段 0～3 清单和现有 Coordinator、Repository、owner/drain/action journal，记录缺失前置证据；明确已有 `PREPARE_STARTED`/`STOP_REQUESTED` 是否可复用，不重复写事件。
+- [x] **P4-01.2** 对齐设计中仍描述旧代码的段落、模块名和 schema 列；snapshot 复用 `evidence-contract-snapshot.ts`，DSL 只从 Phase 3 import，renderer 扩展已有 seam，禁止镜像定义。
+- [x] **P4-01.3** 记录 12 场景 template/source/read-check 覆盖和 flags 生效边界；任何实质设计冲突先登记并提问。验收为代码/设计映射及明确的 G0 结论，不默认前置环境门禁已通过。
+
+2026-10-09 G0覆盖核对：通过`listScenarioDefinitions()`读取12场景，全部声明RUN_EVENT、Prometheus、Loki和Tempo；3场景有CURRENT检查，仅使用Catalog已声明的两个正常GET；当前使用17种template（11 Prometheus、1 Loki、2 Tempo、2 BUSINESS_CHECK、1 RUN_TIMELINE），现有renderer只支持其中3项Prometheus。active遥测可派生63个baseline item，数量来自本次Catalog投影，不是新的可变事实源。`scenario-contract.test.ts`及两个Evidence seam测试13/13通过；仅允许default-off本地实施，不解锁真实CI/DB/canary。
 
 ### P4-02：配置与开关
 
-- [ ] **P4-02.1** 实现 capture、query、execution 三个默认 `false` 开关；固定 source origin、credential 与 retention 配置；区分 Web 查询配置和 Worker retention 需要的能力。
-- [ ] **P4-02.2** 校验 source/total timeout、report/recipe/source concurrency、response cap；禁止空 URL 回退到公网、Grafana 或浏览器 endpoint，拒绝 userinfo/不合法 origin。
-- [ ] **P4-02.3** 添加配置负向测试与 kill-switch 契约：capture 关闭不要求 snapshot；query/execution 关闭不改变运行生命周期；Worker 不需要观测凭据。若配置所有权与最新 Web-only 约定冲突，先提问解决。
+- [x] **P4-02.1** 实现 capture、query、execution 三个默认 `false` 开关；固定 source origin、credential 与 retention 配置；区分 Web 查询配置和 Worker retention 需要的能力。
+- [x] **P4-02.2** 校验 source/total timeout、report/recipe/source concurrency、response cap；禁止空 URL 回退到公网、Grafana 或浏览器 endpoint，拒绝 userinfo/不合法 origin。
+- [x] **P4-02.3** 添加配置负向测试与 kill-switch 契约：capture 关闭不要求 snapshot；query/execution 关闭不改变运行生命周期；Worker 不需要观测凭据。若配置所有权与最新 Web-only 约定冲突，先提问解决。
 
 ### P4-03：schema 与 clean-bootstrap
 
-- [ ] **P4-03.1** 实现 snapshot、Manifest、attempt、attempt item、note 五张表；snapshot 增加独立 rendered plan/version/hash/硬上限，attempt 增加 run-scoped key/requestHash/deadline，note 增加 run-scoped key/requestHash；不建 telemetry result/raw error 列，不对 Fault Run 设置 cascade。
-- [ ] **P4-03.2** 检查实际编号，接入 runtime schema、下一顺序号 `src/lib/migrations`、fresh-install init 和已有 `db:verify`；不硬编码规划中的 `00N/0N`。
-- [ ] **P4-03.3** 添加 DDL/schema verifier fixture，证明两条空库 bootstrap 声明等价，非 clean schema fail fast；已有 volume upgrade 和实际 reset 均不在本任务授权范围。真实空库验收见 P4-18.2。
+- [x] **P4-03.1** 实现 snapshot、Manifest、attempt、attempt item、note 五张表；snapshot 增加独立 rendered plan/version/hash/硬上限，attempt 增加 run-scoped key/requestHash/deadline，note 增加 run-scoped key/requestHash；不建 telemetry result/raw error 列，不对 Fault Run 设置 cascade。
+- [x] **P4-03.2** 检查实际编号，接入 runtime schema、下一顺序号 `src/lib/migrations`、fresh-install init 和已有 `db:verify`；不硬编码规划中的 `00N/0N`。
+- [x] **P4-03.3** 添加 DDL/schema verifier fixture，证明两条空库 bootstrap 声明等价，非 clean schema fail fast；已有 volume upgrade 和实际 reset 均不在本任务授权范围。真实空库验收见 P4-18.2。
 
 ### P4-04：DTO 与 Repository
 
@@ -238,7 +240,7 @@
 | ID | 状态 | 影响 | 已知事实/恢复条件 | 需用户决策时的提问 |
 | --- | --- | --- | --- | --- |
 | P4-ISSUE-001 | 阻塞 | P4-18.2、P4-19.1～2 | Phase 3 清单仍缺环境访问、完整外部 reset record 和 disposable canary；本次未授权任何破坏性操作。获得批准且核实的环境与记录后恢复 | 到真实验证阶段时，询问使用哪个可丢弃环境及其明确授权；不在清单生成时提前要求不存在的资料 |
-| P4-ISSUE-002 | 阻塞阶段退出 | P4-19.1、P4-19.3 | Phase 3 外部 CI/canary/live rollback 尚未全部关闭；准备默认关闭代码不代表前置门禁通过 | 开启/发布前，询问继续保持暂缓，还是提供前置门禁证据；若要求改变阶段依赖，先记录设计决策 |
+| P4-ISSUE-002 | 阻塞阶段退出 | P4-19.1、P4-19.3 | Phase 3 外部 CI/canary/live rollback尚未全部关闭；P1 verification/P2 runtime限制保留，当前retention尚无手工清理eligible过滤；准备默认关闭代码不代表前置门禁通过 | 开启/发布前先核实门禁证据；若要求改变依赖或修复前置运行安全边界，先提问记录决策 |
 
 上述问题来自已记录的 Phase 3 状态，本次不擅自改变用户的暂缓决策。到达受影响任务时刷新事实，再通过提问确认。
 
@@ -258,6 +260,8 @@
 | P4-ISSUE-010 | future先partial后主动重查；用户确认；lookback纳入retention/coverage | P4-06、07、09、11、16 | canonical不动、executed范围受限；5m/15m输入过期、未settled、零长度/gap不伪FULL |
 | P4-ISSUE-011 | Tempo达到limit/搜索不完整为PARTIAL，不做精确否定 | P4-09、11、18 | 100条/未完成/完整性未知无精确总体或假零；无无限分页；完整空结果才可判断 |
 | P4-ISSUE-012 | DB deadline、请求时CAS结算中断attempt；用户确认 | P4-03、04、12、14、18 | 无后台任务/自动source replay；late completion不能覆盖FAILED；idem replay仍同attempt |
+| P4-ISSUE-013 | 2026-10-09用户确认safe-runtime以实际DRAIN_STARTED作recovery开始，STOP_REQUESTED仅受理；无事件为null | P4-01、06、13 | 对照已有event/action/projection；无重复恢复事件，不把202/release ack推为恢复 |
+| P4-ISSUE-014 | 2026-10-09用户确认独立Web-only Evidence配置，Worker仅消费persisted records | P4-01、02、05、17 | Web instrumentation严格校验；shared env/Worker不解析query flag/凭据，default-off不改变lifecycle |
 
 ### 6.3 仍需在执行现场确认的范围
 
@@ -270,7 +274,7 @@
 | Kubernetes parity、Secret 与 network/storage | P4-17 | 需要选采集器、持久存储、共享认证或变更已有网络权限 |
 | destructive test 与 pilot 范围 | P4-18 / P4-19 | 要连接真实环境、reset 数据或运行有实际资源影响的场景 |
 
-新的实质问题按 `P4-ISSUE-013` 起递增编号，记录备选方案、推荐、风险、用户回答和落实证据。不要将此表的“检查点”当作已批准的新范围。
+新的实质问题按 `P4-ISSUE-015` 起递增编号，记录备选方案、推荐、风险、用户回答和落实证据。不要将此表的“检查点”当作已批准的新范围。
 
 ## 7. 验收与证据记录约定
 
@@ -295,3 +299,12 @@
 | --- | --- | --- | --- |
 | 2026-10-09 | P4-00.1～00.3 | 生成 v1.0 清单，建立 20 组/60 子任务、依赖、状态规则和决策登记；同步文档导航 | 按技术设计 v1.6 和实际 Phase 3 consumer seam 拆分；仅文档规划完成，运行时 0/57，未执行 DB reset、live query、canary 或发布 |
 | 2026-10-09 | P4-00R.1～00R.3 | 覆盖复审和五项用户决策落入tech v1.7/task v1.1；补七项缺口和future/lookback、Tempo、中断attempt，新增问题003～012及关闭证据，修正capture依赖renderer | 21组/63子任务，文档6/63、运行时0/57；问题为设计已解决而非实现已关闭；未执行reset/live query/发布 |
+| 2026-10-09 | P4-01.1 | 核对P0～P3清单和当前create/stop/action/recovery/retention代码；创建事务已写Run/CREATED contractRevision；STOP_REQUESTED已存在，safe-runtime实际恢复由Worker DRAIN_STARTED开始，PREPARE_STARTED未存在，owner模式可用PREPARE action.dispatchStartedAt | 7/63；P0观测/K8s、P1验证adapter、P2 runtime/DB、P3CI/cleanDB/canary限制继续保留；当前retention仍只按终态/recovery_result/7天过滤，不声称手工清理门禁已解决；无环境操作 |
+| 2026-10-09 | P4-01.2 | 技术设计v1.8按当前源码对齐create事务、PREPARE action、stop受理、safe/legacy恢复、retention和schema编号；用户确认DRAIN_STARTED锚点及独立Web-only配置；snapshot/renderer复用现有seam，不重复写事件 | 8/63；P4-ISSUE-013/014方案已确认，具体runtime验收保留到P4-02/06；无source请求/DB mutation |
+| 2026-10-09 | P4-01.3 | Catalog直接派生12场景/17种template/63 baseline候选；两种CURRENT正常GET边界保持，记录Web-only/capture-off和G0限制 | 9/63；`pnpm exec tsx --test src/lib/scenario-contract.test.ts src/lib/evidence-contract-snapshot.test.ts src/lib/evidence-query-prometheus-renderer.test.ts`13/13；本机Node24.14.0/pnpm10.27.0，Node22镜像/runtime验收仍待真实环境，未执行远端或reset |
+| 2026-10-09 | P4-02.1 | 新增evidence-web-config纯解析/显式读取，三旗default-off、source origin/retention及成对凭据；Node instrumentation调用，Edge跳过；shared strict parsers抽为environment-values以保持env原行为 | 10/63；config+env聚焦15/15；Worker import子进程使用非法Evidence配置仍成功，Web bootstrap非法值失败；未实现snapshot写入、API/query或部署flags |
+| 2026-10-09 | P4-02.2 | 校验source 100～8000ms、total 1000～20000ms且严格大于source、recipe1～4/report1～2、固定source并发2、body1KiB～1MiB、safe毫秒retention；reject URL userinfo/path/query/fragment/whitespace与不完整/控制字符凭据，错误不回显值 | 11/63；聚焦config+env16/16、pnpm typecheck及修改TS文件eslint通过；仅配置约束，source executor enforcement待P4-09/12 |
+| 2026-10-09 | P4-02.3 | 增加test:evidence入口，README明确Web-only/default-off/未接线范围及配置边界；证明显式读取不缓存旧flags、Worker子进程不解析Evidence、Web启动非法配置失败和Edge跳过 | 12/63；config+Contract admission+Coordinator+WorkerRuntime聚焦40/40；typecheck/修改文件eslint已通过；真实query kill-switch/capture-off不写snapshot由后续接线任务验收，不宣称P4功能已启用 |
+| 2026-10-09 | P4-03.1 | 新增evidence-schema五表声明，包含frozen plan/version/hash、run-scoped idem、deadline和执行范围；明确只存protocol/状态/判断，不含telemetry结果列、FK或cascade | 13/63；schema声明/metadata verifier fixture 6/6、typecheck及文件eslint通过；未向任何数据库执行DDL，真实空库验收仍P4-18.2阻塞 |
+| 2026-10-09 | P4-03.2 | 使用确认空闲的006-evidence-query.sql和10-evidence-query-schema.sql，runtime SCHEMA_STATEMENTS并入同一DDL；migration runner required tables增加五表，db:verify接入只读columns/index/CHECK/FK verifier | 14/63；schema/migration聚焦12/12，runtime/migration/init逐语句规范化parity通过；不运行db:migrate/db:verify真实连接，不承诺existing-volume upgrade |
+| 2026-10-09 | P4-03.3 | fixture覆盖缺字段/错误nullable/type/length/precision/default/unsigned/auto_increment、额外payload列、缺/非unique/重排/前缀idem索引、缺/未enforced/不匹配CHECK和任何FK；db:verify只读拒绝不修复 | 15/63；最终test:evidence26/26+existing migration5/5、typecheck和修改文件eslint通过；较早Evidence+env+repository+Coordinator+WorkerRuntime67/67、术语脚本通过。所有DB验证是fixture，P4-18.2真实空库/Node22运行与canary/CI继续阻塞 |

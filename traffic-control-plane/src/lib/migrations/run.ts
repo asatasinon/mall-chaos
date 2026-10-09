@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { getPool } from '../db';
+import { EVIDENCE_TABLE_NAMES, verifyEvidenceSchema } from '../evidence-schema';
 
 const MIGRATION_LOCK = 'castrel:traffic-control-plane:migrations';
 const HISTORY_TABLE = 'traffic_control_plane_schema_migrations';
@@ -12,6 +13,7 @@ const MIGRATION_FILES = [
   '003-data-warmup-config.sql',
   '004-alert-receipts.sql',
   '005-fault-run-worker-ownership.sql',
+  '006-evidence-query.sql',
 ] as const;
 
 const REQUIRED_TABLES = [
@@ -24,6 +26,7 @@ const REQUIRED_TABLES = [
   'alert_receipts',
   'fault_run_executions',
   'fault_run_actions',
+  ...EVIDENCE_TABLE_NAMES,
 ] as const;
 
 export interface MigrationResult {
@@ -195,6 +198,7 @@ async function verifyRequiredTables(
   const missing = REQUIRED_TABLES.filter((table) => !found.has(table));
   if (missing.length > 0) throw new Error(`MIGRATION_REQUIRED_TABLE_MISSING:${missing.join(',')}`);
   await verifyFaultRunContractRevisionColumn((sql, values) => connection.query(sql, values));
+  await verifyEvidenceSchema((sql, values) => connection.query(sql, values));
 }
 
 export async function verifyFaultRunContractRevisionColumn(

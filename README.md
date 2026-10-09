@@ -205,6 +205,26 @@ pnpm dev
 pnpm worker
 ```
 
+### Phase 4 Evidence 配置准备（默认关闭）
+
+目前已实现 Web-only 配置和启动校验，**capture 事务、Manifest、实时查询 API/UI 尚未接线**。不要将配置解析通过视为 Evidence 功能已可启用；实施进度见 [Phase 4 任务清单](docs/castrel-evolution/implementation/batch-4-evidence-query/task-list.md)。
+
+五张 Evidence 表已加入 runtime 声明、`006-evidence-query.sql` 和 fresh init `10-evidence-query-schema.sql`；`db:verify` 会检查字段、幂等索引和 CHECK 约束，并拒绝不匹配的 schema。两条 bootstrap 声明已对齐，真实空库验收仍未完成。它们仅适用于获批 clean-slate 部署，不是已有 volume 升级方案；本次实现不授权 reset 或直接执行迁移。
+
+`src/lib/evidence-web-config.ts` 只由 Web/API 的 Node instrumentation 校验；不要把这些变量注入 Worker 或共享 `env.ts`。Worker 后续 retention 只读取已持久化记录，不获取观测查询凭据。
+
+| 配置 | 默认及约束 |
+| --- | --- |
+| `EVIDENCE_MANIFEST_CAPTURE_ENABLED`、`EVIDENCE_QUERY_ENABLED`、`EVIDENCE_QUERY_EXECUTION_ENABLED` | 均为 `false`，显式值只接受 `true`/`false`；execution 要求 query 开启，capture 可独立开启 |
+| `EVIDENCE_PROMETHEUS_BASE_URL`、`EVIDENCE_LOKI_BASE_URL`、`EVIDENCE_TEMPO_BASE_URL` | 默认未配置；只接受精确 HTTP(S) origin，不含凭据、路径、query 或 fragment；空值不回退到 Grafana/公共入口 |
+| `EVIDENCE_OBS_USERNAME`、`EVIDENCE_OBS_PASSWORD` | 可选且必须成对，通过部署 Secret 提供；不能写进 URL、报告、日志或源码 |
+| `EVIDENCE_SOURCE_TIMEOUT_MS`、`EVIDENCE_REPORT_TOTAL_TIMEOUT_MS` | 默认 `5000`/`15000`；范围为 `100～8000`/`1000～20000`，total 必须严格大于 source |
+| `EVIDENCE_MAX_PARALLEL_RECIPES`、`EVIDENCE_MAX_CONCURRENT_REPORTS` | 默认 `4`/`1`；范围为 `1～4`/`1～2`；每 source 并发固定最多 `2` |
+| `EVIDENCE_MAX_RESPONSE_BYTES` | 默认 `1048576`，允许 `1024～1048576`；实际读取限额由后续 client 任务落实 |
+| `EVIDENCE_PROMETHEUS_RETENTION_SEC`、`EVIDENCE_LOKI_RETENTION_SEC`、`EVIDENCE_TEMPO_RETENTION_SEC` | 默认 `604800`；正整数且毫秒转换必须安全；声明 retention 不证明数据仍存在 |
+
+配置非法时 Web 启动失败并给出不含输入值的固定错误；不会静默修正数值。部署环境变量变化需要应用新配置/重启，不能视为热更新。开关关闭不执行 Fault Run stop/release/cleanup；后续入口必须按配置阻止新的查询。`pnpm test:evidence` 覆盖当前 Evidence seam 和配置边界，不代表真实 source/Stack 已验证。
+
 ### 3.1 Fault Run ownership migration and rollout
 
 Fault Run owner/reconciliation remains disabled by default with

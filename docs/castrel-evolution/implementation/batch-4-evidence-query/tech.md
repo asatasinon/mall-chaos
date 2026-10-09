@@ -1,6 +1,6 @@
 # 批次 4：实时 Evidence Query 技术设计
 
-> 状态：技术设计 v1.7；2026-10-09 任务覆盖复审已补齐，关键行为由用户逐项确认；P3-04 最小 consumer seam 已实现，Batch 4 完整运行时仍未实施<br>
+> 状态：技术设计 v1.8；2026-10-09执行前核对已对齐现有action/recovery事实和Web-only配置决策；完整Batch 4运行时尚未交付<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 实施任务与进度：[task-list.md](./task-list.md)<br>
 > 对应路线阶段：阶段 4<br>
@@ -14,6 +14,8 @@ The user approved and the implementation completed the two blocked handoffs as a
 ### 2026-10-09 复审决策
 
 用户已分别确认：baseline 从 active 遥测配方派生，仅作对照，不新增相对阈值；capture 时同时冻结独立渲染计划和窗口硬上限；未来窗口不等待、不移动 canonical window，返回部分证据并由 Operator 主动重查；中断 attempt 用数据库 deadline 和请求时 CAS 惰性结算，不新增后台执行器；active predicate 使用任一有效采样，recovery predicate 使用全部有效采样，按 Catalog ALL/ANY 三态组合。下文定义具体落地规则与验收，设计完成不代表运行时代码已实现。
+
+执行前追加确认：safe-runtime以相应attempt的实际Worker `DRAIN_STARTED`作为恢复开始，不能用STOP受理代替；Evidence配置由独立Web-only模块解析和instrumentation校验，Worker不解析查询开关/观测凭据，只处理已存Evidence记录。
 
 ## 1. 设计结论
 
@@ -91,7 +93,23 @@ Phase 3 已实现 `contract.evidence` supplement、Contract revision、Evidence 
 5. Phase 3 的静态 Contract gate 已通过；Phase 3 只保存 revision。只有显式启用 Batch 4 capture flag 时，新 Fault Run 才在目标 prepare 之前原子保存对应的 Evidence Contract snapshot；flag 关闭不要求也不写 snapshot。
 6. 每个候选观测后端均有已验证的内部服务 endpoint；不会用 Grafana 公共 URL、浏览器 cookie 或开发环境 Basic Auth 作为查询凭据。
 
-批次 4 不负责修复当前 `deleteExpiredFaultRuns()` 对手工清理边界的既有缺口；该运行安全门禁属于前置阶段。批次 4 只能消费已经可靠记录的事实。
+批次 4 不负责修复当前 `deleteExpiredFaultRuns()` 对手工清理边界的既有缺口；该运行安全门禁属于前置阶段。批次 4 只能消费已经可靠记录的事实。当前该函数仍按终态、非空recovery_result和stopped_at超过7天筛选，不能声称会排除未完成手工清理；它继续阻断真实启用/阶段退出。
+
+### 2.3 2026-10-09 源码交接事实
+
+| 边界 | 当前实现 | Batch 4接入 |
+| --- | --- | --- |
+| create事务 | `createFaultRun()` 原子写Run、CREATED、revision；owner模式还写execution/PREPARE action | 新snapshot/capture plan插入该事务，幂等replay不补写 |
+| prepare开始 | owner模式`fault_run_actions.dispatch_started_at`有DB时间；没有PREPARE_STARTED通用event | 优先读取实际PREPARE dispatch；不存在则null，不用CREATED冒充 |
+| stop受理 | `requestFaultRunStop()`事务写STOP_REQUESTED与受控stop attempt | 只作为stopRequestedAt，202不是恢复执行开始 |
+| safe-runtime恢复 | RecoveryExecutor写DRAIN_STARTED、RELEASE/VERIFY等事件，Repository验证projection/attempt后写RECOVERY_COMPLETED | 使用对应attempt真实DRAIN_STARTED；成功anchor须满足成功projection，VERIFY_UNAVAILABLE不等于已恢复 |
+| legacy恢复 | `legacy-fault-run-recovery.ts`仍写RECOVERY_STARTED | 仅对明确legacy事实复用该事件，不给safe-runtime补造 |
+| retention | WorkerRuntime持有既有retention lease，Repository删除eligible run/event及关联audit | 将Evidence保全接入同一事务/lease，不另启任务或查询source |
+| schema | 当前Batch 4已落地006 migration/10 init和runtime五表声明，db:verify接入metadata verifier | fixture证明声明parity；真实空库与SQL执行仍待P4-18.2，不承诺旧volume升级 |
+| 配置 | `scenario-contract-web-config.ts`由Node instrumentation校验，Worker导入shared env | 复用该分层方式；不把Evidence配置加到shared env |
+
+阶段0仍有真实观测/K8s限制，阶段1有verification adapter限制，阶段2有DB/runtime门禁，阶段3外部CI/cleanDB/canary仍暂缓。G0只允许默认关闭的本地实现，不解锁真实环境门禁。
+
 
 ## 3. 范围、非目标与不变量
 
@@ -148,7 +166,7 @@ sequenceDiagram
     C->>DB: transaction: fault_runs + CREATED event
   end
   DB-->>C: committed run
-  C->>DB: PREPARE_STARTED event
+  Note over C,DB: owner prepare uses persisted action dispatch time; missing anchor stays null
   C->>G: fixed prepare operation
   G-->>C: target response
   C->>DB: transaction: ACTIVE + TARGET_CONFIRMED
@@ -353,11 +371,11 @@ type EvidenceTimeline = {
 | 时间点 | 权威来源 | 说明 |
 | --- | --- | --- |
 | `createdAt` | `fault_runs.created_at` | 数据库服务器写入时间 |
-| `prepareStartedAt` | 新增 `PREPARE_STARTED` event | 在 target adapter 调用之前写入 |
+| `prepareStartedAt` | 实际PREPARE action `dispatch_started_at`；如已有显式PREPARE_STARTED可复用 | 当前无通用event；没有可确认dispatch则null，不为展示补造事件 |
 | `activeAt` | `TARGET_CONFIRMED` 与 `ACTIVE` 状态转换 | 事务中的状态转换时间；不使用第一笔流量时间 |
-| `stopRequestedAt` | 新增 `STOP_REQUESTED` event | 在手工/过期恢复请求开始时写入 |
-| `recoveryStartedAt` | `RECOVERY_STARTED` | 不能由 `stopRequestedAt` 推导 |
-| `recoveredAt` | `RECOVERY_COMPLETED` 或 `SERVICE_RECOVERED` | 第一条适用的成功恢复事实 |
+| `stopRequestedAt` | 既有 `STOP_REQUESTED` | stop命令受理事实，不能写重复事件 |
+| `recoveryStartedAt` | safe-runtime对应attempt第一条实际DRAIN_STARTED；明确legacy路径可用既有RECOVERY_STARTED | 不从stopRequestedAt或202推导，缺失为null |
+| `recoveredAt` | 匹配成功projection/attempt的RECOVERY_COMPLETED，或明确legacy SERVICE_RECOVERED | 不能只按event名称推导；失败/partial/VERIFY_UNAVAILABLE保留null |
 | `cleanupFinishedAt` | `MANUAL_CLEANUP_COMPLETED` | 不能由终态或 release 推导 |
 | `terminalAt` | `fault_runs.stopped_at` 与对应终态 event | 用于解释 failed/unavailable 的 active 终点 |
 
@@ -701,7 +719,7 @@ Note body 必须提供选中 `manifestId`、`manifestHash` 和 plain-text `text`
 | `evidence-report-service.ts` | retention preflight、并发、deadline、判定、response shaping |
 | `evidence-view.ts` | UI 使用的防御性投影，绝不渲染原始 provider payload |
 
-`FaultRunCoordinator` 只在 capture flag 开启时于创建前获得 frozen snapshot，并新增 `PREPARE_STARTED`/`STOP_REQUESTED` 生命周期事件；flag 关闭时不要求 snapshot，也不执行 evidence query。Coordinator 不持有查询执行器。Web route 只编排认证、请求校验、审计和 service 调用；它不持有 query template 或业务路径。
+`FaultRunCoordinator` 只在capture开启时消费由Web入口提供的类型化capture输入；flag关闭不要求snapshot，不持有source executor。既有action、STOP_REQUESTED和Worker恢复事件复用，不为Phase 4重复写生命周期事件。Web route编排认证、请求校验、审计和service调用，不持有模板或业务路径。
 
 创建、note 和 report audit 需要复用现有审计行为的 transaction-aware seam；不得用 broad catch 吞掉审计失败。诊断不可写入 note text、查询结果或原始错误。
 
@@ -835,7 +853,11 @@ http://gateway-service:8080
 
 ### 11.1 环境变量
 
-新增配置放在 `traffic-control-plane/src/lib/env.ts`，使用既有 `boundedInteger()` 风格解析。所有 feature 默认关闭，空 source URL 绝不回退到公网、宿主机端口或 Grafana URL。
+配置放在独立 `traffic-control-plane/src/lib/evidence-web-config.ts`，由Web Node instrumentation启动校验，遵循现有strictBoolean/strictBoundedInteger风格：非法显式值失败，不静默clamp/fallback，不在错误中回显值。共享env.ts和Worker不导入/解析此配置。所有feature默认关闭，空source URL显式表示SOURCE_UNCONFIGURED，不回退公网、宿主机或Grafana。
+
+execution开启必须query开启；capture与query独立，允许capture-only和只读既有Manifest模式。配置的三个endpoint须为无userinfo/query/fragment的HTTP(S)精确origin；credential必须完整配对，拒绝header控制字符，仅服务端使用。totalTimeout必须大于sourceTimeout，最大recipe/report并发按表限定，per-source上限固定2；正整数retention只作为声明，不保证数据存在。Worker retention从DB读取snapshot/plan，不需要capture flag或endpoint。
+
+env配置变更需要应用新配置/进程重启后才对新请求生效，不能把修改部署环境变量本身声称为热更新kill switch；在途请求保持原deadline。后续入口每次读取当前Web配置以执行开关边界。
 
 | 变量 | 默认 | 用途 |
 | --- | ---: | --- |
@@ -952,12 +974,12 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 | `src/lib/gateway-client.ts` | 为Evidence正常GET提供bounded read选项/seam，保持其他调用行为 |
 | `src/lib/operator-audit.ts` | transaction-aware审计复用，note/attempt/item/audit原子提交，不吞失败 |
 | `src/lib/fault-run-repository.ts` | 在 run create transaction 写 snapshot；retention 前 materialize latest Manifest；安全读取 evidence data |
-| `src/lib/fault-run-coordinator.ts` | 写入 `PREPARE_STARTED`、`STOP_REQUESTED`；不推断 effect observed |
+| `src/lib/fault-run-coordinator.ts` | 消费显式capture输入；不重复写既有command/action事件，不推断effect observed |
 | `src/app/internal/fault-runs/route.ts` | capture failure 使用正常错误 envelope；不泄露 contract 内容 |
 | `src/app/page.tsx` | 把 Evidence data/action 传入现有 `RunDetails`，不在轮询中执行 report |
 | `src/components/LocalizedScenarioControlSections.tsx` | 终态详情集成 `EvidencePanel` |
 | `src/components/scenarios/types.ts` | 严格 Manifest/attempt/note UI types |
-| `src/lib/env.ts` | 本设计第 11.1 节的 bounded server-only config |
+| `src/lib/evidence-web-config.ts`、`src/instrumentation.ts` | 本设计第11.1节的strict Web-only配置和启动校验；shared env不解析Evidence |
 | `src/worker/index.ts` | 在现有 retention lock 中执行 Manifest materialization；不启动 query worker |
 | `traffic-control-plane/package.json` | 将新增 evidence 测试归入现有 `test:runner` 或新增受控 `test:evidence` |
 | `docker-compose.yml` | 仅 Web/API 注入 disabled-by-default flags 和内部 source endpoints |

@@ -1,4 +1,5 @@
 import { getPool } from './db';
+import { EVIDENCE_SCHEMA_STATEMENTS } from './evidence-schema';
 
 export const FAULT_RUN_OWNERSHIP_TABLES = [
   'fault_run_executions',
@@ -52,6 +53,7 @@ const SCHEMA_STATEMENTS = [
       REFERENCES fault_runs(fault_run_id) ON DELETE CASCADE,
     INDEX idx_fault_run_event_time (fault_run_id, created_at, id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  ...EVIDENCE_SCHEMA_STATEMENTS,
 ];
 
 let schemaPromise: Promise<void> | null = null;

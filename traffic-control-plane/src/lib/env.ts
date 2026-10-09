@@ -1,6 +1,7 @@
 // Environment configuration for traffic-control-plane
 
 import type { FaultRunExecutionMode } from './fault-run-execution-repository';
+import { strictBoolean, strictBoundedInteger } from './environment-values';
 
 export type FaultRunReconciliationMode = 'OFF' | FaultRunExecutionMode;
 
@@ -178,29 +179,6 @@ function boundedInteger(value: string | undefined, fallback: number, minimum: nu
   const parsed = Number.parseInt(value ?? '', 10);
   if (!Number.isInteger(parsed)) return fallback;
   return Math.min(Math.max(parsed, minimum), maximum);
-}
-
-function strictBoolean(name: string, value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined) return fallback;
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  throw new Error(`INVALID_BOOLEAN_ENV:${name}`);
-}
-
-function strictBoundedInteger(
-  name: string,
-  value: string | undefined,
-  fallback: number,
-  minimum: number,
-  maximum: number,
-): number {
-  if (value === undefined) return fallback;
-  if (!/^(0|[1-9]\d*)$/.test(value)) throw new Error(`INVALID_INTEGER_ENV:${name}`);
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
-    throw new Error(`INVALID_INTEGER_ENV:${name}`);
-  }
-  return parsed;
 }
 
 function optionalStrictDurationMs(name: string, value: string | undefined): number | null {
