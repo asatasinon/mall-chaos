@@ -24,36 +24,179 @@ export class ScenarioContractRevisionError extends Error {
 }
 
 export type ParameterConsumer = 'ADMISSION' | 'TARGET_PREPARE' | 'WORKER_EXECUTION';
-export type EvidenceSource =
-  | 'RUN_EVENT'
-  | 'PROMETHEUS'
-  | 'LOKI'
-  | 'TEMPO'
-  | 'BUSINESS_CHECK'
-  | 'RESOURCE_CHECK';
-export type EvidenceWindow = 'baseline' | 'active' | 'recovery' | 'cleanup';
-export type EvidenceProjection = 'NUMERIC' | 'COUNT' | 'BOOLEAN' | 'TIMELINE';
-export type EvidenceTemplateId =
-  | 'HTTP_P99'
-  | 'HTTP_ERROR_RATIO'
-  | 'HTTP_RATE'
-  | 'HIKARI_UTILIZATION'
-  | 'JVM_HEAP_RATIO'
-  | 'MYSQL_SLOW_QUERY_RATE'
-  | 'PAYMENT_FAILURE_RATIO'
-  | 'PAYMENT_TIMEOUT_RATE'
-  | 'REDIS_MEMORY_RATIO'
-  | 'NODE_FILESYSTEM_RATIO'
-  | 'NODE_FILESYSTEM_GROWTH_RATE'
-  | 'SERVICE_EVENT_COUNT'
-  | 'SERVICE_ERROR_COUNT'
-  | 'SERVICE_REQUESTS'
-  | 'SERVICE_ERRORS'
-  | 'SERVICE_SLOW_REQUESTS'
-  | 'SERVICE_ROUTE_REQUESTS'
-  | 'CATALOG_PRODUCT_LIST'
-  | 'CATALOG_BROWSE_REPORT'
-  | 'RUN_TIMELINE';
+export const EVIDENCE_SOURCE_VALUES = [
+  'RUN_EVENT',
+  'PROMETHEUS',
+  'LOKI',
+  'TEMPO',
+  'BUSINESS_CHECK',
+  'RESOURCE_CHECK',
+] as const;
+export type EvidenceSource = typeof EVIDENCE_SOURCE_VALUES[number];
+
+export const EVIDENCE_WINDOW_VALUES = ['baseline', 'active', 'recovery', 'cleanup'] as const;
+export type EvidenceWindow = typeof EVIDENCE_WINDOW_VALUES[number];
+
+export const EVIDENCE_PROJECTION_VALUES = ['NUMERIC', 'COUNT', 'BOOLEAN', 'TIMELINE'] as const;
+export type EvidenceProjection = typeof EVIDENCE_PROJECTION_VALUES[number];
+
+export const EVIDENCE_TEMPLATE_VALUES = [
+  'HTTP_P99',
+  'HTTP_ERROR_RATIO',
+  'HTTP_RATE',
+  'HIKARI_UTILIZATION',
+  'JVM_HEAP_RATIO',
+  'MYSQL_SLOW_QUERY_RATE',
+  'PAYMENT_FAILURE_RATIO',
+  'PAYMENT_TIMEOUT_RATE',
+  'REDIS_MEMORY_RATIO',
+  'NODE_FILESYSTEM_RATIO',
+  'NODE_FILESYSTEM_GROWTH_RATE',
+  'SERVICE_EVENT_COUNT',
+  'SERVICE_ERROR_COUNT',
+  'SERVICE_REQUESTS',
+  'SERVICE_ERRORS',
+  'SERVICE_SLOW_REQUESTS',
+  'SERVICE_ROUTE_REQUESTS',
+  'CATALOG_PRODUCT_LIST',
+  'CATALOG_BROWSE_REPORT',
+  'RUN_TIMELINE',
+] as const;
+export type EvidenceTemplateId = typeof EVIDENCE_TEMPLATE_VALUES[number];
+
+export const EVIDENCE_PREDICATE_OPERATOR_VALUES = ['GT', 'GTE', 'LT', 'LTE', 'EQ'] as const;
+export const EVIDENCE_OBSERVATION_MODE_VALUES = ['WINDOWED', 'CURRENT'] as const;
+
+const EVIDENCE_WINDOW_POLICY_KEYS = [
+  'baselineBeforeActiveSec',
+  'activeLeadSec',
+  'activeTailSec',
+  'recoveryLeadSec',
+  'recoveryTailSec',
+  'cleanupLeadSec',
+] as const;
+
+const EVIDENCE_RECIPE_KEYS = [
+  'id',
+  'source',
+  'window',
+  'observationMode',
+  'required',
+  'template',
+  'scope',
+  'predicate',
+  'projection',
+] as const;
+
+export function isEvidenceContractPlan(value: unknown): value is EvidenceContractPlan {
+  if (!isPlainRecord(value)
+    || !hasExactKeys(value, ['schemaVersion', 'windows', 'recipes', 'effectRule'])
+    || value.schemaVersion !== 'evidence-contract.v1'
+    || !isPlainRecord(value.windows)
+    || !isEvidenceWindowPolicy(value.windows)
+    || !Array.isArray(value.recipes)
+    || value.recipes.length < 1
+    || value.recipes.length > 512
+    || !value.recipes.every(isEvidenceRecipeDefinition)
+    || !isPlainRecord(value.effectRule)
+    || !hasExactKeys(value.effectRule, ['mode', 'recipeIds'])
+    || (value.effectRule.mode !== 'ALL' && value.effectRule.mode !== 'ANY')
+    || !Array.isArray(value.effectRule.recipeIds)
+    || value.effectRule.recipeIds.length < 1
+    || value.effectRule.recipeIds.length > 512
+    || !value.effectRule.recipeIds.every(isEvidenceRecipeId)) {
+    return false;
+  }
+  const recipeIds = value.recipes.map((recipe) => recipe.id);
+  return new Set(recipeIds).size === recipeIds.length
+    && value.effectRule.recipeIds.every((recipeId) => recipeIds.includes(recipeId));
+}
+
+function isEvidenceRecipeDefinition(value: unknown): value is EvidenceRecipeDefinition {
+  if (!isPlainRecord(value)
+    || !hasExactKeys(value, EVIDENCE_RECIPE_KEYS)
+    || !isEvidenceRecipeId(value.id)
+    || !includesValue(EVIDENCE_SOURCE_VALUES, value.source)
+    || !includesValue(EVIDENCE_WINDOW_VALUES, value.window)
+    || !includesValue(EVIDENCE_OBSERVATION_MODE_VALUES, value.observationMode)
+    || typeof value.required !== 'boolean'
+    || !includesValue(EVIDENCE_TEMPLATE_VALUES, value.template)
+    || !isEvidenceScope(value.scope)
+    || !includesValue(EVIDENCE_PROJECTION_VALUES, value.projection)) {
+    return false;
+  }
+
+  const predicate = value.predicate;
+  if (!isPlainRecord(predicate)) return false;
+  if (predicate.kind === 'NONE') return hasExactKeys(predicate, ['kind']);
+  if (predicate.kind === 'BOOLEAN_EQUALS') {
+    return hasExactKeys(predicate, ['kind', 'expected']) && typeof predicate.expected === 'boolean';
+  }
+  return predicate.kind === 'COMPARISON'
+    && hasExactKeys(predicate, ['kind', 'operator', 'value'])
+    && includesValue(EVIDENCE_PREDICATE_OPERATOR_VALUES, predicate.operator)
+    && typeof predicate.value === 'number'
+    && Number.isFinite(predicate.value);
+}
+
+function isEvidenceWindowPolicy(value: unknown): value is EvidenceWindowPolicy {
+  return isPlainRecord(value)
+    && hasExactKeys(value, EVIDENCE_WINDOW_POLICY_KEYS)
+    && EVIDENCE_WINDOW_POLICY_KEYS.every((key) => isBoundedInteger(value[key], 0, 86_400));
+}
+
+function isEvidenceScope(value: unknown): value is EvidenceScope {
+  if (!isPlainRecord(value)
+    || !Object.keys(value).every((key) => key === 'service' || key === 'route' || key === 'fixedLabels')
+    || typeof value.service !== 'string'
+    || !/^[a-z][a-z0-9-]{0,63}$/u.test(value.service)) {
+    return false;
+  }
+  if (value.route !== undefined
+    && (typeof value.route !== 'string' || value.route.length > 256 || /[\u0000-\u001f\u007f]/u.test(value.route))) {
+    return false;
+  }
+  if (value.fixedLabels !== undefined) {
+    if (!isPlainRecord(value.fixedLabels) || Object.keys(value.fixedLabels).length > 16) return false;
+    for (const [key, label] of Object.entries(value.fixedLabels)) {
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/u.test(key)
+        || typeof label !== 'string'
+        || label.length > 256
+        || /[\u0000-\u001f\u007f]/u.test(label)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function isEvidenceRecipeId(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 128
+    && /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(value);
+}
+
+function isBoundedInteger(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value)
+    && value >= minimum && value <= maximum;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value);
+  return actual.length === keys.length && actual.every((key) => keys.includes(key));
+}
+
+function includesValue<const Values extends readonly string[]>(
+  values: Values,
+  value: unknown,
+): value is Values[number] {
+  return typeof value === 'string' && values.includes(value);
+}
 
 export interface EvidenceScope {
   readonly service: string;

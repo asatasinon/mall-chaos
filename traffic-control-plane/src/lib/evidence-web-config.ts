@@ -39,9 +39,7 @@ export class EvidenceWebConfigError extends Error {
 }
 
 export function parseEvidenceWebConfig(source: EnvironmentSource): EvidenceWebConfig {
-  const captureEnabled = strictBoolean(
-    'EVIDENCE_MANIFEST_CAPTURE_ENABLED', source.EVIDENCE_MANIFEST_CAPTURE_ENABLED, false,
-  );
+  const captureEnabled = readEvidenceCaptureEnabled(source);
   const queryEnabled = strictBoolean('EVIDENCE_QUERY_ENABLED', source.EVIDENCE_QUERY_ENABLED, false);
   const executionEnabled = strictBoolean(
     'EVIDENCE_QUERY_EXECUTION_ENABLED', source.EVIDENCE_QUERY_EXECUTION_ENABLED, false,
@@ -86,6 +84,22 @@ export function readEvidenceWebConfig(
   source: EnvironmentSource = process.env,
 ): EvidenceWebConfig {
   return parseEvidenceWebConfig(source);
+}
+
+export function readEvidenceCaptureEnabled(
+  source: EnvironmentSource = process.env,
+): boolean {
+  return strictBoolean(
+    'EVIDENCE_MANIFEST_CAPTURE_ENABLED',
+    source.EVIDENCE_MANIFEST_CAPTURE_ENABLED,
+    false,
+  );
+}
+
+export function readEvidenceQueryEnabled(
+  source: EnvironmentSource = process.env,
+): boolean {
+  return strictBoolean('EVIDENCE_QUERY_ENABLED', source.EVIDENCE_QUERY_ENABLED, false);
 }
 
 function parseSourceConfig(

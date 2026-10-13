@@ -40,6 +40,7 @@ function request() {
       parameters: { durationSec: 30 },
       idempotencyKey: 'route-create-key-001',
       confirmed: true,
+      captureEvidence: true,
     }),
   });
 }
@@ -51,6 +52,7 @@ function createDependencies(
     safeRuntimeEnabled: () => false,
     reconciliationMode: () => 'OFF',
     admissionConfig: () => ({ validationMode: 'warn', deploymentScope: 'retained' }),
+    captureEvidenceEnabled: () => false,
     createRun: async () => ({ run, created: true, action: null }),
     verifyOwnershipSchema: async () => undefined,
     recordAudit: async () => 1,
@@ -60,6 +62,23 @@ function createDependencies(
     ...overrides,
   };
 }
+
+test('capture is controlled by Web configuration and cannot be enabled from the request body', async () => {
+  for (const [enabled, expected] of [[false, false], [true, true]] as const) {
+    const commands: Parameters<FaultRunCreateRouteDependencies['createRun']>[0][] = [];
+    const handler = createFaultRunCreateRouteHandler(createDependencies({
+      captureEvidenceEnabled: () => enabled,
+      createRun: async (input) => {
+        commands.push(input);
+        return { run, created: false, action: null };
+      },
+    }));
+    const response = await handler(request());
+
+    assert.equal(response.status, 200);
+    assert.equal(commands[0]?.captureEvidence, expected);
+  }
+});
 
 test('maps named admission errors to fixed safe Operator envelopes and audit codes', async () => {
   for (const [code, status, message] of [

@@ -1,6 +1,18 @@
 import { env } from './env';
 import { withTrace } from './trace';
 import { isAbortError, throwIfAborted } from './abort-signal';
+import { BoundedJsonResponseError, readBoundedJsonResponse } from './bounded-json-response';
+
+export type GatewayEvidenceReadPath = '/api/products' | '/api/reports/product-browse';
+export type GatewayBoundedReadErrorCode = 'PATH_NOT_ALLOWED' | 'REDIRECT_REJECTED'
+  | 'RESPONSE_TOO_LARGE' | 'RESPONSE_INVALID';
+
+export class GatewayBoundedReadError extends Error {
+  constructor(readonly code: GatewayBoundedReadErrorCode) {
+    super(code);
+    this.name = 'GatewayBoundedReadError';
+  }
+}
 
 /**
  * Gateway client — all outbound HTTP from traffic-control-plane goes through gateway.
@@ -20,7 +32,7 @@ export class GatewayRequestError extends Error {
 export class GatewayClient {
   private baseUrl: string;
 
-  constructor(baseUrl?: string) {
+  constructor(baseUrl?: string, private readonly fetchFn: typeof fetch = fetch) {
     this.baseUrl = (baseUrl || env.GATEWAY_BASE_URL).replace(/\/$/, '');
   }
 
@@ -150,6 +162,45 @@ export class GatewayClient {
       body: await res.json() as T,
       cacheResult: res.headers.get('X-Castrel-Cache-Result') ?? undefined,
     };
+  }
+
+  async getBoundedEvidenceRead<T = unknown>(
+    path: string,
+    params: Record<string, string> | undefined,
+    options: GatewayRequestOptions & { readonly maxResponseBytes: number },
+  ): Promise<GatewayResponse<T>> {
+    if (!isAllowedEvidenceRead(path, params)) {
+      throw new GatewayBoundedReadError('PATH_NOT_ALLOWED');
+    }
+    const url = new URL(path, `${this.baseUrl}/`);
+    if (params) {
+      for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
+    }
+    const response = await this.fetchFn(url, withTrace({
+      method: 'GET',
+      headers: { ...this.headers(undefined), Accept: 'application/json' },
+      signal: options.signal,
+      redirect: 'manual',
+      cache: 'no-store',
+    }, options.traceId));
+    throwIfAborted(options.signal);
+    if (response.status >= 300 && response.status < 400) {
+      throw new GatewayBoundedReadError('REDIRECT_REJECTED');
+    }
+    if (!response.ok) throw new GatewayRequestError('GET', path, response.status);
+    try {
+      return {
+        body: await readBoundedJsonResponse(response, options.maxResponseBytes) as T,
+        cacheResult: response.headers.get('X-Castrel-Cache-Result') ?? undefined,
+      };
+    } catch (error) {
+      if (error instanceof BoundedJsonResponseError) {
+        throw new GatewayBoundedReadError(error.code === 'RESPONSE_TOO_LARGE'
+          ? 'RESPONSE_TOO_LARGE'
+          : 'RESPONSE_INVALID');
+      }
+      throw error;
+    }
   }
 
   async patch<T = unknown>(
@@ -307,6 +358,19 @@ export class GatewayClient {
     throwIfAborted(signal);
     return parsed;
   }
+}
+
+function isAllowedEvidenceRead(
+  path: string,
+  params: Record<string, string> | undefined,
+): boolean {
+  if (path === '/api/reports/product-browse') return params === undefined;
+  if (path !== '/api/products' || params === undefined) return false;
+  const keys = Object.keys(params).sort();
+  return keys.join(',') === 'page,size,sort'
+    && params.sort === 'latest'
+    && params.page === '0'
+    && params.size === '1';
 }
 
 type CustomerHttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';

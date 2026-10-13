@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS evidence_query_attempts (
 CREATE TABLE IF NOT EXISTS evidence_query_attempt_items (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   attempt_id CHAR(36) NOT NULL,
-  recipe_id VARCHAR(96) NOT NULL,
+  recipe_id VARCHAR(128) NOT NULL,
   source VARCHAR(24) NOT NULL,
   window_name VARCHAR(24) NOT NULL,
   availability VARCHAR(32) NOT NULL,

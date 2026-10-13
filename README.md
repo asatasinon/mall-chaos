@@ -119,6 +119,9 @@ Compose 和 Kubernetes 都将控制面拆成 `traffic-control-plane` 与 `traffi
 | `BASELINE_CAPTURE_ENABLED` | 可选 | 默认 `false`；开启 Operator baseline API 和旁路采集，不能在完成迁移、验证和回退前于共享环境启用。 |
 | `CASTREL_RELEASE_REVISION` / `CASTREL_DEPLOYMENT_MODE` | 可选 | 为 baseline 注入发布 revision 和显式部署模式；缺失 revision 记录为 `UNKNOWN`，不通过运行时特征猜测。 |
 | `BASELINE_OBSERVATION_CHECK_TIMEOUT_MS` / `BASELINE_OBSERVATION_WINDOW_SEC` | 可选 | 只读观测核验的单项超时和默认查询窗口，默认 `5000` / `900`，受边界校验且不包含任何凭据。 |
+| `EVIDENCE_MANIFEST_CAPTURE_ENABLED` / `EVIDENCE_QUERY_ENABLED` / `EVIDENCE_QUERY_EXECUTION_ENABLED` | 可选 | Compose 默认均为 `false`；execution 需要 query=true。Capture-only 可独立启用，但真实 capture/source query 仍受 Phase 4 获批环境门禁约束。 |
+| `EVIDENCE_PROMETHEUS_BASE_URL` / `EVIDENCE_LOKI_BASE_URL` / `EVIDENCE_TEMPO_BASE_URL` | 可选 | Compose 默认指向内部 `prometheus:9090`、`loki:3100`、`tempo:3200`，只注入 Web/API；不得改成公网/Grafana/观测反向代理 URL。 |
+| `EVIDENCE_OBS_USERNAME` / `EVIDENCE_OBS_PASSWORD` | 可选 | source credential 必须成对且只注入 Web/API；通过未跟踪环境配置/Secret 提供，不要写入仓库或传给 Worker。 |
 | `FAULT_RUN_SAFE_RUNTIME_ENABLED` | 可选 | 默认 `false`。只可由同一 Compose 配置同时注入 Web/API 和 worker；在单 Worker Docker canary、回退和阶段退出完成前不得设为 `true`。 |
 | `FAULT_RUN_STOP_SCAN_INTERVAL_MS` / `FAULT_RUN_DRAIN_TIMEOUT_MS` / `FAULT_RUN_RECOVERY_TIMEOUT_MS` / `FAULT_RUN_SHUTDOWN_TIMEOUT_MS` | 可选 | 默认 `1000` / `30000` / `60000` / `90000` 毫秒。值必须是严格整数；recovery 不得小于 drain，shutdown 不得小于 recovery。 |
 | `FAULT_RUN_WORKER_STOP_GRACE_PERIOD` | 可选 | Docker Compose 默认 `105s`。只允许正整数加 `ms`、`s` 或 `m`；必须大于 shutdown budget，worker 会拒绝无法由 Docker 优雅关闭期限覆盖的配置。 |
@@ -205,22 +208,26 @@ pnpm dev
 pnpm worker
 ```
 
-### Phase 4 Evidence 配置准备（默认关闭）
+### Phase 4 Evidence Query（默认关闭）
 
-目前已实现 Web-only 配置和启动校验，**capture 事务、Manifest、实时查询 API/UI 尚未接线**。不要将配置解析通过视为 Evidence 功能已可启用；实施进度见 [Phase 4 任务清单](docs/castrel-evolution/implementation/batch-4-evidence-query/task-list.md)。
+Web/API 已接入 capture snapshot、冻结 Manifest、metadata/history API、显式 report/note API 和 Run Details EvidencePanel；所有 flags 仍默认关闭，Compose 也只把 source endpoint/可选credential注入 Web/API。页面打开、刷新 metadata 或选择历史 revision 都只走 no-store GET；只有 Operator 明确确认 report POST 才会向固定 source/Gateway read-check 发请求。部署配置存在不代表可以在共享环境启用，真实 source/DB/canary/回退仍受获批环境门禁约束；实施进度见 [Phase 4 任务清单](docs/castrel-evolution/implementation/batch-4-evidence-query/task-list.md)。
 
 五张 Evidence 表已加入 runtime 声明、`006-evidence-query.sql` 和 fresh init `10-evidence-query-schema.sql`；`db:verify` 会检查字段、幂等索引和 CHECK 约束，并拒绝不匹配的 schema。两条 bootstrap 声明已对齐，真实空库验收仍未完成。它们仅适用于获批 clean-slate 部署，不是已有 volume 升级方案；本次实现不授权 reset 或直接执行迁移。
 
-`src/lib/evidence-web-config.ts` 只由 Web/API 的 Node instrumentation 校验；不要把这些变量注入 Worker 或共享 `env.ts`。Worker 后续 retention 只读取已持久化记录，不获取观测查询凭据。
+`src/lib/evidence-web-config.ts` 只由 Web/API 的 Node instrumentation 校验；Compose 不把这些变量注入 Worker 或共享 `env.ts`。Worker retention 只读取/保全已持久化记录，不获取观测查询凭据。按安全步骤诊断请参见 [Evidence Query 诊断指引](docs/castrel-evolution/implementation/batch-4-evidence-query/diagnostics.md)。
+
+Capture flag 只控制新建运行时是否冻结 Contract snapshot；query flag 控制 Operator metadata/API 可用性；execution flag 是阻止后续新 source query 的首要 kill switch，不停止 Worker、Fault Run 生命周期、恢复或 cleanup。运行中配置变更需重启 Web/API 才会采用，不能视为热更新。浏览、刷新 metadata 和查看历史不访问遥测后端；只有明确确认的“执行实时报告”动作会调用固定查询计划和只读 Gateway 检查。数值摘要只在当前 POST 响应和页面内存短暂存在，不写入 report history、Audit、日志或指标，页面重新加载后需显式重查。
+
+Kubernetes 将默认关闭 flags 和内部 source origins 放在 Web-only `evidence-query-config` ConfigMap，观测认证只从独立 `evidence-query-secret` 引用，Worker 不读取两者。`traffic-control-plane-egress` 仅允许 Web/API 到 DNS、MySQL、Redis、Gateway、restart broker、告警配置端点和三类观测服务的固定端口；部署前须确认集群 NetworkPolicy/CNI 对 kube-system DNS 的选择器生效。若使用 host-level NodeLocal DNS，先按集群 resolver/CNI 调整 DNS 规则；Kubernetes Loki retention/log shipping parity 未完成前保持执行关闭。
 
 | 配置 | 默认及约束 |
 | --- | --- |
 | `EVIDENCE_MANIFEST_CAPTURE_ENABLED`、`EVIDENCE_QUERY_ENABLED`、`EVIDENCE_QUERY_EXECUTION_ENABLED` | 均为 `false`，显式值只接受 `true`/`false`；execution 要求 query 开启，capture 可独立开启 |
-| `EVIDENCE_PROMETHEUS_BASE_URL`、`EVIDENCE_LOKI_BASE_URL`、`EVIDENCE_TEMPO_BASE_URL` | 默认未配置；只接受精确 HTTP(S) origin，不含凭据、路径、query 或 fragment；空值不回退到 Grafana/公共入口 |
-| `EVIDENCE_OBS_USERNAME`、`EVIDENCE_OBS_PASSWORD` | 可选且必须成对，通过部署 Secret 提供；不能写进 URL、报告、日志或源码 |
+| `EVIDENCE_PROMETHEUS_BASE_URL`、`EVIDENCE_LOKI_BASE_URL`、`EVIDENCE_TEMPO_BASE_URL` | 应用默认未配置；Compose 注入内部 service origin。只接受精确 HTTP(S) origin，不含凭据、路径、query 或 fragment；空值不回退到 Grafana/公共入口 |
+| `EVIDENCE_OBS_USERNAME`、`EVIDENCE_OBS_PASSWORD` | 可选且必须成对，只注入 Web/API；Compose 从宿主机未跟踪环境配置取值，共享部署用 Secret；不能写进 URL、报告、日志或源码 |
 | `EVIDENCE_SOURCE_TIMEOUT_MS`、`EVIDENCE_REPORT_TOTAL_TIMEOUT_MS` | 默认 `5000`/`15000`；范围为 `100～8000`/`1000～20000`，total 必须严格大于 source |
 | `EVIDENCE_MAX_PARALLEL_RECIPES`、`EVIDENCE_MAX_CONCURRENT_REPORTS` | 默认 `4`/`1`；范围为 `1～4`/`1～2`；每 source 并发固定最多 `2` |
-| `EVIDENCE_MAX_RESPONSE_BYTES` | 默认 `1048576`，允许 `1024～1048576`；实际读取限额由后续 client 任务落实 |
+| `EVIDENCE_MAX_RESPONSE_BYTES` | 默认 `1048576`，允许 `1024～1048576`；source response 在解析前做 bounded read |
 | `EVIDENCE_PROMETHEUS_RETENTION_SEC`、`EVIDENCE_LOKI_RETENTION_SEC`、`EVIDENCE_TEMPO_RETENTION_SEC` | 默认 `604800`；正整数且毫秒转换必须安全；声明 retention 不证明数据仍存在 |
 
 配置非法时 Web 启动失败并给出不含输入值的固定错误；不会静默修正数值。部署环境变量变化需要应用新配置/重启，不能视为热更新。开关关闭不执行 Fault Run stop/release/cleanup；后续入口必须按配置阻止新的查询。`pnpm test:evidence` 覆盖当前 Evidence seam 和配置边界，不代表真实 source/Stack 已验证。
@@ -336,9 +343,10 @@ COMPOSE_PROFILES=skywalking TRACING_MODE=both ./scripts/compose-up.sh -s hub
 1. 在 [k8s/secrets/db-secret.yaml](k8s/secrets/db-secret.yaml) 替换数据库凭据、`CASTREL_JWT_SECRET` 和 `CASTREL_INTERNAL_SERVICE_KEY` 的开发值。
 2. 在 [k8s/secrets/traffic-lifecycle-secret.yaml](k8s/secrets/traffic-lifecycle-secret.yaml) 配置非空的 `TRAFFIC_LIFECYCLE_ACCOUNTS`、包含有效 Sam 账号的 `TRAFFIC_SCENARIO_ACCOUNTS`，以及随机的 `NOTIFICATION_RESTART_BROKER_KEY`。
 3. `db-secret.yaml` 与 `traffic-lifecycle-secret.yaml` 没有定义 `CONTROL_PLANE_USERNAME`、`CONTROL_PLANE_PASSWORD` 或 `CONTROL_PLANE_SESSION_SECRET`。因此 Web/API 会使用内置的开发登录值，并将会话签名回退到 `CASTREL_JWT_SECRET`。共享环境必须将这三个变量加入受管 Secret，并注入 `traffic-control-plane` Deployment。
-4. 在 [k8s/secrets/mysqld-exporter-secret.yaml](k8s/secrets/mysqld-exporter-secret.yaml) 注入仅供 `mysqld-exporter` 使用的受管 MySQL 监控账号；不要提交真实凭据。Kubernetes 的 Prometheus 通过带 scrape annotations 的 exporter Pods 发现 `node`、`mysql` 和 `redis` 指标；`node-exporter` 只读挂载主机 `/proc`、`/sys` 和根文件系统，部署前必须审核集群的 `hostPath` 安全策略。
-5. 将经发布 provenance 验证的 image digest map 渲染到独立 application manifest 目录；所有服务都必须 pin 不可变 digest，Web/API 和 Worker 的 digest 必须匹配 migration/verify 使用的控制面 image digest。默认 `latest` tag 不能作为发布身份。发布 provenance 应绑定源 commit、被测服务 image digest 映射和最终 Contract report SHA-256。
-6. 通过 `scripts/k8s-deploy.sh` 的分阶段接口部署：`k8s/kustomization.yaml` 只用于 provision namespace/config/secrets 与 MySQL/Redis/observability 基础设施；按上文执行并记录完整 clean-slate reset；再运行唯一 release ID 的 migration Job 和独立 `db:verify` Job，两者使用同一 pin 到 digest 的控制面镜像；只有两个 Job 均完成且 stage records 与 reset-record/image/release 匹配后才能 apply application manifests。不得在 reset/migration/verify 前 apply 应用 manifests。Root Kustomize 模板校验可运行 `kubectl kustomize k8s`；该命令不部署应用。
+4. `evidence-query-config` 中的三个 flag 必须继续保持 `false`，直到 K8s Loki retention/log shipping parity、真实source语法和获批 canary 都完成。`evidence-query-secret.yaml` 仅为空值模板；共享环境使用 Secret 管理器覆盖，不提交真实凭据。
+5. 在 [k8s/secrets/mysqld-exporter-secret.yaml](k8s/secrets/mysqld-exporter-secret.yaml) 注入仅供 `mysqld-exporter` 使用的受管 MySQL 监控账号；不要提交真实凭据。Kubernetes 的 Prometheus 通过带 scrape annotations 的 exporter Pods 发现 `node`、`mysql` 和 `redis` 指标；`node-exporter` 只读挂载主机 `/proc`、`/sys` 和根文件系统，部署前必须审核集群的 `hostPath` 安全策略。
+6. 将经发布 provenance 验证的 image digest map 渲染到独立 application manifest 目录；所有服务都必须 pin 不可变 digest，Web/API 和 Worker 的 digest 必须匹配 migration/verify 使用的控制面 image digest。默认 `latest` tag 不能作为发布身份。发布 provenance 应绑定源 commit、被测服务 image digest 映射和最终 Contract report SHA-256。
+7. 通过 `scripts/k8s-deploy.sh` 的分阶段接口部署：`k8s/kustomization.yaml` 只用于 provision namespace/config/secrets/NetworkPolicy 与 MySQL/Redis/observability 基础设施；按上文执行并记录完整 clean-slate reset；再运行唯一 release ID 的 migration Job 和独立 `db:verify` Job，两者使用同一 pin 到 digest 的控制面镜像；只有两个 Job 均完成且 stage records 与 reset-record/image/release 匹配后才能 apply application manifests。不得在 reset/migration/verify 前 apply 应用 manifests。Root Kustomize 模板校验可运行 `kubectl kustomize k8s`；该命令不部署应用。
 
 ```bash
 kubectl kustomize k8s >/dev/null

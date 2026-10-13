@@ -47,12 +47,18 @@ export function createEvidenceContractSnapshotRecord(
     throw new EvidenceContractSnapshotError('EVIDENCE_CONTRACT_SNAPSHOT_INVALID_CONTRACT_REVISION');
   }
 
-  const snapshotEvidence = structuredClone(evidence);
-  return Object.freeze({
+  const snapshotEvidence = deepFreezeEvidenceSnapshotValue(structuredClone(evidence));
+  return deepFreezeEvidenceSnapshotValue({
     contractRevision,
     contractHash: getEvidenceContractHash(snapshotEvidence),
     evidence: snapshotEvidence,
   });
+}
+
+export function deepFreezeEvidenceSnapshotValue<T>(value: T): T {
+  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) deepFreezeEvidenceSnapshotValue(child);
+  return Object.freeze(value);
 }
 
 export function serializeEvidenceContractSnapshotRecord(

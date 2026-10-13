@@ -24,6 +24,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: app-config
+            - configMapRef:
+                name: evidence-query-config
             - secretRef:
                 name: db-secret
             - secretRef:
@@ -44,6 +46,18 @@ spec:
                   key: NOTIFICATION_RESTART_BROKER_KEY
             - name: MYSQL_POOL_CONNECTION_LIMIT
               value: "5"
+            - name: EVIDENCE_OBS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: evidence-query-secret
+                  key: EVIDENCE_OBS_USERNAME
+                  optional: true
+            - name: EVIDENCE_OBS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: evidence-query-secret
+                  key: EVIDENCE_OBS_PASSWORD
+                  optional: true
           resources:
             requests:
               memory: "256Mi"

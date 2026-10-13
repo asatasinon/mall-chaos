@@ -1,6 +1,6 @@
 # 批次 4：实时 Evidence Query 产品规格
 
-> 状态：产品规格 v1
+> 状态：产品规格 v1.2
 > 对应路线阶段：阶段 4
 > 依赖：批次 3
 > 配套技术设计：[tech.md](./tech.md)
@@ -66,7 +66,9 @@ Evidence 状态至少区分：
 
 观测数据 retention 只决定能否复查证据，不决定 AgentRcaReport 是否还能提交，也不因为数据过期自动关闭评估。
 
-历史遥测、控制事实、当前业务检查和效果判断分开显示。历史遥测全部不可用时，即使 timeline 或当前业务 GET 成功，报告仍为 `EVIDENCE_UNAVAILABLE`。未来窗口先返回部分证据并保留原时间范围，Operator 可稍后主动重查；不会在报告请求里等待整个恢复窗口。
+Loki错误日志是可选的service-level上下文：当前索引只支持service与log_level，不提供route/filesystem过滤，也不参与effectRule；界面和冻结查询计划必须清楚显示这一范围。
+
+历史遥测、控制事实、当前业务检查和效果判断分开显示。历史遥测全部不可用时，即使 timeline 或当前业务 GET 成功，报告仍为 `EVIDENCE_UNAVAILABLE`。未来窗口先返回部分证据并保留原时间范围，Operator 可稍后主动重查；不会在报告请求里等待整个恢复窗口。safe-runtime恢复重试不会移动首次stop受理与对应首次实际drain开始的canonical锚点。
 
 Operator 可以选择旧 Manifest revision 查看其冻结协议并显式复查。网络重试保留原请求和 key；新一轮查询使用新 key。报告历史只保存执行/判断元数据，不重放历史遥测摘要；分析笔记重试不得重复创建。
 

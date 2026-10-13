@@ -88,7 +88,7 @@ export const EVIDENCE_TABLE_DEFINITIONS: Readonly<Record<EvidenceTableName, Evid
     columns: {
       id: 'BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY',
       attempt_id: 'CHAR(36) NOT NULL',
-      recipe_id: 'VARCHAR(96) NOT NULL',
+      recipe_id: 'VARCHAR(128) NOT NULL',
       source: 'VARCHAR(24) NOT NULL',
       window_name: 'VARCHAR(24) NOT NULL',
       availability: 'VARCHAR(32) NOT NULL',
@@ -136,6 +136,22 @@ export const EVIDENCE_SCHEMA_STATEMENTS = EVIDENCE_TABLE_NAMES.map((table) => {
   ];
   return `CREATE TABLE IF NOT EXISTS ${table} (\n  ${fields.join(',\n  ')}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`;
 });
+
+let evidenceSchemaPromise: Promise<void> | null = null;
+
+export function ensureEvidenceSchema(): Promise<void> {
+  if (!evidenceSchemaPromise) {
+    evidenceSchemaPromise = (async () => {
+      const pool = getPool();
+      for (const statement of EVIDENCE_SCHEMA_STATEMENTS) await pool.query(statement);
+      await verifyEvidenceSchema((sql, values) => pool.query(sql, values));
+    })().catch((error) => {
+      evidenceSchemaPromise = null;
+      throw error;
+    });
+  }
+  return evidenceSchemaPromise;
+}
 
 export async function verifyEvidenceSchema(query: SchemaQuery): Promise<void> {
   const placeholders = EVIDENCE_TABLE_NAMES.map(() => '?').join(', ');
@@ -260,3 +276,4 @@ function readRows(value: unknown): Record<string, unknown>[] {
   }
   return value;
 }
+import { getPool } from './db';

@@ -33,6 +33,8 @@ import {
   type FaultRunResolvedRecoveryPolicy,
 } from './fault-run-recovery-policy';
 import { insertOperatorAudit } from './operator-audit';
+import { insertEvidenceContractSnapshot, SqlEvidenceRepository } from './evidence-repository';
+import type { EvidenceCaptureSnapshotRecord } from './evidence-types';
 import {
   createFaultRunExecution,
   listFaultRunExecutions,
@@ -123,6 +125,7 @@ export interface CreateFaultRunInput {
   expiresAt: Date;
   traceId: string;
   executionMode?: FaultRunExecutionMode;
+  readonly evidenceCaptureSnapshot?: EvidenceCaptureSnapshotRecord;
 }
 
 export interface CreatedFaultRun {
@@ -290,6 +293,10 @@ export async function createFaultRun(
   if (!CATALOG_REVISION_PATTERN.test(input.catalogRevision)) {
     throw new Error('FAULT_RUN_CATALOG_REVISION_INVALID');
   }
+  if (input.evidenceCaptureSnapshot
+    && input.evidenceCaptureSnapshot.contractRevision !== input.contractRevision) {
+    throw new Error('FAULT_RUN_EVIDENCE_CAPTURE_REVISION_MISMATCH');
+  }
   await ensureFaultRunSchema();
   const pool = getPool();
   const connection = await pool.getConnection();
@@ -297,71 +304,9 @@ export async function createFaultRun(
   let existingRunId: string | null = null;
   let duplicateError: unknown = null;
   try {
-    await connection.beginTransaction();
-    const [existingRows] = await connection.query(
-      'SELECT * FROM fault_runs WHERE idempotency_key = ? FOR UPDATE',
-      [input.idempotencyKey],
-    );
-    const existing = asRecords(existingRows)[0];
-    if (existing) {
-      const existingRun = toFaultRun(existing);
-      if (!matchesFaultRunCreateSignature(existingRun, input)) {
-        throw new IdempotencyKeyReuseError();
-      }
-      existingRunId = existingRun.faultRunId;
-      await connection.rollback();
-    } else {
-      await connection.query(
-        'UPDATE fault_run_sequence SET last_token = last_token + 1 WHERE id = 1',
-      );
-      const [tokenRows] = await connection.query(
-        'SELECT last_token FROM fault_run_sequence WHERE id = 1 FOR UPDATE',
-      );
-      const fencingToken = Number(asRecords(tokenRows)[0]?.last_token);
-      await connection.query(
-        `INSERT INTO fault_runs
-          (fault_run_id, scenario, target_service, target_operation, state, parameters_json,
-           contract_revision, idempotency_key, fencing_token, expires_at, trace_id)
-         VALUES (?, ?, ?, ?, 'CREATING', ?, ?, ?, ?, ?, ?)`,
-        [
-          faultRunId,
-          input.scenario,
-          input.targetService,
-          input.targetOperation,
-          JSON.stringify(input.parameters),
-          input.contractRevision,
-          input.idempotencyKey,
-          fencingToken,
-          input.expiresAt,
-          input.traceId,
-        ],
-      );
-      await insertEvent(connection, faultRunId, 'CREATED', {
-        scenario: input.scenario,
-        targetService: input.targetService,
-        targetOperation: input.targetOperation,
-        expiresAt: input.expiresAt.toISOString(),
-        fencingToken,
-        contractRevision: input.contractRevision,
-        catalogRevision: input.catalogRevision,
-      });
-      if (input.executionMode !== undefined) {
-        await createFaultRunExecution(connection, faultRunId, input.executionMode);
-        if (getScenarioDefinition(input.scenario).targetPrepare === 'REQUIRED') {
-          await insertFaultRunAction(connection, {
-            faultRunId,
-            actionType: 'PREPARE',
-            requestedBy: 'RECONCILER',
-            requestIdempotencyKey: `prepare-${faultRunId}`,
-          });
-        }
-      }
-      await connection.commit();
-    }
-  } catch (error) {
-    await connection.rollback();
-    if (isDuplicateEntry(error)) duplicateError = error;
-    else throw error;
+    const result = await persistFaultRunCreateTransaction(connection, input, faultRunId);
+    existingRunId = result.existingRunId;
+    duplicateError = result.duplicateError;
   } finally {
     connection.release();
   }
@@ -380,6 +325,90 @@ export async function createFaultRun(
     throw duplicateError;
   }
   return loadCreatedFaultRun(faultRunId, true);
+}
+
+export async function persistFaultRunCreateTransaction(
+  connection: PoolConnection,
+  input: CreateFaultRunInput,
+  faultRunId: string,
+): Promise<{ readonly existingRunId: string | null; readonly duplicateError: unknown | null }> {
+  await connection.beginTransaction();
+  try {
+    const [existingRows] = await connection.query(
+      'SELECT * FROM fault_runs WHERE idempotency_key = ? FOR UPDATE',
+      [input.idempotencyKey],
+    );
+    const existing = asRecords(existingRows)[0];
+    if (existing) {
+      const existingRun = toFaultRun(existing);
+      if (!matchesFaultRunCreateSignature(existingRun, input)) {
+        throw new IdempotencyKeyReuseError();
+      }
+      await connection.rollback();
+      return { existingRunId: existingRun.faultRunId, duplicateError: null };
+    }
+
+    await connection.query(
+      'UPDATE fault_run_sequence SET last_token = last_token + 1 WHERE id = 1',
+    );
+    const [tokenRows] = await connection.query(
+      'SELECT last_token FROM fault_run_sequence WHERE id = 1 FOR UPDATE',
+    );
+    const fencingToken = Number(asRecords(tokenRows)[0]?.last_token);
+    await connection.query(
+      `INSERT INTO fault_runs
+        (fault_run_id, scenario, target_service, target_operation, state, parameters_json,
+         contract_revision, idempotency_key, fencing_token, expires_at, trace_id)
+       VALUES (?, ?, ?, ?, 'CREATING', ?, ?, ?, ?, ?, ?)`,
+      [
+        faultRunId,
+        input.scenario,
+        input.targetService,
+        input.targetOperation,
+        JSON.stringify(input.parameters),
+        input.contractRevision,
+        input.idempotencyKey,
+        fencingToken,
+        input.expiresAt,
+        input.traceId,
+      ],
+    );
+    await insertEvent(connection, faultRunId, 'CREATED', {
+      scenario: input.scenario,
+      targetService: input.targetService,
+      targetOperation: input.targetOperation,
+      expiresAt: input.expiresAt.toISOString(),
+      fencingToken,
+      contractRevision: input.contractRevision,
+      catalogRevision: input.catalogRevision,
+    });
+    if (input.evidenceCaptureSnapshot) {
+      await insertEvidenceContractSnapshot(connection, {
+        sourceFaultRunId: faultRunId,
+        scenario: input.scenario,
+        snapshot: input.evidenceCaptureSnapshot,
+      });
+    }
+    if (input.executionMode !== undefined) {
+      await createFaultRunExecution(connection, faultRunId, input.executionMode);
+      if (getScenarioDefinition(input.scenario).targetPrepare === 'REQUIRED') {
+        await insertFaultRunAction(connection, {
+          faultRunId,
+          actionType: 'PREPARE',
+          requestedBy: 'RECONCILER',
+          requestIdempotencyKey: `prepare-${faultRunId}`,
+        });
+      }
+    }
+    await connection.commit();
+    return { existingRunId: null, duplicateError: null };
+  } catch (error) {
+    await connection.rollback();
+    if (isDuplicateEntry(error)) {
+      return { existingRunId: null, duplicateError: error };
+    }
+    throw error;
+  }
 }
 
 async function loadCreatedFaultRun(faultRunId: string, created: boolean): Promise<CreatedFaultRun> {
@@ -1735,43 +1764,68 @@ export async function loadFaultRunAudits(faultRunId: string): Promise<FaultRunAu
 export async function deleteExpiredFaultRuns(): Promise<number> {
   await ensureFaultRunSchema();
   const pool = getPool();
+  const evidenceRepository = new SqlEvidenceRepository(pool);
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [eligibleRows] = await connection.query(`SELECT fault_run_id, operator_audit_id FROM fault_runs
-      WHERE stopped_at IS NOT NULL
-        AND recovery_result IS NOT NULL
-        AND state IN ('RECOVERED', 'STOPPED', 'FAILED')
-        AND stopped_at < DATE_SUB(CURRENT_TIMESTAMP(3), INTERVAL 7 DAY)
-      ORDER BY stopped_at, fault_run_id LIMIT 100`);
-    const eligible = asRecords(eligibleRows);
-    if (eligible.length === 0) {
-      await connection.commit();
-      return 0;
-    }
-    const runIds = eligible.map((row) => String(row.fault_run_id));
-    const auditIds = eligible
-      .map((row) => row.operator_audit_id)
-      .filter((value): value is number => typeof value === 'number')
-      .map(Number);
-    const placeholders = runIds.map(() => '?').join(', ');
-    await connection.query(`DELETE FROM fault_run_events WHERE fault_run_id IN (${placeholders})`, runIds);
-    if (auditIds.length > 0) {
-      const auditPlaceholders = auditIds.map(() => '?').join(', ');
-      await connection.query(`DELETE FROM operator_audit_logs WHERE id IN (${auditPlaceholders})`, auditIds);
-    }
-    const [result] = await connection.query(
-      `DELETE FROM fault_runs WHERE fault_run_id IN (${placeholders})`,
-      runIds,
-    );
+    const deleted = await deleteExpiredFaultRunsWithConnection(connection, evidenceRepository);
     await connection.commit();
-    return Number((result as { affectedRows?: number }).affectedRows ?? 0);
+    return deleted;
   } catch (error) {
     await connection.rollback();
     throw error;
   } finally {
     connection.release();
   }
+}
+
+export async function deleteExpiredFaultRunsWithConnection(
+  connection: PoolConnection,
+  evidenceRepository: Pick<SqlEvidenceRepository, 'preserveManifestBeforeRunRetention'>,
+): Promise<number> {
+  const [eligibleRows] = await connection.query(`SELECT fault_run_id, operator_audit_id FROM fault_runs
+    WHERE stopped_at IS NOT NULL
+      AND recovery_result IS NOT NULL
+      AND state IN ('RECOVERED', 'STOPPED', 'FAILED')
+      AND stopped_at < DATE_SUB(CURRENT_TIMESTAMP(3), INTERVAL 7 DAY)
+    ORDER BY stopped_at, fault_run_id LIMIT 100 FOR UPDATE`);
+  const eligible = asRecords(eligibleRows);
+  if (eligible.length === 0) return 0;
+
+  const [schemaRows] = await connection.query(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = DATABASE()
+       AND table_name IN ('evidence_contract_snapshots', 'evidence_query_manifests')`,
+  );
+  const evidenceTables = new Set(asRecords(schemaRows).map((row) => String(row.table_name)));
+  if (evidenceTables.size !== 0
+    && (!evidenceTables.has('evidence_contract_snapshots')
+      || !evidenceTables.has('evidence_query_manifests'))) {
+    throw new Error('EVIDENCE_RETENTION_SCHEMA_INCOMPLETE');
+  }
+  const evidenceRetentionEnabled = evidenceTables.size === 2;
+
+  const runIds = eligible.map((row) => String(row.fault_run_id));
+  const auditIds = eligible
+    .map((row) => row.operator_audit_id)
+    .filter((value): value is number => typeof value === 'number')
+    .map(Number);
+  if (evidenceRetentionEnabled) {
+    for (const runId of runIds) {
+      await evidenceRepository.preserveManifestBeforeRunRetention(connection, runId);
+    }
+  }
+  const placeholders = runIds.map(() => '?').join(', ');
+  await connection.query(`DELETE FROM fault_run_events WHERE fault_run_id IN (${placeholders})`, runIds);
+  if (auditIds.length > 0) {
+    const auditPlaceholders = auditIds.map(() => '?').join(', ');
+    await connection.query(`DELETE FROM operator_audit_logs WHERE id IN (${auditPlaceholders})`, auditIds);
+  }
+  const [result] = await connection.query(
+    `DELETE FROM fault_runs WHERE fault_run_id IN (${placeholders})`,
+    runIds,
+  );
+  return Number((result as { affectedRows?: number }).affectedRows ?? 0);
 }
 
 type FaultRunTransactionConnection = {

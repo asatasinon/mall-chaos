@@ -10,11 +10,16 @@ resources:
 
   # Config & Secrets
   - configmap/app-config.yaml
+  - configmap/evidence-query-config.yaml
   - configmap/mysql-config.yaml
   - configmap/prometheus-alert-rules.yaml
   - secrets/db-secret.yaml
+  - secrets/evidence-query-secret.yaml
   - secrets/mysqld-exporter-secret.yaml
   - secrets/traffic-lifecycle-secret.yaml
+
+  # Isolate Web/API egress; the Worker remains unchanged.
+  - network/traffic-control-plane-egress.yaml
 
   # Infrastructure
   - infra/mysql.yaml

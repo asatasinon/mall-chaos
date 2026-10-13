@@ -60,6 +60,17 @@ test('catalog placeholders and required namespaces stay aligned', () => {
   }
 });
 
+test('Evidence states keep no-data, unavailable, unknown, and effect labels distinct', () => {
+  for (const locale of ['en', 'zh-CN'] as const) {
+    const evidence = messages[locale].Scenarios.evidence;
+    assert.notEqual(evidence.states.NO_DATA, evidence.states.EVIDENCE_UNAVAILABLE, locale);
+    assert.notEqual(evidence.states.EVIDENCE_UNAVAILABLE, evidence.states.INCONCLUSIVE, locale);
+    assert.notEqual(evidence.states.OBSERVED, evidence.states.NOT_OBSERVED, locale);
+    assert.notEqual(evidence.unknownValue, evidence.states.EVIDENCE_UNAVAILABLE, locale);
+    assert.equal(typeof evidence.checkedAt, 'string');
+  }
+});
+
 test('scenario, parameter, recovery, and group translations cover the Catalog exactly', () => {
   const definitions = listScenarioDefinitions();
   const scenarios = definitions.map(({ scenario }) => scenario).sort();

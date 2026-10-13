@@ -28,6 +28,12 @@ import {
   admitScenarioContract,
   type ScenarioContractAdmissionConfig,
 } from './scenario-contract-admission';
+import {
+  getScenarioContractRevision,
+  resolveScenarioContract,
+} from './scenario-contract';
+import { createEvidenceCaptureSnapshot } from './evidence-types';
+import { renderEvidenceQueryPlan } from './evidence-query-plan-renderer';
 
 export interface FaultRunTargetAdapter {
   start(run: FaultRunRecord, signal?: AbortSignal): Promise<unknown>;
@@ -113,6 +119,7 @@ export interface CreateFaultRunCommand {
   traceId: string;
   executionMode?: FaultRunExecutionMode;
   scenarioContractAdmission?: ScenarioContractAdmissionConfig;
+  captureEvidence?: boolean;
 }
 
 export interface FaultRunCoordinatorOptions {
@@ -120,6 +127,7 @@ export interface FaultRunCoordinatorOptions {
   drainTimeoutMs?: number;
   recoveryTimeoutMs?: number;
   admitContract?: typeof admitScenarioContract;
+  renderEvidencePlan?: typeof renderEvidenceQueryPlan;
 }
 
 export class FaultRunCoordinator {
@@ -127,6 +135,7 @@ export class FaultRunCoordinator {
   private readonly drainTimeoutMs: number;
   private readonly recoveryTimeoutMs: number;
   private readonly admitContract: typeof admitScenarioContract;
+  private readonly renderEvidencePlan: typeof renderEvidenceQueryPlan;
 
   constructor(
     private readonly targetAdapter: FaultRunTargetAdapter = new GatewayFaultRunTargetAdapter(),
@@ -137,6 +146,7 @@ export class FaultRunCoordinator {
     this.drainTimeoutMs = options.drainTimeoutMs ?? env.FAULT_RUN_DRAIN_TIMEOUT_MS;
     this.recoveryTimeoutMs = options.recoveryTimeoutMs ?? env.FAULT_RUN_RECOVERY_TIMEOUT_MS;
     this.admitContract = options.admitContract ?? admitScenarioContract;
+    this.renderEvidencePlan = options.renderEvidencePlan ?? renderEvidenceQueryPlan;
   }
 
   async create(command: CreateFaultRunCommand): Promise<CreatedFaultRun> {
@@ -162,6 +172,24 @@ export class FaultRunCoordinator {
         deploymentScope: 'retained',
       },
     );
+    let evidenceCaptureSnapshot: ReturnType<typeof createEvidenceCaptureSnapshot> | undefined;
+    if (command.captureEvidence === true) {
+      const contract = resolveScenarioContract(definition);
+      const resolvedRevision = getScenarioContractRevision(contract);
+      if (resolvedRevision !== revision.contractRevision) {
+        throw new Error('FAULT_RUN_EVIDENCE_CAPTURE_REVISION_MISMATCH');
+      }
+      evidenceCaptureSnapshot = createEvidenceCaptureSnapshot(
+        revision.contractRevision,
+        contract.evidence,
+        this.renderEvidencePlan(contract.evidence, {
+          baseline: 900,
+          active: definition.maxDurationSec + 60,
+          recovery: 2100,
+          cleanup: 600,
+        }),
+      );
+    }
     const durationSec = Number(parameters.durationSec);
     const input: CreateFaultRunInput = {
       scenario: definition.scenario,
@@ -174,6 +202,7 @@ export class FaultRunCoordinator {
       expiresAt: new Date(Date.now() + durationSec * 1000),
       traceId: command.traceId,
       executionMode: command.executionMode,
+      ...(evidenceCaptureSnapshot ? { evidenceCaptureSnapshot } : {}),
     };
     const result = await this.store.create(input);
     if (!result.created) {

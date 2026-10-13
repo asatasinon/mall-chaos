@@ -12,6 +12,7 @@ import {
   type EvidenceTemplateId,
   type ResolvedScenarioContract,
 } from './scenario-contract';
+import { renderTempoEvidenceQuery } from './evidence-query-plan-renderer';
 
 export type RunbookImpactScope =
   | 'REQUEST'
@@ -169,34 +170,11 @@ export const DEFAULT_RUNBOOK_SCENARIO: FaultRunScenario = listScenarioDefinition
 
 const KNOWN_SCENARIOS = new Set<FaultRunScenario>(listScenarioDefinitions().map(({ scenario }) => scenario));
 
-function quoteTraceQL(value: string): string {
-  return JSON.stringify(value);
-}
-
-function wrapTraceQL(expression: string): string {
-  return `{ ${expression} }`;
-}
-
-function traceQLComparisonOperator(
-  operator: Extract<EvidencePredicate, { kind: 'COMPARISON' }>['operator'],
-): string {
-  switch (operator) {
-    case 'GT': return '>';
-    case 'GTE': return '>=';
-    case 'LT': return '<';
-    case 'LTE': return '<=';
-    case 'EQ': return '=';
-  }
-}
-
-function formatTempoDuration(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) {
-    throw new Error('RUNBOOK_TEMPO_CONTRACT_INVALID');
-  }
-  const milliseconds = seconds * 1000;
-  return Number.isSafeInteger(milliseconds) && milliseconds < 1000
-    ? `${milliseconds}ms`
-    : `${seconds}s`;
+function isTempoQueryTemplate(template: EvidenceTemplateId): template is TempoQueryTemplate {
+  return template === 'SERVICE_REQUESTS'
+    || template === 'SERVICE_ERRORS'
+    || template === 'SERVICE_SLOW_REQUESTS'
+    || template === 'SERVICE_ROUTE_REQUESTS';
 }
 
 export function buildTempoQueries(
@@ -205,45 +183,14 @@ export function buildTempoQueries(
   return contract.evidence.recipes
     .filter((recipe) => recipe.source === 'TEMPO' && recipe.window === 'active')
     .map((recipe) => {
-      const baseFilters = [
-        `resource.service.name = ${quoteTraceQL(recipe.scope.service)}`,
-        ...(recipe.scope.route === undefined
-          ? []
-          : [`span.http.route = ${quoteTraceQL(recipe.scope.route)}`]),
-      ];
-      let queryFilters: string[];
-      switch (recipe.template) {
-        case 'SERVICE_REQUESTS':
-          queryFilters = baseFilters;
-          break;
-        case 'SERVICE_ERRORS':
-          queryFilters = [...baseFilters, 'status = error'];
-          break;
-        case 'SERVICE_SLOW_REQUESTS':
-          if (recipe.predicate.kind !== 'COMPARISON') {
-            throw new Error('RUNBOOK_TEMPO_CONTRACT_INVALID');
-          }
-          queryFilters = [
-            ...baseFilters,
-            `duration ${traceQLComparisonOperator(recipe.predicate.operator)} ${formatTempoDuration(recipe.predicate.value)}`,
-          ];
-          break;
-        case 'SERVICE_ROUTE_REQUESTS':
-          if (recipe.scope.route === undefined) {
-            throw new Error('RUNBOOK_TEMPO_CONTRACT_INVALID');
-          }
-          queryFilters = baseFilters;
-          break;
-        default:
-          throw new Error('RUNBOOK_TEMPO_CONTRACT_INVALID');
-      }
+      if (!isTempoQueryTemplate(recipe.template)) throw new Error('RUNBOOK_TEMPO_CONTRACT_INVALID');
       return {
         recipeId: recipe.id,
         template: recipe.template,
         serviceName: recipe.scope.service,
         ...(recipe.scope.route === undefined ? {} : { route: recipe.scope.route }),
         predicate: recipe.predicate,
-        query: wrapTraceQL(queryFilters.join(' && ')),
+        query: renderTempoEvidenceQuery(recipe),
       };
     })
     .sort((left, right) => (

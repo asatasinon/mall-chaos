@@ -17,3 +17,14 @@ test('requires an Operator session before internal Fault Run routes execute', as
   });
   assert.ok(config.matcher.includes('/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)'));
 });
+
+test('unauthenticated Evidence routes cannot be cached or used as referrers', async () => {
+  const response = await middleware(new NextRequest(
+    'http://localhost/internal/fault-runs/11111111-1111-4111-8111-111111111111/evidence',
+  ));
+
+  assert.equal(response.status, 401);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('pragma'), 'no-cache');
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+});

@@ -1,6 +1,6 @@
 # 批次 4：实时 Evidence Query 技术设计
 
-> 状态：技术设计 v1.8；2026-10-09执行前核对已对齐现有action/recovery事实和Web-only配置决策；完整Batch 4运行时尚未交付<br>
+> 状态：技术设计 v2.8；2026-10-09执行前核对已对齐action/recovery事实、Web-only配置、Loki service-only、safe-runtime重试锚点及64 series上限决策；2026-10-10补充retention不在Worker运行时初始化Evidence schema的边界；2026-10-11补充Operator Note/API/诊断、EvidencePanel及显式POST内存摘要；2026-10-12复核Kubernetes静态source配置、增加Web-only config/Secret/egress声明并按用户决策保持执行关闭；完整K8s source parity仍未交付<br>
 > 配套产品规格：[product.md](./product.md)<br>
 > 实施任务与进度：[task-list.md](./task-list.md)<br>
 > 对应路线阶段：阶段 4<br>
@@ -13,9 +13,9 @@ The user approved and the implementation completed the two blocked handoffs as a
 
 ### 2026-10-09 复审决策
 
-用户已分别确认：baseline 从 active 遥测配方派生，仅作对照，不新增相对阈值；capture 时同时冻结独立渲染计划和窗口硬上限；未来窗口不等待、不移动 canonical window，返回部分证据并由 Operator 主动重查；中断 attempt 用数据库 deadline 和请求时 CAS 惰性结算，不新增后台执行器；active predicate 使用任一有效采样，recovery predicate 使用全部有效采样，按 Catalog ALL/ANY 三态组合。下文定义具体落地规则与验收，设计完成不代表运行时代码已实现。
+用户已分别确认：baseline 从 active 遥测配方派生，仅作对照，不新增相对阈值；capture 时同时冻结独立渲染计划和窗口硬上限；未来窗口不等待、不移动 canonical window，返回部分证据并由 Operator 主动重查；中断 attempt 用数据库 deadline 和请求时 CAS 惰性结算，不新增后台执行器；active predicate 使用任一有效采样，recovery predicate 使用全部有效采样，按 Catalog ALL/ANY 三态组合；safe-runtime多次stop/recovery重试时，`stopRequestedAt`固定首次STOP_REQUESTED，`recoveryStartedAt`配对该attempt的首次实际DRAIN_STARTED，后续重试不移动canonical anchor。下文定义具体落地规则与验收，设计完成不代表运行时代码已实现。
 
-执行前追加确认：safe-runtime以相应attempt的实际Worker `DRAIN_STARTED`作为恢复开始，不能用STOP受理代替；Evidence配置由独立Web-only模块解析和instrumentation校验，Worker不解析查询开关/观测凭据，只处理已存Evidence记录。
+执行前追加确认：safe-runtime以相应attempt的实际Worker `DRAIN_STARTED`作为恢复开始，不能用STOP受理代替；Evidence配置由独立Web-only模块解析和instrumentation校验，Worker不解析查询开关/观测凭据，只处理已存Evidence记录。Promtail当前只索引Loki的`service`与`log_level`；用户确认Loki只作为service-level上下文，不过滤route/filesystem DSL scope，也不进入effectRule。对于恢复重试，首次STOP_REQUESTED及对应attempt的首次实际DRAIN_STARTED固定为canonical anchors，后续attempt不移动。
 
 ## 1. 设计结论
 
@@ -268,12 +268,16 @@ Catalog 后续变更只影响新 capture snapshot。已有 snapshot 的运行始
 | Source | 允许模板示例 | 受限 scope | 返回摘要 |
 | --- | --- | --- | --- |
 | Prometheus | `HTTP_P99`、`HTTP_ERROR_RATIO`、`HTTP_RATE`、`HIKARI_UTILIZATION`、`JVM_HEAP_RATIO`、`MYSQL_SLOW_QUERY_RATE`、`PAYMENT_FAILURE_RATIO`、`PAYMENT_TIMEOUT_RATE`、`REDIS_MEMORY_RATIO`、`NODE_FILESYSTEM_RATIO`、`NODE_FILESYSTEM_GROWTH_RATE` | 已验证 service、固定 route、固定 metric label | sample 数、min/max/latest、predicate outcome |
-| Loki | `SERVICE_EVENT_COUNT`、`SERVICE_ERROR_COUNT` | 已验证 `service`、允许的 `log_level` | bucket/series 数与 count summary |
+| Loki | `SERVICE_EVENT_COUNT`、`SERVICE_ERROR_COUNT` | Promtail实际索引的 `service`、`log_level`；仅service-level | bucket/series 数与 count summary |
 | Tempo | `SERVICE_REQUESTS`、`SERVICE_ERRORS`、`SERVICE_SLOW_REQUESTS`、`SERVICE_ROUTE_REQUESTS` | 已验证 `resource.service.name`、固定 route、阈值 | trace/error count 与 duration bucket |
 | Business check | `CATALOG_PRODUCT_LIST`、`CATALOG_BROWSE_REPORT` | 固定的正常业务 GET 和静态 query 参数 | `PASS`、`FAIL`、`NO_DATA` 或受限 scalar |
 | Run event | `RUN_TIMELINE` | Manifest 内安全时间线 | anchor 是否存在和限制码 |
 
 三个新增 Prometheus templates 都绑定当前部署已存在的 metrics：`PAYMENT_FAILURE_RATIO` 使用 `payment_charge_fail_count_total` 与 `payment_charge_success_count_total` 的 5 分钟失败比例；`PAYMENT_TIMEOUT_RATE` 使用 `payment_charge_timeout_count_total` 的 5 分钟速率；`NODE_FILESYSTEM_GROWTH_RATE` 使用 `/data`、`ext4` 的 `node_filesystem_avail_bytes` 15 分钟导数，Catalog predicate `< -2097152` 表示可用空间下降快于 2 MiB/s。服务、文件系统标签、窗口和阈值只能来自受控 Catalog scope/predicate，renderer 不接受 query text。
+
+Promtail目前只索引`service`和从结构化日志`level`提取的`log_level`。Loki renderer只使用这两个已索引标签；即使Phase 3 recipe同时携带route或filesystem固定标签，它们也不写入LogQL过滤器。冻结计划用`scopeMode=SERVICE_ONLY`明确实际过滤范围，保留原scope仅作DSL来源上下文。Loki只提供可选上下文，不得进入`effectRule`，也不声称错误来自特定route。
+
+Tempo search只有在有限搜索jobs提供有效`completedJobs == totalJobs > 0`且返回条数低于100时才可标记完整；缺少或不一致的完整性metadata、达到100条均保留当前可用count但输出`SEARCH_INCOMPLETE`/PARTIAL与INCONCLUSIVE predicate，不分页追求精确总数、不把空列表当作确定的0。
 
 渲染器只能替换已验证的服务名、静态 route 和常量阈值，绝不能替换 Fault Run 参数、Operator 输入、URL、label matcher、业务 ID 或 trace ID。每个模板输出在写入 snapshot 前都必须通过静态验证：
 
@@ -315,14 +319,17 @@ Catalog 后续变更只影响新 capture snapshot。已有 snapshot 的运行始
 - baseline 是可选对照证据：没有 baseline 不阻止已有 active effectRule 判断，但报告须显示 `BASELINE_UNAVAILABLE` 或对应限制。
 - 仅当 baseline 与 active 都有完整覆盖且具有兼容数值投影时，当前响应展示同单位摘要及差值；基线为零时不算百分比，非有限值或不同投影不比较。
 - NUMERIC 对照使用同名归约字段（例如 max 对 max、latest 对 latest），不比较 max 与 latest。COUNT 的窗口长度可能不同，默认并列显示计数与各自范围，不把未归一化的计数差称为增长率；不额外增加 Catalog 规则。
+- 多个metric series在同一latest timestamp有值时，摘要 `latest` 固定取这些值的最大值，避免依赖provider返回顺序；摘要不保留labels，语义是该查询scope内的全局最小/最大/最新最大值。
 - baseline item 的 `predicate_outcome=INCONCLUSIVE`，它不进入 effectRule，不新增相对阈值，不将基线已有异常表述为本次运行造成。
 - 数值、差值和对照只留在当前响应，DB 仅保存执行状态、覆盖、时间和限制。
 
 ### 5.4.2 冻结的执行协议
 
-`rendered_plan_json` 保存有限模板派生的 query/check ID、固定 scope、单位、lookback、投影、predicate 解释、归约规则、baseline origin 映射，以及 `rendererRevision`、`evaluationRevision`。计划不得含 endpoint、凭据或遥测结果。
+`rendered_plan_json` 保存有限模板派生的 query/check ID、固定 scope及`scopeMode`、单位、lookback、投影、predicate 解释、归约规则、baseline origin 映射，以及`rendererRevision`、`evaluationRevision`。`SERVICE_SLOW_REQUESTS`把Catalog秒阈值冻结在TraceQL duration filter中，输出predicate固定表示匹配trace数是否大于0；不得将秒数错误地作为trace count阈值。Loki scope为`SERVICE_ONLY`，其他支持source为`DECLARED`，Tempo存在无法索引的filesystem labels时也显式标记service-only。计划不得含endpoint、凭据或遥测结果。
 
 创建时一并冻结窗口硬上限：baseline 900s、active 为当次 Catalog `maxDurationSec + 60s`、recovery 2100s、cleanup 600s。它们是历史 materialization，不是第二个可编辑 Catalog；源 Run 被删除后也不得查当前 Catalog 重算。
+
+Lookback同样随rendered plan冻结：Prometheus固定`[5m]`窗口的模板为300s、filesystem growth为900s、瞬时gauge为0；Loki `count_over_time`窗口为60s；TraceQL/CURRENT/Run Event为0。基线复用原始query与lookback，只更换执行时间范围。
 
 Manifest 首次或再次物化都只使用冻结计划，不运行最新 renderer。执行时验证 DSL hash、plan hash、schema/version 和 query allowlist；无法解释的旧执行协议返回 `EVIDENCE_UNAVAILABLE / EXECUTION_PROTOCOL_UNSUPPORTED`，损坏或不安全计划返回 `INVALID_QUERY`，绝不重新渲染后假装使用原配方。持久 query 不能绕过固定 endpoint/check dispatch。
 
@@ -373,8 +380,8 @@ type EvidenceTimeline = {
 | `createdAt` | `fault_runs.created_at` | 数据库服务器写入时间 |
 | `prepareStartedAt` | 实际PREPARE action `dispatch_started_at`；如已有显式PREPARE_STARTED可复用 | 当前无通用event；没有可确认dispatch则null，不为展示补造事件 |
 | `activeAt` | `TARGET_CONFIRMED` 与 `ACTIVE` 状态转换 | 事务中的状态转换时间；不使用第一笔流量时间 |
-| `stopRequestedAt` | 既有 `STOP_REQUESTED` | stop命令受理事实，不能写重复事件 |
-| `recoveryStartedAt` | safe-runtime对应attempt第一条实际DRAIN_STARTED；明确legacy路径可用既有RECOVERY_STARTED | 不从stopRequestedAt或202推导，缺失为null |
+| `stopRequestedAt` | 按 `(created_at,id)` 排序后的首次 `STOP_REQUESTED` | 固定首次受理attempt，后续重试不移动canonical anchor |
+| `recoveryStartedAt` | 与首次 `STOP_REQUESTED.attempt` 匹配的第一条实际 `DRAIN_STARTED`；明确legacy路径可用既有 `RECOVERY_STARTED` | 不从stopRequestedAt或202推导；缺少同attempt事件为null，后续重试不补写/移动首次anchor |
 | `recoveredAt` | 匹配成功projection/attempt的RECOVERY_COMPLETED，或明确legacy SERVICE_RECOVERED | 不能只按event名称推导；失败/partial/VERIFY_UNAVAILABLE保留null |
 | `cleanupFinishedAt` | `MANUAL_CLEANUP_COMPLETED` | 不能由终态或 release 推导 |
 | `terminalAt` | `fault_runs.stopped_at` 与对应终态 event | 用于解释 failed/unavailable 的 active 终点 |
@@ -402,6 +409,8 @@ type EvidenceTimeline = {
 4. 对每个窗口单独标识 `READY`、`NOT_READY` 或 `NOT_APPLICABLE`；一个缺失 anchor 不能使其余窗口失效。
 5. 在 Manifest 中记录 `clockSkewToleranceSec=60` 作为解释性信息，但不静默移动控制面窗口以适配 scrape/ingestion 时间。
 
+cleanup是否适用从冻结Evidence DSL是否含`RUN_TIMELINE` cleanup recipe判定，不查当前Catalog或Run现存状态。无recovery start但有terminalAt时，active窗口可用`terminalAt + activeTailSec`形成受限fallback并记录`ACTIVE_END_TERMINAL_FALLBACK`；没有terminalAt则`NOT_READY`。所有边界仍按原值保留，反向区间和超过capture-time hard limit均显式失败，不裁剪或移动。固定的60秒skew tolerance以`CLOCK_SKEW_TOLERANCE_60S`解释性limitation记录，不能被理解为边界修正幅度。
+
 ### 6.3 Manifest revision
 
 `EvidenceQueryManifest` 是不可变的。物化前先构建 canonical `timelineProjection`，再计算 `timelineHash`：
@@ -411,6 +420,8 @@ type EvidenceTimeline = {
 - 新 revision 只影响以后的 live report；旧 attempt 永远指向创建时的 `manifestId`。
 - Manual cleanup 后产生的 revision 只增加 cleanup 相关窗口，不会篡改前一个 revision 对未清理事实的描述。
 - 运行进入现有控制面 retention 前，Worker 在删除前调用同一 materializer 确保至少有最新 Manifest；该维护操作不查询外部观测后端。
+
+`getOrCreateManifestForRun`在一个事务中先锁terminal Fault Run、再锁Evidence snapshot，然后读取排序的Run Event和可用PREPARE dispatch facts；同一事务内用安全timeline projector和snapshot中的Evidence DSL/rendered plan/window limits生成Manifest draft。它拒绝active Run，不调用当前Catalog或renderer。legacy部署没有`fault_run_actions`表时只缺失prepare anchor，时间线保持null，不伪造PREPARE事实。
 
 `source_run_retained` 是可更新的来源存在性元数据，明确排除在 immutable Manifest core/hash 外；删除源行不能改写时间线、窗口、query plan 或旧 attempt。源运行尚存时，物化与 cleanup/retention 使用共同的数据库锁顺序，避免读取半新时间线。
 
@@ -527,7 +538,7 @@ CREATE TABLE evidence_query_attempts (
 CREATE TABLE evidence_query_attempt_items (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   attempt_id CHAR(36) NOT NULL,
-  recipe_id VARCHAR(96) NOT NULL,
+  recipe_id VARCHAR(128) NOT NULL,
   source VARCHAR(24) NOT NULL,
   window_name VARCHAR(24) NOT NULL,
   availability VARCHAR(32) NOT NULL,
@@ -581,6 +592,8 @@ CREATE TABLE evidence_operator_notes (
 3. 将该运行现有 Manifest 的 `source_run_retained` 更新为 `0`；
 4. 在同一事务中执行现有 event/run 删除；
 5. 当没有 snapshot 的 legacy run 时维持当前删除行为。
+
+Worker retention 不负责创建或迁移 Evidence 表。存在 eligible run 时，它只读检查 snapshot 与 Manifest 表：两者都不存在时按 legacy 路径继续原删除；仅安装其中一张时中止该事务，避免丢弃可能存在的冻结合同；两者存在时才在删除事务中调用 materializer。Schema 安装仍由既有 bootstrap/migration 门禁负责。
 
 源行被删除后，Manifest 仍可显示安全时间线和查询配方。Prometheus/Loki/Tempo recipe 仍可在各自 retention 覆盖时查询；首版 `CURRENT` Gateway read-check 不依赖 Fault Run context，因此仍可执行，但其输出必须保持为“报告当前时刻的恢复检查”，绝不回填为历史效果或清理事实。所有历史 window source 都不再可用时，live report 返回 `EVIDENCE_UNAVAILABLE` 而不是“无故障”。
 
@@ -686,14 +699,14 @@ reports history 只返回 attempt ID、Manifest revision/hash、请求/结束时
 
 notes 是 Operator 的辅助分析，不能替代任何控制、效果、恢复、清理或遥测事实。POST 的约束如下：
 
-- plain text，最大 2,048 UTF-8 characters；
-- 禁止 HTML、credential、token、cookie、Authorization、完整日志/trace 导出和业务 payload；
+- plain text，最大 2,048 UTF-8 bytes；
+- 确定性拒绝 HTML markup、明确的 credential/token/cookie/Authorization 模式，以及 JSON/NDJSON 结构化遥测、日志或业务数据导出；
 - 创建后 append-only；首版不支持编辑或删除，避免无法审计的改写；
 - note 正文只保存在 note 表中，审计记录只 hash request metadata，不存正文。
 
 Note body 必须提供选中 `manifestId`、`manifestHash` 和 plain-text `text`，header 提供 idempotency key。规范化只做换行统一，不静默删改正文。key 按 `(sourceFaultRunId, idempotencyKey)` 唯一，`requestHash` 对 ID/hash 与规范化正文计算哈希；同 key/same signature 回放 note metadata，同 key/different signature 返回 409。note、audit 和 idem record 同事务提交，网络重试不能生成重复正文或审计。
 
-敏感内容校验采用有界、确定性的结构/显式凭据模式拒绝，显示固定 reason code，不回显被拒内容；HTML 和遥测/业务 JSON 导出不能作为 note。此校验不保证识别所有自然语言 secret，UI 必须提示勿粘贴敏感内容，默认 HTML escape，不新增外部检测服务或依赖。
+敏感内容校验采用有界、确定性的结构/显式凭据模式拒绝，显示固定 reason code，不回显被拒内容；仅统一 CRLF/CR 为 LF，不删除或改写其他正文。未能识别为结构化导出的任意纯文本日志或所有自然语言 secret 不承诺被识别；UI 必须提示勿粘贴敏感内容，默认 HTML escape，不新增外部检测服务或依赖。notes POST 使用严格 JSON 白名单和有界请求体，GET 使用与 report history 相同的 limit/cursor 约束；两者均为 session 保护的 no-store API。
 
 ### 8.4 Audit 行为
 
@@ -732,11 +745,13 @@ Note body 必须提供选中 `manifestId`、`manifestHash` 和 plain-text `text`
 | 单报告内并行 recipe | 4 | 最大 4；每 source 最多 2 |
 | 单 Web 进程并行 report | 1 | 最大 2；满时 `429`，不排队 |
 | 单响应体 | 1 MiB | 超限丢弃并标记 `QUERY_RESULT_TOO_LARGE` |
-| Prometheus/Loki step | 最小 15 秒 | 结果点数每 series 最大 1,500 |
+| Prometheus/Loki step | 最小 15 秒 | 服务端按canonical范围计算step；每query最多64 series、每series最多1,500 points |
 | Tempo search result | 最大 100 条 | 仅内存聚合后立刻释放 |
 | 重试 | 最多 1 次 | 仅网络错误、timeout、429、502、503、504；保持在总 deadline 内 |
 
-不重试 `400`/`401`/`403`、静态 recipe 校验失败、retention 过期或 manifest mismatch。所有 `fetch` 必须设置 `AbortSignal`、`redirect: 'error'`、response byte cap 和严格 content-type/JSON shape 校验。
+不重试 `400`/`401`/`403`、静态 recipe 校验失败、retention 过期或 manifest mismatch。所有 `fetch` 必须设置 `AbortSignal`、`redirect: 'manual'`并在读取body前拒绝3xx、response byte cap和严格content-type/JSON shape校验。
+
+2026-10-09用户确认Prometheus/Loki每query最多64个series。固定adapter只接受当前冻结query与对应source/template，不暴露任意query参数；Prometheus/Loki矩阵解析在内存中立即投影为有限数值series，丢弃全部labels；Tempo在100条达到上限时标为truncated/incomplete，绝不继续分页并假称精确总体。三类adapter只返回当前请求内的bounded projection，不持久化或日志记录provider body。
 
 上述网络/资源限制同样适用于 Gateway CURRENT GET，不只适用于观测后端。扩展或抽取 `GatewayClient` 的 bounded read seam，保留已有调用默认行为；检查使用限定 GET、signal、byte cap、redirect 拒绝和严格 envelope guard。不能先 `res.json()` 无界读入再投影；超限/非法/业务 envelope 非成功分别输出安全 unavailable/check-failure，不保存或回显响应正文。
 
@@ -766,13 +781,17 @@ Provider 失败统一映射为安全 reason code：`SOURCE_UNCONFIGURED`、`SOUR
 
 range lookback：冻结计划记录每个 query 的输入依赖窗口，retention 要从 `canonicalStart-lookbackSec` 检查，而非只从输出 start 检查。返回样本的缺口、NaN/Inf、provider warning/partial metadata、缺 scrape 数据都降低 coverage 或导致 unavailable；不得按 HTTP 200 判定完整。记录 canonical/实际执行范围与安全 coverage reason，仅保存在 attempt 元数据/允许投影中。
 
+实现range裁定时保留canonical start/end；实际source范围为正长度的可用子区间，start不得早于`retentionStart + lookbackSec`，end不得晚于本次DB `CURRENT_TIMESTAMP(3)`。完全过期或裁定后无正长度输入范围不发请求。任何retention截断、future tail、采样gap、非有限sample、warning或result截断都至少为PARTIAL/INCONCLUSIVE，绝不补零。
+
+baseline比较仅在active与baseline均为FULL、同recipe/template/source/projection/unit及固定scope时计算NUMERIC同字段差值；COUNT窗口长度不同只并列显示count/range，不称为增长率。任一baseline字段为0时对应百分比省略，仍可保留绝对差值；coverage不完整或协议不兼容时baseline不可用。
+
 Tempo limit 达到 100、后端 search 未完成或无法证明结果完整时输出 `SEARCH_INCOMPLETE / PARTIAL`，不分页扩为无限查询、不计算精确总体计数、不做否定效果判断。仅完整 search 的匹配 trace 集合可以按去重 trace count 判断；不是 span count。空集合只有可确认完整搜索时才可解释为零，不能把未完成搜索当 NO_DATA。
 
 ### 9.4.1 单位、归约与 predicate
 
-冻结执行协议明确定义每个模板的 value unit 和 predicate interpretation。NUMERIC 模板使用 query 已有的固定聚合；仍返回多 series 时对每个合法 series/sample 判断，不额外把 ratio/p99 相加。active 的完整有效集合中任一采样满足 Catalog comparison 即 MET，全部不满足才 NOT_MET；recovery 则全部满足才 MET，存在不满足为 NOT_MET。baseline 仅计算 min/max/latest 对照，不产生效果 predicate。
+冻结执行协议明确定义每个模板的 value unit 和 predicate interpretation。NUMERIC 模板使用 query 已有的固定聚合；仍返回多 series 时对每个合法 series/sample 判断，不额外把 ratio/p99 相加。active 的完整有效集合中任一采样满足 Catalog comparison 即 MET，全部不满足才 NOT_MET；recovery 则全部满足才 MET，存在不满足为 NOT_MET。baseline 仅计算min/max/latest对照，不产生效果predicate。
 
-COUNT 模板比较匹配数量与同单位 count 阈值。Loki 滚动 `count_over_time` bucket 按时序 predicate 处理，不能累加重叠 bucket 冒充总日志条数。`SERVICE_SLOW_REQUESTS` 的 Catalog comparison value 单位为秒，冻结为 TraceQL duration filter；输出为匹配慢请求的 trace count，presence 判断是 count > 0，而不是“trace 数 > 秒数”。其他 Tempo count 模板（例如 storage 的 `SERVICE_ROUTE_REQUESTS`）按 Catalog 的 count comparison 判断。未知单位/解释组合 capture 时阻断，不临时更改 DSL 字段或阈值。
+COUNT 模板比较匹配数量与同单位count阈值。Loki滚动`count_over_time` bucket按时序predicate处理，不能累加重叠bucket冒充总日志条数；因Promtail只索引service/log_level，Loki是上下文信息且永不进入effectRule。`SERVICE_SLOW_REQUESTS`的Catalog comparison value单位为秒，冻结为TraceQL duration filter；输出为匹配慢请求的trace count，冻结的输出predicate为count > 0，而不是“trace数 > 秒数”。其他Tempo count模板（例如storage的`SERVICE_ROUTE_REQUESTS`）按Catalog的count comparison判断。未知单位/解释组合capture时阻断，不临时更改DSL字段或阈值。
 
 NONE predicate 始终 INCONCLUSIVE；CURRENT `CATALOG_PRODUCT_LIST`/`CATALOG_BROWSE_REPORT` 可显示受控 check PASS/FAIL，但不能将列表可达宣称为 run-scoped cache、资源清理或整条业务恢复已证实。
 
@@ -884,11 +903,12 @@ env配置变更需要应用新配置/进程重启后才对新请求生效，不�
 | 环境 | 当前事实 | 批次 4 启用要求 |
 | --- | --- | --- |
 | Compose | Prometheus、Loki、Tempo 均以 `168h` 为配置目标；Promtail 已为容器日志配置 service label | 首个 pilot 环境；确认实际 metric/label/TraceQL 语法后才开启 execution |
-| Kubernetes Prometheus/Tempo | 配置声明均以 `168h` 为目标，但当前使用 `emptyDir`；Pod 重启会提前丢失数据 | 可配置 endpoint，但 retention preflight 只能按声明解释；不承诺重启后的历史数据 |
-| Kubernetes Loki | 当前 Loki 使用默认 local config，未挂载 Compose 的 168h retention 配置 | 不开启 Loki recipe execution，直到补齐明确 retention、持久存储/风险说明和 log shipping |
-| Kubernetes log shipping | 当前 `kustomization.yaml` 未包含 Promtail 资源 | 在 Kubernetes pilot 前新增并验证受控 log shipping；否则 Loki source 必须显式 `SOURCE_UNCONFIGURED` |
+| Kubernetes Prometheus/Tempo | 配置声明均为 `168h` retention，但 TSDB/Tempo blocks 使用 `emptyDir`；Pod 重启会提前丢失数据 | 可配置 endpoint，但 retention preflight 只能按声明解释；不承诺重启后的历史数据 |
+| Kubernetes Loki | `k8s/infra/loki.yaml` 显式设置 `retention_enabled: true` 与 `retention_period: 168h`，数据仍用 `emptyDir` | 不因静态 retention 参数宣称 source parity；需说明重启丢失及实际配置/数据验证 |
+| Kubernetes log shipping | 当前 `k8s/kustomization.yaml` 未包含 Promtail/其他 log shipper 资源 | Loki query/execution 仍关闭，直到获批补齐采集并验证 labels/ingestion |
+| Kubernetes egress | `traffic-control-plane-egress` 只选择 Web/API Pod，保留 DNS、MySQL、Redis、Gateway、broker、Prometheus/Alertmanager、Loki、Tempo 固定端口；Worker 不受此策略限制 | 部署前核对 CNI 与 DNS resolver；NodeLocal DNS 需要按集群方案核验/调整 |
 
-部署配置变化必须同时覆盖 Compose、Web/API Deployment、Kubernetes ConfigMap/Secret、NetworkPolicy 和 README 的 Operator 指引。仅修改 Docker Compose 不能表示 Kubernetes 支持证据查询。
+2026-10-12用户确认：当前不扩展 K8s log shipper/PVC/认证设施，记录已知差异并保持三个 Evidence flags 全部为 `false`。这不是Kubernetes parity或执行许可。将来新增采集器、持久化策略或身份认证前需重新明确方案与批准。部署配置变化必须同时覆盖 Compose、Web/API Deployment、Kubernetes ConfigMap/Secret、NetworkPolicy 和 README 的 Operator 指引；仅修改 Docker Compose 不能表示 Kubernetes 支持证据查询。
 
 ### 11.3 Evidence 功能自身的诊断
 
@@ -902,7 +922,7 @@ castrel_evidence_source_duration_seconds{source}
 castrel_evidence_reports_in_flight
 ```
 
-不接受新增依赖时，首版以结构化 Pino 事件、Operator audit 和 metadata-only attempt history 为诊断面。无论采用哪种方式，都不能把 report 内容暴露到 Prometheus metric、日志或告警 annotation。
+当前不接受新增 metrics 依赖或端点，首版以固定 API 错误码、Operator audit 和 metadata-only attempt history 为诊断面；Evidence source/query/note 不写入 Pino。若后续需要增加 Pino 事件，仅允许 attempt/manifest ID、source enum、recipe ID、状态、时长和 reason code 等字段，禁止 query、响应、note、credential、endpoint 与 raw exception。操作步骤见[Evidence Query 诊断指引](./diagnostics.md)。无论采用哪种方式，都不能把 report 内容暴露到 Prometheus metric、日志或告警 annotation。
 
 ## 12. Operator UX 设计
 
@@ -911,12 +931,13 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 ### 12.1 交互
 
 1. 终态运行详情显示 **Evidence** 区块和 Manifest revision；活跃运行显示“运行尚未结束，无法固定查询窗口”。
-2. Operator 打开 Evidence 区块时只获取 Manifest、attempt metadata 和 notes，不自动执行查询。
-3. UI 显示 control action、effect assessment、business recovery、cleanup 与 evidence availability 五个独立字段。
-4. Operator 点击“刷新实时证据”后看到提示：此操作会读取受控观测后端和固定 Gateway read-check，不会停止、恢复、清理或写业务数据。
-5. 成功结果展示当前查询时刻、窗口、recipe、coverage、摘要、predicate outcome 和 limitation；`CURRENT` business check 单独显示 `checkedAt`，绝不显示为历史窗口证据；再次刷新生成新 idempotency key。
-6. Operator 可以复制 frozen PromQL/LogQL/TraceQL recipe，但复制内容不包含 endpoint、credential 或任何 source result。
-7. Operator 可以追加有界分析笔记；UI 显示其与遥测/生命周期事实的边界。
+2. Operator 打开 Fault Run 详情时，EvidencePanel 只用有界、no-store GET 获取 latest/列表 Manifest、report-attempt metadata 和 notes；每个响应最大 1 MiB，解析前先限制 body。打开、刷新 metadata、选择已加载 Manifest 均不 POST report、不查询 Prometheus/Loki/Tempo/Gateway。
+3. UI 将控制状态、历史遥测覆盖/状态、CURRENT business check、effect assessment 和 lifecycle/recovery facts 分开表达。只有当前 page memory 的 live summary 能提供最近显式报告的 effect assessment。
+4. Operator 点击“执行实时报告”并通过二次确认后，使用当前选定的 Manifest ID/hash 和新 idempotency key 发出 bounded report POST；请求只访问配置的数据源与固定 Gateway read-check，不会停止、恢复、清理或写业务数据。
+5. POST 成功响应在当前 HTTP 响应/React state 内显示有界 metric summary、baseline/active 差值、predicate/effect outcome、coverage、执行范围和 limitation。数值只在两侧都完整覆盖且合同兼容时用于 baseline 对照；COUNT 只并列，不算增长率。页面重载和 report history 不保留数值/effect summary。
+6. `CURRENT` business check 单独显示 `checkedAt`，绝不显示为历史窗口证据。网络重试保留原 Manifest ID/hash/body/key；主动新查使用新 key，不自动切换 latest；metadata replay 不伪装成 live summary。
+7. Operator 可以复制 frozen PromQL/LogQL/TraceQL recipe，但复制内容不包含 endpoint、credential 或任何 source result，也不写入 URL、localStorage 或 sessionStorage。
+8. Operator 可以追加有界分析笔记；UI 显示其与遥测/生命周期事实的边界。
 
 ### 12.2 UI 状态
 
@@ -930,6 +951,8 @@ Evidence UI 直接嵌入现有 Fault Run detail dialog，不新增面向消费�
 | `NOT_READY` | 缺少可靠生命周期 anchor | 使用现在时间补齐 |
 
 新增 `buildEvidenceView()` 必须采用与现有 `buildFaultRunView()` 相同的防御性 type guard 和 allowlist 模式。所有中英文文案在 `test:i18n` 中保持完整性和语义一致；`Unknown`、`Not observed`、`Unavailable`、`No data` 不能翻译成同一个成功或失败状态。
+
+当前 report history 只持久化状态和 item metadata，不包含历史数值摘要或 effectAssessment；因此 metadata-only panel 只显示其 telemetry status，不从控制状态或历史 outcome 推导效果。history report 必须与已验证的同源 Manifest ID/revision/hash 对应，item 必须属于该冻结 recipe/source/window；引用当前有界 Manifest 列表之外 revision 的 report/note 不渲染并明确计数。Baseline/active 仅当 recipe ID、source、unit、lookback、observation mode 一致且 baseline 非 required 时成对显示。前端将每个 API 响应限制为 1 MiB。
 
 ## 13. 实施拆分与文件职责
 

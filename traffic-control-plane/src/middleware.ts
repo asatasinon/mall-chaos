@@ -7,6 +7,8 @@ export async function middleware(request: NextRequest) {
   const isLoginRequest = pathname === '/login';
   const isSessionRequest = pathname === '/api/operator/session';
   const isAlertmanagerWebhook = pathname === '/internal/alertmanager/webhook';
+  const isEvidenceRequest = pathname.startsWith('/internal/fault-runs/')
+    && pathname.includes('/evidence');
 
   if (isLoginRequest || isSessionRequest || isAlertmanagerWebhook) {
     return NextResponse.next();
@@ -30,7 +32,16 @@ export async function middleware(request: NextRequest) {
 
     return NextResponse.json(
       { code: 401, message: 'Operator authentication required', data: null },
-      { status: 401 },
+      {
+        status: 401,
+        ...(isEvidenceRequest ? {
+          headers: {
+            'Cache-Control': 'no-store',
+            Pragma: 'no-cache',
+            'Referrer-Policy': 'no-referrer',
+          },
+        } : {}),
+      },
     );
   }
 

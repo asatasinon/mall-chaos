@@ -9,6 +9,7 @@ import {
 } from './evidence-contract-snapshot';
 import {
   canonicalizeEvidenceContractPlan,
+  isEvidenceContractPlan,
   getEvidenceContractHash,
   getScenarioContractRevision,
   resolveScenarioContract,
@@ -96,4 +97,53 @@ test('snapshot resolution reports unavailable instead of rebuilding from the Cat
     (error: unknown) => error instanceof EvidenceContractSnapshotError
       && error.code === 'CONTRACT_SNAPSHOT_UNAVAILABLE',
   );
+});
+
+test('capture snapshot deeply freezes nested Evidence contract data', () => {
+  const contract = resolveScenarioContract(listScenarioDefinitions()[0]!);
+  const snapshot = createEvidenceContractSnapshotRecord(
+    getScenarioContractRevision(contract),
+    contract.evidence,
+  );
+  assert.equal(Object.isFrozen(snapshot), true);
+  assert.equal(Object.isFrozen(snapshot.evidence), true);
+  assert.equal(Object.isFrozen(snapshot.evidence.recipes), true);
+  assert.equal(Object.isFrozen(snapshot.evidence.recipes[0]), true);
+  assert.equal(Object.isFrozen(snapshot.evidence.recipes[0]?.scope), true);
+});
+
+test('Phase 3 owns a strict runtime guard for persisted Evidence DSL', () => {
+  const evidence = resolveScenarioContract(listScenarioDefinitions()[0]!).evidence;
+  assert.equal(isEvidenceContractPlan(evidence), true);
+
+  const extraField = structuredClone(evidence) as unknown as Record<string, unknown>;
+  extraField.untrustedQuery = 'upstream';
+  assert.equal(isEvidenceContractPlan(extraField), false);
+
+  const invalidSource = structuredClone(evidence) as unknown as Record<string, unknown>;
+  const sourceRecipes = invalidSource.recipes as Record<string, unknown>[];
+  sourceRecipes[0] = { ...sourceRecipes[0], source: 'ARBITRARY_URL' };
+  assert.equal(isEvidenceContractPlan(invalidSource), false);
+
+  const invalidPredicate = structuredClone(evidence) as unknown as Record<string, unknown>;
+  const predicateRecipes = invalidPredicate.recipes as Record<string, unknown>[];
+  predicateRecipes[0] = {
+    ...predicateRecipes[0],
+    predicate: { kind: 'COMPARISON', operator: 'DROP_TABLE', value: 1 },
+  };
+  assert.equal(isEvidenceContractPlan(invalidPredicate), false);
+
+  const missingEffectRecipe = structuredClone(evidence) as unknown as Record<string, unknown>;
+  const effectRule = missingEffectRecipe.effectRule as Record<string, unknown>;
+  missingEffectRecipe.effectRule = { ...effectRule, recipeIds: ['unknown.recipe'] };
+  assert.equal(isEvidenceContractPlan(missingEffectRecipe), false);
+
+  const unsafeScope = structuredClone(evidence) as unknown as Record<string, unknown>;
+  const scopedRecipes = unsafeScope.recipes as Record<string, unknown>[];
+  const recipe = scopedRecipes[0]!;
+  scopedRecipes[0] = {
+    ...recipe,
+    scope: { ...(recipe.scope as Record<string, unknown>), service: 'bad service' },
+  };
+  assert.equal(isEvidenceContractPlan(unsafeScope), false);
 });

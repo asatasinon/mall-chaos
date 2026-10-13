@@ -18,11 +18,13 @@ import {
 } from './fault-run-operator-view';
 import { getOrCreateTraceId } from './trace';
 import { verifyFaultRunOwnershipSchema } from './fault-run-schema';
+import { readEvidenceCaptureEnabled } from './evidence-web-config';
 
 export interface FaultRunCreateRouteDependencies {
   safeRuntimeEnabled: () => boolean;
   reconciliationMode: () => FaultRunReconciliationMode;
   admissionConfig: () => ScenarioContractAdmissionConfig;
+  captureEvidenceEnabled: () => boolean;
   createRun: (command: CreateFaultRunCommand) => ReturnType<ReturnType<typeof getFaultRunCoordinator>['create']>;
   verifyOwnershipSchema: typeof verifyFaultRunOwnershipSchema;
   recordAudit: typeof recordOperatorAudit;
@@ -37,6 +39,7 @@ const defaultDependencies: FaultRunCreateRouteDependencies = {
   safeRuntimeEnabled: () => env.FAULT_RUN_SAFE_RUNTIME_ENABLED,
   reconciliationMode: () => env.FAULT_RUN_RECONCILIATION_MODE,
   admissionConfig: () => webAdmissionConfig,
+  captureEvidenceEnabled: readEvidenceCaptureEnabled,
   createRun: (command) => getFaultRunCoordinator().create(command),
   verifyOwnershipSchema: verifyFaultRunOwnershipSchema,
   recordAudit: recordOperatorAudit,
@@ -80,6 +83,7 @@ export function createFaultRunCreateRouteHandler(
         idempotencyKey,
         traceId,
         scenarioContractAdmission: dependencies.admissionConfig(),
+        captureEvidence: dependencies.captureEvidenceEnabled(),
         ...(reconciliationMode === 'OFF' ? {} : { executionMode: reconciliationMode }),
       });
       if (result.created) {

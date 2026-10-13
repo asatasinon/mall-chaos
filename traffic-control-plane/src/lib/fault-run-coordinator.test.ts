@@ -13,21 +13,30 @@ import {
   createInitialFaultRunRecoveryProjection,
   parseFaultRunRecoveryProjection,
 } from './fault-run-recovery';
-import { FaultRunCoordinator, type FaultRunStore, type FaultRunTargetAdapter } from './fault-run-coordinator';
+import {
+  FaultRunCoordinator,
+  GatewayFaultRunTargetAdapter,
+  type FaultRunStore,
+  type FaultRunTargetAdapter,
+} from './fault-run-coordinator';
+import { GatewayClient } from './gateway-client';
 import {
   admitScenarioContract,
   ScenarioContractAdmissionError,
 } from './scenario-contract-admission';
 import { LegacyFaultRunRecovery } from './legacy-fault-run-recovery';
 import type { FaultRunState } from './fault-run-catalog';
+import { getEvidenceRenderedPlanHash } from './evidence-types';
 
 const runId = '123e4567-e89b-12d3-a456-426614174000';
 
 class MemoryFaultRunStore implements FaultRunStore {
   run: FaultRunRecord | null = null;
   createCalls = 0;
+  createInputs: CreateFaultRunInput[] = [];
   events: string[] = [];
   eventPayloads: unknown[] = [];
+  failSnapshotCreate = false;
 
   async loadByIdempotencyKey(key: string) {
     return this.run?.idempotencyKey === key
@@ -37,6 +46,10 @@ class MemoryFaultRunStore implements FaultRunStore {
 
   async create(input: CreateFaultRunInput) {
     this.createCalls++;
+    this.createInputs.push(input);
+    if (this.failSnapshotCreate && input.evidenceCaptureSnapshot) {
+      throw new Error('EVIDENCE_SNAPSHOT_WRITE_FAILED');
+    }
     if (this.run) return { run: this.run, created: false };
     this.run = {
       faultRunId: runId,
@@ -155,6 +168,22 @@ class MemoryTargetAdapter implements FaultRunTargetAdapter {
   }
 }
 
+class RecordingGatewayClient extends GatewayClient {
+  readonly requests: Array<{ path: string; payload: Record<string, unknown> }> = [];
+
+  constructor() {
+    super('http://gateway.invalid');
+  }
+
+  override async postInternal<T = unknown>(
+    path: string,
+    body: unknown,
+  ): Promise<T> {
+    this.requests.push({ path, payload: body as Record<string, unknown> });
+    return { accepted: true } as T;
+  }
+}
+
 test('non-OFF create persists CREATING intent without preparing or compensating in Web/API', async () => {
   for (const scenario of ['BROWSE_REPORT_SQL', 'BROWSE_SURGE'] as const) {
     const store = new MemoryFaultRunStore();
@@ -175,6 +204,7 @@ test('non-OFF create persists CREATING intent without preparing or compensating 
     assert.equal(replay.run.faultRunId, result.run.faultRunId);
     assert.equal(target.starts, 0);
     assert.equal(target.compensations, 0);
+    assert.equal(store.createInputs[0]?.evidenceCaptureSnapshot, undefined);
     assert.deepEqual(store.events, ['CREATED']);
     const createdPayload = store.eventPayloads[0] as {
       contractRevision: string;
@@ -183,6 +213,127 @@ test('non-OFF create persists CREATING intent without preparing or compensating 
     assert.equal(result.run.contractRevision, createdPayload.contractRevision);
     assert.match(createdPayload.catalogRevision, /^[a-f0-9]{64}$/);
   }
+});
+
+test('enabled capture freezes the complete plan before persistence and is not regenerated on replay', async () => {
+  const store = new MemoryFaultRunStore();
+  const target = new MemoryTargetAdapter();
+  const coordinator = new FaultRunCoordinator(target, store);
+  const command = {
+    scenario: 'BROWSE_REPORT_SQL',
+    parameters: { durationSec: 30 },
+    idempotencyKey: 'capture-plan-create-001',
+    traceId: 'trace-capture-plan',
+    captureEvidence: true,
+  };
+
+  const created = await coordinator.create(command);
+  const capture = store.createInputs[0]?.evidenceCaptureSnapshot;
+  assert.ok(capture);
+  assert.equal(capture.contractRevision, created.run.contractRevision);
+  assert.equal(capture.renderedPlanHash, getEvidenceRenderedPlanHash(capture.renderedPlan));
+  assert.equal(capture.renderedPlan.rendererRevision, 'evidence-renderer.v2');
+  assert.equal(capture.renderedPlan.evaluationRevision, 'evidence-evaluation.v2');
+  assert.deepEqual(capture.renderedPlan.windowLimits, {
+    baseline: 900,
+    active: 3660,
+    recovery: 2100,
+    cleanup: 600,
+  });
+  assert.ok(capture.renderedPlan.recipes.some((recipe) => recipe.source === 'LOKI'));
+  assert.ok(capture.renderedPlan.recipes.some((recipe) => recipe.source === 'TEMPO'));
+  assert.equal(target.starts, 1);
+
+  const replay = await coordinator.create({ ...command, captureEvidence: false });
+  assert.equal(replay.created, false);
+  assert.equal(store.createInputs.length, 1);
+  assert.strictEqual(store.createInputs[0]?.evidenceCaptureSnapshot, capture);
+});
+
+test('capture-disabled Runs stay snapshot-free when a same-key replay enables capture', async () => {
+  const store = new MemoryFaultRunStore();
+  const target = new MemoryTargetAdapter();
+  const coordinator = new FaultRunCoordinator(target, store);
+  const command = {
+    scenario: 'BROWSE_REPORT_SQL',
+    parameters: { durationSec: 30 },
+    idempotencyKey: 'capture-disabled-replay-001',
+    traceId: 'trace-capture-disabled-replay',
+    captureEvidence: false,
+  };
+  const created = await coordinator.create(command);
+  assert.equal(store.createInputs[0]?.evidenceCaptureSnapshot, undefined);
+
+  const replay = await coordinator.create({ ...command, captureEvidence: true });
+  assert.equal(created.created, true);
+  assert.equal(replay.created, false);
+  assert.equal(store.createInputs.length, 1);
+  assert.equal(store.createInputs[0]?.evidenceCaptureSnapshot, undefined);
+  assert.equal(target.starts, 1);
+});
+
+test('capture rendering failure occurs before Run persistence and target prepare', async () => {
+  const store = new MemoryFaultRunStore();
+  const target = new MemoryTargetAdapter();
+  const coordinator = new FaultRunCoordinator(target, store, {
+    renderEvidencePlan: () => {
+      throw new Error('FIXED_RENDER_PLAN_FAILED');
+    },
+  });
+
+  await assert.rejects(coordinator.create({
+    scenario: 'BROWSE_REPORT_SQL',
+    parameters: { durationSec: 30 },
+    idempotencyKey: 'capture-render-fail-001',
+    traceId: 'trace-capture-render-fail',
+    captureEvidence: true,
+  }), /FIXED_RENDER_PLAN_FAILED/u);
+  assert.equal(store.createCalls, 0);
+  assert.deepEqual(store.events, []);
+  assert.equal(target.starts, 0);
+});
+
+test('snapshot persistence failure prevents target prepare and returns no created Run', async () => {
+  const store = new MemoryFaultRunStore();
+  store.failSnapshotCreate = true;
+  const target = new MemoryTargetAdapter();
+  const coordinator = new FaultRunCoordinator(target, store);
+
+  await assert.rejects(coordinator.create({
+    scenario: 'BROWSE_REPORT_SQL',
+    parameters: { durationSec: 30 },
+    idempotencyKey: 'capture-persist-fail-001',
+    traceId: 'trace-capture-persist-fail',
+    captureEvidence: true,
+  }), /EVIDENCE_SNAPSHOT_WRITE_FAILED/u);
+  assert.equal(store.createInputs.length, 1);
+  assert.ok(store.createInputs[0]?.evidenceCaptureSnapshot);
+  assert.deepEqual(store.events, []);
+  assert.equal(target.starts, 0);
+});
+
+test('Gateway prepare does not receive Evidence plan or contract revision', async () => {
+  const store = new MemoryFaultRunStore();
+  const gateway = new RecordingGatewayClient();
+  const target = new GatewayFaultRunTargetAdapter(gateway);
+  const coordinator = new FaultRunCoordinator(target, store);
+  const created = await coordinator.create({
+    scenario: 'BROWSE_REPORT_SQL',
+    parameters: { durationSec: 30 },
+    idempotencyKey: 'capture-gateway-boundary-001',
+    traceId: 'trace-capture-gateway-boundary',
+    captureEvidence: true,
+  });
+
+  const request = gateway.requests[0];
+  assert.ok(request);
+  assert.equal(request.path, '/internal/gateway/operations/prepare');
+  assert.ok(store.createInputs[0]?.evidenceCaptureSnapshot);
+  assert.equal('contractRevision' in request.payload, false);
+  assert.equal('evidence' in request.payload, false);
+  assert.equal('evidenceCaptureSnapshot' in request.payload, false);
+  assert.equal('captureEvidence' in request.payload, false);
+  assert.equal(created.run.contractRevision.length > 0, true);
 });
 
 test('exact replay returns the stored revision before admission and scope checks', async () => {

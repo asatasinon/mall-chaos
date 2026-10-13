@@ -7,6 +7,7 @@ import { register } from '../instrumentation';
 import {
   EvidenceWebConfigError,
   parseEvidenceWebConfig,
+  readEvidenceCaptureEnabled,
   readEvidenceWebConfig,
 } from './evidence-web-config';
 
@@ -227,11 +228,14 @@ test('explicit read honors kill switches without caching previous flags', () => 
     EVIDENCE_QUERY_EXECUTION_ENABLED: 'true',
   };
   assert.equal(readEvidenceWebConfig(environment).executionEnabled, true);
+  assert.equal(readEvidenceCaptureEnabled(environment), true);
   environment.EVIDENCE_QUERY_EXECUTION_ENABLED = 'false';
+  environment.EVIDENCE_MANIFEST_CAPTURE_ENABLED = 'false';
   const disabled = readEvidenceWebConfig(environment);
   assert.equal(disabled.executionEnabled, false);
   assert.equal(disabled.queryEnabled, true);
-  assert.equal(disabled.captureEnabled, true);
+  assert.equal(disabled.captureEnabled, false);
+  assert.equal(readEvidenceCaptureEnabled(environment), false);
 });
 
 test('Web instrumentation validates Evidence config while Edge registration skips server config', async () => {

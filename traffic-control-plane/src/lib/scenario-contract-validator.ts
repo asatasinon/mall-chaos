@@ -29,7 +29,7 @@ import type {
   ParameterConsumer,
   ResolvedScenarioContract,
 } from './scenario-contract';
-import { ALERT_RECEIPT_POLICY_ID } from './scenario-contract';
+import { ALERT_RECEIPT_POLICY_ID, EVIDENCE_SOURCE_VALUES } from './scenario-contract';
 
 export const SCENARIO_CONTRACT_REPORT_SCHEMA_VERSION = 'scenario-contract-report.v1' as const;
 
@@ -292,14 +292,7 @@ export const SCENARIO_CONTRACT_REQUIRED_RUNBOOK_HEADINGS: readonly ScenarioRunbo
 
 const LOCALES: readonly ScenarioContractLocale[] = ['en', 'zh-CN'];
 const SAFE_RECOVERY_EVENT_TYPES = new Set<string>(SAFE_RUNTIME_RECOVERY_EVENT_TYPES);
-const EVIDENCE_SOURCES = new Set<EvidenceSource>([
-  'RUN_EVENT',
-  'PROMETHEUS',
-  'LOKI',
-  'TEMPO',
-  'BUSINESS_CHECK',
-  'RESOURCE_CHECK',
-]);
+const EVIDENCE_SOURCES = new Set<EvidenceSource>(EVIDENCE_SOURCE_VALUES);
 const PARAMETER_CONSUMERS = new Set<ParameterConsumer>([
   'ADMISSION',
   'TARGET_PREPARE',
